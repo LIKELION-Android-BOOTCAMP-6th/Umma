@@ -89,6 +89,10 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
+    // Firebase & AI
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.ai)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
