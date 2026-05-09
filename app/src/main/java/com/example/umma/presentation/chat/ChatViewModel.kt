@@ -1,4 +1,4 @@
-package com.example.umma.presentation.live_chat
+package com.example.umma.presentation.chat
 
 import android.annotation.SuppressLint
 import androidx.lifecycle.ViewModel
@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class LiveChatViewModel @Inject constructor(
+class ChatViewModel @Inject constructor(
     private val startSessionUseCase: StartSessionUseCase,
     private val observeAIEventUseCase: ObserveAIEventUseCase,
     private val sendAudioDataUseCase: SendAudioDataUseCase,
@@ -29,7 +29,7 @@ class LiveChatViewModel @Inject constructor(
     private val audioPlayer: AudioPlayer
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(LiveChatUiState())
+    private val _uiState = MutableStateFlow(ChatUiState())
 
     val uiState = _uiState.asStateFlow()
 
