@@ -2,38 +2,30 @@ package com.example.umma.data.repository
 
 import com.example.umma.domain.model.AIEvent
 import com.example.umma.domain.model.AIState
-import com.example.umma.domain.repository.LiveChatRepository
+import com.example.umma.domain.repository.ChatRepository
 import com.google.firebase.ai.LiveGenerativeModel
-import com.google.firebase.ai.java.LiveModelFutures
-import com.google.firebase.ai.type.AudioTranscriptionConfig
-import com.google.firebase.ai.type.GenerateContentResponse
 import com.google.firebase.ai.type.InlineData
 import com.google.firebase.ai.type.InlineDataPart
 import com.google.firebase.ai.type.LiveServerContent
 import com.google.firebase.ai.type.LiveServerGoAway
-import com.google.firebase.ai.type.LiveServerMessage
 import com.google.firebase.ai.type.LiveServerSetupComplete
 import com.google.firebase.ai.type.LiveSession
-import com.google.firebase.ai.type.Part
 import com.google.firebase.ai.type.PublicPreviewAPI
 import com.google.firebase.ai.type.TextPart
-import com.google.firebase.ai.type.Transcription
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-class LiveChatRepositoryImpl @OptIn(PublicPreviewAPI::class)
+class ChatRepositoryImpl @OptIn(PublicPreviewAPI::class)
 @Inject constructor(
     private val liveModel: LiveGenerativeModel
-) : LiveChatRepository {
+) : ChatRepository {
 
     // 대화 세션
     @OptIn(PublicPreviewAPI::class)
