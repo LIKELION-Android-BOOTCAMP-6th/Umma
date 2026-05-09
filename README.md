@@ -48,7 +48,7 @@ Backend: Firebase Cloud Functions (Python)
 
 📂 Project Structure (Interface-Driven)
 Plaintext
-app/src/main/java/com/project/tasty
+app/src/main/java/com/example/umma
 ├── di/                     # Dependency Injection Modules
 ├── domain/                 # Pure Kotlin Business Logic
 │   ├── model/              # Domain Entities
