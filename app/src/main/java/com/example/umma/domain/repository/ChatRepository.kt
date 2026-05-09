@@ -3,7 +3,7 @@ package com.example.umma.domain.repository
 import com.example.umma.domain.model.AIEvent
 import kotlinx.coroutines.flow.Flow
 
-interface LiveChatRepository {
+interface ChatRepository {
     suspend fun startSession(): Result<Unit>
 
     suspend fun sendAudioData(audio: ByteArray)
