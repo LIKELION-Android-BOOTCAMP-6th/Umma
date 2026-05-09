@@ -27,7 +27,6 @@ interface Route {
     // 8. 교정 상세
     @Serializable data object FeedbackDetail: Route
 
-
     // 9. 학습
     @Serializable data object StudyList: Route
 
