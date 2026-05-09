@@ -1,10 +1,10 @@
 package com.example.umma.domain.usecase
 
-import com.example.umma.domain.repository.LiveChatRepository
+import com.example.umma.domain.repository.ChatRepository
 import javax.inject.Inject
 
 class SendAudioDataUseCase @Inject constructor(
-    private val repository: LiveChatRepository
+    private val repository: ChatRepository
 ) {
     suspend operator fun invoke(audio: ByteArray) = repository.sendAudioData(audio)
 }
