@@ -158,7 +158,7 @@ UI (Composable) → ViewModel → UseCase → Repository(interface)
                                             ↓
                             ┌───────────────┼─────────────────┐
                        Gemini Live      Firebase            Room
-                     (WebSocket)    (Firestore/Storage)   (Local DB)
+                     (Firebase AI Logic)    (Firestore/Storage)   (Local DB)
 ```
 
 ### 🎙️ 실시간 음성 스트리밍 구조
