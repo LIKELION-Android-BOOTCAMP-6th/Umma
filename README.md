@@ -134,11 +134,9 @@ Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** �
 | Async | Coroutines & Flow | 비동기 처리 및 반응형 데이터 스트림 |
 | Architecture | MVVM + Clean Architecture | 책임 분리 및 테스트 가능한 구조 |
 | DI | Hilt | 의존성 주입 |
-| Network (Streaming) | OkHttp | Gemini Live WebSocket 통신 및 바이너리 데이터 전송 |
-| Network (REST) | Retrofit2 | Cloud Functions 등 일반 RESTful API 호출 |
 | Local DB | Room | SRS 플래시카드 및 오프라인 대화 로그 저장 |
 | Audio Engine | AudioRecord / AudioTrack (또는 Media3 ExoPlayer) | 음성 입출력 처리 |
-| AI | Google Gemini (`gemini-3.1-flash-live`) | 실시간 음성 대화 모델 |
+| AI | Google Gemini with Firebase AI Logic (`gemini-2.5 flash- native audio`) | 실시간 음성 대화 모델 |
 | Backend | Firebase / Supabase | Cloud Functions(Python), Firestore, Storage, Auth |
 
 ---
@@ -165,13 +163,11 @@ UI (Composable) → ViewModel → UseCase → Repository(interface)
 
 ### 🎙️ 실시간 음성 스트리밍 구조
 
-Gemini Live와의 실시간 음성 대화를 위해 다음과 같은 스트리밍 파이프라인을 구성합니다.
+Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화를 위해 다음과 같은 스트리밍 파이프라인을 구성합니다.
 
-- **WebSocket Handler (OkHttp)**: 양방향 통신 전담. **Setup Frame**(초기 컨텍스트, 사용자 정보 등)과 **Media Chunks**(음성 데이터)를 구분하여 전송합니다.
 - **Audio Input**: `AudioRecord`로 사용자 음성을 캡처하여 청크 단위로 서버에 전송합니다.
-- **Audio Output**: `AudioTrack` 또는 `Media3 ExoPlayer`로 AI 응답 음성을 재생합니다.
-  - `AudioTrack`: 저레벨 API로 latency가 적지만, 버퍼·포맷을 수동 관리해야 함 (커스텀 자유도 ↑)
-  - `Media3 ExoPlayer`: 고레벨 API로 안정적이지만 latency가 상대적으로 큼
+- **Audio Output**: `AudioTrack`으로 AI 응답 음성을 재생합니다.
+- `AudioTrack`: 저레벨 API로 latency가 적지만, 버퍼·포맷을 수동 관리해야 함 (커스텀 자유도 ↑)
 - **대화 주도권 전환**: MVP 단계에서는 **버튼 방식**으로 발화 시점을 명시적으로 제어하고, 추가 개발 기간에 **자동 감지(Barge-in) 방식**으로 전환할 예정입니다.
 
 ---
@@ -213,7 +209,7 @@ Gemini Live와의 실시간 음성 대화를 위해 다음과 같은 스트리�
 - **파일 네이밍**: PascalCase 사용 (예: `SignInViewModel`)
 - **패키지 구조**: feature 기반 구조
 - **아키텍처**: Clean Architecture + MVVM
-- **상태 관리**: State & Event 분리 또는 State 기반
+- **상태 관리**: State 기반
 - **공통 UI**: `colorScheme` 사용
 - **가독성**: 혼자만 알아볼 수 있는 코드 작성 금지, 필요 시 주석으로 설명
 
