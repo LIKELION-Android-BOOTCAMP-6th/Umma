@@ -1,7 +1,7 @@
 package com.example.umma.di
 
-import com.example.umma.data.repository.LiveChatRepositoryImpl
-import com.example.umma.domain.repository.LiveChatRepository
+import com.example.umma.data.repository.ChatRepositoryImpl
+import com.example.umma.domain.repository.ChatRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -15,6 +15,6 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindLiveChatRepository(
-        liveChatRepositoryImpl: LiveChatRepositoryImpl
-    ): LiveChatRepository
+        chatRepositoryImpl: ChatRepositoryImpl
+    ): ChatRepository
 }
