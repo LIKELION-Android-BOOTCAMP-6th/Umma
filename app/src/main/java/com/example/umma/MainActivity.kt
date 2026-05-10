@@ -4,16 +4,25 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.umma.core.navigation.Route
-import com.example.umma.presentation.chat.ChatScreen
+import com.example.umma.core.navigation.UmmaBottomAppBar
+import com.example.umma.core.navigation.UmmaNavHost
 import com.example.umma.core.theme.UmmaTheme
-import com.example.umma.presentation.HomeScreen
-import com.example.umma.presentation.OnBoardingScreen
-import com.example.umma.presentation.auth.SignInScreen
+import com.example.umma.presentation.analytics.AnalyticsScreen
+import com.example.umma.presentation.chat.ChatScreen
+import com.example.umma.presentation.feed_back.FeedbackListScreen
+import com.example.umma.presentation.study.StudyListScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -23,50 +32,36 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             UmmaTheme {
-                ChatScreen()
+                UmmaApp()
             }
         }
     }
 }
 
+
+// Root Scaffold
 @Composable
-fun UmmaNavGraph() {
-    val rootNavController = rememberNavController()
+fun UmmaApp() {
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val showBottomBar = navBackStackEntry?.destination?.hierarchy?.any {
+        it.hasRoute<Route.Analytics>()
+                || it.hasRoute<Route.Chat>()
+                || it.hasRoute<Route.FeedbackList>()
+                || it.hasRoute<Route.StudyList>()
+        //      || it.hasRoute<Route.FeedbackDetail>()
+        //      || it.hasRoute<Route.StudyDetail>()
+    } == true
 
-    NavHost(
-        navController = rootNavController,
-        startDestination = Route.OnBoarding
-    ) {
-
-        // 1. 온보딩
-        composable<Route.OnBoarding> {
-            OnBoardingScreen(
-                onNavigateToSignIn = { rootNavController.navigate(Route.SignIn) }
-            )
+    Scaffold(
+        bottomBar = {
+            if (showBottomBar) UmmaBottomAppBar(navController = navController)
         }
-
-        // 2. 로그인
-        composable<Route.SignIn> {
-            SignInScreen(
-                onNavigateToHome = { rootNavController.navigate(Route.Home) }
-            )
-        }
-
-        // 3. 대시보드
-        composable<Route.Home> {
-            HomeScreen(
-                onNavigateTo = { route ->
-                    rootNavController.navigate(route)
-                }
-            )
-        }
-
+    ) { innerPadding ->
+        UmmaNavHost(
+            navController = navController,
+            modifier = Modifier
+                .padding(innerPadding)
+        )
     }
-}
-
-@Composable
-fun UmmaSubGraph() {
-    val childNavController = rememberNavController()
-    val navBackStackEntry = childNavController.currentBackStackEntry
-    val currentDestination = navBackStackEntry?.destination
 }

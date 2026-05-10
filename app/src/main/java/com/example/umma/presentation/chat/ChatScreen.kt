@@ -28,16 +28,9 @@ import com.example.umma.domain.model.AIState
 fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel()
 ) {
-    Scaffold { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            Text(
-                text = "대화 플레이스 홀더",
-                textAlign = TextAlign.Center
-            )
-        }
+    Column {
+        Text(
+            text = "대화 플레이스 홀더", textAlign = TextAlign.Center
+        )
     }
 }

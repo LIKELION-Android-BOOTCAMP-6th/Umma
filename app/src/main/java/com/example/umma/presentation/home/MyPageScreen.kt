@@ -1,15 +1,16 @@
-package com.example.umma.presentation.study
+package com.example.umma.presentation.home
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.style.TextAlign
 
+
 @Composable
-fun StudyDetailScreen() {
+fun MyPageScreen() {
     Column {
         Text(
-            text = "학습 상세 플레이스 홀더", textAlign = TextAlign.Center
+            text = "마이페이지 플레이스 홀더", textAlign = TextAlign.Center
         )
     }
 }

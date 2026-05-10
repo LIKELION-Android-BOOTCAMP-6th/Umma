@@ -12,16 +12,9 @@ import androidx.compose.ui.text.style.TextAlign
 
 @Composable
 fun AnalyticsScreen() {
-    Scaffold { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            Text(
-                text = "통계 플레이스 홀더",
-                textAlign = TextAlign.Center
-            )
-        }
+    Column {
+        Text(
+            text = "통계 플레이스 홀더", textAlign = TextAlign.Center
+        )
     }
 }

@@ -57,12 +57,15 @@ class ChatViewModel @Inject constructor(
                         is AIEvent.AudioResponse -> {
                             audioPlayer.playAudioChunk(event.audio)
                         }
+
                         is AIEvent.TextResponse -> {
                             _uiState.update { it.copy(lastTranscription = event.text) }
                         }
+
                         is AIEvent.StateChanged -> {
                             _uiState.update { it.copy(aiState = event.state) }
                         }
+
                         is AIEvent.Error -> {
                             _uiState.update { it.copy(errorMessage = event.message) }
                         }
@@ -71,7 +74,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
-            launch  {
+            launch {
                 audioRecorder.startRecording().collect { audioChunk ->
                     sendAudioDataUseCase(audioChunk)
                 }
