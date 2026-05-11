@@ -50,9 +50,25 @@ Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** �
 
 ### 4. 성장 추적 📈
 
-- **언어 데이터 분석**: 사용자의 어휘, 문장 구조, 대화 주제 다양성 등을 통계 수치로 분석합니다.
-- **성장 시각화**: 문법·어휘·회화 능력의 변화 추이를 시각적으로 확인합니다.
-- **약점 기반 추천**: AI가 사용자의 약점과 성장 영역을 기반으로 다음 대화를 조절합니다.
+📂 Project Structure (Interface-Driven)
+Plaintext
+app/src/main/java/com/example/umma
+├── di/                     # Dependency Injection Modules
+├── domain/                 # Pure Kotlin Business Logic
+│   ├── model/              # Domain Entities
+│   ├── repository/         # Data Access Interfaces
+│   └── usecase/            # Single Responsibility Logic
+├── data/                   # Data Implementations
+│   ├── repository/         # Repository Implementations
+│   ├── source/             # Remote(Socket/API) & Local(Room) Sources
+│   └── mapper/             # Data Mapping (DTO ↔ Entity)
+└── presentation/           # UI & State Management
+├── feature_chat/       # Voice Chat UI & ViewModel
+├── feature_srs/        # Review System
+└── component/          # Common Compose Components
+🛠️ Getting Started
+Prerequisites
+Android Studio Ladybug 이상
 
 ---
 
