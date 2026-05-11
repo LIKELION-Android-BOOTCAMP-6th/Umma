@@ -16,6 +16,8 @@
 
 에서 공통으로 사용된다.
 
+이 구조를 처음 이해할 때는 `SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md`부터 보면 흐름이 가장 잘 잡힌다.
+
 ---
 
 # 핵심 개념 설명
