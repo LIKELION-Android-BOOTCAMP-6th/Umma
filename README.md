@@ -34,41 +34,65 @@ Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** �
 
 - **관심사 기반 주제 추천**: 사용자의 관심사를 반영하여 AI가 먼저 대화를 리드합니다.
 - **수준 맞춤 대화**: 사용자의 현재 언어 수준보다 약간 높은(i+1) 난이도로 자연스럽게 대화를 이어갑니다.
-- **실시간 음성 대화**: Gemini Live와 WebSocket 기반의 양방향 음성 스트리밍으로 끊김 없는 회화를 경험합니다.
+- **실시간 음성 대화**: Firebase AI Logic 기반 Gemini Live로 양방향 음성 대화를 제공합니다.
+- **음성 중심 UX**: MVP에서는 Push-to-Talk 방식으로 발화 시점을 명확히 제어합니다.
 
 ### 2. 문장 교정 ✏️
 
-- **핵심 문장 추출**: 대화 종료 시 AI가 사용자의 핵심 문장과 자주 틀리는 표현을 추출합니다.
-- **즉시 교정**: 5~10개의 교정 문장을 카드 형태로 제공하여 자신의 발화를 한눈에 확인할 수 있습니다.
+- **대화 후 교정**: 대화 도중 흐름을 끊지 않고, 대화 종료 후 교정 화면에서 분석합니다.
+- **핵심 문장 추출**: Session Memory의 `recentFullContext`에서 사용자 발화 중심으로 교정 후보를 추출합니다.
 - **선택적 저장**: 기억하고 싶은 문장만 골라 플래시카드로 저장합니다.
 
-### 3. SRS 기반 반복학습 🃏
+### 3. Dashboard 📊
 
-- **망각곡선 기반 복습**: 에빙하우스 망각곡선을 역이용한 SRS(Spaced Repetition System)로 잊히기 직전 최적의 타이밍에 노출합니다.
-- **푸시 알림**: FCM을 통해 복습 시점에 자동으로 알림을 보내 학습 흐름이 끊기지 않도록 합니다.
+- **현재 학습 상태 요약**: 현재 선택 언어의 최근 대화, 교정 대기, 복습 카드, 성장 지표를 한 화면에서 확인합니다.
+- **언어별 학습 컨텍스트**: `selectedLearningLanguage` 기준으로 Dashboard, AI Chat, 교정, Flashcard, Statistics가 같은 언어 컨텍스트를 공유합니다.
+- **빠른 렌더링**: Dashboard는 원본 transcript를 직접 계산하지 않고 `DashboardSummary` 기반으로 렌더링합니다.
+
+### 4. SRS 기반 반복학습 🃏
+
+- **5단계 자기 평가**: MVP에서는 사용자가 직접 회상 후 5단계 버튼으로 기억 정도를 평가합니다.
+- **복습 간격 조정**: 평가 결과에 따라 `interval`, `ease_factor`, `next_review_at`을 갱신합니다.
 - **액티브 리콜**: 단순 재노출이 아닌 능동적 인출 연습으로 장기 기억화를 돕습니다.
 
-### 4. 성장 추적 📈
+### 5. 성장 추적 📈
 
-📂 Project Structure (Interface-Driven)
-Plaintext
+Language State는 내부 분석용 지표와 사용자 통계 표시용 지표를 분리합니다.
+
+- **Internal Metrics**: AI 대화 적응과 교정 분석에 사용하는 세부 지표
+- **External Metrics**: Vocabulary Level, Grammar Accuracy, Expression Range, Fluency Score, Naturalness처럼 사용자가 직관적으로 볼 수 있는 성장 지표
+- **비용 최적화**: 코드 계산/규칙 기반/AI 분석 지표를 분리하여 필요한 경우에만 AI 분석을 수행합니다.
+
+---
+
+## 📂 Project Structure
+
+```text
 app/src/main/java/com/example/umma
+├── core/                   # App-wide common modules
+│   ├── navigation/          # Route, NavHost, BottomBar
+│   ├── theme/               # Color, Type, Theme
+│   └── ui/                  # Common UI, LCE, UiText
 ├── di/                     # Dependency Injection Modules
 ├── domain/                 # Pure Kotlin Business Logic
-│   ├── model/              # Domain Entities
-│   ├── repository/         # Data Access Interfaces
-│   └── usecase/            # Single Responsibility Logic
+│   ├── model/               # VO / Domain Entities
+│   ├── repository/          # Repository Interfaces
+│   └── usecase/             # UseCases
 ├── data/                   # Data Implementations
-│   ├── repository/         # Repository Implementations
-│   ├── source/             # Remote(Socket/API) & Local(Room) Sources
-│   └── mapper/             # Data Mapping (DTO ↔ Entity)
+│   ├── repository/          # Repository Implementations
+│   ├── source/
+│   │   ├── local/           # DataStore, Room, device sources
+│   │   └── remote/          # Firebase, Google Auth, Firebase AI
+│   └── mapper/              # DTO <-> Domain mapping
 └── presentation/           # UI & State Management
-├── feature_chat/       # Voice Chat UI & ViewModel
-├── feature_srs/        # Review System
-└── component/          # Common Compose Components
-🛠️ Getting Started
-Prerequisites
-Android Studio Ladybug 이상
+    ├── auth/                # SignIn, AppEntry
+    ├── onboarding/          # Initial Setup
+    ├── dashboard/           # Dashboard screen and cards
+    ├── chat/                # Voice Chat UI & ViewModel
+    ├── feed_back/           # Correction / feedback screens
+    ├── study/               # Flashcard / SRS screens
+    └── analytics/           # Statistics screens
+```
 
 ---
 
@@ -108,9 +132,9 @@ Android Studio Ladybug 이상
 |------|------|-----------|
 | F1 | 인증·세션 | 소셜 로그인, 자동 로그인, 로그아웃, 회원 탈퇴 |
 | F2 | 앱 골격·네비·디자인 시스템 | 패키지 구조, Navigation Graph, 공통 테마/컴포넌트 |
-| F3 | AI 회화 | Gemini Live 연동, WebSocket 통신, 실시간 음성 입출력 |
+| F3 | AI 회화 | Firebase AI Logic / Gemini Live 연동, 실시간 음성 입출력 |
 | F4 | 문장 교정 | 대화 종료 후 문장 추출 및 교정 카드 UI |
-| F5 | 플래시카드 & SRS | 카드 저장(Room), 망각곡선 기반 복습 스케줄링, FCM 알림 |
+| F5 | 플래시카드 & SRS | 카드 저장(Room), 5단계 자기 평가 기반 복습 스케줄링 |
 | F6 | 성장 통계 & 마이페이지 | 언어 데이터 분석 시각화, 프로필·설정 |
 
 | 이름 | 담당 |
@@ -139,7 +163,7 @@ Android Studio Ladybug 이상
 
 ### ⚙️ Architecture
 
-<img src="https://img.shields.io/badge/Clean%20Architecture-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/MVVM-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Feature--based-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Hilt%20(DI)-3DDC84?style=flat-square&logo=Android&logoColor=white">
+<img src="https://img.shields.io/badge/Clean%20Architecture-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/MVVM-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Layered%20Package-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Hilt%20(DI)-3DDC84?style=flat-square&logo=Android&logoColor=white">
 
 ### 🔧 상세 구성
 
@@ -152,8 +176,8 @@ Android Studio Ladybug 이상
 | DI | Hilt | 의존성 주입 |
 | Local DB | Room | SRS 플래시카드 및 오프라인 대화 로그 저장 |
 | Audio Engine | AudioRecord / AudioTrack (또는 Media3 ExoPlayer) | 음성 입출력 처리 |
-| AI | Google Gemini with Firebase AI Logic (`gemini-2.5 flash- native audio`) | 실시간 음성 대화 모델 |
-| Backend | Firebase / Supabase | Cloud Functions(Python), Firestore, Storage, Auth |
+| AI | Google Gemini with Firebase AI Logic | 실시간 음성 대화 모델 |
+| Backend | Firebase | Auth, Firestore, Storage, Cloud Functions, FCM |
 
 ---
 
@@ -186,6 +210,24 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 - `AudioTrack`: 저레벨 API로 latency가 적지만, 버퍼·포맷을 수동 관리해야 함 (커스텀 자유도 ↑)
 - **대화 주도권 전환**: MVP 단계에서는 **버튼 방식**으로 발화 시점을 명시적으로 제어하고, 추가 개발 기간에 **자동 감지(Barge-in) 방식**으로 전환할 예정입니다.
 
+### 🧠 학습 데이터 구조
+
+Umma의 학습 데이터는 언어별로 분리해서 관리합니다.
+
+```text
+users/{uid}
+├── user_learning_preference/current
+├── language_states/{language}
+├── dashboard_summaries/{language}
+├── sessions/{language}
+└── flashcards/{cardId}
+```
+
+- `language`: Session, Flashcard, Statistics, Language State가 어떤 언어의 데이터인지 나타내는 소속 필드
+- `selectedLearningLanguage`: Dashboard와 기능 이동이 현재 바라보는 앱 전역 언어 컨텍스트
+- Dashboard는 `DashboardSummary[selectedLearningLanguage]`만 사용하여 빠르게 렌더링합니다.
+- AI Chat은 언어별 재사용 Session Memory에 확정 turn 단위로 대화 맥락을 저장합니다.
+
 ---
 
 ## 📋 팀 컨벤션
@@ -194,6 +236,8 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 
 - **오전 정기 회의 (09:00 ~ 09:50)**: 한 것 공유 + 할 것 공유 + PR & Merge
 - **오후 정기 회의 (17:00 ~ 17:30)**: 진행 상황 점검 및 이슈 공유
+- **직관적 소통**: 미사어구를 최소화하고 핵심, 요점, 의견 위주의 명확한 표현 사용
+- **이모지 반응**: 팀원의 메시지/공지 확인 시 이모지로 피드백 필수
 - **의견 충돌 시**: 근거 및 장단점 비교 후 다수결로 결정
 - **연락 확인**: 매일 오후 6시 ~ 8시 사이 연락 확인
 - **책임 범위가 애매할 시**: 즉시 팀원에게 질문
@@ -206,12 +250,30 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 - `feature/기능명`: 개인 작업 브랜치 (예: `feature/login`)
 
 #### 커밋 컨벤션
+
 | 태그 | 설명 |
 |------|------|
 | `Feat` | 기능 추가 |
 | `Fix` | 버그 수정 |
 | `Refactor` | 리팩토링 |
 | `Docs` | 문서 수정 |
+| `Chore` | 빌드 업무, 설정 변경 등 |
+
+**커밋 메시지 템플릿**
+```text
+[Feat] AI 음성 대화 실시간 스트리밍 기능 구현
+
+### 요약
+- PTT 방식의 음성 캡처 및 서버 전송 기능 추가
+
+### 상세 내용
+- 상세1: 사용자가 실시간으로 AI와 대화할 수 있는 음성 인터페이스 필요
+- 상세2: AudioRecord를 활용해 16kHz 모노 PCM 데이터를 청크 단위로 스트리밍하도록 구현
+- 핵심변경: ChatViewModel, AudioCaptureManager
+
+### 관련 이슈
+- Resolves: #42
+```
 
 #### PR 규칙
 - PR 등록 시 팀원 1명 이상의 리뷰 필수
@@ -223,11 +285,14 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 ### 💻 코드 규칙
 
 - **파일 네이밍**: PascalCase 사용 (예: `SignInViewModel`)
-- **패키지 구조**: feature 기반 구조
+- **패키지 구조**: 레이어 중심 Clean Architecture (`presentation`, `domain`, `data`, `core`, `di`)
 - **아키텍처**: Clean Architecture + MVVM
 - **상태 관리**: State 기반
 - **공통 UI**: `colorScheme` 사용
 - **가독성**: 혼자만 알아볼 수 있는 코드 작성 금지, 필요 시 주석으로 설명
+- **커밋 전 정리 습관**:
+    - 코드 줄맞춤: `Ctrl + Alt + L` (Mac: `⌥(Option) + ⌘(Command) + L`)
+    - 미사용 Import 정리: `Ctrl + Alt + O` (Mac: `⌃(Control) + ⌥(Option) + O`)
 
 ### 📅 일정 / 작업 규칙
 
@@ -246,15 +311,15 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 
 - Android Studio Otter 이상 권장
 - JDK 17 이상
-- Android SDK min 26 / target 34 이상
+- Android SDK min 24 / target 36
 - 프로젝트 오픈 후 Gradle Sync
 - 에뮬레이터 또는 실기기에서 실행
 
 ## ⚙️ 환경 설정
 
 - `google-services.json` 파일이 필요합니다.
-- **Gemini API Key**, **Firebase 설정 키** 등 로컬 키는 커밋하지 않고 `local.properties`에서 관리합니다.
-- Cloud Functions에서 API Key를 보안 관리하므로, 클라이언트는 직접 Gemini API Key를 보유하지 않습니다.
+- 로컬 키와 환경값은 커밋하지 않고 `local.properties`에서 관리합니다.
+- Firebase / Gemini 관련 보안 키는 클라이언트에 직접 노출하지 않는 구조를 원칙으로 합니다.
 - 실시간 음성 대화 테스트를 위해 마이크 권한 및 네트워크 환경이 필요합니다.
 
 ---
@@ -262,6 +327,7 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 ## 🚧 향후 확장 기능 (Future Plans)
 
 - **자동 발화 감지 (Barge-in)**: MVP의 버튼 방식 대화 주도권을 자동 감지로 전환. 사용자 발화 감지 시 `audioTrack.flush()`를 호출하고 서버에 중단 신호 전송.
+- **복습 알림**: FCM을 통해 복습 시점에 알림을 제공.
 - **상황별 말투 모드**: Casual / Business / Travel 등 상황 기반 회화 모드
 - **AI 페르소나 저장 및 선택**: 사용자가 선호하는 AI 캐릭터 저장 및 재사용
 - **다국어 동시 지원**: 영어 외 일본어, 중국어 등 추가 언어 지원
