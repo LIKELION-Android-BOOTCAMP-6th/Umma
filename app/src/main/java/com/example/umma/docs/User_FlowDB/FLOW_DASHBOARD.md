@@ -148,7 +148,7 @@ AI 대화하러 가기
 ### 사용 데이터
 
 - selectedLearningLanguage
-- recentFullContext 존재 여부
+- correctionAvailable
 - 최근 대화 길이
 
 ---
@@ -195,10 +195,10 @@ AI 대화하러 가기
 ### 사용 데이터
 
 - selectedLearningLanguage
-- grammar_accuracy
-- lexical_diversity
-- fluency_score
-- spoken_naturalness
+- grammarScoreDelta
+- vocabularyScoreDelta
+- fluencyScoreDelta
+- naturalnessScoreDelta
 
 ---
 

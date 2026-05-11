@@ -170,7 +170,6 @@ selectedLearningLanguage = "en"
 사용 데이터:
 
 - correctionAvailable
-- activeSessionId
 - recentConversationMinutes
 - selectedLearningLanguage
 
@@ -343,8 +342,6 @@ data class DashboardUiState(
   "recentConversationMinutes":12,
 
   "recentConversationTopic":"Travel",
-
-  "activeSessionId":"session_en",
 
   "correctionAvailable":true,
 

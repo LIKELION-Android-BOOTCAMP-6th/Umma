@@ -76,7 +76,7 @@ Spanish Flashcard
 
   "ttsAudioUrl":"...",
 
-  "sourceSessionId":"session_en",
+  "sourceSessionKey":"en",
   "sourceTurnIds":[12, 14],
 
   "interval":3,

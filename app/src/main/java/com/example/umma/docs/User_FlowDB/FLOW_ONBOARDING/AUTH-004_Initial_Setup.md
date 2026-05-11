@@ -317,25 +317,25 @@ Initial Setup 완료 시:
 {
   "language": "en",
   "internalMetrics": {
-    "grammar_accuracy": 0.0,
-    "vocabulary_appropriateness": 0.0,
-    "lexical_diversity": 0.0,
-    "vocabulary_level": "A1",
-    "sentence_complexity": 0.0,
-    "speech_rate": 0.0,
-    "pause_frequency": 0.0,
-    "avg_utterance_length": 0.0,
-    "spoken_naturalness": 0.0,
-    "natural_expression_usage": 0.0,
-    "error_recurrence": 0.0,
-    "review_retention": 0.0
+    "grammarAccuracy": 0.0,
+    "vocabularyAppropriateness": 0.0,
+    "lexicalDiversity": 0.0,
+    "vocabularyLevel": "A1",
+    "sentenceComplexity": 0.0,
+    "speechRate": 0.0,
+    "pauseFrequency": 0.0,
+    "avgUtteranceLength": 0.0,
+    "spokenNaturalness": 0.0,
+    "naturalExpressionUsage": 0.0,
+    "errorRecurrence": 0.0,
+    "reviewRetention": 0.0
   },
   "externalMetrics": {
-    "vocabulary_level": "A1",
-    "grammar_accuracy": 0.0,
-    "expression_range": 0,
-    "fluency_score": 0.0,
-    "naturalness_score": 0.0
+    "vocabularyLevel": "A1",
+    "grammarAccuracy": 0.0,
+    "expressionRange": 0,
+    "fluencyScore": 0.0,
+    "naturalnessScore": 0.0
   },
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
@@ -356,7 +356,7 @@ Initial Setup 완료 시:
 
 ```json
 {
-  "id": "session_en",
+  "id": "en",
   "language": "en",
   "recentFullContext": [],
   "recentTopics": [],
@@ -387,7 +387,6 @@ Initial Setup 완료 시:
   "language": "en",
   "recentConversationMinutes": 0,
   "recentConversationTopic": null,
-  "activeSessionId": "session_en",
   "correctionAvailable": false,
   "dueFlashcards": 0,
   "recentSavedFlashcards": 0,
