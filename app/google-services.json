@@ -1,0 +1,38 @@
+{
+  "project_info": {
+    "project_number": "268407978498",
+    "project_id": "umma-6804c",
+    "storage_bucket": "umma-6804c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:268407978498:android:c083eb93bd24a3237a451b",
+        "android_client_info": {
+          "package_name": "com.example.umma"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "268407978498-92kt7b0pf889b5hgah4cb0u1totvu3ei.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.umma",
+            "certificate_hash": "91576b8dbc4b946eb20c0b93e9050bf4cd8ebd48"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbDpuHWOPKqRge2bxGzZexOVB0b6D7yz0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,16 @@
+Index: app/src/main/java/com/example/umma/presentation/study/StudyDetailScreen.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package com.example.umma.presentation.study\n\nimport androidx.compose.foundation.layout.Column\nimport androidx.compose.material3.Text\nimport androidx.compose.runtime.Composable\nimport androidx.compose.ui.text.style.TextAlign\n\n@Composable\nfun StudyDetailScreen() {\n    Column {\n        Text(\n            text = \"학습 상세 플레이스 홀더\", textAlign = TextAlign.Center\n        )\n    }\n}
+===================================================================
+diff --git a/app/src/main/java/com/example/umma/presentation/study/StudyDetailScreen.kt b/app/src/main/java/com/example/umma/presentation/study/StudyDetailScreen.kt
+--- a/app/src/main/java/com/example/umma/presentation/study/StudyDetailScreen.kt	(revision cfecc6ca519188916d17b3b3a0f9717a03dad953)
++++ b/app/src/main/java/com/example/umma/presentation/study/StudyDetailScreen.kt	(date 1778459570713)
+@@ -12,4 +12,4 @@
+             text = "학습 상세 플레이스 홀더", textAlign = TextAlign.Center
+         )
+     }
+-}
+\ No newline at end of file
++} 
+\ No newline at end of file
