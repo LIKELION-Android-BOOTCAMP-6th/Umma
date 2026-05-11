@@ -30,11 +30,11 @@ fun UmmaBottomAppBar(
                 selected = isSelected,
                 onClick = {
                     if (!isSelected) {
-                        if (item.route is Route.Home) {
-                            navController.popBackStack(route = Route.Home, inclusive = false)
+                        if (item.route is Route.Dashboard) {
+                            navController.popBackStack(route = Route.Dashboard, inclusive = false)
                         } else {
                             navController.navigate(item.route) {
-                                popUpTo<Route.Home> {
+                                popUpTo<Route.Dashboard> {
                                     saveState = true
                                 }
                                 launchSingleTop = true

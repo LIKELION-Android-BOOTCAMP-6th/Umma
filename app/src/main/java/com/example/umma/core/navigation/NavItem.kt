@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -21,10 +22,10 @@ sealed class NavItem(
     )
 
     // 홈 탭
-    object Home: NavItem(
-        route = Route.Home,
-        label = "홈",
-        icon = Icons.Default.Home
+    object Dashboard: NavItem(
+        route = Route.Dashboard,
+        label = "대시보드",
+        icon = Icons.Default.Dashboard
     )
 
     // 교정 탭
@@ -50,7 +51,7 @@ sealed class NavItem(
 
     companion object {
         val list = listOf(
-            Home,
+            Dashboard,
             Analytics,
             Chat,
             Feedback,

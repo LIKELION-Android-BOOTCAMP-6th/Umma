@@ -1,15 +1,16 @@
-package com.example.umma.presentation.feed_back
+package com.example.umma.presentation.dashboard
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.style.TextAlign
 
+
 @Composable
-fun FeedbackDetailScreen() {
+fun MyPageScreen() {
     Column {
         Text(
-            text = "교정 상세 플레이스 홀더", textAlign = TextAlign.Center
+            text = "마이페이지 플레이스 홀더", textAlign = TextAlign.Center
         )
     }
 }

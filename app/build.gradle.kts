@@ -92,9 +92,15 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
-    // Firebase & AI
+    // Firebase & AI & Auth
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.ai)
+    implementation(libs.firebase.auth)
+
+    // Google Credential Manager (Auth)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -1,4 +1,4 @@
-package com.example.umma.presentation.feed_back
+package com.example.umma.presentation.feedback
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button

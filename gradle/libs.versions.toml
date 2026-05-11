@@ -18,6 +18,8 @@ ksp = "2.3.2"
 firebaseBom = "34.13.0"
 googleServices = "4.4.4"
 kotlinxSerializationJson = "1.11.0"
+googleCredentials = "1.6.0"
+googleId = "1.2.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,9 +38,15 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 compose-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 
-# Firestore
+# Firestore & Firebase
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom"}
-firebase-ai = { group = "com.google.firebase", name = "firebase-ai"}
+firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
+firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+
+# Google Credential Manager(Auth)
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "googleCredentials" }
+androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "googleCredentials" }
+googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleId" }
 
 # Hilt
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }

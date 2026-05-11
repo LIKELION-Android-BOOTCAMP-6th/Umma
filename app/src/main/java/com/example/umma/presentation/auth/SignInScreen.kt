@@ -4,7 +4,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.core.content.ContextCompat.getString
+import com.example.umma.R
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 
 @Composable
 fun SignInScreen(
