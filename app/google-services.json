@@ -20,6 +20,10 @@
             "package_name": "com.example.umma",
             "certificate_hash": "91576b8dbc4b946eb20c0b93e9050bf4cd8ebd48"
           }
+        },
+        {
+          "client_id": "268407978498-pii0qlud6qmej37p10lb67qhhbsd4ife.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
       "api_key": [
@@ -29,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "268407978498-pii0qlud6qmej37p10lb67qhhbsd4ife.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
