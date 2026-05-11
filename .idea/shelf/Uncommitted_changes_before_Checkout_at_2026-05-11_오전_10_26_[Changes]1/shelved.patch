@@ -1,0 +1,18 @@
+Index: app/src/main/java/com/example/umma/core/util/UiText.kt
+===================================================================
+diff --git a/app/src/main/java/com/example/umma/core/util/UiText.kt b/app/src/main/java/com/example/umma/core/util/UiText.kt
+new file mode 100644
+--- /dev/null	(date 1778462412980)
++++ b/app/src/main/java/com/example/umma/core/util/UiText.kt	(date 1778462412980)
+@@ -0,0 +1,10 @@
++package com.example.umma.core.util
++
++import android.content.Context
++import androidx.annotation.StringRes
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.res.stringResource
++
++sealed class UiText {
++    fun
++}
+\ No newline at end of file
