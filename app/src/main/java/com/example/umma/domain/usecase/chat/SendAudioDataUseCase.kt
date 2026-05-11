@@ -1,4 +1,4 @@
-package com.example.umma.domain.usecase
+package com.example.umma.domain.usecase.chat
 
 import com.example.umma.domain.repository.ChatRepository
 import javax.inject.Inject

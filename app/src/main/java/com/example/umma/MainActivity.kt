@@ -43,8 +43,6 @@ fun UmmaApp() {
                 || it.hasRoute<Route.Chat>()
                 || it.hasRoute<Route.FeedbackList>()
                 || it.hasRoute<Route.StudyList>()
-        //      || it.hasRoute<Route.FeedbackDetail>()
-        //      || it.hasRoute<Route.StudyDetail>()
     } == true
 
     Scaffold(

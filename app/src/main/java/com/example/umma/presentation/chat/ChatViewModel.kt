@@ -7,10 +7,10 @@ import com.example.umma.data.source.local.AudioPlayer
 import com.example.umma.data.source.local.AudioRecorder
 import com.example.umma.domain.model.AIEvent
 import com.example.umma.domain.model.AIState
-import com.example.umma.domain.usecase.ObserveAIEventUseCase
-import com.example.umma.domain.usecase.SendAudioDataUseCase
-import com.example.umma.domain.usecase.StartSessionUseCase
-import com.example.umma.domain.usecase.StopSessionUseCase
+import com.example.umma.domain.usecase.chat.ObserveAIEventUseCase
+import com.example.umma.domain.usecase.chat.SendAudioDataUseCase
+import com.example.umma.domain.usecase.chat.StartSessionUseCase
+import com.example.umma.domain.usecase.chat.StopSessionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow

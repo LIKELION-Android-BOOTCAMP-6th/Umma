@@ -10,14 +10,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navigation
 import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
-import com.example.umma.presentation.OnBoardingScreen
+import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.analytics.AnalyticsScreen
 import com.example.umma.presentation.auth.SignInScreen
 import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.feedback.FeedbackDetailScreen
 import com.example.umma.presentation.feedback.FeedbackListScreen
-import com.example.umma.presentation.study.StudyDetailScreen
 import com.example.umma.presentation.study.StudyListScreen
+import com.example.umma.presentation.auth.TestSignInScreen
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.umma.presentation.study.StudyDetailScreen
 
 @Composable
 fun UmmaNavHost(
@@ -47,9 +49,7 @@ fun UmmaNavHost(
             }
             composable<Route.SignIn> {
                 SignInScreen {
-                    navController.navigate(Route.Dashboard) {
-                        popUpTo(navController.graph.startDestinationId) { inclusive = true }
-                    }
+                    navController.navigate(Route.Dashboard)
                 }
             }
         }
