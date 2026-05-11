@@ -4,44 +4,64 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.umma.ui.theme.UmmaTheme
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.example.umma.core.navigation.Route
+import com.example.umma.core.navigation.UmmaBottomAppBar
+import com.example.umma.core.navigation.UmmaNavHost
+import com.example.umma.core.theme.UmmaTheme
+import com.example.umma.presentation.analytics.AnalyticsScreen
+import com.example.umma.presentation.chat.ChatScreen
+import com.example.umma.presentation.feed_back.FeedbackListScreen
+import com.example.umma.presentation.study.StudyListScreen
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             UmmaTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                UmmaApp()
             }
         }
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
 
-@Preview(showBackground = true)
+// Root Scaffold
 @Composable
-fun GreetingPreview() {
-    UmmaTheme {
-        Greeting("Android")
+fun UmmaApp() {
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val showBottomBar = navBackStackEntry?.destination?.hierarchy?.any {
+        it.hasRoute<Route.Analytics>()
+                || it.hasRoute<Route.Chat>()
+                || it.hasRoute<Route.FeedbackList>()
+                || it.hasRoute<Route.StudyList>()
+        //      || it.hasRoute<Route.FeedbackDetail>()
+        //      || it.hasRoute<Route.StudyDetail>()
+    } == true
+
+    Scaffold(
+        bottomBar = {
+            if (showBottomBar) UmmaBottomAppBar(navController = navController)
+        }
+    ) { innerPadding ->
+        UmmaNavHost(
+            navController = navController,
+            modifier = Modifier
+                .padding(innerPadding)
+        )
     }
 }
