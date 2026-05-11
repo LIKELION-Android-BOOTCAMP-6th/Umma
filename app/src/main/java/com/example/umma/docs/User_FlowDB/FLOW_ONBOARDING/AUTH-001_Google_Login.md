@@ -114,7 +114,7 @@ Dashboard 진입 직후 Initial Setup Dialog 표시.
 }
 ```
 
-#### UserLearningPreference
+#### UserLangPref
 
 ```json
 {
@@ -167,7 +167,7 @@ com.example.umma
 │   ├── SignInScreen.kt
 │   └── AuthViewModel.kt
 ├── domain/model/
-│   └── UserProfileVO.kt
+│   └── UserProfile.kt
 ├── domain/repository/
 │   └── AuthRepository.kt
 ├── domain/usecase/

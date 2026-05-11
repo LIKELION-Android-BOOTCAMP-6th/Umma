@@ -9,14 +9,14 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [x] `LanguageDashboardSummaryVO`가 `domain/model`에 정의된다.
-- [x] `LanguageDashboardSummaryVO`는 반드시 `language` 필드를 포함한다.
+- [x] `DashSummary`가 `domain/model`에 정의된다.
+- [x] `DashSummary`는 반드시 `lang` 필드를 포함하고, Firestore 저장 시 `language`로 매핑된다.
 - [x] Dashboard Summary는 언어별(Language Scoped)로 저장된다.
 - [x] 최근 AI 대화 카드에 필요한 필드가 포함된다.
 - [x] 교정 대기 카드에 필요한 필드가 포함된다.
 - [x] Flashcard 학습 카드에 필요한 필드가 포함된다.
 - [x] 언어 성취율 카드에 필요한 delta 필드가 포함된다.
-- [x] Dashboard는 `DashboardSummary[selectedLearningLanguage]`만으로 렌더링 가능해야 한다.
+- [x] Dashboard는 `DashSummary[selectedLearningLanguage]`만으로 렌더링 가능해야 한다.
 - [x] Dashboard Summary는 `recentFullContext` 전체를 포함하지 않는다.
 - [x] Dashboard Summary는 Language State Internal Metrics 전체를 포함하지 않는다.
 - [x] 신규 사용자용 Empty Dashboard 기본값을 생성할 수 있다.
@@ -43,7 +43,7 @@
 
 ## 포함 범위
 
-- Dashboard Summary Domain VO 설계
+- Dashboard Summary Domain Model 설계
 - Dashboard 카드별 필요 필드 정의
 - 신규 사용자 Empty Summary 초기값 정책 정의
 - Firestore Schema 정의
@@ -146,8 +146,8 @@ Dashboard 진입 시 원본 데이터를 직접 조회하거나 계산하지 않
 
 ```text
 com.example.umma
-└── domain/model/
-    └── LanguageDashboardSummaryVO.kt
+└── domain/model/learningstate/
+    └── LearningSummaryModels.kt
 ```
 
 > LS-002는 Domain 모델만 정의한다.
@@ -158,30 +158,33 @@ com.example.umma
 ## 권장 모델 구조
 
 ```kotlin
-data class LanguageDashboardSummaryVO(
-    val language: String,
+data class DashSummary(
+    val lang: LangCode,
 
     // Recent AI Conversation Card
-    val recentConversationMinutes: Int,
-    val recentConversationTopic: String?,
+    val recentMinutes: Int,
+    val recentTopic: String?,
 
     // Correction Pending Card
     val correctionAvailable: Boolean,
 
     // Flashcard Study Card
     val dueFlashcards: Int,
-    val recentSavedFlashcards: Int,
+    val savedFlashcards: Int,
 
     // Language Progress Card
-    val grammarScoreDelta: Int,
-    val fluencyScoreDelta: Int,
-    val vocabularyScoreDelta: Int,
-    val naturalnessScoreDelta: Int,
+    val grammarDelta: Int,
+    val fluencyDelta: Int,
+    val vocabDelta: Int,
+    val naturalnessDelta: Int,
 
-    val schemaVersion: Int = 1,
+    val schema: Int = 1,
     val updatedAt: Long? = null
 )
 ```
+
+> Kotlin Domain 모델은 Dashboard에서 자주 쓰는 값을 짧게 유지한다.
+> Firestore 저장 시에는 mapper에서 `lang → language`, `recentMinutes → recentConversationMinutes`, `recentTopic → recentConversationTopic`, `savedFlashcards → recentSavedFlashcards`, `grammarDelta → grammarScoreDelta`, `vocabDelta → vocabularyScoreDelta`, `schema → schemaVersion`으로 변환한다.
 
 ---
 
@@ -293,22 +296,7 @@ language
 Initial Setup 완료 시 주 학습 언어 기준 Dashboard Summary 기본값을 생성한다.
 
 ```kotlin
-fun createInitialDashboardSummary(
-    language: String
-): LanguageDashboardSummaryVO {
-    return LanguageDashboardSummaryVO(
-        language = language,
-        recentConversationMinutes = 0,
-        recentConversationTopic = null,
-        correctionAvailable = false,
-        dueFlashcards = 0,
-        recentSavedFlashcards = 0,
-        grammarScoreDelta = 0,
-        fluencyScoreDelta = 0,
-        vocabularyScoreDelta = 0,
-        naturalnessScoreDelta = 0
-    )
-}
+DashSummary.initial(lang = LangCode.EN)
 ```
 
 신규 사용자에게는 이 Summary를 기반으로 Empty Dashboard를 렌더링한다.
@@ -433,9 +421,9 @@ all delta = 0
 ## 정상 흐름
 
 1. Initial Setup에서 `primaryLearningLanguage = "en"` 선택
-2. `createInitialDashboardSummary("en")` 호출
-3. `language = "en"`인 Summary 생성
-4. Dashboard가 `DashboardSummary["en"]`만으로 Empty 상태 렌더링 가능
+2. `DashSummary.initial(LangCode.EN)` 호출
+3. `lang = EN`인 Summary 생성
+4. Dashboard가 `DashSummary["en"]`만으로 Empty 상태 렌더링 가능
 5. AI Chat 후 `recentConversationMinutes`, `recentConversationTopic`, `correctionAvailable` 갱신 가능
 6. Flashcard 저장 후 `recentSavedFlashcards` 갱신 가능
 7. 복습 예정 카드 발생 시 `dueFlashcards` 갱신 가능
@@ -444,7 +432,7 @@ all delta = 0
 
 ## 언어 변경 흐름
 
-1. UserLearningPreference의 `selectedLearningLanguage = "ja"`로 변경
+1. UserLangPref의 `selectedLearningLanguage = "ja"`로 변경
 2. Dashboard가 `dashboard_summaries/ja`를 조회
 3. 영어 Summary가 아닌 일본어 Summary만 렌더링
 4. AI Chat / Correction / Flashcard / Statistics 이동 시 `"ja"` 컨텍스트 전달

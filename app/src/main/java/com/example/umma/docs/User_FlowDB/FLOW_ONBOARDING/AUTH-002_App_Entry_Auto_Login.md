@@ -46,7 +46,7 @@
 - 로그아웃 기능 (AUTH-003에서 구현)
 - 사용자 프로필 수정
 - Initial Setup 입력 및 저장 (AUTH-001 / AUTH-004에서 구현)
-- UserLearningPreference preload
+- UserLangPref preload
 - selectedLearningLanguage 결정
 - Language State preload
 - Dashboard 데이터 preload
@@ -79,7 +79,7 @@ FirebaseAuth.currentUser != null
 → Dashboard route 이동
 ```
 
-Dashboard route 진입 이후의 UserLearningPreference preload, selectedLearningLanguage 확인, Dashboard Summary preload는 Dashboard Flow의 책임이다.
+Dashboard route 진입 이후의 UserLangPref preload, selectedLearningLanguage 확인, Dashboard Summary preload는 Dashboard Flow의 책임이다.
 
 세션은 존재하지만 Initial Setup이 완료되지 않은 사용자의 Dialog 표시와 저장 처리는 AUTH-001 / AUTH-004의 책임이다.
 
@@ -209,7 +209,7 @@ sealed interface AppEntryState {
 - Firebase User null 반환
 - 토큰 만료 상태
 - 로그인 세션은 있으나 Initial Setup 미완료
-- 로그인 세션은 있으나 UserLearningPreference 없음
+- 로그인 세션은 있으나 UserLangPref 없음
 - 세션 확인 중 Activity recreate
 - Splash 화면 무한 유지
 - 이미 로그인 상태인데 Onboarding 진입
@@ -284,7 +284,7 @@ sealed interface AppEntryState {
 ## 책임 경계 확인
 
 1. AUTH-002는 Firebase 인증 세션만 확인한다.
-2. AUTH-002는 `UserLearningPreference`, `selectedLearningLanguage`, `Language State`, `Dashboard Summary`를 preload하지 않는다.
+2. AUTH-002는 `UserLangPref`, `selectedLearningLanguage`, `Language State`, `Dashboard Summary`를 preload하지 않는다.
 3. 로그인된 사용자는 Dashboard route로 이동한다.
 4. Dashboard route 이후 현재 선택 언어와 Summary 로딩은 FLOW-DASHBOARD / SYS-LEARNING-STATE-INFRA 기준을 따른다.
 5. Initial Setup 미완료 사용자의 Dialog 표시와 저장은 AUTH-001 / AUTH-004 기준을 따른다.

@@ -9,17 +9,17 @@ AI 대화 적응용 Internal Metrics와 사용자 통계 표시용 External Metr
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [x] `LanguageStateVO`가 `domain/model`에 정의된다.
-- [x] `LanguageStateVO`는 반드시 `language` 필드를 포함한다.
-- [x] Internal Metrics 구조가 `LanguageInternalMetricsVO`로 정의된다.
-- [x] External Metrics 구조가 `LanguageExternalMetricsVO`로 정의된다.
+- [x] `LangState`가 `domain/model`에 정의된다.
+- [x] `LangState`는 반드시 `lang` 필드를 포함하고, Firestore 저장 시 `language`로 매핑된다.
+- [x] Internal Metrics 구조가 `InternalMetrics`로 정의된다.
+- [x] External Metrics 구조가 `ExternalMetrics`로 정의된다.
 - [x] MVP Internal Metrics 12개가 모두 포함된다.
 - [x] External Metrics 5개가 모두 포함된다.
 - [x] `vocabularyLevel`은 CEFR 기반 값(A1~C2)을 표현할 수 있다.
 - [x] 신규 사용자용 초기 Language State 기본값을 생성할 수 있다.
 - [x] Firestore 저장 구조가 `users/{uid}/language_states/{language}` 기준으로 정의된다.
 - [x] Local Cache 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
-- [x] UI / ViewModel 전용 상태와 Domain VO가 섞이지 않는다.
+- [x] UI / ViewModel 전용 상태와 Domain Model이 섞이지 않는다.
 - [x] Language State 모델은 Android `Context`에 의존하지 않는다.
 - [x] 향후 지표 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
 
@@ -36,9 +36,9 @@ AI 대화 적응용 Internal Metrics와 사용자 통계 표시용 External Metr
 
 ## 포함 범위
 
-- Language State Domain VO 설계
-- Internal Metrics VO 설계
-- External Metrics VO 설계
+- Language State Domain Model 설계
+- Internal Metrics Model 설계
+- External Metrics Model 설계
 - CEFR Vocabulary Level 표현 방식 정의
 - 신규 사용자 초기값 정책 정의
 - Firestore Schema 정의
@@ -141,11 +141,9 @@ Type C: AI 분석
 
 ```text
 com.example.umma
-└── domain/model/
-    ├── LanguageStateVO.kt
-    ├── LanguageInternalMetricsVO.kt
-    ├── LanguageExternalMetricsVO.kt
-    └── VocabularyLevel.kt
+└── domain/model/learningstate/
+    ├── LearningCoreModels.kt
+    └── LearningStateModels.kt
 ```
 
 > LS-001은 Domain 모델만 정의한다.
@@ -156,15 +154,18 @@ com.example.umma
 ## 권장 모델 구조
 
 ```kotlin
-data class LanguageStateVO(
-    val language: String,
-    val internalMetrics: LanguageInternalMetricsVO,
-    val externalMetrics: LanguageExternalMetricsVO,
-    val schemaVersion: Int = 1,
+data class LangState(
+    val lang: LangCode,
+    val internal: InternalMetrics,
+    val external: ExternalMetrics,
+    val schema: Int = 1,
     val createdAt: Long? = null,
     val updatedAt: Long? = null
 )
 ```
+
+> Kotlin Domain 모델은 짧은 필드명을 사용한다.
+> Firestore 저장 시에는 mapper에서 `lang → language`, `internal → internalMetrics`, `external → externalMetrics`, `schema → schemaVersion`으로 변환한다.
 
 ---
 
@@ -173,14 +174,14 @@ data class LanguageStateVO(
 MVP Internal Metrics는 12개로 제한한다.
 
 ```kotlin
-data class LanguageInternalMetricsVO(
+data class InternalMetrics(
     // Accuracy
     val grammarAccuracy: Double,
     val vocabularyAppropriateness: Double,
 
     // Range
     val lexicalDiversity: Double,
-    val vocabularyLevel: VocabularyLevel,
+    val vocabularyLevel: VocabLevel,
     val sentenceComplexity: Double,
 
     // Fluency
@@ -242,8 +243,8 @@ data class LanguageInternalMetricsVO(
 사용자에게 통계 화면에서 직접 보여줄 수 있는 지표는 5개로 제한한다.
 
 ```kotlin
-data class LanguageExternalMetricsVO(
-    val vocabularyLevel: VocabularyLevel,
+data class ExternalMetrics(
+    val vocabularyLevel: VocabLevel,
     val grammarAccuracy: Double,
     val expressionRange: Int,
     val fluencyScore: Double,
@@ -266,7 +267,7 @@ data class LanguageExternalMetricsVO(
 CEFR 기반 어휘 수준은 enum 또는 sealed type으로 정의한다.
 
 ```kotlin
-enum class VocabularyLevel {
+enum class VocabLevel {
     A1,
     A2,
     B1,
@@ -285,32 +286,7 @@ MVP 신규 사용자의 기본값은 `A1`이다.
 Initial Setup 완료 시 주 학습 언어 기준 Language State 기본값을 생성한다.
 
 ```kotlin
-fun createInitialLanguageState(language: String): LanguageStateVO {
-    return LanguageStateVO(
-        language = language,
-        internalMetrics = LanguageInternalMetricsVO(
-            grammarAccuracy = 0.0,
-            vocabularyAppropriateness = 0.0,
-            lexicalDiversity = 0.0,
-            vocabularyLevel = VocabularyLevel.A1,
-            sentenceComplexity = 0.0,
-            speechRate = 0.0,
-            pauseFrequency = 0.0,
-            avgUtteranceLength = 0.0,
-            spokenNaturalness = 0.0,
-            naturalExpressionUsage = 0.0,
-            errorRecurrence = 0.0,
-            reviewRetention = 0.0
-        ),
-        externalMetrics = LanguageExternalMetricsVO(
-            vocabularyLevel = VocabularyLevel.A1,
-            grammarAccuracy = 0.0,
-            expressionRange = 0,
-            fluencyScore = 0.0,
-            naturalnessScore = 0.0
-        )
-    )
-}
+LangState.initial(lang = LangCode.EN)
 ```
 
 ---
@@ -448,8 +424,8 @@ Language State 없음
 ## 정상 흐름
 
 1. Initial Setup에서 `primaryLearningLanguage = "en"` 선택
-2. `createInitialLanguageState("en")` 호출
-3. `language = "en"`인 Language State 생성
+2. `LangState.initial(LangCode.EN)` 호출
+3. `lang = EN`인 LangState 생성
 4. Internal Metrics 12개 기본값 생성 확인
 5. External Metrics 5개 기본값 생성 확인
 6. Firestore path `users/{uid}/language_states/en` 저장 가능 확인
@@ -459,8 +435,8 @@ Language State 없음
 ## 다국어 흐름
 
 1. 사용자가 추가 학습 언어 `"ja"`를 등록
-2. `createInitialLanguageState("ja")` 호출
-3. 기존 `"en"` Language State와 별도 문서로 저장
+2. `LangState.initial(LangCode.JA)` 호출
+3. 기존 `"en"` LangState와 별도 문서로 저장
 4. `"en"`과 `"ja"`의 metric 값이 서로 섞이지 않음 확인
 
 ---

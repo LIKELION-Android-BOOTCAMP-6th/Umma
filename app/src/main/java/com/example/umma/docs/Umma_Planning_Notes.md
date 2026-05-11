@@ -17,6 +17,8 @@ Umma는 ‘공부를 시작하는 앱’이 아니라
 
 텍스트 입력이나 문제 풀이가 아닌 **실제 말하기 경험**을 중심으로 설계된다.
 
+구현에서 참조하는 상태 모델 이름은 `LangState`, `DashSummary`, `UserLangPref`, `GlobalLangState`다.
+
 ---
 
 ## 1. 대화 학습의 기본 원칙
@@ -188,7 +190,7 @@ AI는 다음 정보를 참고한다.
 - 사용자가 실제로 말한 음성 발화 turn
 - 발화의 문맥 (앞뒤 대화 흐름)
 - 현재 선택 언어의 Session Memory `recentFullContext`
-- 현재 추정된 언어 능력(Language State Snapshot)
+- 현재 추정된 언어 능력(LangState Snapshot)
 
 단일 문장이 아니라 **의미 단위의 발화 묶음**을 기준으로 분석한다.
 
@@ -210,7 +212,7 @@ MVP 이후에는 사용자의 자주 하는 실수와 반복되는 오류 패턴
 - 교정받은 표현의 재등장 여부
 - Flashcard 저장 후 실제 대화에서 다시 사용되는지 여부
 
-이 데이터는 MVP의 `recentFullContext`나 `Language State` 필드에 미리 넣지 않는다.
+이 데이터는 MVP의 `recentFullContext`나 `LangState` 필드에 미리 넣지 않는다.
 교정 성능 고도화가 필요한 시점에 별도 데이터 구조로 추가한다.
 
 ---
@@ -237,10 +239,10 @@ MVP 이후에는 사용자의 자주 하는 실수와 반복되는 오류 패턴
 다음 유형의 문장을 우선적으로 교정 후보로 선정한다.
 
 - 이번 `recentFullContext` 안에서 의미가 분명한 사용자 발화
-- 사용자의 현재 Language State 대비 교정 가치가 높은 문장
+- 사용자의 현재 LangState 대비 교정 가치가 높은 문장
 - 사용자가 말할 때 막히거나 어색하게 표현한 지점
 
-MVP 교정은 누적 오류 패턴이 아니라 이번 대화의 user turn과 현재 Language State를 중심으로 수행한다.
+MVP 교정은 누적 오류 패턴이 아니라 이번 대화의 user turn과 현재 LangState를 중심으로 수행한다.
 
 ---
 
