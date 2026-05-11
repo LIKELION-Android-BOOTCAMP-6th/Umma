@@ -1,50 +1,54 @@
-Umma Project
+# 🍼 Umma (움마)
 
-🎙️ AI-Native English Tutor: Project Tasty
-"Real-time i+1 Leveling English Conversation Service powered by Gemini Live"
+## 🌱 프로젝트 소개
 
-본 프로젝트는 사용자의 영어 실력에 맞춘 실시간 대화 및 맞춤형 피드백을 제공하는 안드로이드 네이티브 애플리케이션입니다. 단순한 챗봇을 넘어, 최신 AI 기술과 학습 이론을 결합하여 실제 원어민과 대화하는 듯한 경험을 제공합니다.
+> "아기는 문법을 배워서 말하지 않습니다. '말하고 싶어서' 배웁니다."
+>
+> AI와의 실제 대화를 기반으로, 사용자의 언어 수준을 분석하고 교정하며, 반복학습까지 연결하는 **초개인화 언어 성장 서비스**
 
-🚀 Key Features
-1. Real-time Audio Interaction (Toggle-based)
-   Toggle-to-Talk: 사용자 편의성과 기술적 안정성을 고려한 토글 방식의 마이크 제어.
+---
 
-Low-Latency Streaming: PCM 오디오 데이터를 WebSocket을 통해 실시간으로 스트리밍하여 끊김 없는 대화 구현.
+## 📖 서비스 배경
 
-Barge-in Logic: AI 답변 도중 사용자가 말을 시작하면 즉시 재생을 중단하고 경청 상태로 전환.
+대한민국 평균 영어 학습 기간은 10년이 넘지만, EF EPI 기준 한국은 **막대한 학습 시간 대비 실제 의사소통 능력이 정체된 국가**로 분류됩니다. 우리는 공부를 안 한 게 아니라, **'말하는 법'을 배우지 않았습니다.**
 
-2. i+1 Adaptive Learning
-   Dynamic Leveling: 사용자의 현재 수준보다 한 단계 높은 수준(i+1)의 문장과 어휘를 선택하여 최적의 학습 효율 제공.
+기존 AI 영어 학습 앱들은 사용자의 실제 말하기 수준을 정밀하게 진단하지 못한 채 사전에 준비된 스크립트 기반 학습을 제공합니다. 학습한 표현이 반복되지 않아 쉽게 잊히고, 장기 기억으로 연결되지 못합니다.
 
-Speed Control: 유저의 숙련도에 따라 AI의 발화 속도를 0.7x에서 1.5x까지 실시간 조절 가능.
+Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** 의 통합 루프를 통해, 학습자의 실제 발화를 기반으로 한 초개인화된 언어 성장 경험을 제공합니다.
 
-3. Smart Feedback & SRS
-   Instant Correction: 대화 종료 후 Gemini가 실시간으로 문법 교정 및 더 나은 표현 제안.
+---
 
-Spaced Repetition System (SRS): SuperMemo-2 알고리즘을 적용하여 교정된 문장을 최적의 타이밍에 복습하도록 관리.
+## 🎯 대상 사용자
 
-🏗️ Architecture & Tech Stack
-Architecture
-Clean Architecture: 비즈니스 로직(Domain)을 외부 환경(UI, DB)으로부터 완전히 분리.
+| 유형 | 설명 |
+|------|------|
+| 실전형 학습자 | 영어를 공부한 경험은 많지만 실제 말하기에 어려움을 느끼는 20~30대 직장인 |
+| 꾸준형 학습자 | 학원이나 강의보다 가볍고 꾸준히 이어갈 수 있는 학습 방식을 선호하는 분 |
+| 성장형 학습자 | 자신의 언어 성장 과정을 데이터로 체감하며 동기부여를 얻고 싶은 분 |
 
-State-driven MVVM: 단일 상태 객체(UiState)를 활용한 단방향 데이터 흐름(UDF)으로 상태 불일치 방지.
+---
 
-Tech Stack
-Language: Kotlin
+## ✨ 핵심 기능
 
-UI: Jetpack Compose (Declarative UI)
+### 1. AI 자유 회화 🗣️
 
-Async: Coroutines & Flow (Asynchronous stream processing)
+- **관심사 기반 주제 추천**: 사용자의 관심사를 반영하여 AI가 먼저 대화를 리드합니다.
+- **수준 맞춤 대화**: 사용자의 현재 언어 수준보다 약간 높은(i+1) 난이도로 자연스럽게 대화를 이어갑니다.
+- **실시간 음성 대화**: Gemini Live와 WebSocket 기반의 양방향 음성 스트리밍으로 끊김 없는 회화를 경험합니다.
 
-DI: Hilt (Dependency Injection)
+### 2. 문장 교정 ✏️
 
-Networking: OkHttp (WebSocket), Retrofit
+- **핵심 문장 추출**: 대화 종료 시 AI가 사용자의 핵심 문장과 자주 틀리는 표현을 추출합니다.
+- **즉시 교정**: 5~10개의 교정 문장을 카드 형태로 제공하여 자신의 발화를 한눈에 확인할 수 있습니다.
+- **선택적 저장**: 기억하고 싶은 문장만 골라 플래시카드로 저장합니다.
 
-Database: Room (Local), Firestore (Remote Sync)
+### 3. SRS 기반 반복학습 🃏
 
-AI Engine: Gemini Live API (Multimodal LLM)
+- **망각곡선 기반 복습**: 에빙하우스 망각곡선을 역이용한 SRS(Spaced Repetition System)로 잊히기 직전 최적의 타이밍에 노출합니다.
+- **푸시 알림**: FCM을 통해 복습 시점에 자동으로 알림을 보내 학습 흐름이 끊기지 않도록 합니다.
+- **액티브 리콜**: 단순 재노출이 아닌 능동적 인출 연습으로 장기 기억화를 돕습니다.
 
-Backend: Firebase Cloud Functions (Python)
+### 4. 성장 추적 📈
 
 📂 Project Structure (Interface-Driven)
 Plaintext
@@ -66,22 +70,201 @@ app/src/main/java/com/example/umma
 Prerequisites
 Android Studio Ladybug 이상
 
-JDK 17
+---
 
-Gemini API Key (via Google AI Studio)
+## 💎 차별점
 
-Installation
-이 저장소를 클론합니다.
+기존 AI 영어 학습 서비스는 "대화"와 "복습"이 분리되어 있고, 사용자의 실제 수준을 정밀하게 파악하지 못합니다. Umma는 다음과 같이 차별화됩니다.
 
-local.properties 파일에 API Key를 설정하거나 Firebase Secret Manager를 연동합니다.
+- **하나의 통합 루프**: 대화 → 교정 → 저장 → 반복학습 → 성장 추적이 끊김 없이 연결됩니다.
+- **사용자 발화 기반 학습**: 사전 스크립트가 아닌 사용자의 실제 발화에서 학습 데이터가 생성됩니다.
+- **장기적 언어 상태 추적**: 일회성 평가가 아닌 사용자의 Language State를 누적 분석합니다.
+- **욕구 중심 학습**: "공부"가 아닌 "말하고 싶은 욕구" 중심의 학습 경험을 제공합니다.
 
-Gradle을 싱크하고 앱을 실행합니다.
+---
 
-👨‍💻 Team: Team 3 (Tasty)
-Park Jaemin (Lead Developer): Architecture Design, Audio Pipeline, Gemini Live Integration
+## 📆 개발 인원 및 기간
 
-Team Member 1: UI/UX Implementation (Compose), Animation
+- **개발 기간**: 2026.5.4 ~ 2026.6.17
+- **개발 인원**: Android 5명
 
-Team Member 2: Data Persistence (Room/Firestore), SRS Algorithm
+---
 
-Team Member 3: Backend Proxy (Python Cloud Functions), Authentication
+## 🙌 팀원 소개
+
+| 이름 | GitHub |
+|------|--------|
+| 박재민 | TBD |
+| 정원화 | TBD |
+| 김명준 | TBD |
+| 김태환 | TBD |
+| 정재훈 | TBD |
+
+---
+
+## 📖 팀원 역할
+
+| 코드 | 역할 | 담당 기능 |
+|------|------|-----------|
+| F1 | 인증·세션 | 소셜 로그인, 자동 로그인, 로그아웃, 회원 탈퇴 |
+| F2 | 앱 골격·네비·디자인 시스템 | 패키지 구조, Navigation Graph, 공통 테마/컴포넌트 |
+| F3 | AI 회화 | Gemini Live 연동, WebSocket 통신, 실시간 음성 입출력 |
+| F4 | 문장 교정 | 대화 종료 후 문장 추출 및 교정 카드 UI |
+| F5 | 플래시카드 & SRS | 카드 저장(Room), 망각곡선 기반 복습 스케줄링, FCM 알림 |
+| F6 | 성장 통계 & 마이페이지 | 언어 데이터 분석 시각화, 프로필·설정 |
+
+| 이름 | 담당 |
+|------|------|
+| 박재민 | TBD |
+| 정원화 | TBD |
+| 김명준 | TBD |
+| 김태환 | TBD |
+| 정재훈 | TBD |
+
+---
+
+## 🧑‍💻 Tech Stacks
+
+### 🏗️ Environment
+
+<img src="https://img.shields.io/badge/Android%20Studio-3DDC84?style=flat-square&logo=android-studio&logoColor=white"> <img src="https://img.shields.io/badge/Gradle-02303A?style=flat-square&logo=gradle&logoColor=white"> <img src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=GitHub&logoColor=white"> <img src="https://img.shields.io/badge/Figma-F24E1E?style=flat-square&logo=Figma&logoColor=white"> <img src="https://img.shields.io/badge/Notion-000000?style=flat-square&logo=Notion&logoColor=white">
+
+### 🎨 UI & Jetpack
+
+<img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat-square&logo=Kotlin&logoColor=white"> <img src="https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Material3-757575?style=flat-square&logo=materialdesign&logoColor=white"> <img src="https://img.shields.io/badge/Navigation-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Hilt-3DDC84?style=flat-square&logo=Android&logoColor=white">
+
+### 🌐 Infrastructure & Library
+
+<img src="https://img.shields.io/badge/Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white"> <img src="https://img.shields.io/badge/Firebase%20Auth-FFCA28?style=flat-square&logo=Firebase&logoColor=white"> <img src="https://img.shields.io/badge/Cloud%20Firestore-FFCA28?style=flat-square&logo=Firebase&logoColor=white"> <img src="https://img.shields.io/badge/Cloud%20Functions-FFCA28?style=flat-square&logo=Firebase&logoColor=white"> <img src="https://img.shields.io/badge/Cloud%20Storage-FFCA28?style=flat-square&logo=Firebase&logoColor=white"> <img src="https://img.shields.io/badge/FCM-FFCA28?style=flat-square&logo=Firebase&logoColor=white"> <img src="https://img.shields.io/badge/OkHttp-3E4348?style=flat-square&logo=square&logoColor=white"> <img src="https://img.shields.io/badge/Retrofit2-48B983?style=flat-square&logo=square&logoColor=white"> <img src="https://img.shields.io/badge/Room-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Coroutines%20%26%20Flow-7F52FF?style=flat-square&logo=Kotlin&logoColor=white"> <img src="https://img.shields.io/badge/Media3-3DDC84?style=flat-square&logo=Android&logoColor=white">
+
+### ⚙️ Architecture
+
+<img src="https://img.shields.io/badge/Clean%20Architecture-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/MVVM-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Feature--based-3DDC84?style=flat-square&logo=Android&logoColor=white"> <img src="https://img.shields.io/badge/Hilt%20(DI)-3DDC84?style=flat-square&logo=Android&logoColor=white">
+
+### 🔧 상세 구성
+
+| 분류 | 기술 | 용도 |
+|------|------|------|
+| Language | Kotlin | - |
+| UI Framework | Jetpack Compose | 선언형 UI |
+| Async | Coroutines & Flow | 비동기 처리 및 반응형 데이터 스트림 |
+| Architecture | MVVM + Clean Architecture | 책임 분리 및 테스트 가능한 구조 |
+| DI | Hilt | 의존성 주입 |
+| Local DB | Room | SRS 플래시카드 및 오프라인 대화 로그 저장 |
+| Audio Engine | AudioRecord / AudioTrack (또는 Media3 ExoPlayer) | 음성 입출력 처리 |
+| AI | Google Gemini with Firebase AI Logic (`gemini-2.5 flash- native audio`) | 실시간 음성 대화 모델 |
+| Backend | Firebase / Supabase | Cloud Functions(Python), Firestore, Storage, Auth |
+
+---
+
+## 🏗️ 앱 구조 / 아키텍처
+
+Umma는 책임 분리와 테스트 용이성을 위해 **Clean Architecture + MVVM** 패턴을 기반으로 설계되었습니다.
+
+- **UI Layer (Composable)**: Jetpack Compose로 구성되며, ViewModel의 State를 관찰하여 자동으로 화면을 갱신합니다.
+- **ViewModel**: State & Event를 분리하여 관리하고, UseCase를 호출해 비즈니스 로직을 처리합니다.
+- **Domain Layer (UseCase)**: 비즈니스 규칙을 캡슐화하고, Repository 인터페이스에만 의존하여 계층 간 결합도를 낮춥니다.
+- **Data Layer (Repository)**: Repository 패턴으로 외부 데이터 소스(Gemini Live, Firebase, Room)와의 통신을 추상화합니다.
+- **DI (Hilt)**: 객체 생성과 주입을 자동화하여 모듈 간 의존성을 분리합니다.
+
+```
+UI (Composable) → ViewModel → UseCase → Repository(interface)
+                                            ↓
+                                       RepositoryImpl
+                                            ↓
+                            ┌───────────────┼─────────────────┐
+                       Gemini Live      Firebase            Room
+                     (Firebase AI Logic)    (Firestore/Storage)   (Local DB)
+```
+
+### 🎙️ 실시간 음성 스트리밍 구조
+
+Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화를 위해 다음과 같은 스트리밍 파이프라인을 구성합니다.
+
+- **Audio Input**: `AudioRecord`로 사용자 음성을 캡처하여 청크 단위로 서버에 전송합니다.
+- **Audio Output**: `AudioTrack`으로 AI 응답 음성을 재생합니다.
+- `AudioTrack`: 저레벨 API로 latency가 적지만, 버퍼·포맷을 수동 관리해야 함 (커스텀 자유도 ↑)
+- **대화 주도권 전환**: MVP 단계에서는 **버튼 방식**으로 발화 시점을 명시적으로 제어하고, 추가 개발 기간에 **자동 감지(Barge-in) 방식**으로 전환할 예정입니다.
+
+---
+
+## 📋 팀 컨벤션
+
+### 💬 소통 규칙
+
+- **오전 정기 회의 (09:00 ~ 09:50)**: 한 것 공유 + 할 것 공유 + PR & Merge
+- **오후 정기 회의 (17:00 ~ 17:30)**: 진행 상황 점검 및 이슈 공유
+- **의견 충돌 시**: 근거 및 장단점 비교 후 다수결로 결정
+- **연락 확인**: 매일 오후 6시 ~ 8시 사이 연락 확인
+- **책임 범위가 애매할 시**: 즉시 팀원에게 질문
+
+### 🤝 협업 규칙
+
+#### 브랜치 전략
+- `main`: 배포 가능 상태
+- `develop`: 통합 개발
+- `feature/기능명`: 개인 작업 브랜치 (예: `feature/login`)
+
+#### 커밋 컨벤션
+| 태그 | 설명 |
+|------|------|
+| `Feat` | 기능 추가 |
+| `Fix` | 버그 수정 |
+| `Refactor` | 리팩토링 |
+| `Docs` | 문서 수정 |
+
+#### PR 규칙
+- PR 등록 시 팀원 1명 이상의 리뷰 필수
+- 추가로 이상한 부분이나 궁금한 점이 생기면 코드 리뷰 남기기
+- 본인 approve 금지
+- Merge 전 반드시 빌드 확인
+- 피드백은 코드를 기준으로 진행
+
+### 💻 코드 규칙
+
+- **파일 네이밍**: PascalCase 사용 (예: `SignInViewModel`)
+- **패키지 구조**: feature 기반 구조
+- **아키텍처**: Clean Architecture + MVVM
+- **상태 관리**: State 기반
+- **공통 UI**: `colorScheme` 사용
+- **가독성**: 혼자만 알아볼 수 있는 코드 작성 금지, 필요 시 주석으로 설명
+
+### 📅 일정 / 작업 규칙
+
+- **작업 단위**: 이틀 이상 걸리는 작업은 분리하여 관리
+- **완료 기준**: 기능 동작 + 예외 처리 + 코드 리뷰 완료 + 빌드 성공
+- **타인 코드**: 함부로 수정 금지 (필요 시 담당자와 논의)
+
+### 🌱 생활 규칙
+
+- **지각/불참**: 최소 2시간 전 사전 공유
+- **역할 책임**: 맡은 기능에 문제가 생기면 1시간 내로 팀에 공유
+
+---
+
+## 🚀 실행 방법
+
+- Android Studio Otter 이상 권장
+- JDK 17 이상
+- Android SDK min 26 / target 34 이상
+- 프로젝트 오픈 후 Gradle Sync
+- 에뮬레이터 또는 실기기에서 실행
+
+## ⚙️ 환경 설정
+
+- `google-services.json` 파일이 필요합니다.
+- **Gemini API Key**, **Firebase 설정 키** 등 로컬 키는 커밋하지 않고 `local.properties`에서 관리합니다.
+- Cloud Functions에서 API Key를 보안 관리하므로, 클라이언트는 직접 Gemini API Key를 보유하지 않습니다.
+- 실시간 음성 대화 테스트를 위해 마이크 권한 및 네트워크 환경이 필요합니다.
+
+---
+
+## 🚧 향후 확장 기능 (Future Plans)
+
+- **자동 발화 감지 (Barge-in)**: MVP의 버튼 방식 대화 주도권을 자동 감지로 전환. 사용자 발화 감지 시 `audioTrack.flush()`를 호출하고 서버에 중단 신호 전송.
+- **상황별 말투 모드**: Casual / Business / Travel 등 상황 기반 회화 모드
+- **AI 페르소나 저장 및 선택**: 사용자가 선호하는 AI 캐릭터 저장 및 재사용
+- **다국어 동시 지원**: 영어 외 일본어, 중국어 등 추가 언어 지원
+- **학습 리포트 고도화**: 주간·월간 성장 리포트 및 약점 분석 자동 발송
+
+---
