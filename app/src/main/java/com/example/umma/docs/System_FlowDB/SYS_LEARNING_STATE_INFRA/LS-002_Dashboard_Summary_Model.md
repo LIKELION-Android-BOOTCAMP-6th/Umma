@@ -9,20 +9,20 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `LanguageDashboardSummaryVO`가 `domain/model`에 정의된다.
-- [ ] `LanguageDashboardSummaryVO`는 반드시 `language` 필드를 포함한다.
-- [ ] Dashboard Summary는 언어별(Language Scoped)로 저장된다.
-- [ ] 최근 AI 대화 카드에 필요한 필드가 포함된다.
-- [ ] 교정 대기 카드에 필요한 필드가 포함된다.
-- [ ] Flashcard 학습 카드에 필요한 필드가 포함된다.
-- [ ] 언어 성취율 카드에 필요한 delta 필드가 포함된다.
-- [ ] Dashboard는 `DashboardSummary[selectedLearningLanguage]`만으로 렌더링 가능해야 한다.
-- [ ] Dashboard Summary는 `recentFullContext` 전체를 포함하지 않는다.
-- [ ] Dashboard Summary는 Language State Internal Metrics 전체를 포함하지 않는다.
-- [ ] 신규 사용자용 Empty Dashboard 기본값을 생성할 수 있다.
-- [ ] Firestore 저장 구조가 `users/{uid}/dashboard_summaries/{language}` 기준으로 정의된다.
-- [ ] Local Cache 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
-- [ ] 향후 summary 구조 변경을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
+- [x] `LanguageDashboardSummaryVO`가 `domain/model`에 정의된다.
+- [x] `LanguageDashboardSummaryVO`는 반드시 `language` 필드를 포함한다.
+- [x] Dashboard Summary는 언어별(Language Scoped)로 저장된다.
+- [x] 최근 AI 대화 카드에 필요한 필드가 포함된다.
+- [x] 교정 대기 카드에 필요한 필드가 포함된다.
+- [x] Flashcard 학습 카드에 필요한 필드가 포함된다.
+- [x] 언어 성취율 카드에 필요한 delta 필드가 포함된다.
+- [x] Dashboard는 `DashboardSummary[selectedLearningLanguage]`만으로 렌더링 가능해야 한다.
+- [x] Dashboard Summary는 `recentFullContext` 전체를 포함하지 않는다.
+- [x] Dashboard Summary는 Language State Internal Metrics 전체를 포함하지 않는다.
+- [x] 신규 사용자용 Empty Dashboard 기본값을 생성할 수 있다.
+- [x] Firestore 저장 구조가 `users/{uid}/dashboard_summaries/{language}` 기준으로 정의된다.
+- [x] Local Cache 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
+- [x] 향후 summary 구조 변경을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
 
 ---
 

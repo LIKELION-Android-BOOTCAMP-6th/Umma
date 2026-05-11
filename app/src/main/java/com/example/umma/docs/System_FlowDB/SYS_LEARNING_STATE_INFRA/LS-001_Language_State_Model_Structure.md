@@ -9,19 +9,19 @@ AI 대화 적응용 Internal Metrics와 사용자 통계 표시용 External Metr
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `LanguageStateVO`가 `domain/model`에 정의된다.
-- [ ] `LanguageStateVO`는 반드시 `language` 필드를 포함한다.
-- [ ] Internal Metrics 구조가 `LanguageInternalMetricsVO`로 정의된다.
-- [ ] External Metrics 구조가 `LanguageExternalMetricsVO`로 정의된다.
-- [ ] MVP Internal Metrics 12개가 모두 포함된다.
-- [ ] External Metrics 5개가 모두 포함된다.
-- [ ] `vocabularyLevel`은 CEFR 기반 값(A1~C2)을 표현할 수 있다.
-- [ ] 신규 사용자용 초기 Language State 기본값을 생성할 수 있다.
-- [ ] Firestore 저장 구조가 `users/{uid}/language_states/{language}` 기준으로 정의된다.
-- [ ] Local Cache 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
-- [ ] UI / ViewModel 전용 상태와 Domain VO가 섞이지 않는다.
-- [ ] Language State 모델은 Android `Context`에 의존하지 않는다.
-- [ ] 향후 지표 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
+- [x] `LanguageStateVO`가 `domain/model`에 정의된다.
+- [x] `LanguageStateVO`는 반드시 `language` 필드를 포함한다.
+- [x] Internal Metrics 구조가 `LanguageInternalMetricsVO`로 정의된다.
+- [x] External Metrics 구조가 `LanguageExternalMetricsVO`로 정의된다.
+- [x] MVP Internal Metrics 12개가 모두 포함된다.
+- [x] External Metrics 5개가 모두 포함된다.
+- [x] `vocabularyLevel`은 CEFR 기반 값(A1~C2)을 표현할 수 있다.
+- [x] 신규 사용자용 초기 Language State 기본값을 생성할 수 있다.
+- [x] Firestore 저장 구조가 `users/{uid}/language_states/{language}` 기준으로 정의된다.
+- [x] Local Cache 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
+- [x] UI / ViewModel 전용 상태와 Domain VO가 섞이지 않는다.
+- [x] Language State 모델은 Android `Context`에 의존하지 않는다.
+- [x] 향후 지표 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
 
 ---
 

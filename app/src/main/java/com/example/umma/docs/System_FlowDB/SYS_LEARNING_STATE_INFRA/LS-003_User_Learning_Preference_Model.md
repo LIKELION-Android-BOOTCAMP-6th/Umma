@@ -9,20 +9,20 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `UserLearningPreferenceVO`가 `domain/model`에 정의된다.
-- [ ] `nativeLanguage` 필드가 정의된다.
-- [ ] `primaryLearningLanguage` 필드가 정의된다.
-- [ ] `selectedLearningLanguage` 필드가 정의된다.
-- [ ] `learningLanguages` 필드가 정의된다.
-- [ ] `selectedLearningLanguage`는 현재 앱이 바라보는 학습 언어 컨텍스트로 정의된다.
-- [ ] `language` 필드와 `selectedLearningLanguage`의 차이가 문서화된다.
-- [ ] Initial Setup 완료 시 `selectedLearningLanguage = primaryLearningLanguage`로 초기화된다.
-- [ ] Initial Setup 완료 시 `learningLanguages`에는 `primaryLearningLanguage`가 포함된다.
-- [ ] Dashboard 언어 selector에서 `selectedLearningLanguage`를 변경할 수 있는 모델 구조가 정의된다.
-- [ ] MVP에서는 `learningLanguages`에 존재하는 언어만 선택 가능하도록 제한한다.
-- [ ] Firestore 저장 구조가 `users/{uid}/user_learning_preference/current` 기준으로 정의된다.
-- [ ] Local persist 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
-- [ ] 향후 필드 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
+- [x] `UserLearningPreferenceVO`가 `domain/model`에 정의된다.
+- [x] `nativeLanguage` 필드가 정의된다.
+- [x] `primaryLearningLanguage` 필드가 정의된다.
+- [x] `selectedLearningLanguage` 필드가 정의된다.
+- [x] `learningLanguages` 필드가 정의된다.
+- [x] `selectedLearningLanguage`는 현재 앱이 바라보는 학습 언어 컨텍스트로 정의된다.
+- [x] `language` 필드와 `selectedLearningLanguage`의 차이가 문서화된다.
+- [x] Initial Setup 완료 시 `selectedLearningLanguage = primaryLearningLanguage`로 초기화된다.
+- [x] Initial Setup 완료 시 `learningLanguages`에는 `primaryLearningLanguage`가 포함된다.
+- [x] Dashboard 언어 selector에서 `selectedLearningLanguage`를 변경할 수 있는 모델 구조가 정의된다.
+- [x] MVP에서는 `learningLanguages`에 존재하는 언어만 선택 가능하도록 제한한다.
+- [x] Firestore 저장 구조가 `users/{uid}/user_learning_preference/current` 기준으로 정의된다.
+- [x] Local persist 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
+- [x] 향후 필드 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
 
 ---
 

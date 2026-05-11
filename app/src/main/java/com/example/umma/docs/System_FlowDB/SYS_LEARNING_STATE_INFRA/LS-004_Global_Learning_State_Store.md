@@ -9,20 +9,20 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `GlobalLearningStateVO` 또는 동등한 전역 학습 상태 모델이 정의된다.
-- [ ] `UserLearningPreferenceVO`를 전역 학습 상태에 포함한다.
-- [ ] 언어별 `LanguageStateVO` map 구조를 정의한다.
-- [ ] 언어별 `LanguageDashboardSummaryVO` map 구조를 정의한다.
-- [ ] 언어별 Session Summary 참조 구조를 정의한다.
-- [ ] 언어별 Flashcard Summary 참조 구조를 정의한다.
-- [ ] 현재 선택 언어 기준 상태를 안전하게 조회할 수 있어야 한다.
-- [ ] `selectedLearningLanguage` 변경 시 현재 언어별 상태가 함께 전환될 수 있어야 한다.
-- [ ] Dashboard, AI Chat, Correction, Flashcard, Statistics의 observe 대상이 문서화된다.
-- [ ] Store는 UI 렌더링 상태가 아니라 Domain/App 상태로 정의된다.
-- [ ] Store는 원본 대화 전문 또는 Flashcard 전체 목록을 직접 들고 있지 않는다.
-- [ ] Store 초기 상태, Loading, Error, Empty 정책이 정의된다.
-- [ ] 로그아웃 시 현재 사용자 학습 상태를 초기화할 수 있어야 한다.
-- [ ] Local Cache / Firebase Sync 구현은 LS-005로 분리된다.
+- [x] `GlobalLearningStateVO` 또는 동등한 전역 학습 상태 모델이 정의된다.
+- [x] `UserLearningPreferenceVO`를 전역 학습 상태에 포함한다.
+- [x] 언어별 `LanguageStateVO` map 구조를 정의한다.
+- [x] 언어별 `LanguageDashboardSummaryVO` map 구조를 정의한다.
+- [x] 언어별 Session Summary 참조 구조를 정의한다.
+- [x] 언어별 Flashcard Summary 참조 구조를 정의한다.
+- [x] 현재 선택 언어 기준 상태를 안전하게 조회할 수 있어야 한다.
+- [x] `selectedLearningLanguage` 변경 시 현재 언어별 상태가 함께 전환될 수 있어야 한다.
+- [x] Dashboard, AI Chat, Correction, Flashcard, Statistics의 observe 대상이 문서화된다.
+- [x] Store는 UI 렌더링 상태가 아니라 Domain/App 상태로 정의된다.
+- [x] Store는 원본 대화 전문 또는 Flashcard 전체 목록을 직접 들고 있지 않는다.
+- [x] Store 초기 상태, Loading, Error, Empty 정책이 정의된다.
+- [x] 로그아웃 시 현재 사용자 학습 상태를 초기화할 수 있어야 한다.
+- [x] Local Cache / Firebase Sync 구현은 LS-005로 분리된다.
 
 ---
 
