@@ -17,8 +17,6 @@ import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.feedback.FeedbackDetailScreen
 import com.example.umma.presentation.feedback.FeedbackListScreen
 import com.example.umma.presentation.study.StudyListScreen
-import com.example.umma.presentation.auth.TestSignInScreen
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.umma.presentation.study.StudyDetailScreen
 
 @Composable
