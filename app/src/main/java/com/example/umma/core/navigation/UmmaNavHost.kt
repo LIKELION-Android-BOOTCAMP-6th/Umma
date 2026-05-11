@@ -14,10 +14,8 @@ import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.analytics.AnalyticsScreen
 import com.example.umma.presentation.auth.SignInScreen
 import com.example.umma.presentation.chat.ChatScreen
-import com.example.umma.presentation.feedback.FeedbackDetailScreen
 import com.example.umma.presentation.feedback.FeedbackListScreen
 import com.example.umma.presentation.study.StudyListScreen
-import com.example.umma.presentation.study.StudyDetailScreen
 
 @Composable
 fun UmmaNavHost(
@@ -75,12 +73,7 @@ fun UmmaNavHost(
 
         // 학습 그래프
         navigation<Route.StudyGraph>(startDestination = Route.StudyList) {
-            composable<Route.StudyList> {
-                StudyListScreen {
-                    navController.navigate(Route.StudyDetail)
-                }
-            }
-            composable<Route.StudyDetail> { StudyDetailScreen() }
+            composable<Route.StudyList> { StudyListScreen() }
         }
 
         // 챗(대화) 그래프
@@ -90,12 +83,7 @@ fun UmmaNavHost(
 
         // 교정 그래프
         navigation<Route.FeedbackGraph>(startDestination = Route.FeedbackList) {
-            composable<Route.FeedbackList> {
-                FeedbackListScreen {
-                    navController.navigate(Route.StudyDetail)
-                }
-            }
-            composable<Route.FeedbackDetail> { FeedbackDetailScreen() }
+            composable<Route.FeedbackList> { FeedbackListScreen() }
         }
     }
 }
