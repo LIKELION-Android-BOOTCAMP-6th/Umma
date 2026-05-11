@@ -72,7 +72,6 @@ app/src/main/java/com/example/umma
 ├── core/                   # App-wide common modules
 │   ├── navigation/          # Route, NavHost, BottomBar
 │   ├── theme/               # Color, Type, Theme
-│   ├── util/               # Utilities, Helpers
 │   └── ui/                  # Common UI, LCE, UiText
 ├── di/                     # Dependency Injection Modules
 ├── domain/                 # Pure Kotlin Business Logic

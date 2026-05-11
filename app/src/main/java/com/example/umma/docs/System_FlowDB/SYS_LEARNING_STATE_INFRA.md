@@ -358,8 +358,6 @@ Dashboard는 단일 Summary가 아니라,
 
       "recentConversationTopic":"Travel",
 
-      "activeSessionId":"session_en",
-
       "correctionAvailable":true,
 
       "dueFlashcards":8,
@@ -381,8 +379,6 @@ Dashboard는 단일 Summary가 아니라,
       "recentConversationMinutes":3,
 
       "recentConversationTopic":"Anime",
-
-      "activeSessionId":"session_ja",
 
       "correctionAvailable":false,
 
@@ -542,9 +538,12 @@ GlobalLearningState
 | --- | --- | --- |
 | User Learning Preference | Local persist + Firebase sync | 현재 학습 언어 및 사용자 언어 설정 |
 | Language State | Local persist + Firebase sync | 사용자 장기 언어 상태 |
-| Dashboard Summary | Local cache + TTL | 빠른 Dashboard 출력 |
+| Dashboard Summary | Local cache + updatedAt | 빠른 Dashboard 출력 |
 | Statistics | Firebase fetch + cache | 통계 그래프 데이터 |
 | Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장 |
+
+> MVP에서는 `updatedAt` 기준으로 Local Summary를 우선 렌더링하고 Firebase background sync로 최신화한다.
+> TTL 기반 캐시 만료 정책은 Phase 2에서 검토한다.
 
 ---
 
@@ -635,9 +634,9 @@ Session.language = "en"
 
 | 유형 | 처리 방식 | 설명 |
 | --- | --- | --- |
-| Type A | 코드 계산 | 평균 문장 길이 등 단순 계산 |
-| Type B | 규칙 기반 | 문법/어휘 규칙 분석 |
-| Type C | AI 분석 | 자연스러움/맥락 품질 분석 |
+| Type A | 코드 계산 | 발화 길이, 발화 속도, pause 등 단순 계산 |
+| Type B | 규칙 기반 | 어휘 다양성, CEFR 매핑, 문장 복잡도, 반복 오류 분석 |
+| Type C | AI 분석 | 자연스러움, 자연 표현 사용, 문맥상 어휘 적절성 판단 |
 
 ---
 
@@ -653,8 +652,10 @@ Session.language = "en"
 
 - spoken_naturalness
 - natural_expression_usage
-- contextual_response_quality
-- expression_confidence
+- vocabulary_appropriateness
+
+MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LanguageStateVO`에 저장하지 않고,
+필요 시 분석 과정의 참고값 또는 Phase 2 확장 후보로만 둔다.
 
 ---
 
