@@ -11,18 +11,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.umma.core.navigation.Route
 import com.example.umma.core.navigation.UmmaBottomAppBar
 import com.example.umma.core.navigation.UmmaNavHost
 import com.example.umma.core.theme.UmmaTheme
-import com.example.umma.presentation.analytics.AnalyticsScreen
-import com.example.umma.presentation.chat.ChatScreen
-import com.example.umma.presentation.feed_back.FeedbackListScreen
-import com.example.umma.presentation.study.StudyListScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
