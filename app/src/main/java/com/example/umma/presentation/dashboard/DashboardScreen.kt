@@ -1,4 +1,4 @@
-package com.example.umma.presentation.home
+package com.example.umma.presentation.dashboard
 
 import android.app.Activity
 import android.widget.Toast
@@ -14,7 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
-fun HomeScreen(
+fun DashboardScreen(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToFeedbackList: () -> Unit,

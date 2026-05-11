@@ -30,7 +30,7 @@ sealed interface Route {
 
     // 4. 대시보드
     @Serializable
-    data object Home : Route
+    data object Dashboard : Route
 
     // 5. 대화
     @Serializable

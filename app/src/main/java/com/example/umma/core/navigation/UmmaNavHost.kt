@@ -8,14 +8,14 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
-import com.example.umma.presentation.home.HomeScreen
-import com.example.umma.presentation.home.MyPageScreen
+import com.example.umma.presentation.dashboard.DashboardScreen
+import com.example.umma.presentation.dashboard.MyPageScreen
 import com.example.umma.presentation.OnBoardingScreen
 import com.example.umma.presentation.analytics.AnalyticsScreen
 import com.example.umma.presentation.auth.SignInScreen
 import com.example.umma.presentation.chat.ChatScreen
-import com.example.umma.presentation.feed_back.FeedbackDetailScreen
-import com.example.umma.presentation.feed_back.FeedbackListScreen
+import com.example.umma.presentation.feedback.FeedbackDetailScreen
+import com.example.umma.presentation.feedback.FeedbackListScreen
 import com.example.umma.presentation.study.StudyDetailScreen
 import com.example.umma.presentation.study.StudyListScreen
 
@@ -47,7 +47,7 @@ fun UmmaNavHost(
             }
             composable<Route.SignIn> {
                 SignInScreen {
-                    navController.navigate(Route.Home) {
+                    navController.navigate(Route.Dashboard) {
                         popUpTo(navController.graph.startDestinationId) { inclusive = true }
                     }
                 }
@@ -55,9 +55,9 @@ fun UmmaNavHost(
         }
 
         // 홈 그래프 (마이페이지 포함)
-        navigation<Route.HomeGraph>(startDestination = Route.Home) {
-            composable<Route.Home> {
-                HomeScreen(
+        navigation<Route.HomeGraph>(startDestination = Route.Dashboard) {
+            composable<Route.Dashboard> {
+                DashboardScreen(
                     onNavigateToChat = { navController.navigate(Route.Chat) },
                     onNavigateToAnalytics = { navController.navigate(Route.Analytics) },
                     onNavigateToStudyList = { navController.navigate(Route.StudyList) },

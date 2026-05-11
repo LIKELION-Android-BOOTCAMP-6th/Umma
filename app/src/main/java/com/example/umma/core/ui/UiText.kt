@@ -1,4 +1,4 @@
-package com.example.umma.core.util
+package com.example.umma.core.ui
 
 import android.content.Context
 import androidx.annotation.StringRes
