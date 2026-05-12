@@ -284,6 +284,72 @@ users/{uid}
 - Merge 전 반드시 빌드 확인
 - 피드백은 코드를 기준으로 진행
 
+**PR 템플릿**
+```text
+## Summary
+- 
+
+---
+
+## Related Issue
+- Closes #
+
+---
+
+## What’s Done
+- 
+
+---
+
+## How to Test
+1. 
+
+---
+
+## Notes
+- 
+```
+
+**PR 작성 예시**
+```text
+## Summary
+- SYS-LEARNING-STATE-INFRA 전반 구현
+- Language State, Dashboard Summary, User Learning Preference, Global Learning State, Local Sync, Update Policy 구조 정리
+
+---
+
+## Related Issue
+- Closes #27 
+- Closes #28 
+- Closes #29 
+- Closes #30 
+- Closes #31 
+- Closes #32 
+
+---
+
+## What’s Done
+- `LangState` / `DashSummary` / `UserLangPref` / `GlobalLangState` 모델 정리
+- Local Cache / Firebase Sync 정책 정리
+- Language State 업데이트 입력/계약/UseCase 구조 정리
+- 중복 업데이트 방지 및 batch update 흐름 반영
+- 관련 문서와 코드 네이밍 일관성 맞춤
+
+---
+
+## How to Test
+1. `./gradlew :app:compileDebugKotlin` 실행
+2. 학습 상태 관련 모델/유스케이스 구조 확인
+3. LS-001 ~ LS-006 문서와 코드명이 일치하는지 확인
+
+---
+
+## Notes
+- Repository는 저장만, 정책 계산은 UseCase에서 처리하는 방향으로 맞췄다.
+- 대화세션 관련 모델과 로직은 AI 대화 Flow 작업 전에 추가 구현할 예정이다.
+- MVP 기준으로 필요한 핵심 구조부터 정리했다.
+```
+
 ### 💻 코드 규칙
 
 - **파일 네이밍**: PascalCase 사용 (예: `SignInViewModel`)
