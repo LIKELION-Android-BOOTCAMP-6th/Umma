@@ -126,7 +126,8 @@ ko
 
 - 최초 Language State 생성 기준
 - 최초 Dashboard Summary 생성 기준
-- 최초 Session Memory 생성 기준
+- 최초 Session Summary / Flashcard Summary 생성 기준
+- 이후 AI Chat Flow에서 만들 Session Memory의 언어 기준
 - `selectedLearningLanguage` 초기값
 
 MVP 예시:
@@ -271,9 +272,11 @@ UserLangPref.initial(
 
 - `language_states/{primaryLearningLanguage}`
 - `dashboard_summaries/{primaryLearningLanguage}`
-- `sessions/{primaryLearningLanguage}`
+- `session_summaries/{primaryLearningLanguage}`
+- `flashcard_summaries/{primaryLearningLanguage}`
 
-해당 생성 로직은 AUTH-004와 LS-004 / LS-005에서 다룬다.
+해당 생성 로직은 AUTH-004와 LS-007에서 다룬다.
+실제 원문 turn list를 담는 `sessions/{primaryLearningLanguage}` 문서는 AI Chat Flow 전 별도 SYS Flow에서 다룬다.
 
 ---
 

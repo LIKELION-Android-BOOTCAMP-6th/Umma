@@ -23,11 +23,11 @@ SYS-LEARNING-STATE-INFRA는 Umma 앱에서 가장 중요한 공통 기반이다.
 
 Umma는
 
-**대화 원문은 Session Memory에 두고, 장기 능력은 LangState에 두고, 화면 빠른 출력은 DashSummary에 두고, 전역 선택 상태는 UserLangPref / GlobalLangState로 묶는다.**
+**대화 원문은 이후 Session Memory에 두고, 장기 능력은 LangState에 두고, 화면 빠른 출력은 DashSummary / SessionSummary / FlashcardSummary에 두고, 전역 선택 상태는 UserLangPref / GlobalLangState로 묶는다.**
 
 ---
 
-## 3. 가장 중요한 4개 데이터 묶음
+## 3. 가장 중요한 데이터 묶음
 
 ### 3-1. `UserLangPref`
 
@@ -92,6 +92,27 @@ Dashboard가 `recentFullContext` 전체를 직접 계산하면 느려지고 복�
 
 ---
 
+### 3-5. `FlashcardSummary`
+
+Dashboard가 복습 카드 상태를 빠르게 보여주기 위한 요약이다.
+
+- 오늘 복습해야 할 카드 수
+- 최근 저장한 카드 수
+
+실제 Flashcard 원본과 SRS 계산은 별도 Flashcard Flow에서 다루고,
+Dashboard는 이 요약만 보고 Empty 또는 복습 필요 상태를 표시한다.
+
+---
+
+### 3-6. `SessionMemory`
+
+대화 원문 turn list와 `recentFullContext`를 담는 저장 모델이다.
+
+다만 온보딩과 LS-007에서는 실제 Session Memory 문서를 만들지 않는다.
+AI Chat Flow 작업 전에 별도 SYS Flow에서 원문 저장 구조를 확정한다.
+
+---
+
 ## 4. 전역 상태가 왜 필요한가
 
 앱 전체가 같은 사용자의 같은 언어 상태를 보도록 하기 위해서다.
@@ -100,7 +121,7 @@ Dashboard가 `recentFullContext` 전체를 직접 계산하면 느려지고 복�
 
 - Dashboard는 현재 선택 언어의 `DashSummary`를 본다.
 - AI Chat은 현재 선택 언어의 `LangState`와 `SessionSummary`를 본다.
-- Correction은 `recentFullContext`와 `LangState`를 함께 본다.
+- Correction은 이후 Session Memory의 `recentFullContext`와 `LangState`를 함께 본다.
 - Flashcard는 카드 요약과 복습 상태를 본다.
 
 이걸 화면마다 따로 계산하면 서로 어긋난다.
@@ -146,7 +167,7 @@ Dashboard가 `recentFullContext` 전체를 직접 계산하면 느려지고 복�
 
 쓰는 것:
 
-- `recentFullContext`
+- 이후 Session Memory의 `recentFullContext`
 - 대화 turn 확정값
 
 AI Chat의 목적은 말하는 흐름을 유지하는 것이고, 장기 상태 자체를 매 턴 갱신하는 것이 아니다.
@@ -157,7 +178,7 @@ AI Chat의 목적은 말하는 흐름을 유지하는 것이고, 장기 상태 �
 
 읽는 것:
 
-- `recentFullContext`
+- 이후 Session Memory의 `recentFullContext`
 - `LangState`
 - `SessionSummary`
 
@@ -281,4 +302,3 @@ Repository
 - 언제 갱신되는지
 
 가 자연스럽게 이어진다.
-

@@ -18,7 +18,8 @@
 - [ ] selectedLearningLanguage가 primaryLearningLanguage와 같은 값으로 초기화된다.
 - [ ] 주 학습 언어 기준 Language State 기본값이 생성된다.
 - [ ] 주 학습 언어 기준 Dashboard Summary 기본값이 생성된다.
-- [ ] 주 학습 언어 기준 Session Memory 기본값이 생성된다.
+- [ ] 주 학습 언어 기준 Session Summary 기본값이 생성된다.
+- [ ] 주 학습 언어 기준 Flashcard Summary 기본값이 생성된다.
 - [ ] Initial Setup 완료 후 Dialog가 닫힌다.
 - [ ] 설정 완료 이후 다시 Dialog가 표시되지 않는다.
 - [ ] 입력값 검증이 수행된다.
@@ -47,7 +48,8 @@
 - UserLangPref 저장
 - Language State 기본값 생성
 - Dashboard Summary 기본값 생성
-- Session Memory 기본값 생성
+- Session Summary 기본값 생성
+- Flashcard Summary 기본값 생성
 - 최초 사용자 여부 판별
 - Loading/Error 상태 처리
 
@@ -155,8 +157,9 @@ MVP 지원 언어 예시:
 사용자 프로필 저장
 → UserLangPref 저장
 → Language State 기본값 생성
-→ Session Memory 기본값 생성
 → Dashboard Summary 기본값 생성
+→ Session Summary 기본값 생성
+→ Flashcard Summary 기본값 생성
 → selectedLearningLanguage = primaryLearningLanguage 설정
 → Dashboard 상태 갱신
 → Dialog 종료
@@ -230,8 +233,10 @@ com.example.umma
 ```
 
 > Initial Setup은 사용자 입력 UI만 `presentation/onboarding`에 둔다.
-> UserProfile, UserLangPref, Language State, Session Memory, Dashboard Summary 생성 로직은 UseCase에서 묶고,
+> UserProfile 생성은 온보딩 UseCase에서 함께 처리하되, 학습 상태 초기값은 LS-007의 `LearningStateRepo.createInitial(...)` 계약을 따른다.
+> UserLangPref, Language State, Dashboard Summary, Session Summary, Flashcard Summary 생성 로직은 UseCase에서 묶고,
 > Firestore 저장 구현은 `data` 레이어에 둔다.
+> 실제 원문 turn list를 담는 Session Memory 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현한다.
 
 ---
 
@@ -261,8 +266,9 @@ data class InitialSetupState(
 - 사용자 프로필 저장
 - UserLangPref 저장
 - Language State 초기 생성
-- Session Memory 초기 생성
 - Dashboard Summary 초기 생성
+- Session Summary 초기 생성
+- Flashcard Summary 초기 생성
 - Dialog 종료 이벤트 처리
 
 ---
@@ -348,31 +354,47 @@ Initial Setup 완료 시:
 
 ---
 
-# Session Memory 초기화 정책
+# Session Summary 초기화 정책
 
 Initial Setup 완료 시:
 
-주 학습 언어 기준 재사용 Session Memory 기본값을 생성한다.
+주 학습 언어 기준 Session Summary 기본값을 생성한다.
 
 예시:
 
 ```json
 {
-  "id": "en",
   "language": "en",
-  "recentFullContext": [],
-  "recentTopics": [],
-  "topicSummaries": [],
-  "topicKeySentences": [],
   "correctionAvailable": false,
   "recentConversationMinutes": 0,
-  "lastCompressedAt": null,
   "updatedAt": "timestamp"
 }
 ```
 
-Session Memory는 대화 1회마다 새로 생성되는 문서가 아니라,
-현재 선택 언어의 AI Chat / Correction / Dashboard가 함께 참조하는 언어별 재사용 세션 문서이다.
+Session Summary는 Dashboard / Correction 진입 판단에 필요한 최소 요약 데이터이다.
+원문 turn list, `recentFullContext`, 압축 대화 기억을 포함하는 실제 Session Memory 모델은
+AI Chat Flow 전 별도 SYS Flow에서 구현한다.
+
+---
+
+# Flashcard Summary 초기화 정책
+
+Initial Setup 완료 시:
+
+주 학습 언어 기준 Flashcard Summary 기본값을 생성한다.
+
+예시:
+
+```json
+{
+  "language": "en",
+  "dueFlashcards": 0,
+  "recentSavedFlashcards": 0,
+  "updatedAt": "timestamp"
+}
+```
+
+Flashcard Summary는 Dashboard의 복습 카드 상태를 Empty 상태로 렌더링하기 위한 초기 요약 데이터이다.
 
 ---
 
@@ -418,6 +440,8 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 - selectedLearningLanguage 초기화 실패
 - Language State 생성 실패
 - Dashboard Summary 생성 실패
+- Session Summary 생성 실패
+- Flashcard Summary 생성 실패
 - 주 학습 언어 null 상태 저장 시도
 - Firestore 문서 일부만 생성된 상태
 
@@ -471,7 +495,7 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 6. 주 학습 언어 선택
 7. 관심 주제 5개 선택
 8. 저장 완료
-9. UserLangPref / Language State / Session Memory / Dashboard Summary 생성 확인
+9. UserLangPref / Language State / Dashboard Summary / Session Summary / Flashcard Summary 생성 확인
 10. Dialog 종료 확인
 
 ---
@@ -488,10 +512,11 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 ## 검토 후 수정 메모
 
 - 기존 `targetLanguage`, `selectedLanguage` 표현을 제거하고 `nativeLanguage`, `primaryLearningLanguage`, `selectedLearningLanguage`, `learningLanguages` 구조로 수정한다.
-- Initial Setup은 사용자 프로필뿐 아니라 UserLangPref, Language State, Session Memory, Dashboard Summary 초기값까지 생성한다.
+- Initial Setup은 사용자 프로필뿐 아니라 UserLangPref, Language State, Dashboard Summary, Session Summary, Flashcard Summary 초기값까지 생성한다.
 - MVP에서는 추가 학습 언어 등록은 제외하고, 주 학습 언어 1개만 선택한다.
 - `selectedLearningLanguage`는 데이터의 소속 필드가 아니라 현재 앱 언어 컨텍스트이므로 `primaryLearningLanguage`와 같은 값으로 초기화한다.
 - Firestore 일부 저장 실패에 대비해 batch/transaction 또는 재시도 가능한 보정 로직이 필요하다.
+- 실제 원문 Session Memory 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현하며, 온보딩은 `SessionSummary` 초기값까지만 만든다.
 
 ---
 

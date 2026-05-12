@@ -91,6 +91,7 @@ dependencies {
 
     // DataStore
     implementation(libs.datastore.preferences)
+    implementation(libs.kotlinx.serialization.json)
 
     // Firebase & AI & Auth
     implementation(platform(libs.firebase.bom))
