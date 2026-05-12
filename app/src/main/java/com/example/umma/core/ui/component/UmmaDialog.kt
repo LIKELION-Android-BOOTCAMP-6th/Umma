@@ -74,7 +74,7 @@ fun UmmaDialog(
                         )
                     }
                 }
-
+                // 다이얼로그 타이틀
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = title,
