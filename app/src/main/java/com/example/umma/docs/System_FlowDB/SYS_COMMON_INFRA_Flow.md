@@ -81,6 +81,10 @@
 - Firestore, Auth 초기화 및 Dependency Injection(Hilt/Koin) 설정
 - 10초 타임아웃 및 네트워크 상태 모니터링 모듈 구성
 
+> SYS-COMMON-INFRA는 Firebase/Auth/DI 연결 기반까지만 제공한다.
+> UserProfile, UserLangPref, Language State, Dashboard Summary, Session Summary, Flashcard Summary의
+> 실제 저장 계약과 Firestore 문서 구조는 각 기능 Flow와 `SYS-LEARNING-STATE-INFRA`의 `LS-007`을 따른다.
+
 ---
 
 ## 5. 예외 상황 및 대응 (Edge Case)

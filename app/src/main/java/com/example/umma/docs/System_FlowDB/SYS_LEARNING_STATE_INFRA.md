@@ -66,6 +66,8 @@ AI Chat의 대화 연속성과 교정 전 full context를 관리하는 언어별
 
 Session Memory는 대화 1회마다 새 문서를 생성하지 않는다.
 사용자와 학습 언어 기준으로 하나의 세션 문서를 재사용한다.
+MVP에서는 Summary 계열과 초기 저장 계약을 먼저 DataStore 기반으로 안정화하고,
+실제 원문 turn list와 장기 세션 보관이 커지는 시점에 Room 기반 저장으로 확장한다.
 
 예:
 
@@ -220,6 +222,7 @@ Firebase를 매번 조회하지 않고,
 | 4. Global Learning State 구성 | 전역 학습 상태 Store 구성 | 여러 화면에서 상태 공유 가능 | 성공: 상태 공유 완료 / 실패: 상태 동기화 오류 | LS-004 |
 | 5. 로컬 캐시 및 Firebase 동기화 정책 정의 | persist / fetch / sync 구조 정의 | 로컬 우선 읽기 및 batch 저장 가능 | 성공: 상태 동기화 완료 / 실패: 데이터 충돌 | LS-005 |
 | 6. Language State 업데이트 정책 정의 | 교정 또는 학습 분석 시점의 batch 업데이트 로직 정의 | 안정적인 상태 갱신 가능 | 성공: 이동평균 반영 완료 / 실패: 급격한 상태 변동 | LS-006 |
+| 7. Initial Learning State 초기 저장 계약 정의 | Initial Setup 완료 시 학습 상태 초기값 저장 계약 정의 | 온보딩 완료 후 Dashboard 진입 가능 | 성공: 초기 학습 상태 생성 완료 / 실패: 부분 생성 또는 저장 실패 | LS-007 |
 
 ---
 
@@ -440,7 +443,8 @@ Dashboard는 단일 Summary가 아니라,
 
 - 온보딩에서 모국어와 주 학습 언어를 선택한다.
 - 저장 완료 시 `selectedLearningLanguage`는 `primaryLearningLanguage`와 같은 값으로 설정한다.
-- 주 학습 언어의 Language State와 Dashboard Summary 초기값을 생성한다.
+- 주 학습 언어의 Language State, Dashboard Summary, Session Summary, Flashcard Summary 초기값을 생성한다.
+- 실제 원문 Session Memory 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현한다.
 
 ---
 
@@ -541,8 +545,10 @@ GlobalLangState
 | User Learning Preference | Local persist + Firebase sync | 현재 학습 언어 및 사용자 언어 설정 |
 | Language State | Local persist + Firebase sync | 사용자 장기 언어 상태 |
 | Dashboard Summary | Local cache + updatedAt | 빠른 Dashboard 출력 |
+| Session Summary | Local cache + updatedAt | Dashboard / Correction 진입 판단용 세션 요약 |
+| Flashcard Summary | Local cache + updatedAt | Dashboard 복습 카드 상태 요약 |
 | Statistics | Firebase fetch + cache | 통계 그래프 데이터 |
-| Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장 |
+| Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장, Room 전환 후보 |
 
 > MVP에서는 `updatedAt` 기준으로 Local Summary를 우선 렌더링하고 Firebase background sync로 최신화한다.
 > TTL 기반 캐시 만료 정책은 Phase 2에서 검토한다.
@@ -578,6 +584,8 @@ Umma의 학습 데이터는 모두 언어별(language scoped)로 저장한다.
 | User Learning Preference | X | O | DataStore | Firestore | 현재 선택 언어 및 언어 설정 |
 | Language State | O | O | DataStore | Firestore | 장기 언어 능력 상태 |
 | Dashboard Summary | O | O | DataStore | Firestore | Dashboard preload용 요약 데이터 |
+| Session Summary | O | O | DataStore | Firestore | Dashboard / Correction 진입 판단용 세션 요약 |
+| Flashcard Summary | O | O | DataStore | Firestore | Dashboard 복습 카드 상태 요약 |
 | Session Memory | O | O | Room | Firestore | turn list 기반 full context 및 압축 대화 기억 |
 | Flashcard | O | O | Room | Firestore | SRS 반복 학습 카드 |
 | Statistics | O | O | Room/DataStore | Firestore | 통계 그래프 및 성장 데이터 |
@@ -658,6 +666,46 @@ Session.language = "en"
 
 MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LangState`에 저장하지 않고,
 필요 시 분석 과정의 참고값 또는 Phase 2 확장 후보로만 둔다.
+
+---
+
+## [LS-007] Initial Learning State Persistence Contract
+
+### 포함 내용
+
+- Initial Setup 완료 시 생성할 학습 상태 초기 데이터 묶음
+- `UserLangPref`, `LangState`, `DashSummary`, `SessionSummary`, `FlashcardSummary` 초기값 생성 계약
+- `LearningStateRepoImpl`의 초기 저장 책임
+- Kotlin Domain 필드와 Firestore 필드 간 mapper 규칙
+- 저장 실패 / 재시도 / 부분 생성 복구 정책
+- Session Memory 원문 모델의 보류 범위
+- 현재 MVP는 DataStore 기반 저장부터 시작하고, Session Memory 원문과 고빈도 변경 데이터는 이후 Room으로 옮긴다.
+
+---
+
+### Initial Setup 초기 저장 흐름
+
+```text
+Initial Setup 완료
+→ UserLangPref.initial(nativeLang, primaryLang)
+→ LangState.initial(primaryLang)
+→ DashSummary.initial(primaryLang)
+→ SessionSummary.initial(primaryLang)
+→ FlashcardSummary.initial(primaryLang)
+→ LearningStateRepo.createInitial(...)
+→ Local / Remote 저장
+→ GlobalLangState 갱신
+→ Dashboard 진입
+```
+
+---
+
+### 책임 경계
+
+- `UserProfile` 생성은 AUTH / UserProfile 영역에서 다룬다.
+- 학습 상태 초기값 생성은 LS-007 계약을 따른다.
+- 실제 원문 turn list를 담는 Session Memory 모델은 AI Chat 전 별도 SYS Flow에서 구현한다.
+- 온보딩은 우선 `SessionSummary.initial(...)`만 생성해 Dashboard 진입 가능 상태를 만든다.
 
 ---
 

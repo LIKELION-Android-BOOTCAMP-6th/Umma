@@ -15,7 +15,7 @@
 - [ ] 앱 재실행 시 Firebase 세션이 유지된다.
 - [ ] 로그인 성공 후 Dashboard 화면으로 이동한다.
 - [ ] 최초 사용자일 경우 Initial Setup Dialog가 표시된다.
-- [ ] Initial Setup 완료 후 사용자 프로필이 저장된다.
+- [ ] Initial Setup 완료 후 사용자 프로필과 학습 상태 초기값 저장은 AUTH-004 기준으로 위임된다.
 - [ ] 로그인 진행 중 중복 요청이 방지된다.
 - [ ] 인증 실패 시 에러 메시지를 표시한다.
 
@@ -37,7 +37,6 @@
 - Firebase 사용자 인증 처리
 - Dashboard 화면 이동 처리
 - Initial Setup Dialog 표시
-- 사용자 프로필 저장
 - Loading/Error 상태 처리
 
 ---
@@ -126,6 +125,8 @@ Dashboard 진입 직후 Initial Setup Dialog 표시.
 ```
 
 `selectedLearningLanguage`는 Initial Setup 저장 시 `primaryLearningLanguage`와 같은 값으로 초기화한다.
+
+> Initial Setup의 실제 저장 범위와 학습 상태 초기값 생성 계약은 AUTH-004 및 `SYS-LEARNING-STATE-INFRA`의 LS-007을 따른다.
 
 ---
 
@@ -216,7 +217,8 @@ data class InitialSetupState(
 
 ## users/{uid}
 
-최초 로그인 성공 시 생성.
+Initial Setup 완료 시 AUTH-004 기준으로 생성 또는 보정한다.
+AUTH-001은 Firebase Auth 사용자 인증과 uid 획득까지만 담당한다.
 
 ```json
 {
@@ -238,7 +240,7 @@ data class InitialSetupState(
 
 ## users/{uid}/user_learning_preference/current
 
-Initial Setup 완료 시 생성.
+Initial Setup 완료 시 AUTH-004와 LS-007 기준으로 생성한다.
 
 ```json
 {
