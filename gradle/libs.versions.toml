@@ -42,6 +42,7 @@ compose-icons-extended = { group = "androidx.compose.material", name = "material
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom"}
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
 
 # Google Credential Manager(Auth)
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "googleCredentials" }
