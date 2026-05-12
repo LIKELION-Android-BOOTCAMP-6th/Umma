@@ -12,7 +12,7 @@
 - 사용자가 로그인된 상태
 - Initial Setup 완료 상태
 - Global Learning State preload 완료 상태
-- UserLearningPreference preload 완료 상태
+- UserLangPref preload 완료 상태
 - selectedLearningLanguage가 존재하는 상태
 - 인터넷 연결 가능 상태 (오프라인 시 Local Cache 사용 가능)
 
@@ -33,7 +33,7 @@
 
 | 단계 | 사용자 행동 | 시스템 반응 | 성공 분기 | 실패 분기 | 상태 | 예외 처리 | Flow 상세 페이지 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Dashboard 진입 | Dashboard 화면 진입 | UserLearningPreference와 selectedLearningLanguage preload 후 해당 언어의 Dashboard Summary fetch | 현재 선택 언어 기준 Dashboard 카드 출력 | Preference 또는 Summary fetch 실패 | Loading / Content | Preference 없음 시 primaryLearningLanguage fallback / Firebase 실패 시 Local Cache fallback | DASH-001 |
+| Dashboard 진입 | Dashboard 화면 진입 | UserLangPref와 selectedLearningLanguage preload 후 해당 언어의 Dashboard Summary fetch | 현재 선택 언어 기준 Dashboard 카드 출력 | Preference 또는 Summary fetch 실패 | Loading / Content | Preference 없음 시 primaryLearningLanguage fallback / Firebase 실패 시 Local Cache fallback | DASH-001 |
 | 학습 언어 변경 | 언어 selector에서 학습 언어 선택 | selectedLearningLanguage 갱신 및 해당 언어 Summary 로드 | 선택 언어 기준 카드 재렌더링 | 언어 변경 저장 실패 | Content / Saving | 저장 실패 시 이전 선택 언어 유지 및 Snackbar 표시 | DASH-006 |
 | 최근 AI 대화 카드 확인 | 최근 대화 카드 확인 및 클릭 | 현재 선택 언어의 최근 대화 정보 렌더링 및 AI Chat 이동 | AI Chat 화면 진입 | Navigation 실패 | Content / Navigation Loading | 현재 언어의 최근 대화 데이터 없음 처리 | DASH-002 |
 | 교정 대기 카드 확인 | 최근 대화 기록 카드 확인 및 클릭 | 현재 선택 언어의 교정 가능 상태 렌더링 및 교정 화면 이동 | Correction 화면 진입 | Navigation 실패 | Content / Navigation Loading | 현재 언어의 recentFullContext 없음 처리 | DASH-003 |
@@ -99,7 +99,7 @@ English
 
 - selectedLearningLanguage
 - learningLanguages
-- 언어별 DashboardSummary 존재 여부
+- 언어별 DashSummary 존재 여부
 
 ### 변경 정책
 
@@ -148,7 +148,7 @@ AI 대화하러 가기
 ### 사용 데이터
 
 - selectedLearningLanguage
-- recentFullContext 존재 여부
+- correctionAvailable
 - 최근 대화 길이
 
 ---
@@ -195,10 +195,10 @@ AI 대화하러 가기
 ### 사용 데이터
 
 - selectedLearningLanguage
-- grammar_accuracy
-- lexical_diversity
-- fluency_score
-- spoken_naturalness
+- grammarScoreDelta
+- vocabularyScoreDelta
+- fluencyScoreDelta
+- naturalnessScoreDelta
 
 ---
 
@@ -264,7 +264,7 @@ Dashboard는:
 대신:
 
 ```text
-DashboardSummary[selectedLearningLanguage]
+DashSummary[selectedLearningLanguage]
 ```
 
 만 사용하여 빠르게 출력한다.

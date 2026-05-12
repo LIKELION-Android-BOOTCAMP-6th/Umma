@@ -17,7 +17,7 @@
 - [ ] 로그아웃 진행 중 중복 요청이 방지된다.
 - [ ] 로그아웃 실패 시 에러 메시지를 표시한다.
 - [ ] 로그아웃 후 전역 사용자 상태(Global State)가 초기화된다.
-- [ ] 로그아웃 후 UserLearningPreference와 selectedLearningLanguage가 현재 앱 세션에서 제거된다.
+- [ ] 로그아웃 후 UserLangPref와 selectedLearningLanguage가 현재 앱 세션에서 제거된다.
 - [ ] 로그아웃 후 BackStack이 초기화되어 이전 사용자 화면으로 복귀할 수 없다.
 
 ---
@@ -49,7 +49,7 @@
 - 사용자 프로필 삭제
 - Language State 삭제
 - Flashcard 데이터 삭제
-- UserLearningPreference 원격 데이터 삭제
+- UserLangPref 원격 데이터 삭제
 - 로컬 영구 학습 데이터 삭제
 
 > Firebase Auth 및 Google 로그인 연동 환경은 SYS-COMMON-INFRA에서 선행 구성된 상태를 전제로 한다.
@@ -80,8 +80,8 @@
 다음 데이터 초기화:
 
 - 현재 사용자 세션
-- GlobalLearningState
-- UserLearningPreference
+- GlobalLangState
+- UserLangPref
 - selectedLearningLanguage
 - Dashboard Summary 인메모리 캐시
 - 현재 대화 세션 상태
@@ -96,7 +96,7 @@
 다음 데이터는 Firebase에 유지:
 
 - User Profile
-- UserLearningPreference
+- UserLangPref
 - Language State
 - Flashcard
 - Statistics
@@ -164,13 +164,14 @@ com.example.umma
 │   └── AuthViewModel.kt
 ├── domain/repository/
 │   ├── AuthRepository.kt
-│   └── LearningStateRepository.kt
+│   └── LearningStateRepo.kt
 ├── domain/usecase/
-│   ├── LogoutUseCase.kt
-│   └── ClearCurrentUserLearningStateUseCase.kt
+│   └── LogoutUseCase.kt
+├── domain/usecase/learningstate/
+│   └── LearningStateWriteUseCases.kt
 ├── data/repository/
 │   ├── AuthRepositoryImpl.kt
-│   └── LearningStateRepositoryImpl.kt
+│   └── LearningStateRepoImpl.kt
 └── data/source/remote/
     ├── FirebaseAuthDataSource.kt
     └── GoogleAuthDataSource.kt
@@ -213,10 +214,10 @@ sealed interface LogoutUiState {
 ## 초기화 대상 예시
 
 ```text
-GlobalLearningState
-UserLearningPreference
+GlobalLangState
+UserLangPref
 selectedLearningLanguage
-DashboardSummary in-memory cache
+DashSummary in-memory cache
 CurrentSessionMemory
 CurrentUserState
 ```
@@ -253,7 +254,7 @@ CurrentUserState
 - 로그아웃 후 뒤로가기 시 이전 화면 노출
 - 로그아웃 직후 자동 로그인 발생
 - Global State 일부 초기화 실패
-- UserLearningPreference가 앱 세션에 남아 있음
+- UserLangPref가 앱 세션에 남아 있음
 - selectedLearningLanguage가 이전 사용자 값으로 남아 있음
 - uid 기반 로컬 캐시 격리 실패
 - 로그아웃 중 Activity recreate
@@ -324,7 +325,7 @@ CurrentUserState
 ## 검토 후 수정 메모
 
 - 로그아웃은 계정 삭제가 아니므로 Firebase 원격 학습 데이터는 유지한다.
-- `UserLearningPreference`와 `selectedLearningLanguage`는 원격 데이터 삭제 대상이 아니라 현재 앱 세션 초기화 대상이다.
+- `UserLangPref`와 `selectedLearningLanguage`는 원격 데이터 삭제 대상이 아니라 현재 앱 세션 초기화 대상이다.
 - Dashboard Summary, Language State, Flashcard 등 로컬 영구 데이터는 삭제하지 않는 것을 기본으로 하되 uid 기준으로 격리한다.
 - Onboarding 이동 시 BackStack을 초기화하여 이전 사용자 화면이 노출되지 않도록 한다.
 

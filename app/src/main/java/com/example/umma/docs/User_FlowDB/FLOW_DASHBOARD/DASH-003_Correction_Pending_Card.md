@@ -15,7 +15,6 @@
 - [ ] 최근 대화 시간이 표시된다.
 - [ ] 현재 선택 언어의 재사용 Session Memory에 교정 가능한 대화가 있는지 표시된다.
 - [ ] 카드 클릭 시 Correction 화면으로 이동한다.
-- [ ] activeSessionId가 교정 화면으로 전달된다.
 - [ ] selectedLearningLanguage가 교정 화면으로 전달된다.
 - [ ] recentFullContext가 없을 경우 Empty 상태가 표시된다.
 - [ ] 카드 클릭 중 중복 Navigation이 방지된다.
@@ -35,9 +34,8 @@
 
 - 교정 대기 카드 UI
 - correctionAvailable 상태 렌더링
-- 최근 recentFullContext 상태 표시
+- 교정 가능한 대화 존재 여부 표시
 - Correction 화면 이동 처리
-- activeSessionId 전달
 - selectedLearningLanguage 전달
 - Empty 상태 처리
 - Navigation Loading 처리
@@ -97,17 +95,15 @@
 
 ## 사용 데이터
 
-### LanguageDashboardSummary
+### DashSummary
 
-`DASH-001`에서 로드된 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
+`DASH-001`에서 로드된 `DashSummary[selectedLearningLanguage]`를 사용한다.
 
 ```json
 {
   "language":"en",
 
   "recentConversationMinutes":12,
-
-  "activeSessionId":"session_en",
 
   "correctionAvailable":true
 }
@@ -120,7 +116,6 @@
 - selectedLearningLanguage
 - language
 - recentConversationMinutes
-- activeSessionId
 - correctionAvailable
 
 ---
@@ -180,7 +175,7 @@ Dashboard는 Session Memory의 `recentFullContext` 전체를 렌더링하지 않
 교정 대기 카드는:
 
 ```text
-DashboardSummary[selectedLearningLanguage]
+DashSummary[selectedLearningLanguage]
 ```
 
 기반으로 렌더링된다.
@@ -215,7 +210,6 @@ Dashboard
 Correction 화면으로:
 
 ```kotlin
-activeSessionId
 selectedLearningLanguage
 ```
 
@@ -228,7 +222,8 @@ selectedLearningLanguage
 Correction 화면은:
 
 ```text
-activeSessionId 기반 Session Memory 조회
+selectedLearningLanguage 기준 Session Memory 조회
+→ users/{uid}/sessions/{selectedLearningLanguage}
 → recentFullContext에서 user turn 중심 교정 후보 추출
 ```
 
@@ -272,8 +267,8 @@ com.example.umma
 │   └── DashboardScreen.kt
 ├── core/navigation/
 │   └── Route.kt
-└── domain/model/
-    └── LanguageDashboardSummaryVO.kt
+└── domain/model/learningstate/
+    └── LearningSummaryModels.kt
 ```
 
 > Dashboard 카드는 `presentation/dashboard/components`에 둔다.
@@ -295,11 +290,11 @@ CorrectionPendingCard
 @Composable
 fun CorrectionPendingCard(
 
-    summary: LanguageDashboardSummaryVO,
+    summary: DashSummary,
 
     selectedLearningLanguage: String,
 
-    onClick: (String, String) -> Unit
+    onClick: (String) -> Unit
 )
 ```
 
@@ -308,8 +303,7 @@ fun CorrectionPendingCard(
 ## 권장 Navigation 전달 값
 
 ```kotlin
-activeSessionId: String
-language: String // selectedLearningLanguage
+val language: String // selectedLearningLanguage
 ```
 
 ---
@@ -321,8 +315,6 @@ language: String // selectedLearningLanguage
   "language":"en",
 
   "recentConversationMinutes":12,
-
-  "activeSessionId":"session_en",
 
   "correctionAvailable":true
 }
@@ -365,7 +357,6 @@ Dashboard preload 중:
 
 ## Fatal Error
 
-- activeSessionId null 상태에서 correctionAvailable == true
 - summary null
 - selectedLearningLanguage null
 - summary.language와 selectedLearningLanguage 불일치
@@ -385,7 +376,6 @@ Dashboard preload 중:
 # Edge Cases
 
 - correctionAvailable false
-- activeSessionId null
 - recentConversationMinutes 0
 - selectedLearningLanguage null
 - summary.language와 selectedLearningLanguage 불일치
@@ -438,8 +428,8 @@ Dashboard preload 중:
 2. 교정 대기 카드 출력
 3. 카드 클릭
 4. Correction 화면 이동
-5. activeSessionId 전달 확인
-6. selectedLearningLanguage 전달 확인
+5. selectedLearningLanguage 전달 확인
+6. Correction 화면에서 `users/{uid}/sessions/{selectedLearningLanguage}` 조회 확인
 
 ---
 
@@ -454,19 +444,18 @@ Dashboard preload 중:
 ## 실패 흐름
 
 1. Navigation 실패
-2. activeSessionId null
-3. summary null
-4. 카드 중복 클릭
+2. summary null
+3. 카드 중복 클릭
 
 ---
 
 ## 검토 후 수정 메모
 
 - `DASH-003`은 여러 언어의 교정 대기 카드를 동시에 렌더링하지 않는다.
-- 카드 데이터는 `DASH-001`에서 로드된 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
-- Correction 화면에는 `activeSessionId`와 `selectedLearningLanguage`를 전달한다.
-- `activeSessionId`는 대화 1회마다 생성되는 세션이 아니라 현재 선택 언어의 재사용 Session Memory를 가리킨다.
-- Dashboard에서는 `recentFullContext` 전체를 preload하지 않고, Correction 화면이 `activeSessionId` 기준으로 Session Memory를 조회한다.
+- 카드 데이터는 `DASH-001`에서 로드된 `DashSummary[selectedLearningLanguage]`를 사용한다.
+- Correction 화면에는 `selectedLearningLanguage`를 전달한다.
+- 현재 선택 언어의 재사용 Session Memory는 `users/{uid}/sessions/{selectedLearningLanguage}` 기준으로 조회한다.
+- Dashboard에서는 `recentFullContext` 전체를 preload하지 않고, Correction 화면이 선택 언어 기준으로 Session Memory를 조회한다.
 - 학습 언어 변경은 `DASH-006`에서 처리한다.
 
 ---

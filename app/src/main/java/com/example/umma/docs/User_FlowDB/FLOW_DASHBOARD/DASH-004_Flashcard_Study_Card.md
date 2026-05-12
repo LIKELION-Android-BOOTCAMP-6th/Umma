@@ -93,9 +93,9 @@ SRS 학습 화면 진입 CTA
 
 ## 사용 데이터
 
-### LanguageDashboardSummary
+### DashSummary
 
-`DASH-001`에서 로드된 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
+`DASH-001`에서 로드된 `DashSummary[selectedLearningLanguage]`를 사용한다.
 
 ```json
 {
@@ -155,7 +155,7 @@ SRS 학습 화면 진입 CTA
 Flashcard 학습 카드는:
 
 ```text
-DashboardSummary[selectedLearningLanguage]
+DashSummary[selectedLearningLanguage]
 ```
 
 기반으로 렌더링된다.
@@ -238,8 +238,8 @@ com.example.umma
 │   └── DashboardScreen.kt
 ├── core/navigation/
 │   └── Route.kt
-└── domain/model/
-    └── LanguageDashboardSummaryVO.kt
+└── domain/model/learningstate/
+    └── LearningSummaryModels.kt
 ```
 
 > Dashboard 카드는 `presentation/dashboard/components`에 둔다.
@@ -261,7 +261,7 @@ FlashcardStudyCard
 @Composable
 fun FlashcardStudyCard(
 
-    summary: LanguageDashboardSummaryVO,
+    summary: DashSummary,
 
     selectedLearningLanguage: String,
 
@@ -422,7 +422,7 @@ Dashboard preload 중:
 ## 검토 후 수정 메모
 
 - `DASH-004`는 여러 언어의 Flashcard 카드를 동시에 렌더링하지 않는다.
-- 카드 데이터는 `DASH-001`에서 로드된 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
+- 카드 데이터는 `DASH-001`에서 로드된 `DashSummary[selectedLearningLanguage]`를 사용한다.
 - Flashcard 학습 화면에는 현재 앱 컨텍스트인 `selectedLearningLanguage`를 전달한다.
 - SRS 알고리즘과 실제 카드 학습 로직은 이 이슈 범위에서 제외한다.
 - 학습 언어 변경은 `DASH-006`에서 처리한다.

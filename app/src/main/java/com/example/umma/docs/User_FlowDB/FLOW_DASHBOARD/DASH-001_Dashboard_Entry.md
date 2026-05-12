@@ -8,8 +8,8 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] Dashboard 진입 시 LanguageDashboardSummary fetch가 수행된다.
-- [ ] Dashboard 진입 시 UserLearningPreference preload가 수행된다.
+- [ ] Dashboard 진입 시 DashSummary fetch가 수행된다.
+- [ ] Dashboard 진입 시 UserLangPref preload가 수행된다.
 - [ ] selectedLearningLanguage가 확인된다.
 - [ ] Local Cache 기반으로 Dashboard가 빠르게 렌더링된다.
 - [ ] 현재 선택 언어 기준 Dashboard 카드 데이터가 정상 출력된다.
@@ -35,9 +35,9 @@
 ## 포함 범위
 
 - Dashboard preload 처리
-- UserLearningPreference preload
+- UserLangPref preload
 - selectedLearningLanguage 확인
-- LanguageDashboardSummary fetch
+- DashSummary fetch
 - Local Cache 조회
 - Firebase background sync
 - Loading/Error/Empty 상태 처리
@@ -69,9 +69,9 @@
 Dashboard 진입 시:
 
 ```text
-UserLearningPreference Local preload
+UserLangPref Local preload
 → selectedLearningLanguage 확인
-→ DashboardSummary[selectedLearningLanguage] Local Cache preload
+→ DashSummary[selectedLearningLanguage] Local Cache preload
 → 현재 선택 언어 기준 Dashboard 즉시 렌더링
 → Firebase background sync
 → 변경사항 존재 시 UI 갱신
@@ -102,12 +102,12 @@ Dashboard는:
 를 직접 계산하지 않는다.
 
 또한 Dashboard는 Session Memory의 `recentFullContext`를 직접 조회하지 않는다.
-교정 가능 여부와 최근 대화 길이는 `DashboardSummary[selectedLearningLanguage]`에 저장된 요약값만 사용한다.
+교정 가능 여부와 최근 대화 길이는 `DashSummary[selectedLearningLanguage]`에 저장된 요약값만 사용한다.
 
 대신:
 
 ```text
-LanguageDashboardSummary[selectedLearningLanguage]
+DashSummary[selectedLearningLanguage]
 ```
 
 데이터만 사용하여 빠르게 렌더링한다.
@@ -170,7 +170,6 @@ selectedLearningLanguage = "en"
 사용 데이터:
 
 - correctionAvailable
-- activeSessionId
 - recentConversationMinutes
 - selectedLearningLanguage
 
@@ -276,16 +275,15 @@ com.example.umma
 │   ├── DashboardScreen.kt
 │   ├── DashboardViewModel.kt
 │   └── components/
-├── domain/model/
-│   ├── LanguageDashboardSummaryVO.kt
-│   └── UserLearningPreferenceVO.kt
+├── domain/model/learningstate/
+│   ├── LearningSummaryModels.kt
+│   └── LearningProfileModels.kt
 ├── domain/repository/
-│   └── LearningStateRepository.kt
-├── domain/usecase/
-│   ├── PreloadDashboardUseCase.kt
-│   └── ObserveDashboardSummaryUseCase.kt
+│   └── LearningStateRepo.kt
+├── domain/usecase/learningstate/
+│   └── LearningStateReadUseCases.kt
 ├── data/repository/
-│   └── LearningStateRepositoryImpl.kt
+│   └── LearningStateRepoImpl.kt
 ├── data/source/local/
 │   └── DashboardLocalDataSource.kt
 └── data/source/remote/
@@ -307,7 +305,7 @@ data class DashboardUiState(
 
     val selectedLearningLanguage: Language? = null,
 
-    val summary: LanguageDashboardSummaryVO? = null,
+    val summary: DashSummary? = null,
 
     val errorMessage: UiText? = null,
 
@@ -324,17 +322,17 @@ data class DashboardUiState(
 역할:
 
 - Dashboard preload
-- UserLearningPreference preload
+- UserLangPref preload
 - selectedLearningLanguage 확인
 - Local Cache fetch
 - Firebase background sync
-- LanguageDashboardSummary 상태 관리
+- DashSummary 상태 관리
 - Empty/Error 상태 처리
 - 현재 선택 언어 기준 Summary 렌더링 관리
 
 ---
 
-# LanguageDashboardSummary 예시
+# DashSummary 예시
 
 ```json
 {
@@ -343,8 +341,6 @@ data class DashboardUiState(
   "recentConversationMinutes":12,
 
   "recentConversationTopic":"Travel",
-
-  "activeSessionId":"session_en",
 
   "correctionAvailable":true,
 
@@ -369,9 +365,9 @@ data class DashboardUiState(
 ## 조회 우선순위
 
 ```text
-1. UserLearningPreference Local Cache
+1. UserLangPref Local Cache
 2. selectedLearningLanguage 확인
-3. DashboardSummary[selectedLearningLanguage] Local Cache
+3. DashSummary[selectedLearningLanguage] Local Cache
 4. Dashboard 즉시 렌더링
 5. Firebase fetch
 6. Cache update
@@ -412,7 +408,7 @@ Dashboard 진입 시 refresh
 - 인터넷 없이 앱 실행
 - selectedLearningLanguage 없음
 - selectedLearningLanguage에 해당하는 Summary 없음
-- UserLearningPreference 없음
+- UserLangPref 없음
 - 특정 언어 Summary만 존재하지만 현재 선택 언어 Summary는 없는 상태
 
 ---
@@ -460,7 +456,7 @@ Dashboard 진입 시 refresh
 ## 정상 흐름
 
 1. Dashboard 진입
-2. UserLearningPreference preload
+2. UserLangPref preload
 3. selectedLearningLanguage 확인
 4. 현재 선택 언어 Summary Local Cache preload
 5. 현재 선택 언어 Summary 카드 출력
@@ -490,9 +486,9 @@ Dashboard 진입 시 refresh
 ## 검토 후 수정 메모
 
 - Dashboard Summary는 언어별로 저장하지만, `DASH-001`의 렌더링 대상은 전체 언어 목록이 아니라 `selectedLearningLanguage`에 해당하는 단일 Summary이다.
-- Dashboard 진입 시 `UserLearningPreference`를 먼저 preload하고 `selectedLearningLanguage`를 확인한다.
+- Dashboard 진입 시 `UserLangPref`를 먼저 preload하고 `selectedLearningLanguage`를 확인한다.
 - 학습 언어 변경은 `DASH-006`에서 처리하며, `DASH-001`은 현재 선택 언어 기준 초기 진입과 preload만 담당한다.
-- Dashboard는 `DashboardSummary[selectedLearningLanguage]`만 사용하며 recentFullContext 전체나 Language State 전체를 직접 계산하지 않는다.
+- Dashboard는 `DashSummary[selectedLearningLanguage]`만 사용하며 recentFullContext 전체나 Language State 전체를 직접 계산하지 않는다.
 
 ---
 

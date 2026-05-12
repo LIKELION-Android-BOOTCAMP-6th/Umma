@@ -14,7 +14,7 @@
 - [ ] 사용자가 주 학습 언어를 선택할 수 있다.
 - [ ] 사용자가 관심 대화 주제 5개를 선택할 수 있다.
 - [ ] 설정 완료 시 사용자 프로필이 Firebase에 저장된다.
-- [ ] 설정 완료 시 UserLearningPreference가 Firebase에 저장된다.
+- [ ] 설정 완료 시 UserLangPref가 Firebase에 저장된다.
 - [ ] selectedLearningLanguage가 primaryLearningLanguage와 같은 값으로 초기화된다.
 - [ ] 주 학습 언어 기준 Language State 기본값이 생성된다.
 - [ ] 주 학습 언어 기준 Dashboard Summary 기본값이 생성된다.
@@ -44,7 +44,7 @@
 - 주 학습 언어 선택
 - 관심 대화 주제 선택
 - 사용자 프로필 저장
-- UserLearningPreference 저장
+- UserLangPref 저장
 - Language State 기본값 생성
 - Dashboard Summary 기본값 생성
 - Session Memory 기본값 생성
@@ -153,7 +153,7 @@ MVP 지원 언어 예시:
 
 ```text
 사용자 프로필 저장
-→ UserLearningPreference 저장
+→ UserLangPref 저장
 → Language State 기본값 생성
 → Session Memory 기본값 생성
 → Dashboard Summary 기본값 생성
@@ -208,27 +208,29 @@ com.example.umma
 │   ├── InitialSetupDialog.kt
 │   └── InitialSetupViewModel.kt
 ├── domain/model/
-│   ├── UserProfileVO.kt
-│   ├── UserLearningPreferenceVO.kt
-│   ├── LanguageStateVO.kt
-│   ├── SessionMemoryVO.kt
-│   └── LanguageDashboardSummaryVO.kt
+│   └── UserProfile.kt
+├── domain/model/learningstate/
+│   ├── LearningCoreModels.kt
+│   ├── LearningStateModels.kt
+│   ├── LearningSummaryModels.kt
+│   └── LearningProfileModels.kt
 ├── domain/repository/
 │   ├── UserProfileRepository.kt
-│   └── LearningStateRepository.kt
+│   └── LearningStateRepo.kt
 ├── domain/usecase/
-│   ├── CompleteInitialSetupUseCase.kt
-│   └── CreateInitialLearningStateUseCase.kt
+│   └── CompleteInitialSetupUseCase.kt
+├── domain/usecase/learningstate/
+│   └── LearningStateWriteUseCases.kt
 ├── data/repository/
 │   ├── UserProfileRepositoryImpl.kt
-│   └── LearningStateRepositoryImpl.kt
+│   └── LearningStateRepoImpl.kt
 └── data/source/remote/
     ├── UserProfileRemoteDataSource.kt
     └── LearningStateRemoteDataSource.kt
 ```
 
 > Initial Setup은 사용자 입력 UI만 `presentation/onboarding`에 둔다.
-> UserProfile, UserLearningPreference, Language State, Session Memory, Dashboard Summary 생성 로직은 UseCase에서 묶고,
+> UserProfile, UserLangPref, Language State, Session Memory, Dashboard Summary 생성 로직은 UseCase에서 묶고,
 > Firestore 저장 구현은 `data` 레이어에 둔다.
 
 ---
@@ -257,7 +259,7 @@ data class InitialSetupState(
 - 입력 상태 관리
 - 입력값 검증
 - 사용자 프로필 저장
-- UserLearningPreference 저장
+- UserLangPref 저장
 - Language State 초기 생성
 - Session Memory 초기 생성
 - Dashboard Summary 초기 생성
@@ -317,25 +319,25 @@ Initial Setup 완료 시:
 {
   "language": "en",
   "internalMetrics": {
-    "grammar_accuracy": 0.0,
-    "vocabulary_appropriateness": 0.0,
-    "lexical_diversity": 0.0,
-    "vocabulary_level": "A1",
-    "sentence_complexity": 0.0,
-    "speech_rate": 0.0,
-    "pause_frequency": 0.0,
-    "avg_utterance_length": 0.0,
-    "spoken_naturalness": 0.0,
-    "natural_expression_usage": 0.0,
-    "error_recurrence": 0.0,
-    "review_retention": 0.0
+    "grammarAccuracy": 0.0,
+    "vocabularyAppropriateness": 0.0,
+    "lexicalDiversity": 0.0,
+    "vocabularyLevel": "A1",
+    "sentenceComplexity": 0.0,
+    "speechRate": 0.0,
+    "pauseFrequency": 0.0,
+    "avgUtteranceLength": 0.0,
+    "spokenNaturalness": 0.0,
+    "naturalExpressionUsage": 0.0,
+    "errorRecurrence": 0.0,
+    "reviewRetention": 0.0
   },
   "externalMetrics": {
-    "vocabulary_level": "A1",
-    "grammar_accuracy": 0.0,
-    "expression_range": 0,
-    "fluency_score": 0.0,
-    "naturalness_score": 0.0
+    "vocabularyLevel": "A1",
+    "grammarAccuracy": 0.0,
+    "expressionRange": 0,
+    "fluencyScore": 0.0,
+    "naturalnessScore": 0.0
   },
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
@@ -356,7 +358,7 @@ Initial Setup 완료 시:
 
 ```json
 {
-  "id": "session_en",
+  "id": "en",
   "language": "en",
   "recentFullContext": [],
   "recentTopics": [],
@@ -387,7 +389,6 @@ Initial Setup 완료 시:
   "language": "en",
   "recentConversationMinutes": 0,
   "recentConversationTopic": null,
-  "activeSessionId": "session_en",
   "correctionAvailable": false,
   "dueFlashcards": 0,
   "recentSavedFlashcards": 0,
@@ -413,7 +414,7 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 - 저장 중 앱 종료
 - Firebase write 실패
 - Dashboard 진입 직후 Dialog 중복 표시
-- UserLearningPreference 생성 실패
+- UserLangPref 생성 실패
 - selectedLearningLanguage 초기화 실패
 - Language State 생성 실패
 - Dashboard Summary 생성 실패
@@ -470,7 +471,7 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 6. 주 학습 언어 선택
 7. 관심 주제 5개 선택
 8. 저장 완료
-9. UserLearningPreference / Language State / Session Memory / Dashboard Summary 생성 확인
+9. UserLangPref / Language State / Session Memory / Dashboard Summary 생성 확인
 10. Dialog 종료 확인
 
 ---
@@ -487,7 +488,7 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 ## 검토 후 수정 메모
 
 - 기존 `targetLanguage`, `selectedLanguage` 표현을 제거하고 `nativeLanguage`, `primaryLearningLanguage`, `selectedLearningLanguage`, `learningLanguages` 구조로 수정한다.
-- Initial Setup은 사용자 프로필뿐 아니라 UserLearningPreference, Language State, Session Memory, Dashboard Summary 초기값까지 생성한다.
+- Initial Setup은 사용자 프로필뿐 아니라 UserLangPref, Language State, Session Memory, Dashboard Summary 초기값까지 생성한다.
 - MVP에서는 추가 학습 언어 등록은 제외하고, 주 학습 언어 1개만 선택한다.
 - `selectedLearningLanguage`는 데이터의 소속 필드가 아니라 현재 앱 언어 컨텍스트이므로 `primaryLearningLanguage`와 같은 값으로 초기화한다.
 - Firestore 일부 저장 실패에 대비해 batch/transaction 또는 재시도 가능한 보정 로직이 필요하다.
