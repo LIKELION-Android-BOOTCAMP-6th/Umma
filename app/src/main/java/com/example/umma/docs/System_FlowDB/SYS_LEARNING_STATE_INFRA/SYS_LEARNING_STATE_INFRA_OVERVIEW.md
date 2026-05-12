@@ -108,8 +108,8 @@ Dashboard는 이 요약만 보고 Empty 또는 복습 필요 상태를 표시한
 
 대화 원문 turn list와 `recentFullContext`를 담는 저장 모델이다.
 
-다만 온보딩과 LS-007에서는 실제 Session Memory 문서를 만들지 않는다.
-AI Chat Flow 작업 전에 별도 SYS Flow에서 원문 저장 구조를 확정한다.
+다만 온보딩과 LS-007에서는 실제 Session Memory 원문 문서를 만들지 않는다.
+원문 turn 저장 구조는 `SYS-REALTIME-INFRA`의 RT-003에서 확정한다.
 
 ---
 

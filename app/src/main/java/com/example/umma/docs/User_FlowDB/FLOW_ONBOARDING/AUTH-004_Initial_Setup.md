@@ -236,7 +236,7 @@ com.example.umma
 > UserProfile 생성은 온보딩 UseCase에서 함께 처리하되, 학습 상태 초기값은 LS-007의 `LearningStateRepo.createInitial(...)` 계약을 따른다.
 > UserLangPref, Language State, Dashboard Summary, Session Summary, Flashcard Summary 생성 로직은 UseCase에서 묶고,
 > Firestore 저장 구현은 `data` 레이어에 둔다.
-> 실제 원문 turn list를 담는 Session Memory 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현한다.
+> 실제 원문 turn list를 담는 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 구현한다.
 
 ---
 
@@ -373,7 +373,7 @@ Initial Setup 완료 시:
 
 Session Summary는 Dashboard / Correction 진입 판단에 필요한 최소 요약 데이터이다.
 원문 turn list, `recentFullContext`, 압축 대화 기억을 포함하는 실제 Session Memory 모델은
-AI Chat Flow 전 별도 SYS Flow에서 구현한다.
+`SYS-REALTIME-INFRA`의 RT-003에서 구현한다.
 
 ---
 
@@ -516,7 +516,7 @@ Dashboard는 이 Summary를 기반으로 Empty 상태를 렌더링한다.
 - MVP에서는 추가 학습 언어 등록은 제외하고, 주 학습 언어 1개만 선택한다.
 - `selectedLearningLanguage`는 데이터의 소속 필드가 아니라 현재 앱 언어 컨텍스트이므로 `primaryLearningLanguage`와 같은 값으로 초기화한다.
 - Firestore 일부 저장 실패에 대비해 batch/transaction 또는 재시도 가능한 보정 로직이 필요하다.
-- 실제 원문 Session Memory 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현하며, 온보딩은 `SessionSummary` 초기값까지만 만든다.
+- 실제 원문 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 구현하며, 온보딩은 `SessionSummary` 초기값까지만 만든다.
 
 ---
 

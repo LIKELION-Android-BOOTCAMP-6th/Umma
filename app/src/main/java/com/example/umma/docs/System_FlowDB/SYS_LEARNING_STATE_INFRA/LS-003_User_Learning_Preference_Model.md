@@ -276,7 +276,7 @@ UserLangPref.initial(
 - `flashcard_summaries/{primaryLearningLanguage}`
 
 해당 생성 로직은 AUTH-004와 LS-007에서 다룬다.
-실제 원문 turn list를 담는 `sessions/{primaryLearningLanguage}` 문서는 AI Chat Flow 전 별도 SYS Flow에서 다룬다.
+실제 원문 turn list를 담는 `sessions/{primaryLearningLanguage}` 문서는 `SYS-REALTIME-INFRA`의 RT-003에서 다룬다.
 
 ---
 

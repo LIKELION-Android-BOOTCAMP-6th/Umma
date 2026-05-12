@@ -134,10 +134,11 @@ Umma는 AI와 음성 대화를 통해 외국어를 실제로 사용하게 만들
 
 ## 핵심 기능
 
-### Push-to-Talk 음성 대화
+### 음성 대화
 
 - 버튼 클릭 후 음성 입력
-- Realtime API 기반 AI 응답
+- Firebase AI Logic Live API 기반 AI 응답
+- Firebase Live 세션 라이프사이클과 turn 확정 경계는 `SYS-REALTIME-INFRA`와 `FLOW-AI-CHAT`에서 별도로 정의한다.
 
 ---
 
@@ -173,7 +174,8 @@ AI는:
 AI Chat은 대화할 때마다 새로운 세션 문서를 생성하지 않는다.
 
 현재 선택 언어의 Session Memory 문서를 재사용하며,
-Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `recentFullContext`에 추가한다.
+Firebase Live API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `recentFullContext`에 추가한다.
+실제 세션 복원, activeSessionId 관리, 재연결 정책은 `SYS-REALTIME-INFRA`를 따른다.
 
 대화 중 저장 대상:
 
@@ -216,6 +218,7 @@ Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `re
 - 사용자 수준(LangState)을 고려한 교정 제공
 - 교정 요청 시 full context 전체를 그대로 AI에 전달하지 않고, 비용 최적화된 correction payload로 재구성한다.
 - 교정 및 Flashcard 저장 이후에는 `recentFullContext`를 압축하고 원문 buffer는 비워진다.
+세부 교정 입력 경계는 `SYS-REALTIME-INFRA`와 `FLOW-AI-CHAT`의 turn 확정 규칙을 함께 따른다.
 
 ---
 
@@ -382,7 +385,7 @@ MVP에서는 persona를 고려하지 않는다.
 
 - 교정 및 Flashcard 저장 전까지 유지되는 원문 대화 buffer
 - 전체 transcript 문자열이 아니라 turn 단위 리스트로 저장
-- Realtime API에서 streaming 조각을 그대로 저장하지 않고, 하나의 사용자 발화 또는 AI 응답이 완료되었을 때 turn으로 확정 저장
+- Firebase Live API에서 streaming 조각을 그대로 저장하지 않고, 하나의 사용자 발화 또는 AI 응답이 완료되었을 때 turn으로 확정 저장
 - 최대 N턴까지만 유지한다. MVP 문서에서는 예시로 100턴을 사용하되, 실제 값은 구현 시 조정 가능하다.
 
 예:
@@ -459,7 +462,7 @@ AI 교정 요청 시 전체를 그대로 전송하지 않는다.
 AI Chat 진입
 → selectedLearningLanguage 기준 Session Memory 조회
 → topic_summary / topic_key_sentences / recentFullContext를 참고하여 대화
-→ Realtime API에서 확정된 발화와 응답을 turn으로 저장
+→ Firebase Live API에서 확정된 발화와 응답을 turn으로 저장
 → Dashboard Summary 업데이트
 → 사용자가 교정 및 Flashcard 저장
 → recentFullContext를 topic_summary / topic_key_sentences로 압축

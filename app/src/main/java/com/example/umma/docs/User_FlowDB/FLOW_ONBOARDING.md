@@ -72,7 +72,7 @@
 - 온보딩 완료 시 `selectedLearningLanguage = primaryLearningLanguage`로 설정한다.
 - `primaryLearningLanguage`에 해당하는 Language State, Dashboard Summary, Session Summary, Flashcard Summary 초기값을 생성한다.
 - 사용자가 이후 Dashboard에서 언어를 변경하면 `selectedLearningLanguage`만 변경한다.
-- 실제 원문 Session Memory 모델은 온보딩에서 만들지 않고, AI Chat Flow 전 별도 SYS Flow에서 구현한다.
+- 실제 원문 Session Memory 모델은 온보딩에서 만들지 않고, `SYS-REALTIME-INFRA`의 RT-003에서 turn 저장 구조로 다룬다.
 - 학습 상태 초기 저장 계약은 `SYS-LEARNING-STATE-INFRA`의 `LS-007`을 따른다.
 
 ---

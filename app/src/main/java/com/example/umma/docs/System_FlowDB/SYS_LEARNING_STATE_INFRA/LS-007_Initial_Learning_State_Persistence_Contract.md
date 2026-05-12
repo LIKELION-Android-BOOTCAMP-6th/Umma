@@ -9,17 +9,17 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] Initial Setup 완료 시 생성해야 하는 학습 상태 데이터 묶음이 정의된다.
-- [ ] `UserLangPref.initial(...)` 생성 기준이 정의된다.
-- [ ] `LangState.initial(...)` 생성 기준이 정의된다.
-- [ ] `DashSummary.initial(...)` 생성 기준이 정의된다.
-- [ ] `SessionSummary.initial(...)` 생성 기준이 정의된다.
-- [ ] `FlashcardSummary.initial(...)` 생성 기준이 정의된다.
-- [ ] `LearningStateRepoImpl`의 초기 저장 책임이 정의된다.
-- [ ] Firestore 저장 필드와 Kotlin Domain 필드의 mapper 규칙이 정의된다.
-- [ ] Initial Setup 저장 실패 시 재시도 및 부분 생성 복구 정책이 정의된다.
-- [ ] Session Memory 원문 모델은 AI Chat 전 별도 SYS Flow에서 구현한다는 범위가 명시된다.
-- [ ] AUTH-004가 호출할 학습 상태 초기화 계약이 문서화된다.
+- [x] Initial Setup 완료 시 생성해야 하는 학습 상태 데이터 묶음이 정의된다.
+- [x] `UserLangPref.initial(...)` 생성 기준이 정의된다.
+- [x] `LangState.initial(...)` 생성 기준이 정의된다.
+- [x] `DashSummary.initial(...)` 생성 기준이 정의된다.
+- [x] `SessionSummary.initial(...)` 생성 기준이 정의된다.
+- [x] `FlashcardSummary.initial(...)` 생성 기준이 정의된다.
+- [x] `LearningStateRepoImpl`의 초기 저장 책임이 정의된다.
+- [x] Firestore 저장 필드와 Kotlin Domain 필드의 mapper 규칙이 정의된다.
+- [x] Initial Setup 저장 실패 시 재시도 및 부분 생성 복구 정책이 정의된다.
+- [x] Session Memory 원문 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 구현한다는 범위가 명시된다.
+- [x] AUTH-004가 호출할 학습 상태 초기화 계약이 문서화된다.
 
 ---
 
@@ -62,7 +62,7 @@
 
 > LS-007은 온보딩이 학습 상태 초기값을 안전하게 만들 수 있도록 하는 저장 계약 이슈이다.
 > 인증과 사용자 프로필은 SYS-COMMON-INFRA / AUTH Flow에서 다루고,
-> 대화 원문 Session Memory 모델은 AI Chat 전 별도 SYS Flow에서 다룬다.
+> 대화 원문 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 다룬다.
 
 ---
 
@@ -421,7 +421,7 @@ Initial Setup 완료 버튼 중복 클릭 시 같은 초기 저장이 여러 번
 따라서 LS-007 기준에서는:
 
 - `SessionSummary.initial(primaryLang)`은 Initial Setup에서 생성한다.
-- 원문 turn list를 담는 실제 `SessionMemory` 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현한다.
+- 원문 turn list를 담는 실제 `SessionMemory` 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 구현한다.
 - Dashboard와 온보딩은 원문 Session Memory에 직접 의존하지 않는다.
 
 이렇게 분리하면 온보딩은 학습 상태 초기화까지 안전하게 처리하고,

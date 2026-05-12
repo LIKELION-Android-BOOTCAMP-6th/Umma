@@ -147,7 +147,9 @@ Dashboard는 원본 데이터를 직접 계산하지 않는다.
 | User Learning Preference | X | O | DataStore | Firestore | Local persist + Firebase sync |
 | Language State | O | O | DataStore | Firestore | Local persist + Firebase sync |
 | Dashboard Summary | O | O | DataStore | Firestore | Local cache + Firebase sync |
-| Session Memory | O | O | Room | Firestore | turn 확정 후 local append + batch sync, phase 2 확장 전제 |
+| Session Summary | O | O | DataStore | Firestore | Dashboard / Correction 진입 판단용 요약 |
+| Flashcard Summary | O | O | DataStore | Firestore | Dashboard 복습 카드 상태 요약 |
+| Session Memory | O | O | Room | Firestore | turn 확정 후 local append + batch sync |
 | Flashcard | O | O | Room | Firestore | local first + async sync |
 | Statistics | O | O | Room 또는 DataStore | Firestore | Firebase fetch + local cache |
 

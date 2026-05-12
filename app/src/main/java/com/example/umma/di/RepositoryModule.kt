@@ -40,7 +40,7 @@ abstract class RepositoryModule {
     abstract fun bindLearningStateRepo(
         learningStateRepoImpl: LearningStateRepoImpl
     ): LearningStateRepo
-}
+
     @Binds
     @Singleton
     abstract fun bindNetworkConnectivityMonitor(
