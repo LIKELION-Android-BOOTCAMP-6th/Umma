@@ -17,7 +17,7 @@ fun SignInScreen(
 ) {
     Column {
         Text(
-            text = "로그인 플레이스 홀더", textAlign = TextAlign.Center
+            text = "로그인 플레이스 홀더", textAlign = TextAlign.Center,
         )
         // 홈 화면으로 이동 버튼
         Button(
