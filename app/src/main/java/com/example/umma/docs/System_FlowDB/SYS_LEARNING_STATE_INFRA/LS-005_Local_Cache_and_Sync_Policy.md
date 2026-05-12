@@ -9,21 +9,21 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] 학습 상태 데이터별 저장 위치가 정의된다.
-- [ ] User Learning Preference 저장 정책이 정의된다.
-- [ ] Language State 저장 정책이 정의된다.
-- [ ] Dashboard Summary 저장 정책이 정의된다.
-- [ ] Session Memory 저장 정책이 정의된다.
-- [ ] Flashcard 저장 정책이 정의된다.
-- [ ] Statistics 저장 정책이 정의된다.
-- [ ] 앱 시작 시 preload 순서가 정의된다.
-- [ ] Local-first 렌더링 정책이 정의된다.
-- [ ] Firebase background sync 정책이 정의된다.
-- [ ] 대화 중 Firebase 실시간 write 금지 원칙이 정의된다.
-- [ ] turn 확정 후 로컬 반영 및 batch sync 정책이 정의된다.
-- [ ] sync 실패 시 fallback / retry 정책이 정의된다.
-- [ ] 로그아웃 시 인메모리 상태 초기화와 영구 데이터 유지 범위가 정의된다.
-- [ ] 충돌 상황에서 어느 데이터를 우선할지 정책이 정의된다.
+- [x] 학습 상태 데이터별 저장 위치가 정의된다.
+- [x] User Learning Preference 저장 정책이 정의된다.
+- [x] Language State 저장 정책이 정의된다.
+- [x] Dashboard Summary 저장 정책이 정의된다.
+- [x] Session Memory 저장 정책이 정의된다.
+- [x] Flashcard 저장 정책이 정의된다.
+- [x] Statistics 저장 정책이 정의된다.
+- [x] 앱 시작 시 preload 순서가 정의된다.
+- [x] Local-first 렌더링 정책이 정의된다.
+- [x] Firebase background sync 정책이 정의된다.
+- [x] 대화 중 Firebase 실시간 write 금지 원칙이 정의된다.
+- [x] turn 확정 후 로컬 반영 및 batch sync 정책이 정의된다.
+- [x] sync 실패 시 fallback / retry 정책이 정의된다.
+- [x] 로그아웃 시 인메모리 상태 초기화와 영구 데이터 유지 범위가 정의된다.
+- [x] 충돌 상황에서 어느 데이터를 우선할지 정책이 정의된다.
 
 ---
 
@@ -72,6 +72,12 @@
 
 > LS-005는 “어떤 데이터를 어디에 저장하고 어떤 순서로 동기화할 것인가”를 정의한다.
 > 실제 DAO, DataSource, Worker 구현은 개별 구현 이슈에서 다룬다.
+
+## 권장 계약
+
+- `domain/repository/LearningStateRepo.kt`
+- `domain/usecase/learningstate/LearningStateReadUseCases.kt`
+- `domain/usecase/learningstate/LearningStateWriteUseCases.kt`
 
 ---
 
@@ -130,7 +136,7 @@ Dashboard는 원본 데이터를 직접 계산하지 않는다.
 - Flashcard 전체 목록 조회 금지
 - Language State Internal Metrics 전체 렌더링 금지
 
-대신 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
+대신 `DashSummary[selectedLearningLanguage]`를 사용한다.
 
 ---
 
@@ -249,7 +255,7 @@ recentFullContext 압축
 조회 정책:
 
 - 현재 선택 언어의 Session Memory는 `users/{uid}/sessions/{selectedLearningLanguage}`로 조회한다.
-- Dashboard는 Session Memory 원문을 직접 조회하지 않고 `DashboardSummary` / `SessionSummary`만 사용한다.
+- Dashboard는 Session Memory 원문을 직접 조회하지 않고 `DashSummary` / `SessionSummary`만 사용한다.
 - `recentFullContext`는 Correction 진입 또는 교정 생성 시점에만 필요한 범위로 조회한다.
 
 ---
@@ -297,11 +303,11 @@ Remote: Firestore
 앱 실행
 → Auth 상태 확인
 → 로그인된 사용자 확인
-→ UserLearningPreference Local preload
+→ UserLangPref Local preload
 → selectedLearningLanguage 확인
-→ DashboardSummary[selectedLearningLanguage] Local preload
-→ LanguageState[selectedLearningLanguage] Local preload
-→ GlobalLearningState 갱신
+→ DashSummary[selectedLearningLanguage] Local preload
+→ LangState[selectedLearningLanguage] Local preload
+→ GlobalLangState 갱신
 → Dashboard 즉시 렌더링
 → Firebase background sync
 → 변경사항 존재 시 Store/UI 갱신
@@ -316,7 +322,7 @@ AUTH-002는 인증 세션 확인만 담당한다.
 
 ```text
 Dashboard 진입
-→ UserLearningPreference 확인
+→ UserLangPref 확인
 → selectedLearningLanguage 확인
 → Local Dashboard Summary 조회
 → Content 또는 Empty Dashboard 렌더링
@@ -332,10 +338,10 @@ Dashboard 진입
 ```text
 언어 선택
 → selectedLearningLanguage Local update
-→ GlobalLearningState 갱신
+→ GlobalLangState 갱신
 → 선택 언어 Dashboard Summary Local fetch
 → Dashboard 재렌더링
-→ UserLearningPreference Firebase sync
+→ UserLangPref Firebase sync
 → 선택 언어 Dashboard Summary Firebase sync
 ```
 
@@ -467,9 +473,9 @@ pending sync 구현 방식은 실제 구현 이슈에서 확정한다.
 
 ```text
 Firebase / Google session 제거
-→ GlobalLearningState clear
-→ UserLearningPreference in-memory clear
-→ DashboardSummary in-memory clear
+→ GlobalLangState clear
+→ UserLangPref in-memory clear
+→ DashSummary in-memory clear
 → CurrentSessionMemory in-memory clear
 → Onboarding route 이동
 ```
@@ -477,7 +483,7 @@ Firebase / Google session 제거
 유지 데이터:
 
 - Firebase에 저장된 User Profile
-- Firebase에 저장된 UserLearningPreference
+- Firebase에 저장된 UserLangPref
 - Firebase에 저장된 Language State
 - Firebase에 저장된 Flashcard
 - Firebase에 저장된 Statistics
@@ -499,7 +505,7 @@ MVP에서는 로그아웃 시 Local persist 데이터를 즉시 삭제할지 여
 
 ### Fatal
 
-- UserLearningPreference Local / Remote 모두 없음
+- UserLangPref Local / Remote 모두 없음
 - selectedLearningLanguage 복구 실패
 - Local 저장 실패
 - 지원하지 않는 schemaVersion
@@ -545,7 +551,7 @@ MVP에서는 로그아웃 시 Local persist 데이터를 즉시 삭제할지 여
 ## 앱 시작 정상 흐름
 
 1. 로그인된 사용자로 앱 실행
-2. UserLearningPreference Local preload
+2. UserLangPref Local preload
 3. selectedLearningLanguage 확인
 4. Dashboard Summary Local preload
 5. Dashboard 즉시 렌더링
@@ -558,7 +564,7 @@ MVP에서는 로그아웃 시 Local persist 데이터를 즉시 삭제할지 여
 
 1. 네트워크 끊김
 2. 앱 실행
-3. Local UserLearningPreference 로드
+3. Local UserLangPref 로드
 4. Local Dashboard Summary 로드
 5. Dashboard 렌더링
 6. Firebase sync 실패는 non-blocking error로 처리
@@ -590,7 +596,7 @@ MVP에서는 로그아웃 시 Local persist 데이터를 즉시 삭제할지 여
 
 1. 로그인된 사용자 상태에서 로그아웃
 2. 세션 제거
-3. GlobalLearningState clear
+3. GlobalLangState clear
 4. Onboarding 이동
 5. 이전 사용자 Dashboard Summary가 UI에 남지 않음 확인
 

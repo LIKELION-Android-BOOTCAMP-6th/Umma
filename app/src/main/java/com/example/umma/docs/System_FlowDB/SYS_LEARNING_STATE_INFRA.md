@@ -16,6 +16,8 @@
 
 에서 공통으로 사용된다.
 
+이 구조를 처음 이해할 때는 `SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md`부터 보면 흐름이 가장 잘 잡힌다.
+
 ---
 
 # 핵심 개념 설명
@@ -262,7 +264,7 @@ Firebase를 매번 조회하지 않고,
 
 - Internal Metrics 구조 정의
 - External Metrics 구조 정의
-- Kotlin VO 설계
+- Kotlin Model 설계
 - Firestore Schema 정의
 
 ---
@@ -493,19 +495,19 @@ Dashboard는 단일 Summary가 아니라,
 모든 학습 상태는 언어별(Language Scoped)로 관리한다.
 
 ```text
-GlobalLearningState
-├── userLearningPreference
-│    ├── nativeLanguage
-│    ├── primaryLearningLanguage
-│    ├── selectedLearningLanguage
-│    └── learningLanguages
+GlobalLangState
+├── userPref
+│    ├── nativeLang
+│    ├── primaryLang
+│    ├── selectedLang
+│    └── learningLangs
 │
-├── languageStates
+├── langStates
 │    ├── en
 │    ├── ja
 │    └── es
 │
-├── dashboardSummaries
+├── dashSummaries
 │    ├── en
 │    ├── ja
 │    └── es
@@ -592,9 +594,9 @@ Umma의 학습 데이터는 모두 언어별(language scoped)로 저장한다.
 
 ```text
 앱 실행
-→ UserLearningPreference Local preload
+→ UserLangPref Local preload
 → selectedLearningLanguage 확인
-→ DashboardSummary[selectedLearningLanguage] Local preload
+→ DashSummary[selectedLearningLanguage] Local preload
 → 현재 선택 언어 기준 Dashboard 렌더링
 → Firebase background sync
 → 변경사항 존재 시 UI 갱신
@@ -654,7 +656,7 @@ Session.language = "en"
 - natural_expression_usage
 - vocabulary_appropriateness
 
-MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LanguageStateVO`에 저장하지 않고,
+MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LangState`에 저장하지 않고,
 필요 시 분석 과정의 참고값 또는 Phase 2 확장 후보로만 둔다.
 
 ---
@@ -680,33 +682,31 @@ MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `Languag
 ## Package
 
 ```text
-domain/model
-├── LanguageStateVO
-├── LanguageDashboardSummaryVO
-├── UserLearningPreferenceVO
-├── SessionMemoryVO
-└── FlashcardVO
+domain/model/learningstate
+├── LearningCoreModels.kt
+├── LearningStateModels.kt
+├── LearningSummaryModels.kt
+├── LearningProfileModels.kt
+└── LearningUpdateModels.kt
 
 domain/repository
-└── LearningStateRepository
+└── LearningStateRepo.kt
 
-domain/usecase
-├── ObserveLearningStateUseCase
-├── ObserveDashboardSummaryUseCase
-├── ChangeSelectedLearningLanguageUseCase
-└── UpdateLanguageStateUseCase
+domain/usecase/learningstate
+├── LearningStateReadUseCases.kt
+└── LearningStateWriteUseCases.kt
 
 data/repository
-└── LearningStateRepositoryImpl
+└── LearningStateRepoImpl
 
 data/source/local
 ├── LearningStateLocalDataSource
-├── UserLearningPreferenceLocalDataSource
+├── UserLangPrefLocalDataSource
 └── SessionMemoryLocalDataSource
 
 data/source/remote
 ├── LearningStateRemoteDataSource
-├── UserLearningPreferenceRemoteDataSource
+├── UserLangPrefRemoteDataSource
 └── SessionMemoryRemoteDataSource
 
 presentation/dashboard
@@ -723,16 +723,41 @@ presentation/analytics
 
 ## Naming
 
-### VO
+### Kotlin Model
 
-- `LanguageStateVO`
-- `DashboardSummaryVO`
-- `UserLearningPreferenceVO`
+- `LangState`
+- `DashSummary`
+- `UserLangPref`
+- `GlobalLangState`
+- `SessionSummary`
+- `FlashcardSummary`
 
-### Store
+### Repository / UseCase
 
-- `LearningStateStore`
-- `UserLearningPreferenceStore`
+- `LearningStateRepo`
+- `ObserveLearningStateUseCase`
+- `ObserveDashSummaryUseCase`
+- `PreloadLearningStateUseCase`
+- `ChangeSelectedLangUseCase`
+- `ApplyLanguageStateUpdateUseCase`
+- `InitLearningStateUseCase`
+- `ClearLearningStateUseCase`
+
+### Kotlin 필드명과 Firestore 필드명
+
+Kotlin Domain 모델은 팀 내 사용성을 위해 짧은 이름을 사용한다.
+
+- `lang`, `selectedLang`, `learningLangs`
+- `recentMinutes`, `recentTopic`, `savedFlashcards`
+- `grammarDelta`, `vocabDelta`, `schema`
+
+Firestore 문서는 데이터 의미를 외부에서 읽기 쉽도록 설명적인 lowerCamelCase 필드명을 유지한다.
+
+- `language`, `selectedLearningLanguage`, `learningLanguages`
+- `recentConversationMinutes`, `recentConversationTopic`, `recentSavedFlashcards`
+- `grammarScoreDelta`, `vocabularyScoreDelta`, `schemaVersion`
+
+Data Layer mapper는 두 명명 체계 사이를 변환한다.
 
 ---
 

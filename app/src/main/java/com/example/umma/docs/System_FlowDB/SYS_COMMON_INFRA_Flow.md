@@ -137,7 +137,7 @@ presentation
 → 화면, Composable, ViewModel, UI State
 
 domain
-→ VO/Entity, Repository interface, UseCase
+→ Model/Entity, Repository interface, UseCase
 
 data
 → Repository 구현체, Local/Remote DataSource, DTO/Mapper

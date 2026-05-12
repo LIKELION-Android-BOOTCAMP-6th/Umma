@@ -6,6 +6,8 @@ Umma는 AI와 음성 대화를 통해 외국어를 실제로 사용하게 만들
 
 교정·플래시카드·반복학습·언어능력 분석을 통해 사용자의 언어 성장을 장기적으로 지원하는 AI 기반 언어 학습 서비스이다.
 
+구현 모델 이름은 `LangState`, `DashSummary`, `UserLangPref`, `GlobalLangState`로 맞춘다.
+
 ---
 
 # 1. 핵심 사용자 흐름
@@ -59,7 +61,7 @@ Umma는 AI와 음성 대화를 통해 외국어를 실제로 사용하게 만들
 | 데이터 | 사용 목적 |
 | --- | --- |
 | User Profile | 로그인 사용자 식별 |
-| Language State | 신규 사용자 여부 판단 |
+| LangState | 신규 사용자 여부 판단 |
 
 ---
 
@@ -118,7 +120,7 @@ Umma는 AI와 음성 대화를 통해 외국어를 실제로 사용하게 만들
 | Session Memory | 최근 대화 정보 |
 | Flashcard Memory | 반복학습 필요 카드 수 |
 | Statistics Memory | 성장 통계 카드 |
-| Language State | 현재 언어 수준 표시 |
+| LangState | 현재 언어 수준 표시 |
 
 ---
 
@@ -143,7 +145,7 @@ Umma는 AI와 음성 대화를 통해 외국어를 실제로 사용하게 만들
 
 AI는:
 
-- Language State
+- LangState
 - 최근 Session Memory
 
 를 참고하여:
@@ -171,7 +173,7 @@ AI는:
 AI Chat은 대화할 때마다 새로운 세션 문서를 생성하지 않는다.
 
 현재 선택 언어의 Session Memory 문서를 재사용하며,
-Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `recent_full_context`에 추가한다.
+Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `recentFullContext`에 추가한다.
 
 대화 중 저장 대상:
 
@@ -180,7 +182,7 @@ Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `re
 - 대화 시간
 - 최근 대화 주제 후보
 
-교정 및 Flashcard 저장 이후에는 `recent_full_context`를 압축하여 대화 기억 데이터로 남기고,
+교정 및 Flashcard 저장 이후에는 `recentFullContext`를 압축하여 대화 기억 데이터로 남기고,
 원문 full context는 초기화한다.
 
 ---
@@ -189,7 +191,7 @@ Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `re
 
 | 데이터 | 사용 방식 |
 | --- | --- |
-| Language State | 사용자 수준 적응 |
+| LangState | 사용자 수준 적응 |
 | Session Memory | 최근 대화 맥락 유지 |
 | Statistics Memory | 대화 통계 반영 |
 
@@ -209,11 +211,11 @@ Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `re
 
 ### Full Context 교정
 
-- Session Memory의 `recent_full_context` 기반 교정
+- Session Memory의 `recentFullContext` 기반 교정
 - 사용자 발화 turn을 중심으로 교정 후보 추출
-- 사용자 수준(Language State)을 고려한 교정 제공
+- 사용자 수준(LangState)을 고려한 교정 제공
 - 교정 요청 시 full context 전체를 그대로 AI에 전달하지 않고, 비용 최적화된 correction payload로 재구성한다.
-- 교정 및 Flashcard 저장 이후에는 `recent_full_context`를 압축하고 원문 buffer는 비워진다.
+- 교정 및 Flashcard 저장 이후에는 `recentFullContext`를 압축하고 원문 buffer는 비워진다.
 
 ---
 
@@ -242,8 +244,8 @@ Realtime API에서 확정된 사용자 발화와 AI 응답을 turn 단위로 `re
 
 | 데이터 | 사용 방식 |
 | --- | --- |
-| Session Memory | recent_full_context 조회 및 교정 후보 추출 |
-| Language State | 사용자 수준 기반 교정 |
+| Session Memory | recentFullContext 조회 및 교정 후보 추출 |
+| LangState | 사용자 수준 기반 교정 |
 | Flashcard Memory | 선택 문장 저장 |
 
 ---
@@ -295,7 +297,7 @@ SRS 기반 반복 학습을 통해 사용자의 표현 기억을 장기 강화�
 | --- | --- |
 | Flashcard Memory | 카드 조회 및 학습 |
 | Statistics Memory | 학습률 통계 반영 |
-| Language State | 학습 성과 반영 |
+| LangState | 학습 성과 반영 |
 
 ---
 
@@ -344,7 +346,7 @@ SRS 기반 반복 학습을 통해 사용자의 표현 기억을 장기 강화�
 
 | 데이터 | 사용 방식 |
 | --- | --- |
-| Language State | 능력 변화 분석 |
+| LangState | 능력 변화 분석 |
 | Statistics Memory | 그래프 및 카드 표시 |
 | Flashcard Memory | 학습 통계 계산 |
 
@@ -376,7 +378,7 @@ MVP에서는 persona를 고려하지 않는다.
 
 ## 저장 데이터
 
-### recent_full_context
+### recentFullContext
 
 - 교정 및 Flashcard 저장 전까지 유지되는 원문 대화 buffer
 - 전체 transcript 문자열이 아니라 turn 단위 리스트로 저장
@@ -402,7 +404,7 @@ MVP에서는 persona를 고려하지 않는다.
 ]
 ```
 
-`recent_full_context`는 저장용 원본 buffer이며,
+`recentFullContext`는 저장용 원본 buffer이며,
 AI 교정 요청 시 전체를 그대로 전송하지 않는다.
 
 ---
@@ -422,7 +424,7 @@ AI 교정 요청 시 전체를 그대로 전송하지 않는다.
 ### topic_summary
 
 - 대화 주제별 핵심요약 문장 5개씩
-- 교정 및 Flashcard 저장 이후 `recent_full_context`를 압축하여 갱신
+- 교정 및 Flashcard 저장 이후 `recentFullContext`를 압축하여 갱신
 - 다음 AI Chat에서 장기 대화 기억으로 사용
 
 ---
@@ -436,7 +438,7 @@ AI 교정 요청 시 전체를 그대로 전송하지 않는다.
 
 ### correction_available
 
-- `recent_full_context`에 교정 가능한 사용자 발화가 존재하는지 나타내는 상태
+- `recentFullContext`에 교정 가능한 사용자 발화가 존재하는지 나타내는 상태
 - 교정 및 Flashcard 저장 이후 `false`로 갱신
 
 ---
@@ -446,7 +448,7 @@ AI 교정 요청 시 전체를 그대로 전송하지 않는다.
 | 화면 | 사용 목적 |
 | --- | --- |
 | AI Chat | 압축 기억과 최근 원문 맥락을 참고하여 대화 연속성 유지 |
-| 교정 화면 | `recent_full_context`에서 교정 후보 추출 |
+| 교정 화면 | `recentFullContext`에서 교정 후보 추출 |
 | Dashboard | 교정받을 대화가 어느정도 있음을 안내 |
 
 ---
@@ -456,12 +458,12 @@ AI 교정 요청 시 전체를 그대로 전송하지 않는다.
 ```text
 AI Chat 진입
 → selectedLearningLanguage 기준 Session Memory 조회
-→ topic_summary / topic_key_sentences / recent_full_context를 참고하여 대화
+→ topic_summary / topic_key_sentences / recentFullContext를 참고하여 대화
 → Realtime API에서 확정된 발화와 응답을 turn으로 저장
 → Dashboard Summary 업데이트
 → 사용자가 교정 및 Flashcard 저장
-→ recent_full_context를 topic_summary / topic_key_sentences로 압축
-→ recent_full_context 초기화
+→ recentFullContext를 topic_summary / topic_key_sentences로 압축
+→ recentFullContext 초기화
 → correction_available = false
 ```
 
@@ -473,12 +475,12 @@ AI Chat 진입
 - 교정 화면 진입 또는 사용자의 명시적 요청 시에만 correction payload를 생성한다.
 - correction payload는 사용자 발화 turn 중심으로 구성한다.
 - assistant turn은 문맥상 필요한 일부만 포함한다.
-- Language State 전체가 아니라 교정에 필요한 snapshot만 포함한다.
+- LangState 전체가 아니라 교정에 필요한 snapshot만 포함한다.
 - 의미 없는 짧은 발화, 중복 발화, 감탄사성 응답은 AI 요청 전에 제외한다.
 
 ---
 
-# 3-2. 사용자 언어능력 상태 메모리 (Language State)
+# 3-2. 사용자 언어능력 상태 메모리 (LangState)
 
 ## 역할
 
@@ -703,9 +705,9 @@ AI Chat 진입
 역할:
 
 - Session Memory
-- Language State
-- Flashcard
-- Statistics
+- LangState
+- Flashcard Memory
+- Statistics Memory
 
 관리.
 
@@ -717,7 +719,7 @@ AI Chat 진입
 
 - 대화 종료 후 분석
 - Flashcard 생성 후보 추출
-- Language State 업데이트
+- LangState 업데이트
 - 통계 데이터 업데이트
 
 ---

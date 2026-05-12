@@ -9,20 +9,20 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `GlobalLearningStateVO` 또는 동등한 전역 학습 상태 모델이 정의된다.
-- [ ] `UserLearningPreferenceVO`를 전역 학습 상태에 포함한다.
-- [ ] 언어별 `LanguageStateVO` map 구조를 정의한다.
-- [ ] 언어별 `LanguageDashboardSummaryVO` map 구조를 정의한다.
-- [ ] 언어별 Session Summary 참조 구조를 정의한다.
-- [ ] 언어별 Flashcard Summary 참조 구조를 정의한다.
-- [ ] 현재 선택 언어 기준 상태를 안전하게 조회할 수 있어야 한다.
-- [ ] `selectedLearningLanguage` 변경 시 현재 언어별 상태가 함께 전환될 수 있어야 한다.
-- [ ] Dashboard, AI Chat, Correction, Flashcard, Statistics의 observe 대상이 문서화된다.
-- [ ] Store는 UI 렌더링 상태가 아니라 Domain/App 상태로 정의된다.
-- [ ] Store는 원본 대화 전문 또는 Flashcard 전체 목록을 직접 들고 있지 않는다.
-- [ ] Store 초기 상태, Loading, Error, Empty 정책이 정의된다.
-- [ ] 로그아웃 시 현재 사용자 학습 상태를 초기화할 수 있어야 한다.
-- [ ] Local Cache / Firebase Sync 구현은 LS-005로 분리된다.
+- [x] `GlobalLangState` 또는 동등한 전역 학습 상태 모델이 정의된다.
+- [x] `UserLangPref`를 전역 학습 상태에 포함한다.
+- [x] 언어별 `LangState` map 구조를 정의한다.
+- [x] 언어별 `DashSummary` map 구조를 정의한다.
+- [x] 언어별 Session Summary 참조 구조를 정의한다.
+- [x] 언어별 Flashcard Summary 참조 구조를 정의한다.
+- [x] 현재 선택 언어 기준 상태를 안전하게 조회할 수 있어야 한다.
+- [x] `selectedLearningLanguage` 변경 시 현재 언어별 상태가 함께 전환될 수 있어야 한다.
+- [x] Dashboard, AI Chat, Correction, Flashcard, Statistics의 observe 대상이 문서화된다.
+- [x] Store는 UI 렌더링 상태가 아니라 Domain/App 상태로 정의된다.
+- [x] Store는 원본 대화 전문 또는 Flashcard 전체 목록을 직접 들고 있지 않는다.
+- [x] Store 초기 상태, Loading, Error, Empty 정책이 정의된다.
+- [x] 로그아웃 시 현재 사용자 학습 상태를 초기화할 수 있어야 한다.
+- [x] Local Cache / Firebase Sync 구현은 LS-005로 분리된다.
 
 ---
 
@@ -119,7 +119,8 @@ flashcardSummaries["en"]
 ### 3. selectedLearningLanguage는 Preference에서 온다
 
 Global Learning State는 `selectedLearningLanguage`를 직접 별도 저장하지 않고,
-`userLearningPreference.selectedLearningLanguage`를 기준으로 현재 언어 상태를 선택한다.
+Kotlin에서는 `userPref.selectedLang`를 기준으로 현재 언어 상태를 선택한다.
+Firestore에서는 같은 값이 `user_learning_preference/current.selectedLearningLanguage`로 저장된다.
 
 ---
 
@@ -129,16 +130,16 @@ Global Learning State는 `selectedLearningLanguage`를 직접 별도 저장하�
 
 ```text
 com.example.umma
-├── domain/model/
-│   ├── GlobalLearningStateVO.kt
-│   ├── SessionSummaryVO.kt
-│   └── FlashcardSummaryVO.kt
+├── domain/model/learningstate/
+│   ├── LearningCoreModels.kt
+│   ├── LearningStateModels.kt
+│   ├── LearningSummaryModels.kt
+│   └── LearningProfileModels.kt
 ├── domain/repository/
-│   └── LearningStateRepository.kt
-└── domain/usecase/
-    ├── ObserveGlobalLearningStateUseCase.kt
-    ├── ObserveSelectedLanguageDashboardSummaryUseCase.kt
-    └── ClearCurrentUserLearningStateUseCase.kt
+│   └── LearningStateRepo.kt
+└── domain/usecase/learningstate/
+    ├── LearningStateReadUseCases.kt
+    └── LearningStateWriteUseCases.kt
 ```
 
 > Store의 실제 구현체 위치는 팀 구현 방식에 따라 `data/repository` 또는 별도 store 구현으로 둘 수 있다.
@@ -149,14 +150,14 @@ com.example.umma
 ## 권장 모델 구조
 
 ```kotlin
-data class GlobalLearningStateVO(
-    val userLearningPreference: UserLearningPreferenceVO?,
-    val languageStates: Map<LanguageCode, LanguageStateVO>,
-    val dashboardSummaries: Map<LanguageCode, LanguageDashboardSummaryVO>,
-    val sessionSummaries: Map<LanguageCode, SessionSummaryVO>,
-    val flashcardSummaries: Map<LanguageCode, FlashcardSummaryVO>,
+data class GlobalLangState(
+    val userPref: UserLangPref?,
+    val langStates: Map<LangCode, LangState>,
+    val dashSummaries: Map<LangCode, DashSummary>,
+    val sessionSummaries: Map<LangCode, SessionSummary>,
+    val flashcardSummaries: Map<LangCode, FlashcardSummary>,
     val isPreloaded: Boolean = false,
-    val schemaVersion: Int = 1
+    val schema: Int = 1
 )
 ```
 
@@ -165,23 +166,23 @@ data class GlobalLearningStateVO(
 ## 현재 선택 언어 상태 조회
 
 ```kotlin
-val GlobalLearningStateVO.selectedLanguage: LanguageCode?
-    get() = userLearningPreference?.selectedLearningLanguage
+val GlobalLangState.selectedLang: LangCode?
+    get() = userPref?.selectedLang
 
-fun GlobalLearningStateVO.currentLanguageState(): LanguageStateVO? {
-    val language = selectedLanguage ?: return null
-    return languageStates[language]
+fun GlobalLangState.currentLangState(): LangState? {
+    val lang = selectedLang ?: return null
+    return langStates[lang]
 }
 
-fun GlobalLearningStateVO.currentDashboardSummary(): LanguageDashboardSummaryVO? {
-    val language = selectedLanguage ?: return null
-    return dashboardSummaries[language]
+fun GlobalLangState.currentDashSummary(): DashSummary? {
+    val lang = selectedLang ?: return null
+    return dashSummaries[lang]
 }
 ```
 
 정책:
 
-- `selectedLanguage == null`이면 Initial Setup 필요 또는 fallback 상태로 본다.
+- `selectedLang == null`이면 Initial Setup 필요 또는 fallback 상태로 본다.
 - 현재 선택 언어의 Summary가 없으면 Empty Summary 생성 또는 fetch 필요 상태로 본다.
 - 현재 선택 언어의 Language State가 없으면 초기 Language State 생성 또는 fetch 필요 상태로 본다.
 
@@ -192,11 +193,11 @@ fun GlobalLearningStateVO.currentDashboardSummary(): LanguageDashboardSummaryVO?
 Global Store는 Session Memory 전체가 아니라 요약만 가진다.
 
 ```kotlin
-data class SessionSummaryVO(
-    val language: LanguageCode,
+data class SessionSummary(
+    val lang: LangCode,
     val correctionAvailable: Boolean,
-    val recentConversationMinutes: Int,
-    val recentConversationTopic: String?,
+    val recentMinutes: Int,
+    val recentTopic: String?,
     val updatedAt: Long? = null
 )
 ```
@@ -211,10 +212,10 @@ Dashboard와 AI Chat 진입 판단에는 Summary만 사용한다.
 Global Store는 Flashcard 전체 목록이 아니라 요약만 가진다.
 
 ```kotlin
-data class FlashcardSummaryVO(
-    val language: LanguageCode,
+data class FlashcardSummary(
+    val lang: LangCode,
     val dueFlashcards: Int,
-    val recentSavedFlashcards: Int,
+    val savedFlashcards: Int,
     val updatedAt: Long? = null
 )
 ```
@@ -229,8 +230,8 @@ Flashcard 학습 화면에서 실제 카드 목록이 필요할 때 별도 Repos
 
 observe 대상:
 
-- `userLearningPreference`
-- `currentDashboardSummary`
+- `userPref`
+- `currentDashSummary`
 - 현재 선택 언어의 `flashcardSummary`
 - 현재 선택 언어의 `sessionSummary`
 
@@ -242,7 +243,7 @@ Dashboard는 원본 데이터를 직접 계산하지 않는다.
 
 observe 대상:
 
-- `userLearningPreference.selectedLearningLanguage`
+- `userPref.selectedLang`
 - 현재 선택 언어의 `languageState`
 - 현재 선택 언어의 `sessionSummary`
 
@@ -254,7 +255,7 @@ AI Chat은 대화 시작 시 현재 선택 언어를 초기 대화 언어로 사
 
 observe 대상:
 
-- `userLearningPreference.selectedLearningLanguage`
+- `userPref.selectedLang`
 - 현재 선택 언어의 `sessionSummary`
 
 Correction 화면은 `selectedLearningLanguage` 기준으로 Session Memory 원본을 별도 조회한다.
@@ -266,7 +267,7 @@ Global Store는 `recentFullContext` 전체를 직접 제공하지 않는다.
 
 observe 대상:
 
-- `userLearningPreference.selectedLearningLanguage`
+- `userPref.selectedLang`
 - 현재 선택 언어의 `flashcardSummary`
 
 실제 복습 카드 목록은 Flashcard Repository에서 별도 조회한다.
@@ -277,7 +278,7 @@ observe 대상:
 
 observe 대상:
 
-- `userLearningPreference.selectedLearningLanguage`
+- `userPref.selectedLang`
 - 현재 선택 언어의 `languageState`
 - 현재 선택 언어의 statistics summary
 
@@ -293,7 +294,7 @@ observe 대상:
 앱 실행
 → Auth 상태 확인
 → 로그인된 사용자면 Global Learning State preload 시작
-→ UserLearningPreference 로드
+→ UserLangPref 로드
 → selectedLearningLanguage 확인
 → 현재 선택 언어의 Summary / Language State 로드
 → isPreloaded = true
@@ -305,11 +306,11 @@ observe 대상:
 
 ```text
 Initial Setup 저장 완료
-→ UserLearningPreference 생성
-→ LanguageState 생성
-→ DashboardSummary 생성
+→ UserLangPref 생성
+→ LangState 생성
+→ DashSummary 생성
 → SessionMemory 기본값 생성
-→ GlobalLearningState 갱신
+→ GlobalLangState 갱신
 ```
 
 ---
@@ -318,8 +319,8 @@ Initial Setup 저장 완료
 
 ```text
 언어 선택
-→ UserLearningPreference.selectedLearningLanguage 변경
-→ GlobalLearningState의 current 상태 선택 기준 변경
+→ UserLangPref.selectedLearningLanguage 변경
+→ GlobalLangState의 current 상태 선택 기준 변경
 → 선택 언어 Summary preload
 → Dashboard 재렌더링
 ```
@@ -332,10 +333,10 @@ Initial Setup 저장 완료
 
 ```text
 logout
-→ GlobalLearningState.clear()
-→ UserLearningPreference clear
+→ GlobalLangState.clear()
+→ UserLangPref clear
 → selected user context clear
-→ DashboardSummary in-memory cache clear
+→ DashSummary in-memory cache clear
 ```
 
 영구 저장된 Firebase / Local persist 데이터 삭제는 로그아웃 범위가 아니다.
@@ -353,9 +354,9 @@ LS-004는 Store 구조와 observe 정책만 정의한다.
 
 | 데이터 | Store 보유 | 원본 저장 |
 | --- | --- | --- |
-| UserLearningPreference | 현재 스냅샷 | DataStore + Firestore |
-| LanguageState | 언어별 스냅샷 | DataStore + Firestore |
-| DashboardSummary | 언어별 스냅샷 | DataStore + Firestore |
+| UserLangPref | 현재 스냅샷 | DataStore + Firestore |
+| LangState | 언어별 스냅샷 | DataStore + Firestore |
+| DashSummary | 언어별 스냅샷 | DataStore + Firestore |
 | SessionSummary | 언어별 요약 | Room / Firestore |
 | FlashcardSummary | 언어별 요약 | Room / Firestore |
 
@@ -372,7 +373,7 @@ LS-004는 Store 구조와 observe 정책만 정의한다.
 
 ### Fatal
 
-- UserLearningPreference 없음
+- UserLangPref 없음
 - selectedLearningLanguage 복구 실패
 - 현재 선택 언어의 필수 Summary 생성 실패
 
@@ -390,7 +391,7 @@ LS-004는 Store 구조와 observe 정책만 정의한다.
 신규 사용자 또는 Initial Setup 미완료 사용자는 Global Learning State가 비어 있을 수 있다.
 
 ```text
-userLearningPreference == null
+userPref == null
 → Initial Setup 필요
 ```
 
@@ -398,11 +399,11 @@ userLearningPreference == null
 
 # Edge Cases
 
-- `userLearningPreference == null`
+- `userPref == null`
 - `selectedLearningLanguage == null`
 - `selectedLearningLanguage`가 `learningLanguages`에 없음
-- 현재 선택 언어의 `LanguageState` 없음
-- 현재 선택 언어의 `DashboardSummary` 없음
+- 현재 선택 언어의 `LangState` 없음
+- 현재 선택 언어의 `DashSummary` 없음
 - `languageStates`에는 있으나 `dashboardSummaries`에는 없음
 - 여러 언어의 Summary 중 일부만 로드됨
 - Local Cache와 Firebase 값이 서로 다름
@@ -419,7 +420,7 @@ userLearningPreference == null
 ## 정상 흐름
 
 1. 로그인된 사용자로 앱 실행
-2. UserLearningPreference preload
+2. UserLangPref preload
 3. `selectedLearningLanguage = EN` 확인
 4. `languageStates[EN]`, `dashboardSummaries[EN]` 로드
 5. `isPreloaded = true`
@@ -432,8 +433,8 @@ userLearningPreference == null
 1. `learningLanguages = [EN, JA]`
 2. 현재 `selectedLearningLanguage = EN`
 3. Dashboard selector에서 JA 선택
-4. UserLearningPreference의 `selectedLearningLanguage = JA`로 변경
-5. GlobalLearningState가 JA Summary를 current 상태로 선택
+4. UserLangPref의 `selectedLearningLanguage = JA`로 변경
+5. GlobalLangState가 JA Summary를 current 상태로 선택
 6. Dashboard가 JA 기준으로 재렌더링
 
 ---
@@ -441,9 +442,9 @@ userLearningPreference == null
 ## 로그아웃 흐름
 
 1. 사용자 A 로그인 상태
-2. GlobalLearningState에 A의 Summary 존재
+2. GlobalLangState에 A의 Summary 존재
 3. 로그아웃 실행
-4. GlobalLearningState clear
+4. GlobalLangState clear
 5. Onboarding route 이동
 6. 이전 사용자 A의 학습 데이터가 UI에 남지 않음 확인
 
