@@ -250,6 +250,7 @@ users/{uid}
 - `main`: 배포 가능 상태
 - `develop`: 통합 개발
 - `feature/기능명`: 개인 작업 브랜치 (예: `feature/login`)
+- `common`: 공통 작업 브랜치 (예: 공통 컴포넌트, 표준 UI 등)
 
 #### 커밋 컨벤션
 
