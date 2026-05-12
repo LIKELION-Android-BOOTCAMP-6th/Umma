@@ -1,5 +1,7 @@
 package com.example.umma.di
 
+import com.example.umma.core.util.NetworkConnectivityMonitor
+import com.example.umma.core.util.NetworkConnectivityMonitorImpl
 import com.example.umma.data.repository.AuthRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
@@ -38,4 +40,10 @@ abstract class RepositoryModule {
     abstract fun bindLearningStateRepo(
         learningStateRepoImpl: LearningStateRepoImpl
     ): LearningStateRepo
+}
+    @Binds
+    @Singleton
+    abstract fun bindNetworkConnectivityMonitor(
+        networkConnectivityMonitorImpl: NetworkConnectivityMonitorImpl
+    ): NetworkConnectivityMonitor
 }
