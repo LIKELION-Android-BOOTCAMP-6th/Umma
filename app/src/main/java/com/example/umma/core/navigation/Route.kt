@@ -20,10 +20,6 @@ sealed interface Route {
     @Serializable
     data object OnBoarding : Route
 
-    // 2. 로그인
-    @Serializable
-    data object SignIn : Route
-
     // 3. 통계
     @Serializable
     data object Analytics : Route
@@ -43,7 +39,6 @@ sealed interface Route {
     // 7. 교정
     @Serializable
     data object FeedbackList : Route
-
 
     // 8. 학습
     @Serializable
