@@ -35,7 +35,32 @@ import com.example.umma.core.theme.TextPrimary
 import com.example.umma.core.theme.ThemePrimary
 import com.example.umma.core.theme.TitleDialogSB
 
-// 움마 공통 다이얼로그 위젯
+/**
+ * 앱 전반에서 공통으로 사용되는 다이얼로그 컴포저블입니다.
+ *
+ * 상단 우측의 취소(X) 버튼, 중앙 정렬 타이틀, 커스텀 콘텐츠 영역,
+ * 하단 확인 버튼으로 구성됩니다. 다이얼로그 외부 영역을 터치해도 닫히지 않으며,
+ * 반드시 [onCancel] 또는 [onConfirm]을 통해서만 닫을 수 있습니다.
+ *
+ * 사용 예시:
+ * ```
+ * UmmaDialog(
+ *     title = "알림",
+ *     onCancel = { showDialog = false },
+ *     onConfirm = { showDialog = false },
+ *     confirmText = "확인"
+ * ) {
+ *     Text(text = "정말 삭제하시겠습니까?")
+ * }
+ * ```
+ *
+ * @param title 다이얼로그 상단 중앙에 표시할 제목 문자열.
+ * @param modifier 다이얼로그 [Surface]에 적용할 [Modifier].
+ * @param onCancel 우측 상단 취소(X) 버튼 클릭 시 호출되는 콜백.
+ * @param onConfirm 하단 확인 버튼 클릭 시 호출되는 콜백.
+ * @param confirmText 하단 확인 버튼에 표시할 텍스트. 기본값은 `"확인"`.
+ * @param content 타이틀과 확인 버튼 사이에 삽입할 커스텀 컴포저블 블록 ([ColumnScope] 내부).
+ */
 @Composable
 fun UmmaDialog(
     title: String,
@@ -45,7 +70,7 @@ fun UmmaDialog(
     confirmText: String = "확인",
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Dialog(onDismissRequest = { }) {
+    Dialog(onDismissRequest = { onCancel() }) {
         Surface(
             modifier = modifier
                 .fillMaxWidth()

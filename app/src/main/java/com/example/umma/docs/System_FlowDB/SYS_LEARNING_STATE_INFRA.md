@@ -66,8 +66,8 @@ AI Chat의 대화 연속성과 교정 전 full context를 관리하는 언어별
 
 Session Memory는 대화 1회마다 새 문서를 생성하지 않는다.
 사용자와 학습 언어 기준으로 하나의 세션 문서를 재사용한다.
-MVP에서는 Summary 계열과 초기 저장 계약을 먼저 DataStore 기반으로 안정화하고,
-실제 원문 turn list와 장기 세션 보관이 커지는 시점에 Room 기반 저장으로 확장한다.
+MVP에서는 Summary 계열과 초기 저장 계약을 DataStore 기반으로 안정화하고,
+실제 원문 turn list는 고빈도 append 데이터이므로 Room 기반 저장으로 분리한다.
 
 예:
 
@@ -91,7 +91,7 @@ users/{uid}/sessions/ja
 ### recentFullContext 원칙
 
 - 전체 transcript 문자열이 아니라 turn 단위 리스트로 저장한다.
-- Realtime API streaming chunk는 임시 buffer에서 조립하고, 발화 또는 응답 완료 시 하나의 turn으로 확정한다.
+- Firebase Live API streaming chunk는 임시 buffer에서 조립하고, 발화 또는 응답 완료 시 하나의 turn으로 확정한다.
 - turn은 최소 `turnId`, `role`, `text`, `createdAt`을 가진다.
 - 최대 N턴까지만 유지한다.
 - 교정 및 Flashcard 저장 이후 압축되고 초기화된다.
@@ -179,7 +179,7 @@ Statistics
 - Language State:
 앱 종료 후에도 유지 필요 → 로컬 + Firebase 저장
 
-- 현재 녹음 상태:
+- 현재 입력 UI 상태:
 앱 종료 시 유지 불필요 → 메모리에서만 유지
 
 ---
@@ -444,7 +444,7 @@ Dashboard는 단일 Summary가 아니라,
 - 온보딩에서 모국어와 주 학습 언어를 선택한다.
 - 저장 완료 시 `selectedLearningLanguage`는 `primaryLearningLanguage`와 같은 값으로 설정한다.
 - 주 학습 언어의 Language State, Dashboard Summary, Session Summary, Flashcard Summary 초기값을 생성한다.
-- 실제 원문 Session Memory 모델은 AI Chat Flow 전 별도 SYS Flow에서 구현한다.
+- 실제 원문 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 turn 저장 구조로 다룬다.
 
 ---
 
@@ -548,7 +548,7 @@ GlobalLangState
 | Session Summary | Local cache + updatedAt | Dashboard / Correction 진입 판단용 세션 요약 |
 | Flashcard Summary | Local cache + updatedAt | Dashboard 복습 카드 상태 요약 |
 | Statistics | Firebase fetch + cache | 통계 그래프 데이터 |
-| Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장, Room 전환 후보 |
+| Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장, Room 기반 원문 저장 |
 
 > MVP에서는 `updatedAt` 기준으로 Local Summary를 우선 렌더링하고 Firebase background sync로 최신화한다.
 > TTL 기반 캐시 만료 정책은 Phase 2에서 검토한다.
@@ -679,7 +679,7 @@ MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LangSta
 - Kotlin Domain 필드와 Firestore 필드 간 mapper 규칙
 - 저장 실패 / 재시도 / 부분 생성 복구 정책
 - Session Memory 원문 모델의 보류 범위
-- 현재 MVP는 DataStore 기반 저장부터 시작하고, Session Memory 원문과 고빈도 변경 데이터는 이후 Room으로 옮긴다.
+- 현재 MVP는 학습 상태 스냅샷은 DataStore 기반 저장부터 시작하고, Session Memory 원문과 고빈도 변경 데이터는 Room을 사용한다.
 
 ---
 
@@ -704,7 +704,7 @@ Initial Setup 완료
 
 - `UserProfile` 생성은 AUTH / UserProfile 영역에서 다룬다.
 - 학습 상태 초기값 생성은 LS-007 계약을 따른다.
-- 실제 원문 turn list를 담는 Session Memory 모델은 AI Chat 전 별도 SYS Flow에서 구현한다.
+- 실제 원문 turn list를 담는 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 구현한다.
 - 온보딩은 우선 `SessionSummary.initial(...)`만 생성해 Dashboard 진입 가능 상태를 만든다.
 
 ---

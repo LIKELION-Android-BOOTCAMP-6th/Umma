@@ -1,7 +1,9 @@
 > MVP단계에서는 ANKI처럼 플래시카드를 사용자가 스스로 머릿속, 또는 혼잣말로 문장을 되뇌이고 5단계의 버튼을 클릭하는 방식으로 다음 학습 시점을 반영할 예정이야 (AI가 판단하게 하는 것은 추후 확장)전반적으로 대화세션과 사용자의 언어능력상태 데이터, 플래시카드 데이터, 통계 데이터가 공통으로 호출되거나 업데이트되는데, 전역으로 설정해야할지, 로컬과 firebase 어느쪽에 어떤식으로 저장해서 사용해야좋을지 판단해줘AI가 사용자의 언어능력상태를 수치화해서 반영하는 시점과 로직을 구상해줘.
 
 구현 모델 이름은 `LangState`, `DashSummary`, `UserLangPref`, `GlobalLangState`를 기준으로 본다.
-> 
+>
+
+Firebase Live API 세션 lifecycle, activeSessionId, turn 확정, transcript 이벤트와 자막 표시 같은 대화 실행 경계는 `SYS-REALTIME-INFRA`와 `FLOW-AI-CHAT`에서 별도로 정의한다.
 
 ---
 
@@ -151,8 +153,8 @@ Dashboard와 Statistics에서 빠르게 출력하기 위한 집계 데이터.
 │   메모리 전용     │ 로컬 + Firebase  │ Firebase 원본   │
 ├──────────────────┼──────────────────┼─────────────────┤
 │ 진행 중 transcript │ LangState        │ Session Memory  │
-│ 현재 녹음 상태     │ DashSummary      │ recentFullContext │
-│ 현재 스트리밍 상태 │ Flashcard Memory  │                 │
+│ 현재 입력 UI 상태   │ DashSummary      │ recentFullContext │
+│ 현재 AI 응답 상태   │ Flashcard Memory  │                 │
 │                  │ Statistics Memory │                 │
 │                  │ UserLangPref      │                 │
 └──────────────────┴──────────────────┴─────────────────┘
@@ -353,7 +355,7 @@ MVP에서는 persona를 고려하지 않는다.
 대화 중:
 
 ```
-Realtime API streaming chunk 수신
+Firebase Live API streaming chunk 수신
 → 발화 또는 응답 완료 시 turn 확정
 → recentFullContext에 append
 → 최대 N턴 초과 시 오래된 turn 제거
