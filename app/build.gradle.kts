@@ -68,7 +68,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material)
     implementation(libs.compose.icons.extended)
+    implementation(libs.compose.icons)
 
     // Hilt
     implementation(libs.hilt.android)
@@ -91,11 +93,13 @@ dependencies {
 
     // DataStore
     implementation(libs.datastore.preferences)
+    implementation(libs.kotlinx.serialization.json)
 
     // Firebase & AI & Auth
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.ai)
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
 
     // Google Credential Manager (Auth)
     implementation(libs.androidx.credentials)

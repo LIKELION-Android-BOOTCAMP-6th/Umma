@@ -3,27 +3,27 @@
 ## User Story
 
 개발자는 AI 대화와 교정 결과가 사용자의 장기 언어 능력 상태에 안정적으로 반영되도록,
-`LanguageStateVO`를 언제, 어떤 입력으로, 어떤 계산 방식으로 업데이트할지 정의할 수 있다.
+`LangState`를 언제, 어떤 입력으로, 어떤 계산 방식으로 업데이트할지 정의할 수 있다.
 
 ---
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] Language State 업데이트 시점이 정의된다.
-- [ ] 대화 중 실시간 Language State 업데이트를 하지 않는 원칙이 정의된다.
-- [ ] 업데이트 입력 데이터 범위가 정의된다.
-- [ ] `recentFullContext`에서 분석 대상 turn을 추출하는 정책이 정의된다.
-- [ ] Type A / Type B / Type C 분석 분류가 정의된다.
-- [ ] MVP Internal Metrics 12개와 분석 타입 매핑이 정의된다.
-- [ ] AI 분석 대상은 MVP 필드 중 필요한 최소 범위로 제한된다.
-- [ ] AI 분석 결과가 `null`일 때 기존 값을 유지하는 정책이 정의된다.
-- [ ] 이동평균 기반 업데이트 공식이 정의된다.
-- [ ] 급격한 점수 변동을 제한하는 안정화 정책이 정의된다.
-- [ ] External Metrics 재계산 정책이 정의된다.
-- [ ] Dashboard Summary delta 재계산 정책이 정의된다.
-- [ ] Local update와 Firebase sync 순서가 정의된다.
-- [ ] 중복 분석 또는 중복 업데이트 방지 정책이 정의된다.
-- [ ] 실패 시 fallback / retry 정책이 정의된다.
+- [x] Language State 업데이트 시점이 정의된다.
+- [x] 대화 중 실시간 Language State 업데이트를 하지 않는 원칙이 정의된다.
+- [x] 업데이트 입력 데이터 범위가 정의된다.
+- [x] `recentFullContext`에서 분석 대상 turn을 추출하는 정책이 정의된다.
+- [x] Type A / Type B / Type C 분석 분류가 정의된다.
+- [x] MVP Internal Metrics 12개와 분석 타입 매핑이 정의된다.
+- [x] AI 분석 대상은 MVP 필드 중 필요한 최소 범위로 제한된다.
+- [x] AI 분석 결과가 `null`일 때 기존 값을 유지하는 정책이 정의된다.
+- [x] 이동평균 기반 업데이트 공식이 정의된다.
+- [x] 급격한 점수 변동을 제한하는 안정화 정책이 정의된다.
+- [x] External Metrics 재계산 정책이 정의된다.
+- [x] Dashboard Summary delta 재계산 정책이 정의된다.
+- [x] Local update와 Firebase sync 순서가 정의된다.
+- [x] 중복 분석 또는 중복 업데이트 방지 정책이 정의된다.
+- [x] 실패 시 fallback / retry 정책이 정의된다.
 
 ---
 
@@ -61,7 +61,7 @@
 
 ## 제외 범위 (Out of Scope)
 
-- `LanguageStateVO` 모델 필드 정의 (LS-001)
+- `LangState` 모델 필드 정의 (LS-001)
 - Local Cache / Firebase Sync 저장소 구현 (LS-005)
 - 실제 AI prompt 세부 튜닝
 - STT / audio feature 추출 세부 구현
@@ -121,7 +121,7 @@ session.language = "en"
 - `responseLatency`
 - `repetitionRate`
 
-MVP에서는 이 값을 `LanguageStateVO`에 저장하지 않는다.
+MVP에서는 이 값을 `LangState`에 저장하지 않는다.
 필요하면 분석 과정의 참고값 또는 Phase 2 후보로만 둔다.
 
 LS-006에서 실제 저장 대상으로 삼는 Internal Metrics는 LS-001의 12개이다.
@@ -184,21 +184,34 @@ Flashcard review 완료
 ## 필수 입력
 
 ```kotlin
-data class LanguageStateUpdateInput(
+data class LangStateUpdateInput(
     val uid: String,
-    val language: String,
+    val lang: LangCode,
     val sessionMemoryKey: String,
     val analysisEventId: String?,
-    val currentState: LanguageStateVO,
-    val recentUserTurns: List<ConversationTurnVO>,
-    val correctionResult: CorrectionResultVO?,
-    val flashcardReviewEvents: List<FlashcardReviewEventVO>,
-    val analyzedAt: Long
+    val currentState: LangState,
+    val preparedState: LangState? = null,
+    val recentUserTurns: List<ConversationTurn>,
+    val correctionResult: CorrectionResult?,
+    val flashcardReviewEvents: List<FlashcardReviewEvent>,
+    val analyzedAt: Long,
+    val forceReanalysis: Boolean = false
 )
 ```
 
-> VO 이름은 설명용이다.
-> 실제 구현 시 팀의 모델 네이밍에 맞춰 조정한다.
+> 타입 이름은 설명용이다.
+> 실제 구현 시에도 `VO` 접미사는 사용하지 않고, 팀의 짧은 도메인 모델 네이밍에 맞춰 조정한다.
+> UseCase는 `preparedState`를 계산하고, Repository는 이를 원자적으로 저장한다.
+
+## 권장 계약
+
+```text
+domain/model/learningstate/LearningUpdateModels.kt
+domain/usecase/learningstate/LearningStateWriteUseCases.kt
+domain/repository/LearningStateRepo.kt
+```
+
+정책 계산은 UseCase 계층에서, 저장과 observe 경계는 Repository에서 다룬다.
 
 ---
 
@@ -471,9 +484,9 @@ measured = B2
 Internal Metrics 업데이트 후 External Metrics를 재계산한다.
 
 ```text
-LanguageInternalMetricsVO 업데이트
-→ LanguageExternalMetricsVO 재계산
-→ LanguageStateVO updatedAt 갱신
+InternalMetrics 업데이트
+→ ExternalMetrics 재계산
+→ LangState updatedAt 갱신
 ```
 
 권장 매핑:
@@ -491,13 +504,13 @@ LanguageInternalMetricsVO 업데이트
 ## 예시 계산
 
 ```kotlin
-fun calculateFluencyScore(metrics: LanguageInternalMetricsVO): Double {
+fun calculateFluencyScore(metrics: InternalMetrics): Double {
     val pauseScore = 1.0 - metrics.pauseFrequency
     return ((metrics.speechRate + pauseScore + metrics.avgUtteranceLength) / 3.0)
         .coerceIn(0.0, 1.0)
 }
 
-fun calculateNaturalnessScore(metrics: LanguageInternalMetricsVO): Double {
+fun calculateNaturalnessScore(metrics: InternalMetrics): Double {
     return ((metrics.spokenNaturalness + metrics.naturalExpressionUsage) / 2.0)
         .coerceIn(0.0, 1.0)
 }
@@ -536,7 +549,7 @@ Language State 업데이트 후 Dashboard Summary의 성취율 delta를 갱신�
 → 이동평균 적용
 → External Metrics 재계산
 → Local Language State 저장
-→ GlobalLearningState 갱신
+→ GlobalLangState 갱신
 → Dashboard Summary 갱신
 → Firebase sync 예약
 ```
@@ -558,6 +571,9 @@ lastAnalyzedAt
 analysisEventId
 lastCompressedAt
 ```
+
+`LangState`에는 `lastAnalyzedAt`와 `lastAnalysisEventId`를 보관하고,
+세션 압축 시점은 Session Memory 또는 별도 메타 저장소에서 관리한다.
 
 정책:
 

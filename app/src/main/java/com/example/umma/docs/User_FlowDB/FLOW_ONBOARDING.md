@@ -27,7 +27,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 앱 진입 | 앱 실행 | 스플래시 표시 및 세션 확인 | 유효 세션 존재 시 홈 화면 이동 / 세션 없으면 온보딩 진입 | 세션 확인 실패 | Splash Loading | 만료 세션 자동 제거 / 네트워크 불안정 시 재시도 | AUTH-002 |
 | Google 로그인 | Google 로그인 버튼 클릭 및 계정 선택 | Google 인증 및 Firebase 사용자 인증 진행 | 로그인 성공 후 초기 설정 화면 이동 | 인증 취소 / Firebase 인증 실패 | Loading / Error | Play Services 상태 확인 / 인증 재시도 가능 | AUTH-001 |
-| 초기 설정 | 관심사, 목표, 모국어, 주 학습 언어 설정 | User Profile / UserLearningPreference 저장 및 Language State 초기화 | 저장 완료 후 Dashboard 이동 | 저장 실패 시 재시도 버튼 표시 | Loading / Saving | 일부 데이터 저장 실패 시 rollback 처리 검토 | AUTH-004 |
+| 초기 설정 | 관심사, 목표, 모국어, 주 학습 언어 설정 | User Profile 저장 및 LS-007 기준 학습 상태 초기값 생성 | 저장 완료 후 Dashboard 이동 | 저장 실패 시 재시도 버튼 표시 | Loading / Saving | 일부 데이터 저장 실패 시 재시도 가능한 보정 처리 | AUTH-004 |
 | 로그아웃 | 로그아웃 클릭 | Google 세션 및 앱 세션 제거 | 로그아웃 완료 및 로그인 화면 이동 | 로그아웃 실패 시 에러 Toast 표시 | Loading / Error | 네트워크 끊김 | AUTH-003 |
 
 ---
@@ -45,7 +45,7 @@
 
 # 초기 설정 데이터
 
-## UserLearningPreference
+## UserLangPref
 
 온보딩 완료 시 앱의 기본 학습 언어 컨텍스트를 함께 저장한다.
 
@@ -70,8 +70,10 @@
 ## 초기화 정책
 
 - 온보딩 완료 시 `selectedLearningLanguage = primaryLearningLanguage`로 설정한다.
-- `primaryLearningLanguage`에 해당하는 Language State와 Dashboard Summary 초기값을 생성한다.
+- `primaryLearningLanguage`에 해당하는 Language State, Dashboard Summary, Session Summary, Flashcard Summary 초기값을 생성한다.
 - 사용자가 이후 Dashboard에서 언어를 변경하면 `selectedLearningLanguage`만 변경한다.
+- 실제 원문 Session Memory 모델은 온보딩에서 만들지 않고, `SYS-REALTIME-INFRA`의 RT-003에서 turn 저장 구조로 다룬다.
+- 학습 상태 초기 저장 계약은 `SYS-LEARNING-STATE-INFRA`의 `LS-007`을 따른다.
 
 ---
 

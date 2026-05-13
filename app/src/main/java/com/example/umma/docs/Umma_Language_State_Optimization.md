@@ -1,9 +1,9 @@
-> Language State가 너무 추상적이어서 AI가 모든 지표를 판단하고 반영하는데에 너무 많은 비용이 들거나 결과가 일관적이지 않게 될 문제는 없을까?? 만약 그렇다면 해결방법은?
+> LangState가 너무 추상적이어서 AI가 모든 지표를 판단하고 반영하는데에 너무 많은 비용이 들거나 결과가 일관적이지 않게 될 문제는 없을까?? 만약 그렇다면 해결방법은?
 > 
 
 # 문제 진단
 
-Language State를 단순히:
+LangState를 단순히:
 
 ```
 AI가 모든 지표를 매번 분석하는 구조
@@ -28,7 +28,7 @@ AI가 모든 지표를 매번 분석하는 구조
 교정 또는 학습 분석 시점마다:
 
 - recentFullContext 전체
-- Language State 전체
+- LangState 전체
 - 30개 이상의 지표
 
 를 AI에 전송하면 토큰 비용이 급격히 증가합니다.
@@ -39,7 +39,7 @@ AI가 모든 지표를 매번 분석하는 구조
 
 ```
 transcript 3분 대화 ≈ 800~1,200 토큰
-Language State 전체 ≈ 400 토큰
+LangState 전체 ≈ 400 토큰
 프롬프트 ≈ 200 토큰
 
 ────────────────────────
@@ -98,7 +98,7 @@ natural_expression_usage = 0.72
 
 # 3. 구조적 문제
 
-초기 Language State 설계에서는:
+초기 LangState 설계에서는:
 
 ```
 거의 모든 지표를 AI가 추론
@@ -125,11 +125,11 @@ AI를 사용하지 않아도 되는 영역까지 AI에 맡기면:
 
 # 해결 방향
 
-Umma에서는 Language State 지표를 아래 3가지 유형으로 분리합니다.
+Umma에서는 LangState 지표를 아래 3가지 유형으로 분리합니다.
 
 ```
 ┌──────────────────────────────────────────────┐
-│          Language State 처리 전략            │
+│          LangState 처리 전략            │
 ├──────────────┬──────────────┬───────────────┤
 │ Type A       │ Type B       │ Type C        │
 │ 코드 계산     │ 규칙 기반     │ AI 분석        │
@@ -407,7 +407,7 @@ AI 비용이:
 
 ---
 
-# Language State 업데이트 구조
+# LangState 업데이트 구조
 
 ## 최종 흐름
 
@@ -422,7 +422,7 @@ Type B 분석
         ↓
 (필요 시) Type C AI 분석
         ↓
-Language State 업데이트
+LangState 업데이트
         ↓
 Dashboard Summary 재계산
         ↓
@@ -493,7 +493,7 @@ Local cache 갱신
 # 최종 요약
 
 - 모든 지표를 AI가 분석하지 않는다.
-- Language State를:
+- LangState를:
     
     Type A / B / C
     
@@ -525,6 +525,6 @@ Local cache 갱신
     
 - Dashboard와 Statistics는:
     
-    Language State 전체를 매번 계산하지 않고
+    LangState 전체를 매번 계산하지 않고
     
     Summary 기반으로 preload 렌더링한다.

@@ -9,20 +9,20 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `UserLearningPreferenceVO`가 `domain/model`에 정의된다.
-- [ ] `nativeLanguage` 필드가 정의된다.
-- [ ] `primaryLearningLanguage` 필드가 정의된다.
-- [ ] `selectedLearningLanguage` 필드가 정의된다.
-- [ ] `learningLanguages` 필드가 정의된다.
-- [ ] `selectedLearningLanguage`는 현재 앱이 바라보는 학습 언어 컨텍스트로 정의된다.
-- [ ] `language` 필드와 `selectedLearningLanguage`의 차이가 문서화된다.
-- [ ] Initial Setup 완료 시 `selectedLearningLanguage = primaryLearningLanguage`로 초기화된다.
-- [ ] Initial Setup 완료 시 `learningLanguages`에는 `primaryLearningLanguage`가 포함된다.
-- [ ] Dashboard 언어 selector에서 `selectedLearningLanguage`를 변경할 수 있는 모델 구조가 정의된다.
-- [ ] MVP에서는 `learningLanguages`에 존재하는 언어만 선택 가능하도록 제한한다.
-- [ ] Firestore 저장 구조가 `users/{uid}/user_learning_preference/current` 기준으로 정의된다.
-- [ ] Local persist 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
-- [ ] 향후 필드 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
+- [x] `UserLangPref`가 `domain/model`에 정의된다.
+- [x] `nativeLang` 필드가 정의되고, Firestore 저장 시 `nativeLanguage`로 매핑된다.
+- [x] `primaryLang` 필드가 정의되고, Firestore 저장 시 `primaryLearningLanguage`로 매핑된다.
+- [x] `selectedLang` 필드가 정의되고, Firestore 저장 시 `selectedLearningLanguage`로 매핑된다.
+- [x] `learningLangs` 필드가 정의되고, Firestore 저장 시 `learningLanguages`로 매핑된다.
+- [x] `selectedLang`는 현재 앱이 바라보는 학습 언어 컨텍스트로 정의된다.
+- [x] `language` 필드와 `selectedLearningLanguage`의 차이가 문서화된다.
+- [x] Initial Setup 완료 시 `selectedLang = primaryLang`로 초기화된다.
+- [x] Initial Setup 완료 시 `learningLangs`에는 `primaryLang`가 포함된다.
+- [x] Dashboard 언어 selector에서 `selectedLang`를 변경할 수 있는 모델 구조가 정의된다.
+- [x] MVP에서는 `learningLangs`에 존재하는 언어만 선택 가능하도록 제한한다.
+- [x] Firestore 저장 구조가 `users/{uid}/user_learning_preference/current` 기준으로 정의된다.
+- [x] Local persist 저장을 고려해 직렬화 가능한 순수 Kotlin 모델로 작성된다.
+- [x] 향후 필드 확장을 위해 `schemaVersion` 또는 동등한 버전 관리 필드를 포함한다.
 
 ---
 
@@ -41,7 +41,7 @@
 
 ## 포함 범위
 
-- User Learning Preference Domain VO 설계
+- User Learning Preference Domain Model 설계
 - 지원 언어 표현 방식 정의
 - Initial Setup 초기화 정책 정의
 - Dashboard 언어 변경 정책 정의
@@ -126,7 +126,8 @@ ko
 
 - 최초 Language State 생성 기준
 - 최초 Dashboard Summary 생성 기준
-- 최초 Session Memory 생성 기준
+- 최초 Session Summary / Flashcard Summary 생성 기준
+- 이후 AI Chat Flow에서 만들 Session Memory의 언어 기준
 - `selectedLearningLanguage` 초기값
 
 MVP 예시:
@@ -154,7 +155,7 @@ ja
 
 ```text
 selectedLearningLanguage = "en"
-→ DashboardSummary["en"] 렌더링
+→ DashSummary["en"] 렌더링
 → AI Chat 진입 시 "en" 대화 시작
 → Flashcard 진입 시 "en" 카드만 조회
 ```
@@ -202,9 +203,9 @@ MVP에서는 주 학습 언어 1개만 선택 가능하므로:
 
 ```text
 com.example.umma
-└── domain/model/
-    ├── UserLearningPreferenceVO.kt
-    └── LanguageCode.kt
+└── domain/model/learningstate/
+    ├── LearningCoreModels.kt
+    └── LearningProfileModels.kt
 ```
 
 > LS-003은 Domain 모델만 정의한다.
@@ -215,26 +216,29 @@ com.example.umma
 ## 권장 모델 구조
 
 ```kotlin
-data class UserLearningPreferenceVO(
-    val nativeLanguage: LanguageCode,
-    val primaryLearningLanguage: LanguageCode,
-    val selectedLearningLanguage: LanguageCode,
-    val learningLanguages: List<LanguageCode>,
-    val schemaVersion: Int = 1,
+data class UserLangPref(
+    val nativeLang: LangCode,
+    val primaryLang: LangCode,
+    val selectedLang: LangCode,
+    val learningLangs: List<LangCode>,
+    val schema: Int = 1,
     val updatedAt: Long? = null
 )
 ```
 
+> Kotlin Domain 모델은 짧은 필드명을 사용한다.
+> Firestore 저장 시에는 mapper에서 `nativeLang → nativeLanguage`, `primaryLang → primaryLearningLanguage`, `selectedLang → selectedLearningLanguage`, `learningLangs → learningLanguages`, `schema → schemaVersion`으로 변환한다.
+
 ---
 
-## LanguageCode
+## LangCode
 
 MVP에서는 단순 문자열 대신 enum 또는 value class를 사용해 오타를 줄인다.
 
 ### enum 방식
 
 ```kotlin
-enum class LanguageCode(val code: String) {
+enum class LangCode(val code: String) {
     KO("ko"),
     EN("en"),
     JA("ja")
@@ -245,7 +249,7 @@ enum class LanguageCode(val code: String) {
 
 ```kotlin
 @JvmInline
-value class LanguageCode(val value: String)
+value class LangCode(val value: String)
 ```
 
 MVP에서는 지원 언어가 제한적이므로 enum 방식이 더 안전하다.
@@ -258,26 +262,21 @@ MVP에서는 지원 언어가 제한적이므로 enum 방식이 더 안전하다
 Initial Setup 완료 시 User Learning Preference를 생성한다.
 
 ```kotlin
-fun createInitialUserLearningPreference(
-    nativeLanguage: LanguageCode,
-    primaryLearningLanguage: LanguageCode
-): UserLearningPreferenceVO {
-    return UserLearningPreferenceVO(
-        nativeLanguage = nativeLanguage,
-        primaryLearningLanguage = primaryLearningLanguage,
-        selectedLearningLanguage = primaryLearningLanguage,
-        learningLanguages = listOf(primaryLearningLanguage)
-    )
-}
+UserLangPref.initial(
+    nativeLang = LangCode.KO,
+    primaryLang = LangCode.EN
+)
 ```
 
 초기화 이후 함께 생성되어야 하는 데이터:
 
 - `language_states/{primaryLearningLanguage}`
 - `dashboard_summaries/{primaryLearningLanguage}`
-- `sessions/{primaryLearningLanguage}`
+- `session_summaries/{primaryLearningLanguage}`
+- `flashcard_summaries/{primaryLearningLanguage}`
 
-해당 생성 로직은 AUTH-004와 LS-004 / LS-005에서 다룬다.
+해당 생성 로직은 AUTH-004와 LS-007에서 다룬다.
+실제 원문 turn list를 담는 `sessions/{primaryLearningLanguage}` 문서는 `SYS-REALTIME-INFRA`의 RT-003에서 다룬다.
 
 ---
 
@@ -331,18 +330,27 @@ users/{uid}/user_learning_preference/current
 
 ## Kotlin
 
-Kotlin 모델은 lowerCamelCase를 사용한다.
+Kotlin Domain 모델은 짧고 직관적인 lowerCamelCase를 사용한다.
 
 ```kotlin
-nativeLanguage
-primaryLearningLanguage
-selectedLearningLanguage
-learningLanguages
+nativeLang
+primaryLang
+selectedLang
+learningLangs
+schema
 ```
 
 ## Firestore
 
-Firestore 필드명도 Kotlin 모델과 동일한 lowerCamelCase를 사용한다.
+Firestore 필드명은 외부 데이터 의미가 분명하도록 설명적인 lowerCamelCase를 사용한다.
+
+```text
+nativeLanguage
+primaryLearningLanguage
+selectedLearningLanguage
+learningLanguages
+schemaVersion
+```
 
 ---
 
@@ -379,7 +387,7 @@ Firestore 필드명도 Kotlin 모델과 동일한 lowerCamelCase를 사용한다
 이 경우:
 
 ```text
-UserLearningPreference 없음
+UserLangPref 없음
 → Initial Setup 표시
 ```
 
@@ -430,9 +438,9 @@ selectedLearningLanguage not in learningLanguages
 ## 정상 흐름
 
 1. Initial Setup에서 `nativeLanguage = "ko"`, `primaryLearningLanguage = "en"` 선택
-2. `createInitialUserLearningPreference(KO, EN)` 호출
-3. `selectedLearningLanguage = EN`으로 생성
-4. `learningLanguages = [EN]`으로 생성
+2. `UserLangPref.initial(KO, EN)` 호출
+3. `selectedLang = EN`으로 생성
+4. `learningLangs = [EN]`으로 생성
 5. Firestore path `users/{uid}/user_learning_preference/current` 저장 가능 확인
 
 ---

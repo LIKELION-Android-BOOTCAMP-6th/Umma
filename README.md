@@ -47,7 +47,7 @@ Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** �
 
 - **현재 학습 상태 요약**: 현재 선택 언어의 최근 대화, 교정 대기, 복습 카드, 성장 지표를 한 화면에서 확인합니다.
 - **언어별 학습 컨텍스트**: `selectedLearningLanguage` 기준으로 Dashboard, AI Chat, 교정, Flashcard, Statistics가 같은 언어 컨텍스트를 공유합니다.
-- **빠른 렌더링**: Dashboard는 원본 transcript를 직접 계산하지 않고 `DashboardSummary` 기반으로 렌더링합니다.
+- **빠른 렌더링**: Dashboard는 원본 transcript를 직접 계산하지 않고 `DashSummary` 기반으로 렌더링합니다.
 
 ### 4. SRS 기반 반복학습 🃏
 
@@ -75,9 +75,11 @@ app/src/main/java/com/example/umma
 │   └── ui/                  # Common UI, LCE, UiText
 ├── di/                     # Dependency Injection Modules
 ├── domain/                 # Pure Kotlin Business Logic
-│   ├── model/               # VO / Domain Entities
+│   ├── model/               # Domain Models
+│   │   └── learningstate/   # LangState / DashSummary / UserLangPref
 │   ├── repository/          # Repository Interfaces
 │   └── usecase/             # UseCases
+│       └── learningstate/   # Learning state read/write use cases
 ├── data/                   # Data Implementations
 │   ├── repository/          # Repository Implementations
 │   ├── source/
@@ -217,15 +219,15 @@ Umma의 학습 데이터는 언어별로 분리해서 관리합니다.
 ```text
 users/{uid}
 ├── user_learning_preference/current
-├── language_states/{language}
-├── dashboard_summaries/{language}
-├── sessions/{language}
+├── language_states/{lang}
+├── dashboard_summaries/{lang}
+├── sessions/{lang}
 └── flashcards/{cardId}
 ```
 
-- `language`: Session, Flashcard, Statistics, Language State가 어떤 언어의 데이터인지 나타내는 소속 필드
+- `lang`: Session, Flashcard, Statistics, Language State가 어떤 언어의 데이터인지 나타내는 소속 필드
 - `selectedLearningLanguage`: Dashboard와 기능 이동이 현재 바라보는 앱 전역 언어 컨텍스트
-- Dashboard는 `DashboardSummary[selectedLearningLanguage]`만 사용하여 빠르게 렌더링합니다.
+- Dashboard는 `DashSummary[selectedLearningLanguage]`만 사용하여 빠르게 렌더링합니다.
 - AI Chat은 언어별 재사용 Session Memory에 확정 turn 단위로 대화 맥락을 저장합니다.
 
 ---
@@ -248,6 +250,7 @@ users/{uid}
 - `main`: 배포 가능 상태
 - `develop`: 통합 개발
 - `feature/기능명`: 개인 작업 브랜치 (예: `feature/login`)
+- `common`: 공통 작업 브랜치 (예: 공통 컴포넌트, 표준 UI 등)
 
 #### 커밋 컨벤션
 
@@ -281,6 +284,72 @@ users/{uid}
 - 본인 approve 금지
 - Merge 전 반드시 빌드 확인
 - 피드백은 코드를 기준으로 진행
+
+**PR 템플릿**
+```text
+## Summary
+- 
+
+---
+
+## Related Issue
+- Closes #
+
+---
+
+## What’s Done
+- 
+
+---
+
+## How to Test
+1. 
+
+---
+
+## Notes
+- 
+```
+
+**PR 작성 예시**
+```text
+## Summary
+- SYS-LEARNING-STATE-INFRA 전반 구현
+- Language State, Dashboard Summary, User Learning Preference, Global Learning State, Local Sync, Update Policy 구조 정리
+
+---
+
+## Related Issue
+- Closes #27 
+- Closes #28 
+- Closes #29 
+- Closes #30 
+- Closes #31 
+- Closes #32 
+
+---
+
+## What’s Done
+- `LangState` / `DashSummary` / `UserLangPref` / `GlobalLangState` 모델 정리
+- Local Cache / Firebase Sync 정책 정리
+- Language State 업데이트 입력/계약/UseCase 구조 정리
+- 중복 업데이트 방지 및 batch update 흐름 반영
+- 관련 문서와 코드 네이밍 일관성 맞춤
+
+---
+
+## How to Test
+1. `./gradlew :app:compileDebugKotlin` 실행
+2. 학습 상태 관련 모델/유스케이스 구조 확인
+3. LS-001 ~ LS-006 문서와 코드명이 일치하는지 확인
+
+---
+
+## Notes
+- Repository는 저장만, 정책 계산은 UseCase에서 처리하는 방향으로 맞췄다.
+- 대화세션 관련 모델과 로직은 AI 대화 Flow 작업 전에 추가 구현할 예정이다.
+- MVP 기준으로 필요한 핵심 구조부터 정리했다.
+```
 
 ### 💻 코드 규칙
 

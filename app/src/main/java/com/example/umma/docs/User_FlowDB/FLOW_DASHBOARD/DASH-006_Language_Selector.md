@@ -37,8 +37,8 @@
 - 현재 선택 언어 표시
 - learningLanguages 목록 렌더링
 - selectedLearningLanguage 변경 처리
-- UserLearningPreference local update
-- UserLearningPreference Firebase sync
+- UserLangPref local update
+- UserLangPref Firebase sync
 - 변경된 언어의 Dashboard Summary fetch
 - Dashboard 카드 재렌더링
 - Loading/Error 상태 처리
@@ -55,7 +55,7 @@
 - Dashboard 카드 개별 구현
 - AI Chat / Correction / Flashcard / Statistics 기능 자체
 
-> UserLearningPreference와 Language Scoped Summary 구조는 SYS-LEARNING-STATE-INFRA에서 선행 정의된 상태를 전제로 한다.
+> UserLangPref와 Language Scoped Summary 구조는 SYS-LEARNING-STATE-INFRA에서 선행 정의된 상태를 전제로 한다.
 
 ---
 
@@ -89,7 +89,7 @@ English ▼
 
 ## 사용 데이터
 
-### UserLearningPreference
+### UserLangPref
 
 ```json
 {
@@ -128,10 +128,10 @@ English ▼
 ```text
 언어 선택
 → selectedLearningLanguage local update
-→ DashboardSummary[selectedLearningLanguage] Local Cache fetch
+→ DashSummary[selectedLearningLanguage] Local Cache fetch
 → Dashboard 카드 재렌더링
-→ UserLearningPreference Firebase background sync
-→ DashboardSummary[selectedLearningLanguage] Firebase background sync
+→ UserLangPref Firebase background sync
+→ DashSummary[selectedLearningLanguage] Firebase background sync
 → 변경사항 존재 시 UI 갱신
 ```
 
@@ -219,7 +219,7 @@ MVP에서는 `learningLanguages`에 이미 존재하는 언어만 선택 가능�
 
 ### Fatal Error
 
-- UserLearningPreference load 실패
+- UserLangPref load 실패
 - learningLanguages 없음
 - primaryLearningLanguage 없음
 
@@ -247,20 +247,20 @@ com.example.umma
 │   │   └── LearningLanguageSelector.kt
 │   ├── DashboardScreen.kt
 │   └── DashboardViewModel.kt
-├── domain/model/
-│   ├── LanguageDashboardSummaryVO.kt
-│   └── UserLearningPreferenceVO.kt
+├── domain/model/learningstate/
+│   ├── LearningSummaryModels.kt
+│   └── LearningProfileModels.kt
 ├── domain/repository/
-│   └── LearningStateRepository.kt
-├── domain/usecase/
-│   ├── ChangeSelectedLearningLanguageUseCase.kt
-│   └── ObserveDashboardSummaryUseCase.kt
+│   └── LearningStateRepo.kt
+├── domain/usecase/learningstate/
+│   ├── LearningStateReadUseCases.kt
+│   └── LearningStateWriteUseCases.kt
 ├── data/repository/
-│   └── LearningStateRepositoryImpl.kt
+│   └── LearningStateRepoImpl.kt
 ├── data/source/local/
-│   └── UserLearningPreferenceLocalDataSource.kt
+│   └── UserLangPrefLocalDataSource.kt
 └── data/source/remote/
-    └── UserLearningPreferenceRemoteDataSource.kt
+    └── UserLangPrefRemoteDataSource.kt
 ```
 
 > Selector UI/ViewModel은 `presentation/dashboard`에 둔다.
@@ -281,8 +281,8 @@ LearningLanguageSelector
 ```kotlin
 @Composable
 fun LearningLanguageSelector(
-    selectedLanguage: Language,
-    learningLanguages: List<Language>,
+    selectedLang: Language,
+    learningLangs: List<Language>,
     isLoading: Boolean,
     onLanguageSelected: (Language) -> Unit
 )
@@ -294,9 +294,9 @@ fun LearningLanguageSelector(
 
 ```kotlin
 data class DashboardLanguageSelectorState(
-    val selectedLearningLanguage: Language? = null,
-    val primaryLearningLanguage: Language? = null,
-    val learningLanguages: List<Language> = emptyList(),
+    val selectedLang: Language? = null,
+    val primaryLang: Language? = null,
+    val learningLangs: List<Language> = emptyList(),
     val isChangingLanguage: Boolean = false,
     val errorMessage: UiText? = null
 )
@@ -310,7 +310,7 @@ data class DashboardLanguageSelectorState(
 
 역할:
 
-- UserLearningPreference 상태 관리
+- UserLangPref 상태 관리
 - selectedLearningLanguage 변경 처리
 - 변경된 언어의 Dashboard Summary fetch 요청
 - 언어 변경 중복 요청 방지
@@ -415,7 +415,7 @@ data class DashboardLanguageSelectorState(
 
 ## 실패 흐름
 
-1. UserLearningPreference load 실패
+1. UserLangPref load 실패
 2. learningLanguages empty
 3. Firebase sync 실패
 4. 선택 언어 Summary fetch 실패

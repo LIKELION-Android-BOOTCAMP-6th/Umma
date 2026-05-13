@@ -95,9 +95,9 @@
 
 ## 사용 데이터
 
-### LanguageDashboardSummary
+### DashSummary
 
-`DASH-001`에서 로드된 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
+`DASH-001`에서 로드된 `DashSummary[selectedLearningLanguage]`를 사용한다.
 
 ```json
 {
@@ -175,7 +175,7 @@ Dashboard는 Session Memory의 `recentFullContext` 전체를 렌더링하지 않
 교정 대기 카드는:
 
 ```text
-DashboardSummary[selectedLearningLanguage]
+DashSummary[selectedLearningLanguage]
 ```
 
 기반으로 렌더링된다.
@@ -267,8 +267,8 @@ com.example.umma
 │   └── DashboardScreen.kt
 ├── core/navigation/
 │   └── Route.kt
-└── domain/model/
-    └── LanguageDashboardSummaryVO.kt
+└── domain/model/learningstate/
+    └── LearningSummaryModels.kt
 ```
 
 > Dashboard 카드는 `presentation/dashboard/components`에 둔다.
@@ -290,7 +290,7 @@ CorrectionPendingCard
 @Composable
 fun CorrectionPendingCard(
 
-    summary: LanguageDashboardSummaryVO,
+    summary: DashSummary,
 
     selectedLearningLanguage: String,
 
@@ -452,7 +452,7 @@ Dashboard preload 중:
 ## 검토 후 수정 메모
 
 - `DASH-003`은 여러 언어의 교정 대기 카드를 동시에 렌더링하지 않는다.
-- 카드 데이터는 `DASH-001`에서 로드된 `DashboardSummary[selectedLearningLanguage]`를 사용한다.
+- 카드 데이터는 `DASH-001`에서 로드된 `DashSummary[selectedLearningLanguage]`를 사용한다.
 - Correction 화면에는 `selectedLearningLanguage`를 전달한다.
 - 현재 선택 언어의 재사용 Session Memory는 `users/{uid}/sessions/{selectedLearningLanguage}` 기준으로 조회한다.
 - Dashboard에서는 `recentFullContext` 전체를 preload하지 않고, Correction 화면이 선택 언어 기준으로 Session Memory를 조회한다.

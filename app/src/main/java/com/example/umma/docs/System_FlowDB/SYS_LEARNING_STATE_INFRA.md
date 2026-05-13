@@ -16,6 +16,8 @@
 
 에서 공통으로 사용된다.
 
+이 구조를 처음 이해할 때는 `SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md`부터 보면 흐름이 가장 잘 잡힌다.
+
 ---
 
 # 핵심 개념 설명
@@ -64,6 +66,8 @@ AI Chat의 대화 연속성과 교정 전 full context를 관리하는 언어별
 
 Session Memory는 대화 1회마다 새 문서를 생성하지 않는다.
 사용자와 학습 언어 기준으로 하나의 세션 문서를 재사용한다.
+MVP에서는 Summary 계열과 초기 저장 계약을 DataStore 기반으로 안정화하고,
+실제 원문 turn list는 고빈도 append 데이터이므로 Room 기반 저장으로 분리한다.
 
 예:
 
@@ -87,7 +91,7 @@ users/{uid}/sessions/ja
 ### recentFullContext 원칙
 
 - 전체 transcript 문자열이 아니라 turn 단위 리스트로 저장한다.
-- Realtime API streaming chunk는 임시 buffer에서 조립하고, 발화 또는 응답 완료 시 하나의 turn으로 확정한다.
+- Firebase Live API streaming chunk는 임시 buffer에서 조립하고, 발화 또는 응답 완료 시 하나의 turn으로 확정한다.
 - turn은 최소 `turnId`, `role`, `text`, `createdAt`을 가진다.
 - 최대 N턴까지만 유지한다.
 - 교정 및 Flashcard 저장 이후 압축되고 초기화된다.
@@ -218,6 +222,7 @@ Firebase를 매번 조회하지 않고,
 | 4. Global Learning State 구성 | 전역 학습 상태 Store 구성 | 여러 화면에서 상태 공유 가능 | 성공: 상태 공유 완료 / 실패: 상태 동기화 오류 | LS-004 |
 | 5. 로컬 캐시 및 Firebase 동기화 정책 정의 | persist / fetch / sync 구조 정의 | 로컬 우선 읽기 및 batch 저장 가능 | 성공: 상태 동기화 완료 / 실패: 데이터 충돌 | LS-005 |
 | 6. Language State 업데이트 정책 정의 | 교정 또는 학습 분석 시점의 batch 업데이트 로직 정의 | 안정적인 상태 갱신 가능 | 성공: 이동평균 반영 완료 / 실패: 급격한 상태 변동 | LS-006 |
+| 7. Initial Learning State 초기 저장 계약 정의 | Initial Setup 완료 시 학습 상태 초기값 저장 계약 정의 | 온보딩 완료 후 Dashboard 진입 가능 | 성공: 초기 학습 상태 생성 완료 / 실패: 부분 생성 또는 저장 실패 | LS-007 |
 
 ---
 
@@ -262,7 +267,7 @@ Firebase를 매번 조회하지 않고,
 
 - Internal Metrics 구조 정의
 - External Metrics 구조 정의
-- Kotlin VO 설계
+- Kotlin Model 설계
 - Firestore Schema 정의
 
 ---
@@ -438,7 +443,8 @@ Dashboard는 단일 Summary가 아니라,
 
 - 온보딩에서 모국어와 주 학습 언어를 선택한다.
 - 저장 완료 시 `selectedLearningLanguage`는 `primaryLearningLanguage`와 같은 값으로 설정한다.
-- 주 학습 언어의 Language State와 Dashboard Summary 초기값을 생성한다.
+- 주 학습 언어의 Language State, Dashboard Summary, Session Summary, Flashcard Summary 초기값을 생성한다.
+- 실제 원문 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 turn 저장 구조로 다룬다.
 
 ---
 
@@ -493,19 +499,19 @@ Dashboard는 단일 Summary가 아니라,
 모든 학습 상태는 언어별(Language Scoped)로 관리한다.
 
 ```text
-GlobalLearningState
-├── userLearningPreference
-│    ├── nativeLanguage
-│    ├── primaryLearningLanguage
-│    ├── selectedLearningLanguage
-│    └── learningLanguages
+GlobalLangState
+├── userPref
+│    ├── nativeLang
+│    ├── primaryLang
+│    ├── selectedLang
+│    └── learningLangs
 │
-├── languageStates
+├── langStates
 │    ├── en
 │    ├── ja
 │    └── es
 │
-├── dashboardSummaries
+├── dashSummaries
 │    ├── en
 │    ├── ja
 │    └── es
@@ -539,8 +545,10 @@ GlobalLearningState
 | User Learning Preference | Local persist + Firebase sync | 현재 학습 언어 및 사용자 언어 설정 |
 | Language State | Local persist + Firebase sync | 사용자 장기 언어 상태 |
 | Dashboard Summary | Local cache + updatedAt | 빠른 Dashboard 출력 |
+| Session Summary | Local cache + updatedAt | Dashboard / Correction 진입 판단용 세션 요약 |
+| Flashcard Summary | Local cache + updatedAt | Dashboard 복습 카드 상태 요약 |
 | Statistics | Firebase fetch + cache | 통계 그래프 데이터 |
-| Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장 |
+| Session Memory | turn 확정 후 로컬 반영 + Firebase batch sync | 언어별 재사용 세션, recentFullContext 및 압축 기억 저장, Room 기반 원문 저장 |
 
 > MVP에서는 `updatedAt` 기준으로 Local Summary를 우선 렌더링하고 Firebase background sync로 최신화한다.
 > TTL 기반 캐시 만료 정책은 Phase 2에서 검토한다.
@@ -576,6 +584,8 @@ Umma의 학습 데이터는 모두 언어별(language scoped)로 저장한다.
 | User Learning Preference | X | O | DataStore | Firestore | 현재 선택 언어 및 언어 설정 |
 | Language State | O | O | DataStore | Firestore | 장기 언어 능력 상태 |
 | Dashboard Summary | O | O | DataStore | Firestore | Dashboard preload용 요약 데이터 |
+| Session Summary | O | O | DataStore | Firestore | Dashboard / Correction 진입 판단용 세션 요약 |
+| Flashcard Summary | O | O | DataStore | Firestore | Dashboard 복습 카드 상태 요약 |
 | Session Memory | O | O | Room | Firestore | turn list 기반 full context 및 압축 대화 기억 |
 | Flashcard | O | O | Room | Firestore | SRS 반복 학습 카드 |
 | Statistics | O | O | Room/DataStore | Firestore | 통계 그래프 및 성장 데이터 |
@@ -592,9 +602,9 @@ Umma의 학습 데이터는 모두 언어별(language scoped)로 저장한다.
 
 ```text
 앱 실행
-→ UserLearningPreference Local preload
+→ UserLangPref Local preload
 → selectedLearningLanguage 확인
-→ DashboardSummary[selectedLearningLanguage] Local preload
+→ DashSummary[selectedLearningLanguage] Local preload
 → 현재 선택 언어 기준 Dashboard 렌더링
 → Firebase background sync
 → 변경사항 존재 시 UI 갱신
@@ -654,8 +664,48 @@ Session.language = "en"
 - natural_expression_usage
 - vocabulary_appropriateness
 
-MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LanguageStateVO`에 저장하지 않고,
+MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `LangState`에 저장하지 않고,
 필요 시 분석 과정의 참고값 또는 Phase 2 확장 후보로만 둔다.
+
+---
+
+## [LS-007] Initial Learning State Persistence Contract
+
+### 포함 내용
+
+- Initial Setup 완료 시 생성할 학습 상태 초기 데이터 묶음
+- `UserLangPref`, `LangState`, `DashSummary`, `SessionSummary`, `FlashcardSummary` 초기값 생성 계약
+- `LearningStateRepoImpl`의 초기 저장 책임
+- Kotlin Domain 필드와 Firestore 필드 간 mapper 규칙
+- 저장 실패 / 재시도 / 부분 생성 복구 정책
+- Session Memory 원문 모델의 보류 범위
+- 현재 MVP는 학습 상태 스냅샷은 DataStore 기반 저장부터 시작하고, Session Memory 원문과 고빈도 변경 데이터는 Room을 사용한다.
+
+---
+
+### Initial Setup 초기 저장 흐름
+
+```text
+Initial Setup 완료
+→ UserLangPref.initial(nativeLang, primaryLang)
+→ LangState.initial(primaryLang)
+→ DashSummary.initial(primaryLang)
+→ SessionSummary.initial(primaryLang)
+→ FlashcardSummary.initial(primaryLang)
+→ LearningStateRepo.createInitial(...)
+→ Local / Remote 저장
+→ GlobalLangState 갱신
+→ Dashboard 진입
+```
+
+---
+
+### 책임 경계
+
+- `UserProfile` 생성은 AUTH / UserProfile 영역에서 다룬다.
+- 학습 상태 초기값 생성은 LS-007 계약을 따른다.
+- 실제 원문 turn list를 담는 Session Memory 모델은 `SYS-REALTIME-INFRA`의 RT-003에서 구현한다.
+- 온보딩은 우선 `SessionSummary.initial(...)`만 생성해 Dashboard 진입 가능 상태를 만든다.
 
 ---
 
@@ -680,33 +730,31 @@ MVP에서 `contextual_response_quality`, `expression_confidence` 등은 `Languag
 ## Package
 
 ```text
-domain/model
-├── LanguageStateVO
-├── LanguageDashboardSummaryVO
-├── UserLearningPreferenceVO
-├── SessionMemoryVO
-└── FlashcardVO
+domain/model/learningstate
+├── LearningCoreModels.kt
+├── LearningStateModels.kt
+├── LearningSummaryModels.kt
+├── LearningProfileModels.kt
+└── LearningUpdateModels.kt
 
 domain/repository
-└── LearningStateRepository
+└── LearningStateRepo.kt
 
-domain/usecase
-├── ObserveLearningStateUseCase
-├── ObserveDashboardSummaryUseCase
-├── ChangeSelectedLearningLanguageUseCase
-└── UpdateLanguageStateUseCase
+domain/usecase/learningstate
+├── LearningStateReadUseCases.kt
+└── LearningStateWriteUseCases.kt
 
 data/repository
-└── LearningStateRepositoryImpl
+└── LearningStateRepoImpl
 
 data/source/local
 ├── LearningStateLocalDataSource
-├── UserLearningPreferenceLocalDataSource
+├── UserLangPrefLocalDataSource
 └── SessionMemoryLocalDataSource
 
 data/source/remote
 ├── LearningStateRemoteDataSource
-├── UserLearningPreferenceRemoteDataSource
+├── UserLangPrefRemoteDataSource
 └── SessionMemoryRemoteDataSource
 
 presentation/dashboard
@@ -723,16 +771,41 @@ presentation/analytics
 
 ## Naming
 
-### VO
+### Kotlin Model
 
-- `LanguageStateVO`
-- `DashboardSummaryVO`
-- `UserLearningPreferenceVO`
+- `LangState`
+- `DashSummary`
+- `UserLangPref`
+- `GlobalLangState`
+- `SessionSummary`
+- `FlashcardSummary`
 
-### Store
+### Repository / UseCase
 
-- `LearningStateStore`
-- `UserLearningPreferenceStore`
+- `LearningStateRepo`
+- `ObserveLearningStateUseCase`
+- `ObserveDashSummaryUseCase`
+- `PreloadLearningStateUseCase`
+- `ChangeSelectedLangUseCase`
+- `ApplyLanguageStateUpdateUseCase`
+- `InitLearningStateUseCase`
+- `ClearLearningStateUseCase`
+
+### Kotlin 필드명과 Firestore 필드명
+
+Kotlin Domain 모델은 팀 내 사용성을 위해 짧은 이름을 사용한다.
+
+- `lang`, `selectedLang`, `learningLangs`
+- `recentMinutes`, `recentTopic`, `savedFlashcards`
+- `grammarDelta`, `vocabDelta`, `schema`
+
+Firestore 문서는 데이터 의미를 외부에서 읽기 쉽도록 설명적인 lowerCamelCase 필드명을 유지한다.
+
+- `language`, `selectedLearningLanguage`, `learningLanguages`
+- `recentConversationMinutes`, `recentConversationTopic`, `recentSavedFlashcards`
+- `grammarScoreDelta`, `vocabularyScoreDelta`, `schemaVersion`
+
+Data Layer mapper는 두 명명 체계 사이를 변환한다.
 
 ---
 
