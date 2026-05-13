@@ -153,8 +153,8 @@ Dashboard와 Statistics에서 빠르게 출력하기 위한 집계 데이터.
 │   메모리 전용     │ 로컬 + Firebase  │ Firebase 원본   │
 ├──────────────────┼──────────────────┼─────────────────┤
 │ 진행 중 transcript │ LangState        │ Session Memory  │
-│ 현재 녹음 상태     │ DashSummary      │ recentFullContext │
-│ 현재 스트리밍 상태 │ Flashcard Memory  │                 │
+│ 현재 입력 UI 상태   │ DashSummary      │ recentFullContext │
+│ 현재 AI 응답 상태   │ Flashcard Memory  │                 │
 │                  │ Statistics Memory │                 │
 │                  │ UserLangPref      │                 │
 └──────────────────┴──────────────────┴─────────────────┘

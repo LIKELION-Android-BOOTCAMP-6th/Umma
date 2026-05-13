@@ -179,7 +179,7 @@ Statistics
 - Language State:
 앱 종료 후에도 유지 필요 → 로컬 + Firebase 저장
 
-- 현재 녹음 상태:
+- 현재 입력 UI 상태:
 앱 종료 시 유지 불필요 → 메모리에서만 유지
 
 ---
