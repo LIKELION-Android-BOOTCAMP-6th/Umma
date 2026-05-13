@@ -57,7 +57,6 @@
 - 전송 중에는 Uploading 또는 Streaming 상태를 보여준다.
 - 실패 시 Error 상태를 보여준다.
 - Recording 상태에서는 사용자의 입력 강도에 맞춰 파형 또는 볼륨 미터를 반응시킨다.
-- 입력 강도는 `inputLevel: Float` 같은 presentation state로 관리하고, 0.0~1.0 범위로 정규화한다.
 - AI 음성 출력 상태에서는 중앙 비주얼이 재생 중임을 보여준다.
 - `Recording`은 입력 UI 상태이며 `AIState`와 같은 의미가 아니다.
 
@@ -89,7 +88,7 @@
 - press 시 녹음과 오디오 전송을 시작하고, release 시 현재 user turn 종료 신호를 만든다.
 - `SendTextDataUseCase`는 AI Chat 사용자 화면에서 사용하지 않는다.
 - `AudioRecorder.kt`에서 권한 실패와 녹음 시작 실패를 UI 상태로 전달할 수 있어야 한다.
-- 입력 중 실시간 레벨 값 또는 파형 값을 `inputLevel` presentation state로 전달할 수 있어야 한다.
+- 입력 중 실시간 레벨 값 또는 파형 값을 presentation으로 전달할 수 있어야 한다.
 - AI 응답 재생 중에는 중앙 비주얼이 별도 speaking 상태로 전환되어야 한다.
 
 ## 한 줄 가이드
