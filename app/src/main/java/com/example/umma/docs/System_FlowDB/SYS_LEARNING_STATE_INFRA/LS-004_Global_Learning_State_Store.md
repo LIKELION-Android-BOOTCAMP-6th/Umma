@@ -357,8 +357,8 @@ LS-004는 Store 구조와 observe 정책만 정의한다.
 | UserLangPref | 현재 스냅샷 | DataStore + Firestore |
 | LangState | 언어별 스냅샷 | DataStore + Firestore |
 | DashSummary | 언어별 스냅샷 | DataStore + Firestore |
-| SessionSummary | 언어별 요약 | Room / Firestore |
-| FlashcardSummary | 언어별 요약 | Room / Firestore |
+| SessionSummary | 언어별 요약 | DataStore + Firestore |
+| FlashcardSummary | 언어별 요약 | DataStore + Firestore |
 
 ---
 

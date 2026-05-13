@@ -43,7 +43,7 @@ AI Chat 화면으로 빠르게 이동할 수 있다.
 ## 제외 범위 (Out of Scope)
 
 - AI Chat 기능 자체
-- Realtime API 연결
+- Firebase Live API 연결
 - recentFullContext 전체 조회
 - Session Memory turn list 렌더링
 - AI 응답 생성

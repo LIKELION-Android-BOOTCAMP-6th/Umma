@@ -20,7 +20,7 @@
 | repetition_rate | ✅ 그대로 가능 | 단어 빈도 계산, 쉬움 |
 | lexical_diversity | ✅ 그대로 가능 | TTR 계산, 쉬움 |
 | response_latency | ✅ 그대로 가능 | 타임스탬프 차이, 쉬움 |
-| pause_frequency | ⚠️ 조건부 가능 | Realtime API가 침묵 구간 데이터를 제공해야 함 |
+| pause_frequency | ⚠️ 조건부 가능 | Firebase Live API가 침묵 구간 데이터를 제공해야 함 |
 | self_correction_rate | ⚠️ 조건부 가능 | 한국어 수정어는 쉽지만 영어는 패턴이 다양해서 누락 가능성 있음 |
 | review_retention | ✅ 그대로 가능 | SRS 정답률 계산, 쉬움 |
 | error_recurrence | ⚠️ 조건부 가능 | 교정 패턴 저장 구조가 먼저 갖춰져야 함 |
