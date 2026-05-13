@@ -1,8 +1,5 @@
 package com.example.umma.presentation.auth
 
-import com.example.umma.core.ui.UiText
-
-
 /**
  * 로그인 화면의 UI 상태 관리
  * 로딩 상태, 인증 결과, 에러 메세지를 화면에 전달
@@ -19,11 +16,13 @@ data class AuthUiState(
 /**
  * 구글 로그인 인증 상태
  */
-enum class GoogleAuthState{
+enum class GoogleAuthState {
     /** 로그인 요청 전 */
     IDLE,
+
     /** Firebase 인증 완료 */
     SUCCESS,
+
     /** 로그인 또는 Firebase 인증 실패한 상태 */
     FAILED
 }
