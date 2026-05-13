@@ -24,6 +24,7 @@
 
 - 사용자가 push-to-talk 방식으로 AI와 대화할 수 있다.
 - AI 응답 음성이 출력되고, 자막 On 상태에서는 확정된 마지막 턴 자막이 표시된다.
+- 중앙 비주얼 피드백이 사용자 입력 중과 AI 음성 출력 중 상태를 구분해서 보여준다.
 - 사용자가 자막을 On/Off 할 수 있고, 기본값은 Off다.
 - 자막이 켜져 있을 때는 마지막 턴의 자막만 표시된다.
 - 확정된 turn이 Session Memory에 반영된다.
@@ -37,7 +38,7 @@
 | 단계 | 사용자 행동 | 시스템 반응 | 성공 분기 | 실패 분기 | 상태 | 예외 처리 | Flow 상세 페이지 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | AI Chat 진입 | AI Chat 화면 진입 | selectedLearningLanguage와 activeSessionId 확인 후 앱 상태 복원 및 새 LiveSession 연결 | 이전 상태 또는 새 LiveSession 준비 | 세션 준비 실패 | Loading / Content | 세션 없음 시 새 LiveSession 연결 | CHAT-001 |
-| 음성 대화 시작 | 마이크 버튼 누르기 | 오디오 스트림 전송 시작 | user turn 수집 | 마이크 권한 실패 | Recording / Streaming | 권한 없음 안내 | CHAT-002 |
+| 음성 대화 시작 | 마이크 버튼 누르기 | 오디오 스트림 전송 시작 및 중앙 비주얼 입력 반응 표시 | user turn 수집 | 마이크 권한 실패 | Recording(UI) / Streaming(AI) | 권한 없음 안내 | CHAT-002 |
 | 자막 확인 | AI 응답을 보며 대화 | 확정된 최신 턴 자막 및 자막 표시 상태 반영 | 대화 맥락 파악 가능 | 자막 지연 | Streaming / Content | 마지막 자막 유지 | CHAT-003 |
 | 대화 종료 | 버튼 해제 또는 화면 이탈 | 확정 turn commit 및 Session Memory 반영 | recentFullContext 갱신 | 저장 실패 | Saving / Content | 재시도 또는 복구 | CHAT-004 |
 
@@ -68,6 +69,7 @@
 # 디자인 (필요 시)
 
 - AI Chat Screen
+- Central Voice State Visual
 - Subtitle Overlay
 - Push-to-Talk Button
 - Session Restore State
@@ -92,6 +94,7 @@
 - AI가 응답을 생성 중
 - Realtime 레이어에서는 부분 응답을 받을 수 있다.
 - 화면 자막은 확정된 마지막 턴 기준으로 유지하거나 갱신한다.
+- 중앙 비주얼은 AI 음성 출력 상태에 맞춰 반응한다.
 
 ## Saving
 
@@ -126,6 +129,21 @@ Dashboard 또는 다른 경로에서 들어온 사용자를 현재 세션으로 
 
 - 텍스트 입력창 없음
 - push-to-talk만 허용
+
+## 2-1. 중앙 상태 비주얼
+
+### 역할
+
+화면 중앙의 이미지 또는 아바타를 통해 현재 대화 상태를 즉시 보여준다.
+
+### 정책
+
+- `Recording` 상태에서는 사용자의 음성 입력 강도에 맞춰 파형, 볼륨 미터, 미세한 확장 애니메이션을 보여준다.
+- `Streaming` 또는 `Speaking` 상태에서는 AI 음성 출력 중임을 나타내는 별도 반응을 보여준다.
+- `Loading` 상태에서는 세션 준비 중임을 보여준다.
+- 이 비주얼은 장식이 아니라 입력/출력 상태 피드백이다.
+- 자막 On/Off와는 독립적으로 동작한다.
+- `Recording`은 AI 상태가 아니라 입력 UI 상태이며, `AIState`는 AI 응답 상태를 표현한다.
 
 ---
 
