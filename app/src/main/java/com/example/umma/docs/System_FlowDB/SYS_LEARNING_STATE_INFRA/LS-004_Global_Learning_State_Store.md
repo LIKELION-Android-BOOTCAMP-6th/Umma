@@ -95,7 +95,7 @@ Global Learning State Store는 다음 데이터를 직접 들고 있지 않는�
 - Flashcard 전체 목록
 - Statistics 전체 히스토리
 - AI Chat streaming buffer
-- 현재 녹음 상태
+- 현재 입력 UI 상태
 
 대신 화면 진입과 요약 렌더링에 필요한 “현재 상태 스냅샷”만 가진다.
 
