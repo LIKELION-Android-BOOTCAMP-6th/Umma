@@ -94,11 +94,13 @@ fun DashboardScreen(
                 uiState.isLoading -> {
                     DashboardSkeleton()
                 }
+
                 uiState.isEmpty -> {
                     DashboardEmpty(
                         onStartConversation = onNavigateToChat
                     )
                 }
+
                 else -> {
                     DashboardContent(
                         onNavigateToAnalytics = onNavigateToAnalytics,
