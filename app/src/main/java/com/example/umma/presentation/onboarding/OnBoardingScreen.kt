@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,8 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.example.umma.R
+import com.example.umma.core.navigation.Route
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.core.util.GoogleSignInHelper
 import com.example.umma.presentation.auth.AuthViewModel
@@ -76,22 +79,14 @@ fun OnBoardingScreen(
             contentAlignment = Alignment.Center
         ) {
             Column(
-                modifier = Modifier.padding(paddingValues)
             ) {
                 Text(
                     text = "온보딩 플레이스 홀더", textAlign = TextAlign.Center
                 )
-                // 로그인으로 이동 버튼
-                Button(
-                    onClick = onNavigateToHome
-                ) {
-                    Text(
-                        text = "로그인 화면으로 이동"
-                    )
-                }
                 Button(
                     enabled = !uiState.isLoading,
                     onClick = {
+                        viewModel.updateLoading(true)
                         coroutineScope.launch {
                             try {
                                 val idToken = GoogleSignInHelper.getGoogleIdToken(
@@ -100,17 +95,22 @@ fun OnBoardingScreen(
                                 )
                                 viewModel.signInWithGoogle(idToken)
                             } catch (e: Exception) {
+                                viewModel.updateLoading(false)
                                 viewModel.updateErrorMessage("Google 로그인에 실패했습니다")
-                                Log.e("Auth", "OnBoarding - Google Login Error: $e")
                             }
                         }
                     }
                 ) {
-                    Text(text = "Google 계정으로 시작하기")
+                    if (uiState.isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(text = "Google 계정으로 시작하기")
+                    }
                 }
-                if (uiState.isLoading) {
-                    CircularProgressIndicator()
-                }
+
             }
         }
     }

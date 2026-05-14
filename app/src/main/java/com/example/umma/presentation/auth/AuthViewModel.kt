@@ -1,5 +1,6 @@
 package com.example.umma.presentation.auth
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
@@ -37,10 +38,14 @@ class AuthViewModel @Inject constructor(
      */
     private fun observeAuthStatus() {
         viewModelScope.launch {
-            getCurrentUserUidUseCase().collect() { uid ->
+            getCurrentUserUidUseCase().collect { uid ->
                 if (uid != null) {
                     _uiState.update {
                         it.copy(googleState = GoogleAuthState.SUCCESS)
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(googleState = GoogleAuthState.IDLE)
                     }
                 }
             }
@@ -53,7 +58,6 @@ class AuthViewModel @Inject constructor(
      * useCase 실행 후 결과로 ui 상태 업데이트
      */
     fun signInWithGoogle(idToken: String) {
-        if (_uiState.value.isLoading) return
         viewModelScope.launch {
             /** 로그인 시작 로딩... */
             _uiState.update {
@@ -62,15 +66,16 @@ class AuthViewModel @Inject constructor(
                     errorMessage = null
                 )
             }
-            signInWithGoogleUseCase(idToken).onSuccess {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        googleState = GoogleAuthState.SUCCESS
-                    )
-                }
-            }
-                .onFailure {
+            try {
+                val result = signInWithGoogleUseCase(idToken)
+                result.onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            googleState = GoogleAuthState.SUCCESS
+                        )
+                    }
+                }.onFailure {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -79,6 +84,14 @@ class AuthViewModel @Inject constructor(
                         )
                     }
                 }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "google 로그인 시도 중 에러 발생"
+                    )
+                }
+            }
         }
     }
 
@@ -88,6 +101,15 @@ class AuthViewModel @Inject constructor(
                 errorMessage = message,
                 googleState = GoogleAuthState.FAILED
             )
+        }
+    }
+
+    /**
+     * Google 로그인 버튼 중복 클릭 방지를 위해 추가
+     */
+    fun updateLoading(isLoading: Boolean) {
+        _uiState.update {
+            it.copy(isLoading = isLoading)
         }
     }
 }
