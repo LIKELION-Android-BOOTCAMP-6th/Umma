@@ -8,12 +8,12 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
-import com.example.umma.presentation.dashboard.DashboardScreen
-import com.example.umma.presentation.dashboard.MyPageScreen
-import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.analytics.AnalyticsScreen
 import com.example.umma.presentation.chat.ChatScreen
+import com.example.umma.presentation.dashboard.DashboardScreen
+import com.example.umma.presentation.dashboard.MyPageScreen
 import com.example.umma.presentation.feedback.FeedbackListScreen
+import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.study.StudyListScreen
 
 @Composable
@@ -38,9 +38,13 @@ fun UmmaNavHost(
             startDestination = Route.OnBoarding
         ) {
             composable<Route.OnBoarding> {
-                OnBoardingScreen {
-                    navController.navigate(Route.Dashboard)
-                }
+                OnBoardingScreen(
+                    onNavigateToHome = {
+                        navController.navigate(Route.Dashboard) {
+                            popUpTo(Route.AuthGraph) { inclusive = true }
+                        }
+                    }
+                )
             }
         }
 
