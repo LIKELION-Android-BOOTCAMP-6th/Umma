@@ -55,13 +55,17 @@ class LearningStateRepoImpl @Inject constructor(
 
     override fun observeUserPref(): Flow<UserLangPref?> = _state.map { it.userPref }
 
-    override fun observeLangState(lang: LangCode): Flow<LangState?> = _state.map { it.langStates[lang] }
+    override fun observeLangState(lang: LangCode): Flow<LangState?> =
+        _state.map { it.langStates[lang] }
 
-    override fun observeDashSummary(lang: LangCode): Flow<DashSummary?> = _state.map { it.dashSummaries[lang] }
+    override fun observeDashSummary(lang: LangCode): Flow<DashSummary?> =
+        _state.map { it.dashSummaries[lang] }
 
-    override fun observeSessionSummary(lang: LangCode): Flow<SessionSummary?> = _state.map { it.sessionSummaries[lang] }
+    override fun observeSessionSummary(lang: LangCode): Flow<SessionSummary?> =
+        _state.map { it.sessionSummaries[lang] }
 
-    override fun observeFlashcardSummary(lang: LangCode): Flow<FlashcardSummary?> = _state.map { it.flashcardSummaries[lang] }
+    override fun observeFlashcardSummary(lang: LangCode): Flow<FlashcardSummary?> =
+        _state.map { it.flashcardSummaries[lang] }
 
     override suspend fun preload(): Result<Unit> {
         return try {
@@ -103,7 +107,8 @@ class LearningStateRepoImpl @Inject constructor(
             // LS-006에서 계산된 결과를 그대로 반영하고, 화면용 요약은 함께 갱신한다.
             val lang = input.lang
             val measuredMinutes = calculateRecentMinutes(input)
-            val hasUserTurns = input.recentUserTurns.any { it.speaker == com.example.umma.domain.model.learningstate.TurnSpeaker.USER }
+            val hasUserTurns =
+                input.recentUserTurns.any { it.speaker == com.example.umma.domain.model.learningstate.TurnSpeaker.USER }
 
             val updatedDash = current.dashSummaries[lang]
                 ?: DashSummary.initial(lang)
@@ -113,23 +118,23 @@ class LearningStateRepoImpl @Inject constructor(
             current.copy(
                 langStates = current.langStates + (lang to preparedState),
                 dashSummaries = current.dashSummaries + (
-                    lang to updatedDash.copy(
-                        recentMinutes = measuredMinutes,
-                        correctionAvailable = hasUserTurns,
-                        grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
-                        fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
-                        vocabDelta = deltaFromInternal(preparedState.external.vocabularyLevel.ordinal.toDouble() / 5.0),
-                        naturalnessDelta = deltaFromInternal(preparedState.external.naturalnessScore),
-                        updatedAt = input.analyzedAt
-                    )
-                ),
+                        lang to updatedDash.copy(
+                            recentMinutes = measuredMinutes,
+                            correctionAvailable = hasUserTurns,
+                            grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
+                            fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
+                            vocabDelta = deltaFromInternal(preparedState.external.vocabularyLevel.ordinal.toDouble() / 5.0),
+                            naturalnessDelta = deltaFromInternal(preparedState.external.naturalnessScore),
+                            updatedAt = input.analyzedAt
+                        )
+                        ),
                 sessionSummaries = current.sessionSummaries + (
-                    lang to updatedSession.copy(
-                        recentMinutes = measuredMinutes,
-                        correctionAvailable = hasUserTurns || updatedSession.correctionAvailable,
-                        updatedAt = input.analyzedAt
-                    )
-                ),
+                        lang to updatedSession.copy(
+                            recentMinutes = measuredMinutes,
+                            correctionAvailable = hasUserTurns || updatedSession.correctionAvailable,
+                            updatedAt = input.analyzedAt
+                        )
+                        ),
                 isPreloaded = true
             )
         }
@@ -151,7 +156,8 @@ class LearningStateRepoImpl @Inject constructor(
             // Initial Setup에서 만든 시작값을 현재 선택 언어 기준으로 정규화한다.
             val normalizedPref = userPref.copy(
                 selectedLang = userPref.primaryLang,
-                learningLangs = userPref.learningLangs.toMutableSet().apply { add(userPref.primaryLang) }.toList()
+                learningLangs = userPref.learningLangs.toMutableSet()
+                    .apply { add(userPref.primaryLang) }.toList()
             )
 
             val normalizedLang = langState.copy(lang = userPref.primaryLang)
@@ -224,7 +230,8 @@ class LearningStateRepoImpl @Inject constructor(
 
     private fun readSnapshot(prefs: Preferences): GlobalLangState {
         // 저장된 문자열을 Domain 객체로 다시 복원한다.
-        val userPref = prefs[USER_PREF_KEY]?.let { json.decodeFromString<UserLangPrefDto>(it).toDomain() }
+        val userPref =
+            prefs[USER_PREF_KEY]?.let { json.decodeFromString<UserLangPrefDto>(it).toDomain() }
         val langStates = mutableMapOf<LangCode, LangState>()
         val dashSummaries = mutableMapOf<LangCode, DashSummary>()
         val sessionSummaries = mutableMapOf<LangCode, SessionSummary>()
@@ -238,14 +245,17 @@ class LearningStateRepoImpl @Inject constructor(
                     val state = json.decodeFromString<LangStateDto>(rawValue).toDomain()
                     langStates[state.lang] = state
                 }
+
                 keyName.startsWith(DASH_SUMMARY_PREFIX) -> {
                     val summary = json.decodeFromString<DashSummaryDto>(rawValue).toDomain()
                     dashSummaries[summary.lang] = summary
                 }
+
                 keyName.startsWith(SESSION_SUMMARY_PREFIX) -> {
                     val summary = json.decodeFromString<SessionSummaryDto>(rawValue).toDomain()
                     sessionSummaries[summary.lang] = summary
                 }
+
                 keyName.startsWith(FLASHCARD_SUMMARY_PREFIX) -> {
                     val summary = json.decodeFromString<FlashcardSummaryDto>(rawValue).toDomain()
                     flashcardSummaries[summary.lang] = summary
@@ -300,8 +310,13 @@ class LearningStateRepoImpl @Inject constructor(
         const val FLASHCARD_SUMMARY_PREFIX = "learning_flashcard_summary_"
 
         fun langStateKey(lang: LangCode) = stringPreferencesKey("$LANG_STATE_PREFIX${lang.code}")
-        fun dashSummaryKey(lang: LangCode) = stringPreferencesKey("$DASH_SUMMARY_PREFIX${lang.code}")
-        fun sessionSummaryKey(lang: LangCode) = stringPreferencesKey("$SESSION_SUMMARY_PREFIX${lang.code}")
-        fun flashcardSummaryKey(lang: LangCode) = stringPreferencesKey("$FLASHCARD_SUMMARY_PREFIX${lang.code}")
+        fun dashSummaryKey(lang: LangCode) =
+            stringPreferencesKey("$DASH_SUMMARY_PREFIX${lang.code}")
+
+        fun sessionSummaryKey(lang: LangCode) =
+            stringPreferencesKey("$SESSION_SUMMARY_PREFIX${lang.code}")
+
+        fun flashcardSummaryKey(lang: LangCode) =
+            stringPreferencesKey("$FLASHCARD_SUMMARY_PREFIX${lang.code}")
     }
 }

@@ -91,7 +91,11 @@ class DashboardViewModel @Inject constructor(
             //    Empty 분기로 자연스럽게 fallthrough.
             //    에러 fallback 정책 / errorMessage 활용은 다음 단게 에서 본 처리.
             preloadLearningState().exceptionOrNull()?.let { e ->
-                Log.w(TAG, "preload failed — falling back to Empty (DASH-001 마지막 단계에서 errorMessage 처리)", e)
+                Log.w(
+                    TAG,
+                    "preload failed — falling back to Empty (DASH-001 마지막 단계에서 errorMessage 처리)",
+                    e
+                )
             }
 
             // 2. 전역 학습 상태 구독.

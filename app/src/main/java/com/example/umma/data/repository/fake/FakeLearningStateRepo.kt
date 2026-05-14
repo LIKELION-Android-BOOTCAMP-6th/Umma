@@ -50,7 +50,8 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 
 //    private val _state = MutableStateFlow(FakeFixtures.emptyDataStore) // DASH-001 AC 8: '신규 사용자는 Empty Dashboard UI가 출력된다.' 확인용
 //    private val _state = MutableStateFlow(FakeFixtures.onboardingDone) // DASH-001 AC 5: '현재 선택 언어 기준 Dashboard 카드 데이터가 정상 출력된다.' 중  선택 언어는 있되 기록 전무 시 확인용
-    private val _state = MutableStateFlow(FakeFixtures.activeUser) // DASH-001 AC 2, AC 3, AC 4, AC 5, AC 12 확인용
+    private val _state =
+        MutableStateFlow(FakeFixtures.activeUser) // DASH-001 AC 2, AC 3, AC 4, AC 5, AC 12 확인용
     // DASH-001 AC 2: Dashboard 진입 시 UserLangPref preload가 수행된다.
     // DASH-001 AC 3: selectedLearningLanguage가 확인된다.
     // DASH-001 AC 4: Local Cache 기반으로 Dashboard가 빠르게 렌더링된다.
@@ -62,7 +63,8 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
     override fun observeLangState(lang: LangCode) = _state.map { it.langStates[lang] }
     override fun observeDashSummary(lang: LangCode) = _state.map { it.dashSummaries[lang] }
     override fun observeSessionSummary(lang: LangCode) = _state.map { it.sessionSummaries[lang] }
-    override fun observeFlashcardSummary(lang: LangCode) = _state.map { it.flashcardSummaries[lang] }
+    override fun observeFlashcardSummary(lang: LangCode) =
+        _state.map { it.flashcardSummaries[lang] }
 
     override suspend fun preload(): Result<Unit> {
         // Fake 는 init 시점에 _state 가 채워져 있어 noop(No Operation). (호출 자체는 정상 수행된다)
