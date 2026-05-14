@@ -59,7 +59,10 @@ class DashboardViewModel @Inject constructor(
      * @param langCode ISO 639-1 같은 언어 코드 (예: "en", "ja"). 도메인 타입(LangCode) 으로 매핑은 본 구현에서.
      */
     fun onChangeLearningLanguage(langCode: String) {
-        Log.d(TAG, "onChangeLearningLanguage(langCode=$langCode) — DASH-006 hook (not implemented yet)")
+        Log.d(
+            TAG,
+            "onChangeLearningLanguage(langCode=$langCode) — DASH-006 hook (not implemented yet)"
+        )
     }
 
     private companion object {
