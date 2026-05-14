@@ -33,12 +33,12 @@ AI Chat에서 확정된 turn이 Session Memory에 저장된 뒤, 사용자가 �
 - 교정 요청용 payload 구성
 - 교정 결과 표시용 모델 정의
 - Flashcard 저장 요청 모델 정의
+- Flashcard 저장을 위한 Repository 계약 및 local first 저장 흐름 준비
 - 교정 완료 후 Session Memory 압축 요청
 - `correctionAvailable`, `recentSavedFlashcards`, `dueFlashcards` 갱신 요청
 
 ### 제외 범위
 
-- AI Chat의 음성 송수신
 - Firebase Live API 세션 관리
 - Dashboard 카드 UI 렌더링
 - Flashcard 반복학습 UI
@@ -56,7 +56,7 @@ AI Chat에서 확정된 turn이 Session Memory에 저장된 뒤, 사용자가 �
 | 계층 | 책임 | 예시 |
 | --- | --- | --- |
 | `presentation` | 화면 상태 표시, 사용자 선택, 로딩/에러/저장 이벤트 전달 | `CorrectionScreen`, `CorrectionViewModel`, `CorrectionUiState` |
-| `domain` | 후보 추출 규칙, 교정 요청/결과 모델, UseCase, Repository interface | `CorrectionCandidate`, `CorrectionResult`, `ExtractCorrectionCandidatesUseCase` |
+| `domain` | 후보 추출 규칙, 교정 요청/결과 모델, UseCase, Repository interface | `CorrectionCandidate`, `CorrectionSuggestion`, `ExtractCorrectionCandidatesUseCase` |
 | `data` | AI 교정 요청 구현, Session Memory/Flashcard 저장소 접근, DTO 변환 | `CorrectionRepositoryImpl`, `SessionMemoryRepositoryImpl`, `FlashcardRepositoryImpl` |
 | `di` | fake/real 구현체 주입, API 비용 절감을 위한 구현체 교체 | `RepositoryModule`, feature별 fake module |
 
@@ -75,50 +75,13 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 
 ## 5. GitHub Issue (실행 기준 / SSOT)
 
-- COR-001 교정 진입 및 세션 준비
-- COR-002 교정 후보 추출 및 payload 구성
-- COR-003 교정 결과 생성 및 표시
-- COR-004 Flashcard 저장 연계
-- COR-005 교정 완료 후 세션 정리 및 압축
+- [COR-001_Correction_Entry.md](./SYS_CORRECTION_INFRA/COR-001_Correction_Entry.md)
+- [COR-002_Correction_Candidate_Extraction.md](./SYS_CORRECTION_INFRA/COR-002_Correction_Candidate_Extraction.md)
+- [COR-003_Correction_Suggestion_Generation.md](./SYS_CORRECTION_INFRA/COR-003_Correction_Suggestion_Generation.md)
+- [COR-004_Correction_Flashcard_Save.md](./SYS_CORRECTION_INFRA/COR-004_Correction_Flashcard_Save.md)
+- [COR-005_Correction_Completion.md](./SYS_CORRECTION_INFRA/COR-005_Correction_Completion.md)
 
-### COR-001 AC
-
-- [ ] `selectedLearningLanguage` 기준으로 교정 화면이 초기화된다.
-- [ ] `DashSummary` / `SessionSummary`에서 교정 가능 여부를 확인한다.
-- [ ] LangState snapshot을 로드한다.
-- [ ] 교정 가능한 Session Memory가 없으면 Empty 상태를 표시한다.
-- [ ] Dashboard에서 전달된 언어와 Session Memory의 `language`가 다르면 안전하게 중단한다.
-
-### COR-002 AC
-
-- [ ] `recentFullContext` 전체를 그대로 AI에 전달하지 않는다.
-- [ ] user turn 중심으로 교정 후보를 추출한다.
-- [ ] assistant turn은 문맥 보조가 필요한 경우에만 제한적으로 포함한다.
-- [ ] 후보가 없으면 AI 요청 없이 Empty 상태를 반환한다.
-- [ ] 추출 결과는 `CorrectionCandidate` 같은 domain 모델로 고정한다.
-
-### COR-003 AC
-
-- [ ] 교정 요청 payload에는 후보 문장, 필요한 문맥, LangState snapshot만 포함한다.
-- [ ] AI 응답은 교정 전 문장, 교정 후 문장, 설명, Flashcard 저장 가능 여부로 변환된다.
-- [ ] AI 응답 실패 시 재시도 가능한 Error 상태를 제공한다.
-- [ ] 목업 결과와 실제 API 결과가 같은 `CorrectionResult` 계약을 사용한다.
-
-### COR-004 AC
-
-- [ ] 사용자가 선택한 교정 결과만 Flashcard 저장 대상으로 만든다.
-- [ ] Flashcard는 현재 선택 언어 기준으로 저장된다.
-- [ ] 저장은 local first 정책을 따른다.
-- [ ] 저장 후 `FlashcardSummary`와 `DashSummary` 갱신 요청이 가능하다.
-- [ ] 저장 실패 시 사용자가 다시 시도할 수 있다.
-
-### COR-005 AC
-
-- [ ] 교정 및 Flashcard 저장 완료 후 Session Memory 압축을 요청한다.
-- [ ] 압축 완료 후 `recentFullContext` 원문 buffer 정리를 요청한다.
-- [ ] `correctionAvailable`을 완료 상태에 맞게 갱신한다.
-- [ ] LangState 업데이트는 LS-006의 idempotency 정책을 따른다.
-- [ ] 정리 실패 시 교정 결과 자체가 유실되지 않도록 재시도 가능 상태를 남긴다.
+세부 AC와 구현 범위는 각 하위 issue 문서를 기준으로 확인한다.
 
 ---
 
@@ -151,6 +114,7 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 ### 7.2 교정은 선택 언어 기준으로 동작한다
 
 - `selectedLearningLanguage`는 교정 화면의 기준 언어다.
+- 교정 화면은 route 인자에 의존하지 않고, Global Learning State의 `UserLangPref.selectedLang`를 기준으로 현재 선택 언어를 확인한다.
 - Session Memory의 `language`를 화면에서 임의로 덮어쓰지 않는다.
 - 교정 후보 추출, AI 요청, Flashcard 저장은 같은 언어 컨텍스트를 사용한다.
 
@@ -165,6 +129,8 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 - 교정 결과는 LangState 업데이트의 입력이 될 수 있다.
 - 단, 교정 화면이 LangState 점수를 직접 계산하지 않는다.
 - LangState 계산과 중복 반영 방지는 `LS-006` 정책을 따른다.
+- 현재 `learningstate` 모델의 `CorrectionResult`는 Language State 업데이트 입력으로 넘기기 위한 최소 표현이다.
+- 교정 화면 표시와 Flashcard 저장 선택에 필요한 결과 모델은 `CorrectionSuggestion` 또는 동등한 별도 domain 모델로 구분한다.
 
 ---
 
@@ -172,8 +138,8 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 
 ```text
 Dashboard
-→ selectedLearningLanguage 전달
 → Correction 화면 진입
+→ Global Learning State에서 selectedLearningLanguage 확인
 → DashSummary / SessionSummary / LangState snapshot 로드
 → Session Memory recentFullContext 조회
 → user turn 중심 CorrectionCandidate 추출
@@ -193,8 +159,9 @@ Dashboard
 | --- | --- | --- |
 | `recentFullContext` | Session Memory | Room local append + Firestore batch sync |
 | `CorrectionCandidate` | 화면 세션 내 임시 모델 | 영구 저장하지 않고 교정 요청/표시용으로 사용 |
-| `CorrectionResult` | 화면 세션 내 결과 모델 | Flashcard 저장 또는 LangState 입력으로만 전달 |
-| `Flashcard` | Flashcard Repository | Room local first + Firestore async sync |
+| `CorrectionSuggestion` | 화면 세션 내 결과 모델 | 교정 표시, 사용자 선택, Flashcard 저장 요청에 사용 |
+| `CorrectionResult` | Language State 업데이트 입력 모델 | 학습 상태 갱신에 필요한 최소 교정 결과만 전달 |
+| `Flashcard` | Flashcard Repository | Correction infra에서 저장 계약과 local first 저장 흐름을 준비하고, SRS flow는 복습 정책을 구체화 |
 | `DashSummary` | LearningStateRepo | 교정 가능 여부와 최근 저장 카드 수 요약 |
 | `SessionSummary` | LearningStateRepo | 교정 진입 판단용 요약 |
 | `LangState` | LearningStateRepo | 교정 결과 기반 batch update 입력 |
@@ -228,11 +195,12 @@ ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
 - 즉, `SYS-CORRECTION-INFRA` 작업이 시작되는 시점부터는 인프라 담당자와 user-flow-correction 담당자가 기존 `Feedback` 명칭을 교정 기능 기준으로 정리하는 작업까지 함께 본다.
 - 이미 완료된 다른 시스템 문서나 현재 진행 중인 온보딩/대시보드 문서는 혼란을 줄이기 위해 별도 수정 대상으로 삼지 않는다.
 - 현재 코드에는 `CorrectionRepository`, `CorrectionViewModel`, `CorrectionScreen`이 아직 없고, 해당 역할은 추후 `Correction` 명칭으로 새로 정리해야 한다.
-- COR 하위 issue 문서는 아직 별도 파일로 분리되어 있지 않으며, 우선 5장의 AC를 기준으로 추후 작성한다.
+- COR 하위 issue 문서는 `COR-001`부터 `COR-005`까지 별도 파일로 분리되어 있으며, 각 문서의 AC를 기준으로 작업한다.
 - `LearningStateRepo`와 `LearningStateRepoImpl`은 이미 존재하며, `DashSummary`, `SessionSummary`, `FlashcardSummary`, `LangState` 관찰 경계로 사용할 수 있다.
 - `ChatRepositoryImpl`은 AI 대화 연결을 담당하며, 교정 저장 책임을 직접 맡지 않는다.
 - Session Memory 원문 turn 모델과 repository는 `RT-003`에서 확정되는 구조를 따른다.
-- Flashcard 원본 저장소는 추후 SRS/Flashcard system flow에서 구체화한다.
+- Flashcard 저장은 교정 화면의 핵심 액션이므로, `SYS-CORRECTION-INFRA` 범위에서 저장 요청 모델, Repository 계약, local first 저장 흐름을 준비한다.
+- SRS/Flashcard system flow는 저장된 Flashcard의 복습 스케줄, 난이도 반영, 복습 결과 갱신 정책을 구체화한다.
 
 | 현재 이름 | 교정 작업에서 정리할 목표 이름 |
 | --- | --- |
