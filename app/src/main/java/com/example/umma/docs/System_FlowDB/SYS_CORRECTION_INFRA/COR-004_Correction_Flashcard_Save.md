@@ -16,6 +16,8 @@
 - [ ] 저장 후 `FlashcardSummary`와 `DashSummary` 갱신 요청이 가능하다.
 - [ ] 저장 실패 시 사용자가 다시 시도할 수 있다.
 - [ ] 저장 직후 UI가 성공 상태를 사용자에게 보여준다.
+- [ ] Room 저장 성공 후 Firestore sync 실패 시 재시도 가능한 dirty flag 또는 pending sync 상태를 유지한다.
+- [ ] 오프라인 상태에서도 저장 결과가 유실되지 않는다.
 
 ---
 
@@ -35,6 +37,7 @@
 - Flashcard Repository 계약
 - local first 저장 흐름
 - 저장 성공 / 실패 상태 처리
+- pending sync / dirty flag 관리
 - `FlashcardSummary` / `DashSummary` 갱신 요청
 
 ## 제외 범위 (Out of Scope)
@@ -74,6 +77,7 @@ CorrectionSuggestion
 - 우선 Room에 저장한다.
 - Firebase sync는 비동기로 이어서 수행한다.
 - 저장 중 실패가 나도 사용자가 결과를 잃지 않도록 한다.
+- Room 저장 성공 후 Firestore sync 실패 시에는 pending sync 상태를 남기고 재시도할 수 있어야 한다.
 
 ---
 
@@ -82,4 +86,3 @@ CorrectionSuggestion
 - 현재 코드에 Flashcard 저장 전용 Repository 계약이 없으면, 이 이슈에서 먼저 확정한다.
 - 교정 결과 표시 모델과 저장 요청 모델은 분리한다.
 - 저장 후 Summary 갱신 경계는 LearningStateRepo와 연계한다.
-

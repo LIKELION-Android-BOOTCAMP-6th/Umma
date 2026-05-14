@@ -14,11 +14,11 @@ AI Chat에서 확정된 turn이 Session Memory에 저장된 뒤, 사용자가 �
 
 | 단계 | 주요 구현 내용 | 시스템 반응 | 성공/실패 분기 | 관리 이슈 ID |
 | --- | --- | --- | --- | --- |
-| 1. 교정 진입 준비 | `selectedLearningLanguage`, `DashSummary`, `SessionSummary`, LangState snapshot 확인 | 현재 선택 언어 기준 교정 가능 상태 준비 | 성공: 교정 가능 상태 진입 / 실패: 언어 미선택 또는 세션 없음 | COR-001 |
+| 1. 교정 진입 준비 | `selectedLearningLanguage`, `SessionSummary`, LangState snapshot 확인 | 현재 선택 언어 기준 교정 가능 상태 준비 | 성공: 교정 가능 상태 진입 / 실패: 언어 미선택 또는 세션 없음 | COR-001 |
 | 2. 교정 후보 추출 | Session Memory의 `recentFullContext`에서 user turn 중심 후보 추출 | 교정 요청용 후보 목록 생성 | 성공: 교정 후보 생성 / 실패: 후보 없음 또는 원문 부족 | COR-002 |
 | 3. 교정 제안 생성 | 후보와 LangState snapshot을 기반으로 AI 교정 제안 생성 | 교정 문장, 설명, 저장 후보 출력 | 성공: 교정 결과 표시 / 실패: AI 응답 실패 또는 파싱 실패 | COR-003 |
 | 4. Flashcard 저장 | 사용자가 선택한 교정 결과를 Flashcard로 저장 | Flashcard 저장 및 요약 갱신 요청 | 성공: 선택 문장 저장 / 실패: 저장 또는 동기화 실패 | COR-004 |
-| 5. 교정 완료 정리 | 세션 압축, 원문 buffer 정리, `correctionAvailable` 갱신 요청 | 다음 대화와 Dashboard 상태 준비 | 성공: 압축 및 요약 반영 / 실패: 정리 지연 또는 재시도 필요 | COR-005 |
+| 5. 교정 완료 정리 | 세션 압축, 원문 buffer 정리, `SessionSummary.correctionAvailable` 갱신 요청 | 다음 대화와 Dashboard 상태 준비 | 성공: 압축 및 요약 반영 / 실패: 정리 지연 또는 재시도 필요 | COR-005 |
 
 ---
 
@@ -27,6 +27,7 @@ AI Chat에서 확정된 turn이 Session Memory에 저장된 뒤, 사용자가 �
 ### 포함 범위
 
 - 현재 선택 언어 기준 교정 세션 조회
+- SessionSummary를 기준으로 교정 가능 여부 판단
 - Session Memory의 `recentFullContext` 접근
 - user turn 중심 교정 후보 추출
 - LangState snapshot 기반 교정 난이도와 설명 수준 결정
@@ -35,7 +36,7 @@ AI Chat에서 확정된 turn이 Session Memory에 저장된 뒤, 사용자가 �
 - Flashcard 저장 요청 모델 정의
 - Flashcard 저장을 위한 Repository 계약 및 local first 저장 흐름 준비
 - 교정 완료 후 Session Memory 압축 요청
-- `correctionAvailable`, `recentSavedFlashcards`, `dueFlashcards` 갱신 요청
+- `SessionSummary.correctionAvailable`, `recentSavedFlashcards`, `dueFlashcards` 갱신 요청
 
 ### 제외 범위
 
@@ -110,6 +111,8 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 - 교정 후보는 기본적으로 `role = user` turn에서 추출한다.
 - assistant turn은 사용자의 의도 파악에 필요한 짧은 문맥으로만 붙인다.
 - MVP에서는 누적 오류 패턴보다 이번 대화의 user turn과 현재 LangState를 우선한다.
+- MVP에서는 후보 추출 상한을 최근 100턴으로 둔다.
+- 100턴 상한은 초기 안전장치이며 이후 조정할 수 있다.
 
 ### 7.2 교정은 선택 언어 기준으로 동작한다
 
@@ -122,7 +125,7 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 
 - Correction flow는 교정 완료 이벤트를 만들고, Session Memory 압축은 별도 UseCase에 위임한다.
 - 압축 완료 후 `recentFullContext`는 비워지고, 압축 요약은 다음 AI Chat 맥락에 사용된다.
-- `correctionAvailable`은 교정 완료 상태에 맞게 갱신한다.
+- `SessionSummary.correctionAvailable`은 교정 완료 상태에 맞게 갱신하고, `DashSummary.correctionAvailable`은 Dashboard 표시용으로 이를 반영한다.
 
 ### 7.4 LangState와 교정 결과는 분리한다
 
@@ -131,6 +134,10 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 - LangState 계산과 중복 반영 방지는 `LS-006` 정책을 따른다.
 - 현재 `learningstate` 모델의 `CorrectionResult`는 Language State 업데이트 입력으로 넘기기 위한 최소 표현이다.
 - 교정 화면 표시와 Flashcard 저장 선택에 필요한 결과 모델은 `CorrectionSuggestion` 또는 동등한 별도 domain 모델로 구분한다.
+- AI 응답 구조와 설명 난이도 고도화는 MVP 후반부에 진행한다.
+- prompt engineering, JSON schema 강제, retry / fallback 정책은 기본 구조가 안정화된 뒤 후반부에 고도화한다.
+- `DashSummary.correctionAvailable`은 Dashboard 표시용 파생값이고, 교정 진입 판단의 기준은 `SessionSummary.correctionAvailable`이다.
+- `SessionSummary.correctionAvailable`과 `DashSummary.correctionAvailable`은 같은 교정 완료 파이프라인 안에서 함께 갱신되도록 설계한다. 개별 문서나 화면이 둘 중 하나만 독립적으로 수정하지 않는다.
 
 ---
 
@@ -140,7 +147,8 @@ Composable 내부에서 `recentFullContext`를 직접 파싱하거나, AI 요청
 Dashboard
 → Correction 화면 진입
 → Global Learning State에서 selectedLearningLanguage 확인
-→ DashSummary / SessionSummary / LangState snapshot 로드
+→ SessionSummary / LangState snapshot 로드
+→ 필요 시 DashSummary로 Dashboard 표시값만 반영
 → Session Memory recentFullContext 조회
 → user turn 중심 CorrectionCandidate 추출
 → Correction payload 구성
@@ -162,8 +170,8 @@ Dashboard
 | `CorrectionSuggestion` | 화면 세션 내 결과 모델 | 교정 표시, 사용자 선택, Flashcard 저장 요청에 사용 |
 | `CorrectionResult` | Language State 업데이트 입력 모델 | 학습 상태 갱신에 필요한 최소 교정 결과만 전달 |
 | `Flashcard` | Flashcard Repository | Correction infra에서 저장 계약과 local first 저장 흐름을 준비하고, SRS flow는 복습 정책을 구체화 |
-| `DashSummary` | LearningStateRepo | 교정 가능 여부와 최근 저장 카드 수 요약 |
-| `SessionSummary` | LearningStateRepo | 교정 진입 판단용 요약 |
+| `DashSummary` | LearningStateRepo | Dashboard 표시용 교정 가능 여부와 최근 저장 카드 수 요약 |
+| `SessionSummary` | LearningStateRepo | 교정 진입 판단용 요약(교정 가능 여부의 기준값) |
 | `LangState` | LearningStateRepo | 교정 결과 기반 batch update 입력 |
 
 ---
@@ -196,10 +204,11 @@ ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
 - 이미 완료된 다른 시스템 문서나 현재 진행 중인 온보딩/대시보드 문서는 혼란을 줄이기 위해 별도 수정 대상으로 삼지 않는다.
 - 현재 코드에는 `CorrectionRepository`, `CorrectionViewModel`, `CorrectionScreen`이 아직 없고, 해당 역할은 추후 `Correction` 명칭으로 새로 정리해야 한다.
 - COR 하위 issue 문서는 `COR-001`부터 `COR-005`까지 별도 파일로 분리되어 있으며, 각 문서의 AC를 기준으로 작업한다.
-- `LearningStateRepo`와 `LearningStateRepoImpl`은 이미 존재하며, `DashSummary`, `SessionSummary`, `FlashcardSummary`, `LangState` 관찰 경계로 사용할 수 있다.
+- `LearningStateRepo`와 `LearningStateRepoImpl`은 이미 존재하며, `SessionSummary`를 우선으로 교정 가능 여부를 판단하고 `DashSummary`는 Dashboard 표시용으로 함께 관찰할 수 있다.
 - `ChatRepositoryImpl`은 AI 대화 연결을 담당하며, 교정 저장 책임을 직접 맡지 않는다.
 - Session Memory 원문 turn 모델과 repository는 `RT-003`에서 확정되는 구조를 따른다.
 - Flashcard 저장은 교정 화면의 핵심 액션이므로, `SYS-CORRECTION-INFRA` 범위에서 저장 요청 모델, Repository 계약, local first 저장 흐름을 준비한다.
+- local first 저장 이후 sync 실패를 대비한 pending sync / dirty flag 개념도 이 범위에 포함한다.
 - SRS/Flashcard system flow는 저장된 Flashcard의 복습 스케줄, 난이도 반영, 복습 결과 갱신 정책을 구체화한다.
 
 | 현재 이름 | 교정 작업에서 정리할 목표 이름 |

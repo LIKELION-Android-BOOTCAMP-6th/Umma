@@ -10,7 +10,7 @@
 # 완료 기준(AC) (Acceptance Criteria)
 
 - [ ] `selectedLearningLanguage` 기준으로 교정 화면이 초기화된다.
-- [ ] `DashSummary` / `SessionSummary`에서 교정 가능 여부를 확인한다.
+- [ ] `SessionSummary`에서 교정 가능 여부를 확인하고, `DashSummary`는 Dashboard 표시값으로만 참조한다.
 - [ ] LangState snapshot을 로드한다.
 - [ ] 교정 가능한 Session Memory가 없으면 Empty 상태를 표시한다.
 - [ ] Global Learning State에서 확인한 `selectedLearningLanguage`와 Session Memory의 `language`가 다르면 안전하게 중단한다.
@@ -30,7 +30,7 @@
 ## 포함 범위
 
 - 현재 선택 언어 확인
-- `DashSummary` / `SessionSummary` 로드
+- `SessionSummary` 로드
 - LangState snapshot 로드
 - 교정 가능 여부 판단
 - Empty / Loading / Error 상태 처리
@@ -60,12 +60,14 @@ Global Learning State의 `UserLangPref.selectedLang`를 기준으로 현재 선�
 ```text
 GlobalLangState
 → userPref.selectedLang
-→ currentDashSummary()
 → currentSessionSummary()
 → currentLangState()
+→ 필요 시 currentDashSummary()
 ```
 
 Dashboard에서 넘어온 상태가 있더라도, 최종 기준은 전역 상태의 selected 언어다.
+교정 가능 여부의 기준은 `SessionSummary`이며, `DashSummary`는 Dashboard 표시용 보조값으로만 본다.
+두 값은 역할이 다르지만, 교정 완료 이후에는 같은 학습 상태 갱신 흐름 안에서 함께 맞춰져야 한다.
 
 ---
 
@@ -88,4 +90,3 @@ Empty 상태는 사용자가 교정 기능 자체를 오해하지 않도록,
 - 현재 코드에는 `FeedbackListScreen`, `Route.FeedbackList`, `Route.FeedbackGraph`, `onNavigateToFeedbackList`가 존재한다.
 - 이 이슈는 교정 진입 준비를 다루며, 이후 `Correction` 기준 명칭으로 정리되는 화면 구조와 연결된다.
 - 언어 컨텍스트는 route 인자가 아니라 Global Learning State에서 읽는다.
-

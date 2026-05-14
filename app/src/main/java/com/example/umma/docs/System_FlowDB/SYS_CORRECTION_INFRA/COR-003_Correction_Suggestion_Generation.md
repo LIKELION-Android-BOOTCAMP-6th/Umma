@@ -15,6 +15,7 @@ AI가 교정 전후 문장과 설명을 정리해 주고, 필요하면 Flashcard
 - [ ] 목업 결과와 실제 API 결과가 같은 `CorrectionSuggestion` 계약을 사용한다.
 - [ ] 교정 표시용 모델과 LangState 업데이트 입력용 모델이 분리된다.
 - [ ] AI 응답 파싱 실패 시 화면이 안전하게 복구된다.
+- [ ] prompt engineering / JSON schema 강제 / retry 정책은 MVP 후반부에 고도화한다.
 
 ---
 
@@ -66,6 +67,20 @@ AI가 교정 전후 문장과 설명을 정리해 주고, 필요하면 Flashcard
 
 ---
 
+## MVP 후반부 고도화
+
+AI 응답 일관성, 설명 난이도, 파싱 복원력은
+기본 화면 흐름이 안정화된 뒤 후반부에 고도화한다.
+
+고도화 대상 예시:
+
+- few-shot prompt
+- JSON schema 강제
+- retry / fallback 정책
+- explanation 난이도 조절
+
+---
+
 ## 오류 정책
 
 다음 상황에서 Error 상태를 표시할 수 있다.
@@ -84,4 +99,3 @@ Error 상태에서는 사용자가 다시 시도할 수 있어야 한다.
 - `learningstate` 모델의 `CorrectionResult`는 상태 업데이트 입력용 최소 표현이다.
 - 이 이슈에서 다루는 화면 결과는 `CorrectionSuggestion` 계약으로 구분한다.
 - 목업과 실 API는 같은 domain 계약을 사용해야 한다.
-
