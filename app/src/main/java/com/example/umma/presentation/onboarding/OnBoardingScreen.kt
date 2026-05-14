@@ -25,7 +25,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.example.umma.R
-import com.example.umma.core.navigation.Route
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.core.util.GoogleSignInHelper
 import com.example.umma.presentation.auth.AuthViewModel
@@ -83,6 +82,9 @@ fun OnBoardingScreen(
                 Text(
                     text = "온보딩 플레이스 홀더", textAlign = TextAlign.Center
                 )
+                Button(onClick = {
+                    onNavigateToHome()
+                }) { Text("임시 : 클릭 시 화면 이동") }
                 Button(
                     enabled = !uiState.isLoading,
                     onClick = {
@@ -97,6 +99,7 @@ fun OnBoardingScreen(
                             } catch (e: Exception) {
                                 viewModel.updateLoading(false)
                                 viewModel.updateErrorMessage("Google 로그인에 실패했습니다")
+                                Log.e("UmmaDev", "OnBoardingScreen - ", e)
                             }
                         }
                     }

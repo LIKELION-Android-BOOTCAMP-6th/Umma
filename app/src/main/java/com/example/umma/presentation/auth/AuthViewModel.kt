@@ -91,6 +91,7 @@ class AuthViewModel @Inject constructor(
                         errorMessage = "google 로그인 시도 중 에러 발생"
                     )
                 }
+                Log.e("UmmaDev", "signInWithGoogle - ", e)
             }
         }
     }
