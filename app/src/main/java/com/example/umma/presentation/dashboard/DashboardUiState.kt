@@ -16,7 +16,9 @@ import com.example.umma.domain.model.learningstate.LangCode
  */
 
 data class DashboardUiState(
-    val isLoading: Boolean = false,
+    // 진입 직후 첫 프레임에서 Skeleton 이 즉시 보이도록 true 로 시작.
+    // onEnter() 가 끝나면 Loading 해제하며 isEmpty / summary 로 분기.
+    val isLoading: Boolean = true,
     val selectedLearningLanguage: LangCode? = null,
     val summary: DashSummary? = null,
     val errorMessage: UiText? = null,
