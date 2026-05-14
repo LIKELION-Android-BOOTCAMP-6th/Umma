@@ -35,7 +35,27 @@ import com.example.umma.core.theme.BackgroundDeactivated
 import com.example.umma.core.theme.BackgroundPrimary
 import com.example.umma.core.theme.ThemePrimary
 
-// 움마 애니메이션 페이지 인디케이터 위젯
+/**
+ * 페이지 전환 위치를 시각적으로 나타내는 애니메이션 페이지 인디케이터 컴포저블입니다.
+ *
+ * 현재 선택된 페이지의 점은 [ThemePrimary] 색상으로 가로 32dp로 늘어나고,
+ * 나머지 점은 [BackgroundDeactivated] 색상의 8dp 원형으로 표시됩니다.
+ * 너비 변화는 [Spring.DampingRatioMediumBouncy] 스프링 애니메이션,
+ * 색상 변화는 300ms [tween] 애니메이션으로 처리됩니다.
+ *
+ * 사용 예시:
+ * ```
+ * PageIndicator(
+ *     totalCount = 4,
+ *     currentIndex = pagerState.currentPage
+ * )
+ * ```
+ *
+ * @param modifier 이 컴포저블에 적용할 [Modifier].
+ * @param totalCount 전체 페이지 수. 해당 수만큼 점이 렌더링됨. 기본값은 `3`.
+ * @param currentIndex 현재 활성화된 페이지의 인덱스 (0부터 시작).
+ *   [totalCount] 범위를 벗어나지 않도록 주의해야 합니다.
+ */
 @Composable
 fun PageIndicator(
     modifier: Modifier = Modifier,

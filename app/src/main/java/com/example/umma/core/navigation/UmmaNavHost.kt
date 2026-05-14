@@ -12,7 +12,6 @@ import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
 import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.analytics.AnalyticsScreen
-import com.example.umma.presentation.auth.SignInScreen
 import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.feedback.FeedbackListScreen
 import com.example.umma.presentation.study.StudyListScreen
@@ -40,11 +39,6 @@ fun UmmaNavHost(
         ) {
             composable<Route.OnBoarding> {
                 OnBoardingScreen {
-                    navController.navigate(Route.SignIn)
-                }
-            }
-            composable<Route.SignIn> {
-                SignInScreen {
                     navController.navigate(Route.Dashboard)
                 }
             }
