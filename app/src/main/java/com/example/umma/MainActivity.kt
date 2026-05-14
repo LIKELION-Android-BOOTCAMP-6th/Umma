@@ -18,7 +18,6 @@ import com.example.umma.core.navigation.Route
 import com.example.umma.core.navigation.UmmaBottomAppBar
 import com.example.umma.core.navigation.UmmaNavHost
 import com.example.umma.core.theme.UmmaTheme
-import com.example.umma.core.ui.component.UmmaAppBar
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
