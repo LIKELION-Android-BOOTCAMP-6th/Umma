@@ -46,4 +46,10 @@ abstract class RepositoryModule {
     abstract fun bindNetworkConnectivityMonitor(
         networkConnectivityMonitorImpl: NetworkConnectivityMonitorImpl
     ): NetworkConnectivityMonitor
+
+    @Binds
+    @Singleton
+    abstract fun bindUserProfileRepository(
+        userProfileRepositoryImpl: com.example.umma.data.repository.UserProfileRepositoryImpl
+    ): com.example.umma.domain.repository.UserProfileRepository
 }
