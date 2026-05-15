@@ -125,6 +125,11 @@ fun DashboardScreen(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(SpacingS))
+
+            // === 마이페이지 ===
+            Button(onClick = onNavigateToMyPage) { Text("마이페이지") }
         }
     }
 }
