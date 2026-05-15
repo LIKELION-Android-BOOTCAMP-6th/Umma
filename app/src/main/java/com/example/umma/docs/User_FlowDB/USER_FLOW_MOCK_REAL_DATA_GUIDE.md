@@ -11,6 +11,7 @@
 - FLOW-DASHBOARD
 - FLOW-CORRECTION
 - FLOW-AI-CHAT
+- FLOW-SRS
 
 핵심 원칙은 하나다.
 
@@ -192,6 +193,7 @@ abstract class ReleaseRepositoryModule {
 - 대시보드: `DashSummary[selectedLearningLanguage]`, `correctionAvailable`, `dueFlashcards`, 언어 변경 상태 확인
 - 교정: `recentFullContext` 내부 후보 추출, `CorrectionSuggestion` 카드 표시, 완료 파이프라인 성공/실패 흐름 확인
 - AI Chat: 세션 없음, 새 LiveSession, 재연결 실패 시나리오 확인
+- SRS: `Flashcard` due deck 조회, SM-2 기반 4단계 평가, local first 복습 저장, Dashboard summary 반영 확인
 
 ---
 
