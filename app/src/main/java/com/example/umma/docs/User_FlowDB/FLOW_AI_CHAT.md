@@ -37,19 +37,36 @@
 
 | 단계 | 사용자 행동 | 시스템 반응 | 성공 분기 | 실패 분기 | 상태 | 예외 처리 | Flow 상세 페이지 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| AI Chat 진입 | AI Chat 화면 진입 | selectedLearningLanguage와 activeSessionId 확인 후 앱 상태 복원 및 새 LiveSession 연결 | 이전 상태 또는 새 LiveSession 준비 | 세션 준비 실패 | Loading / Content | 세션 없음 시 새 LiveSession 연결 | CHAT-001 |
-| 음성 대화 시작 | 마이크 버튼 누르기 | 오디오 스트림 전송 시작 및 중앙 비주얼 입력 반응 표시 | user turn 수집 | 마이크 권한 실패 | Recording(UI) / Streaming(AI) | 권한 없음 안내 | CHAT-002 |
-| 자막 확인 | AI 응답을 보며 대화 | 확정된 최신 턴 자막 및 자막 표시 상태 반영 | 대화 맥락 파악 가능 | 자막 지연 | Streaming / Content | 마지막 자막 유지 | CHAT-003 |
-| 대화 종료 | 버튼 해제 또는 화면 이탈 | 확정 turn commit 및 Session Memory 반영 | recentFullContext 갱신 | 저장 실패 | Saving / Content | 재시도 또는 복구 | CHAT-004 |
+| AI Chat 진입 | AI Chat 화면 진입 | selectedLearningLanguage와 LangState snapshot 확인 후 초기 상태 구성 | 대화 준비 상태 진입 | 상태 로드 실패 | Loading / Ready / Error | 재시도 가능한 오류 상태 표시 | CHAT-001 |
+| 마이크 권한 확인 | 마이크 버튼 사용 준비 | 권한 상태 확인 및 PTT 버튼 활성/비활성 결정 | PTT 입력 가능 | 권한 거부 | Ready / PermissionRequired | 권한 안내 및 재요청 경로 제공 | CHAT-002 |
+| PTT 음성 입력 | 마이크 버튼 press / release | press 중 음성 입력, release 시 user turn 종료 신호 전달 | user turn 입력 완료 | 입력 실패 | Recording / Error | 중복 입력 방지 및 재시도 | CHAT-003 |
+| 중앙 비주얼 피드백 | 입력 또는 AI 응답 상태 관찰 | 중앙 이미지/아바타가 입력 강도와 AI Speaking 상태를 표시 | 현재 상태 파악 가능 | 상태 불일치 | Idle / Recording / Speaking | 상태 fallback 표시 | CHAT-004 |
+| AI 응답 출력 | AI 응답 대기 | AI 음성 출력 및 응답 상태 반영 | AI 응답 재생 | 응답 실패 | Thinking / Speaking / Error | 재시도 가능한 상태 표시 | CHAT-005 |
+| 마지막 턴 자막 | 자막 토글 조작 | On 상태에서 마지막 확정 턴 자막 표시 | 최신 턴 확인 | 자막 지연 | Subtitle Off / On | 마지막 확정 자막 유지 | CHAT-006 |
+| 확정 turn 저장 | final transcript 수신 | final user/assistant turn을 Session Memory 저장 입력으로 전달 | recentFullContext 갱신 가능 | 저장 실패 | Saving / Ready | 재시도 가능한 저장 상태 | CHAT-007 |
+| 종료 및 재진입 | 화면 이탈 또는 재진입 | 녹음/재생 정리 후 앱 상태 복원 또는 새 LiveSession 연결 | 자연스러운 재개 | 복구 실패 | Cleaning / Restoring / Ready | 새 LiveSession 전환 | CHAT-008 |
 
 ---
 
 # GitHub Issue (실행 기준 / SSOT)
 
-- CHAT-001 AI Chat 진입
-- CHAT-002 음성 전송
-- CHAT-003 자막 표시
-- CHAT-004 종료 및 복구
+- [CHAT-001 AI Chat 진입 및 초기 상태](./FLOW_AI_CHAT/CHAT-001_Entry_State.md)
+- [CHAT-002 마이크 권한 및 입력 준비](./FLOW_AI_CHAT/CHAT-002_Mic_Permission.md)
+- [CHAT-003 PTT 음성 입력](./FLOW_AI_CHAT/CHAT-003_PTT_Input.md)
+- [CHAT-004 중앙 비주얼 피드백](./FLOW_AI_CHAT/CHAT-004_Central_Visual.md)
+- [CHAT-005 AI 응답 출력](./FLOW_AI_CHAT/CHAT-005_AI_Response.md)
+- [CHAT-006 마지막 턴 자막](./FLOW_AI_CHAT/CHAT-006_Subtitle.md)
+- [CHAT-007 확정 turn 저장 연동](./FLOW_AI_CHAT/CHAT-007_Turn_Commit.md)
+- [CHAT-008 종료 및 재진입 복구](./FLOW_AI_CHAT/CHAT-008_Exit_Reentry.md)
+
+---
+
+# 이슈 분할 기준
+
+- 각 이슈는 한 명의 작업자가 작은 PR로 완료할 수 있는 단위를 기준으로 나눈다.
+- Realtime 연결, 스트림, turn append의 핵심 인프라는 `SYS-REALTIME-INFRA`의 `RT-001 ~ RT-004`를 따른다.
+- User Flow 이슈는 화면 상태, 사용자 입력, UI 피드백, 인프라 계약 연결에 집중한다.
+- mock 또는 fake 이벤트로 확인 가능한 화면 작업은 실제 Firebase Live API 완성을 기다리지 않고 진행할 수 있다.
 
 ---
 
@@ -176,7 +193,7 @@ AI 응답과 사용자의 마지막 발화를 보여준다.
 
 ---
 
-## 5. 종료 / 저장 / 복구 영역
+## 5. 저장 / 종료 / 복구 영역
 
 ### 역할
 
@@ -184,6 +201,7 @@ AI 응답과 사용자의 마지막 발화를 보여준다.
 
 ### 정책
 
+- 확정 turn 저장은 `CHAT-007`과 `RT-003` 기준으로 처리한다.
 - 종료 후 correction / flashcard flow로 이어질 수 있다.
-- 종료 시 Session Memory 저장을 시도한다.
+- 화면 이탈 시에는 녹음/재생 정리와 저장 중 상태 보호를 우선한다.
 - 복구 실패 시 새 LiveSession으로 전환한다.
