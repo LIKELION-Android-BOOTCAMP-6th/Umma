@@ -5,7 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.annotation.RequiresPermission
-import com.example.umma.core.util.calculateLevel
+import com.example.umma.presentation.util.calculateLevel
 import com.example.umma.domain.audio.AudioInput
 import com.example.umma.domain.model.audio.AudioInputFrame
 import kotlinx.coroutines.Dispatchers

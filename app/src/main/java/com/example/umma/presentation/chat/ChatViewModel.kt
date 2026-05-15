@@ -3,7 +3,7 @@ package com.example.umma.presentation.chat
 import android.annotation.SuppressLint
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.umma.core.util.calculateLevel
+import com.example.umma.presentation.util.calculateLevel
 import com.example.umma.data.source.local.AudioPlayer
 import com.example.umma.data.source.local.AudioRecorder
 import com.example.umma.domain.model.audio.AudioInputFrame

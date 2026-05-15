@@ -1,4 +1,6 @@
-package com.example.umma.core.util
+package com.example.umma.presentation.util
+
+import kotlin.math.sqrt
 
 /**
  * 16-bit PCM little-endian 오디오 바이트에서 상대 강도 값을 계산합니다.
@@ -31,6 +33,6 @@ fun calculateLevel(audioBytes: ByteArray): Float {
 
     if (sampleCount == 0) return 0f
 
-    val rms = kotlin.math.sqrt(sumSquares / sampleCount)
+    val rms = sqrt(sumSquares / sampleCount)
     return rms.coerceIn(0.0, 1.0).toFloat()
 }
