@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Umma</string>
+    <string name="dashboard_err_sync_failed">동기화 실패 — 마지막으로 저장된 데이터를 표시 중</string>
 </resources>

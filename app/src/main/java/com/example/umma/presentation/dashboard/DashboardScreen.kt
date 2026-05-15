@@ -4,6 +4,7 @@ import android.app.Activity
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,25 +24,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.umma.core.theme.SpacingS
 import com.example.umma.core.ui.component.UmmaAppBar
+import com.example.umma.presentation.dashboard.component.DashboardEmpty
+import com.example.umma.presentation.dashboard.component.DashboardSkeleton
 
 /**
  * 대시보드(홈) 화면.
  *
- * 본 파일은 **DASH-001/002/006 본 구현 전 임시 placeholder 상태**이다.
- * 시각 디자인은 의도적으로 비워 두고, 본격 화면은 다음 작업자(DASH-002~005)가 구현한다.
+ * DASH-001 관련:
+ *  - Loading 분기: [DashboardSkeleton]
+ *  - Empty 분기 (신규 사용자): [DashboardEmpty]
+ *  - Content 분기 (기존 placeholder 버튼): [DashboardContent]
+ *  - errorMessage Snackbar: AC 7 의 시각 검증용 (cache 유지 + 메시지 노출)
+ *  (DASH-001 AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
  *
- * 현재 파일이 담는 책임:
- *  - DASH-001: 진입 시 preload 트리거(현재는 ViewModel.onEnter() 호출로 hook 만 마련, 실제 데이터 흐름은 후속)
- *  - DASH-002: 카드 데이터 렌더링 자리(현재는 4 개 네비게이션 버튼으로 대체)
- *  - DASH-006: selectedLearningLanguage 변경 hook(현재는 임시 버튼으로 대체)
- *
- * 후속 작업자가 갈아끼우는 진입점:
- *  - 카드 4 개 영역(대화 / 학습 / 교정 / 통계) — 현재는 단순 Button
- *  - 학습 언어 selector — 현재는 임시 Button 으로 onChangeLearningLanguage 콜백 호출
+ * JJ가 갈아끼우는 진입점:
+ *  - 카드 4 개 영역(DASH-002): [DashboardContent] 내 임시 Button → 실제 카드 컴포저블로 교체
+ *  - 학습 언어 selector(DASH-006): [DashboardContent] 내 임시 Button → 실제 selector 로 교체
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,51 +69,61 @@ fun DashboardScreen(
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // DASH-001: 화면 진입 시 1회 preload 트리거.
-    //   현재는 ViewModel.onEnter() 가 로그만 찍는 상태이며,
-    //   실제 UserLangPref / DashSummary preload 호출은 후속 Phase 에서 채운다.
+    // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
     }
 
-    // 디버그용: state 변동 시 로그 출력.
-    //   DASH-001/006 진행 중 데이터 흐름을 logcat 으로 추적하기 위한 임시 장치.
+    // 디버그용: state 변동 시 로그.
     LaunchedEffect(uiState) {
         Log.d("DashboardScreen", "uiState=$uiState")
+    }
+
+    // DASH-001 AC 7: errorMessage 가 세팅되면 Snackbar 표시.
+    //   cache 는 UI 그대로 유지되고 메시지만 노출.
+    // (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg.asString(context))
+        }
     }
 
     Scaffold(
         topBar = {
             UmmaAppBar(title = "Umma", isCenterTitle = false)
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(paddingValues)
-                .padding(SpacingS)
                 .fillMaxSize()
         ) {
-            Text(text = "Dashboard placeholder (DASH-001 ~ DASH-006 본 구현 전)")
+            // DASH-001 : Loading / Empty / Content 분기.
+            //   Error 분기는 Snackbar 로 갈음 — UI 는 cache 유지가 정책.
+            when {
+                uiState.isLoading -> {
+                    DashboardSkeleton()
+                }
 
-            Spacer(modifier = Modifier.height(SpacingS))
+                uiState.isEmpty -> {
+                    DashboardEmpty(
+                        onStartConversation = onNavigateToChat
+                    )
+                }
 
-            // === DASH-002 자리: 카드 4 개 (현재는 navigate 버튼) ===
-            Button(onClick = onNavigateToChat) { Text("대화") }
-            Button(onClick = onNavigateToStudyList) { Text("학습") }
-            Button(onClick = onNavigateToFeedbackList) { Text("교정") }
-            Button(onClick = onNavigateToAnalytics) { Text("통계") }
-
-            Spacer(modifier = Modifier.height(SpacingS))
-
-            // === DASH-006 자리: 학습 언어 selector ===
-            //   본 구현 전까지 임시 버튼으로 ViewModel hook 만 검증.
-            //   selectedLearningLanguage 가 바뀌면 ViewModel 이 새 언어 기준으로 데이터 재 fetch 해야 함.
-            Button(onClick = { viewModel.onChangeLearningLanguage("en") }) {
-                Text("학습 언어 → EN")
-            }
-            Button(onClick = { viewModel.onChangeLearningLanguage("ja") }) {
-                Text("학습 언어 → JA")
+                else -> {
+                    DashboardContent(
+                        onNavigateToAnalytics = onNavigateToAnalytics,
+                        onNavigateToChat = onNavigateToChat,
+                        onNavigateToFeedbackList = onNavigateToFeedbackList,
+                        onNavigateToStudyList = onNavigateToStudyList,
+                        onNavigateToMyPage = onNavigateToMyPage,
+                        onChangeLearningLanguage = viewModel::onChangeLearningLanguage
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(SpacingS))
@@ -117,5 +131,54 @@ fun DashboardScreen(
             // === 마이페이지 ===
             Button(onClick = onNavigateToMyPage) { Text("마이페이지") }
         }
+    }
+}
+
+/**
+ * Dashboard "success(content)" 상태에서 보여지는 UI.
+ *
+ * 현재는 placeholder(navigate 버튼 + 임시 selector) 그대로 유지한다.
+ * 후속:
+ *  - DASH-002: 카드 4 개 컴포저블로 교체
+ *  - DASH-006: 학습 언어 selector 컴포저블로 교체
+ */
+@Composable
+private fun DashboardContent(
+    onNavigateToAnalytics: () -> Unit,
+    onNavigateToChat: () -> Unit,
+    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToStudyList: () -> Unit,
+    onNavigateToMyPage: () -> Unit,
+    onChangeLearningLanguage: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .padding(SpacingS)
+            .fillMaxSize()
+    ) {
+        Text(text = "Dashboard placeholder (DASH-002 ~ DASH-006 본 구현 전)")
+
+        Spacer(modifier = Modifier.height(SpacingS))
+
+        // === DASH-002 자리: 카드 4 개 (현재는 navigate 버튼) ===
+        Button(onClick = onNavigateToChat) { Text("대화") }
+        Button(onClick = onNavigateToStudyList) { Text("학습") }
+        Button(onClick = onNavigateToFeedbackList) { Text("교정") }
+        Button(onClick = onNavigateToAnalytics) { Text("통계") }
+
+        Spacer(modifier = Modifier.height(SpacingS))
+
+        // === DASH-006 자리: 학습 언어 selector ===
+        Button(onClick = { onChangeLearningLanguage("en") }) {
+            Text("학습 언어 → EN")
+        }
+        Button(onClick = { onChangeLearningLanguage("ja") }) {
+            Text("학습 언어 → JA")
+        }
+
+        Spacer(modifier = Modifier.height(SpacingS))
+
+        // === 마이페이지 ===
+        Button(onClick = onNavigateToMyPage) { Text("마이페이지") }
     }
 }

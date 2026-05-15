@@ -106,3 +106,20 @@ data class FlashcardSummary(
         }
     }
 }
+
+/**
+ * DashSummary 가 "실질적으로 비어있는지" 판정.
+ *
+ * Dashboard 의 Empty 분기 기준 (DASH-001):
+ *  - summary == null: UserLangPref 자체가 없는 케이스 (Initial Setup 전)
+ *  - summary != null 이지만 모든 필드가 초기값: Initial Setup 직후 onboarding 끝낸 신규 사용자
+ *
+ * 두 케이스 모두 사용자 관점에선 "아직 학습 데이터 없음" 이라 같이 Empty 분기로 보낸다.
+ * delta 4 종(grammar/fluency/vocab/naturalness) 은 신규 사용자도 의미 있는 0 일 수 있어서
+ * isEmpty 판정에서는 의도적으로 제외 — recentMinutes/topic/flashcards 가 진짜 활동 지표.
+ */
+val DashSummary.isEffectivelyEmpty: Boolean
+    get() = recentMinutes == 0 &&
+            recentTopic == null &&
+            dueFlashcards == 0 &&
+            savedFlashcards == 0
