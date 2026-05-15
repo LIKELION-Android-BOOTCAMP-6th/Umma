@@ -140,53 +140,83 @@ class ChatRepositoryImpl @OptIn(PublicPreviewAPI::class)
     }
 
     /**
-     * 서버로부터 수신된 원시 메시지를 처리하고 앱 내부 이벤트([AIEvent])로 변환합니다.
+     * 서버 메시지를 해석해 domain 이벤트로 변환합니다.
+     *
+     * [LiveServerContent]
+     * - input/output transcription 처리
+     * - inline audio 처리
+     * - turnComplete 시 final transcript 발행
+     *
+     * [LiveServerSetupComplete]
+     * - 세션 준비 완료 상태 반영
+     *
+     * [LiveServerGoAway]
+     * - 즉시 세션을 닫지 않고 interruption 이벤트로 surface
      */
     @OptIn(PublicPreviewAPI::class)
     private suspend fun handleServerMessage(message: LiveServerMessage) {
         when (message) {
-            is LiveServerContent -> {
-                /** 실시간 자막 처리 (사용자 및 AI 발화 대응) */
-                message.inputTranscription?.let {
-                    userTranscriptBuffer = it.text.toString()
-                    _events.emit(AIEvent.PartialTranscription(it.text, TurnSpeaker.USER))
-                    _events.emit(AIEvent.StateChanged(AIState.LISTENING))
-                }
-
-                message.outputTranscription?.let {
-                    aiTranscriptionBuffer = it.text.toString()
-                    _events.emit(AIEvent.PartialTranscription(it.text, TurnSpeaker.AI))
-                    _events.emit(AIEvent.StateChanged(AIState.SPEAKING))
-                }
-
-                /** AI가 생성한 실시간 음성 데이터(PCM) 처리 및 발행 */
-                message.content?.parts?.filterIsInstance<InlineDataPart>()?.forEach { part ->
-                    _events.emit(AIEvent.AudioResponse(part.inlineData))
-                }
-
-                /** 대화 한 턴(Turn)이 완료된 경우 버퍼에 저장된 자막을 최종 확정하여 발행 */
-                if (message.turnComplete) {
-                    emitFinalTranscripts()
-                    _events.emit(AIEvent.StateChanged(AIState.IDLE))
-                }
-
-                /** AI 응답 도중 중단(Interrupted) 이벤트 발생 시 현재 AI 자막 버퍼 초기화 */
-                if (message.interrupted) {
-                    aiTranscriptionBuffer = ""
-                    _events.emit(AIEvent.StateChanged(AIState.IDLE))
-                }
-            }
-
-            /** AI가 사용자의 입력을 받을 준비가 된 상태 */
+            is LiveServerContent -> handleServerContent(message)
             is LiveServerSetupComplete -> {
-                /** 입력 및 응답 대기 상태 발행 */
                 _events.emit(AIEvent.StateChanged(AIState.IDLE))
             }
-
             is LiveServerGoAway -> {
-                /** 서버로부터 세션 종료 신호 수신 시 로컬 리소스 해제 루틴 실행 */
-                stopSession()
+                _events.emit(AIEvent.StateChanged(AIState.RECONNECTING))
+                _events.emit(
+                    AIEvent.SessionInterrupted(
+                        message = "Live Session interrupted by server"
+                    )
+                )
             }
+        }
+    }
+
+    /**
+     * 실제 transcript/audio/turnComplete를 포함하는 content 메시지를 처리합니다.
+     */
+    @OptIn(PublicPreviewAPI::class)
+    private suspend fun handleServerContent(message: LiveServerContent) {
+        message.inputTranscription?.text // 유저 발화
+            ?.takeIf { it.isNotBlank() }
+            ?.let { text ->
+                userTranscriptBuffer = text
+                _events.emit(
+                    AIEvent.PartialTranscription(
+                        text = text,
+                        role = TurnSpeaker.USER
+                    )
+                )
+                _events.emit(AIEvent.StateChanged(AIState.LISTENING))
+            }
+
+        message.outputTranscription?.text // AI 발화
+            ?.takeIf { it.isNotBlank() }
+            ?.let { text ->
+                aiTranscriptionBuffer = text
+                _events.emit(
+                    AIEvent.PartialTranscription(
+                        text = text,
+                        role = TurnSpeaker.AI
+                    )
+                )
+                _events.emit(AIEvent.StateChanged(AIState.SPEAKING))
+            }
+
+        message.content // 오디오 데이터 스트림
+            ?.parts
+            ?.filterIsInstance<InlineDataPart>()
+            ?.forEach { part ->
+                _events.emit(AIEvent.AudioResponse(part.inlineData))
+            }
+
+        if (message.turnComplete) {
+            emitFinalTranscripts()
+            _events.emit(AIEvent.StateChanged(AIState.IDLE))
+        }
+
+        if (message.interrupted) {
+            aiTranscriptionBuffer = ""
+            _events.emit(AIEvent.StateChanged(AIState.IDLE))
         }
     }
 
@@ -194,11 +224,11 @@ class ChatRepositoryImpl @OptIn(PublicPreviewAPI::class)
      * 버퍼에 저장된 임시 자막들을 최종 확정([AIEvent.FinalTranscription]) 이벤트로 발행합니다.
      */
     private suspend fun emitFinalTranscripts() {
-        if (userTranscriptBuffer.isNotEmpty()) {
+        if (userTranscriptBuffer.isNotBlank()) {
             _events.emit(AIEvent.FinalTranscription(userTranscriptBuffer, TurnSpeaker.USER))
             userTranscriptBuffer = ""
         }
-        if (aiTranscriptionBuffer.isNotEmpty()) {
+        if (aiTranscriptionBuffer.isNotBlank()) {
             _events.emit(AIEvent.FinalTranscription(aiTranscriptionBuffer, TurnSpeaker.AI))
             aiTranscriptionBuffer = ""
         }
@@ -212,8 +242,10 @@ class ChatRepositoryImpl @OptIn(PublicPreviewAPI::class)
         scope?.cancel()
         scope = null
 
-        if (session?.isClosed() == false) {
-            session?.close()
+        session?.let { currentSession ->
+            if (!currentSession.isClosed()) {
+                currentSession.close()
+            }
         }
 
         session = null

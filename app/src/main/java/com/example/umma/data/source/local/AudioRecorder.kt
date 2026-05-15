@@ -5,6 +5,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.annotation.RequiresPermission
+import com.example.umma.core.util.calculateLevel
+import com.example.umma.domain.audio.AudioInput
+import com.example.umma.domain.model.audio.AudioInputFrame
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
@@ -15,16 +18,19 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AudioRecorder @Inject constructor() {
+class AudioRecorder @Inject constructor() : AudioInput {
 
     // 오디오 레코더 규격 정의
     companion object {
         // 샘플링 레이트
         private const val SAMPLE_RATE = 16000
+
         // 오디오 레코더 채널
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+
         // 오디오 레코더 인코딩 포맷 (샘플링 레이트와 동일 규격 포맷)
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+
         // 버퍼 사이즈
         private const val BUFFER_SIZE_FACTOR = 2
     }
@@ -39,7 +45,7 @@ class AudioRecorder @Inject constructor() {
     // 레코딩 시작
     @SuppressLint("MissingPermission")
     @RequiresPermission(value = "android.permission.RECORD_AUDIO")
-    fun startRecording(): Flow<ByteArray> = flow {
+    override fun startRecording(): Flow<AudioInputFrame> = flow {
         val audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             SAMPLE_RATE,
@@ -79,7 +85,13 @@ class AudioRecorder @Inject constructor() {
                     AudioRecord.ERROR -> throw IllegalStateException("알 수 없는 오류입니다.")
                     else -> {
                         if (readBytes > 0) {
-                            emit(buffer.copyOfRange(0, readBytes))
+                            val chunk = buffer.copyOfRange(0, readBytes)
+                            emit(
+                                AudioInputFrame(
+                                    pcm = chunk,
+                                    level = calculateLevel(chunk)
+                                )
+                            )
                         }
                     }
                 }
@@ -92,7 +104,8 @@ class AudioRecorder @Inject constructor() {
                 if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                     audioRecord.stop()
                 }
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+            }
 
             audioRecord.release()
         }
