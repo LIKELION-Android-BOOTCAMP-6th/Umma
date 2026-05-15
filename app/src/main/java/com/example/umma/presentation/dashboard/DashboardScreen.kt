@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,16 +34,16 @@ import com.example.umma.presentation.dashboard.component.DashboardSkeleton
 /**
  * 대시보드(홈) 화면.
  *
- * DASH-001 진행 상태:
+ * DASH-001 관련:
  *  - Loading 분기: [DashboardSkeleton]
  *  - Empty 분기 (신규 사용자): [DashboardEmpty]
  *  - Content 분기 (기존 placeholder 버튼): [DashboardContent]
+ *  - errorMessage Snackbar: AC 7 의 시각 검증용 (cache 유지 + 메시지 노출)
+ *  (DASH-001 AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
  *
  * JJ가 갈아끼우는 진입점:
  *  - 카드 4 개 영역(DASH-002): [DashboardContent] 내 임시 Button → 실제 카드 컴포저블로 교체
  *  - 학습 언어 selector(DASH-006): [DashboardContent] 내 임시 Button → 실제 selector 로 교체
- *  - Real data 흐름: [DashboardViewModel] 에 LearningStateRepo 주입 + onEnter() 본 구현
- *    (USER_FLOW_MOCK_REAL_DATA_GUIDE.md 의 FakeLearningStateRepo 패턴 따름)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,8 +69,9 @@ fun DashboardScreen(
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // DASH-001: 화면 진입 시 1 회 preload 트리거.
+    // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
     }
@@ -78,10 +81,20 @@ fun DashboardScreen(
         Log.d("DashboardScreen", "uiState=$uiState")
     }
 
+    // DASH-001 AC 7: errorMessage 가 세팅되면 Snackbar 표시.
+    //   cache 는 UI 그대로 유지되고 메시지만 노출.
+    // (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg.asString(context))
+        }
+    }
+
     Scaffold(
         topBar = {
             UmmaAppBar(title = "Umma", isCenterTitle = false)
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -89,7 +102,7 @@ fun DashboardScreen(
                 .fillMaxSize()
         ) {
             // DASH-001 : Loading / Empty / Content 분기.
-            //   Error 분기는 후속 Phase 에서 errorMessage 가 활용되는 시점에 추가.
+            //   Error 분기는 Snackbar 로 갈음 — UI 는 cache 유지가 정책.
             when {
                 uiState.isLoading -> {
                     DashboardSkeleton()
@@ -131,7 +144,7 @@ private fun DashboardContent(
     onNavigateToFeedbackList: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
-    onChangeLearningLanguage: (String) -> Unit
+    onChangeLearningLanguage: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier

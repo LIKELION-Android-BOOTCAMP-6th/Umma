@@ -9,10 +9,12 @@ import com.example.umma.domain.model.learningstate.LangStateUpdateInput
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
 import com.example.umma.domain.repository.LearningStateRepo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,40 +25,43 @@ import javax.inject.Singleton
  *
  * 사용법:
  *  1) di/RepositoryModule.kt 의 bindLearningStateRepo() 파라미터 타입을
- *     LearningStateRepoImpl → FakeLearningStateRepo 로 한 줄 교체 (import 도 동일)
- *  2) 아래 ACTIVE_FIXTURE 를 검증 시나리오에 맞게 토글
+ *     LearningStateRepoImpl → FakeLearningStateRepo 로 한 줄 교체
+ *  2) 아래 ACTIVE_FIXTURE / SYNC_BEHAVIOR 를 검증 시나리오에 맞게 토글
  *  3) 빌드 → 화면 + logcat (DashboardViewModel 태그) 확인
  *  4) 머지 전 RepositoryModule 을 real 로 원복
- *     ※ 본 파일 자체는 레포에 남아도 OK
  *
- * Fixture 매핑:
- *  - emptyDataStore  : 진짜 신규 사용자 (Initial Setup 도 안 한 상태)
- *  - onboardingDone  : Initial Setup 직후, 대화 0 회
- *  - activeUser      : 며칠 학습한 사용자, 오래된 cache 가정
- *
- * DASH-001 미사용 메서드 (updateLanguageState / createInitial) 는
- * Result.success 만 반환. DASH-002 본 구현 / 다음 단계에서 필요해지면 채울 것
+ * DASH-001 추가:
+ *  - sync(): delay 후 _state 의 updatedAt 을 현재 시각으로 갱신 → 두 번째 emit 발생
+ *           (AC 12 시각 검증: logcat 에 state emit 이 두 번 찍혀야 함)
+ *           (AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.)
+ *  - SYNC_BEHAVIOR 로 성공/실패 시나리오 토글 (AC 7 검증용)
+ *  (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
  */
 @Singleton
 class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 
-    /**
-     * 검증할 시나리오를 여기서 한 줄 토글한다.
-     *
-     * - FakeFixtures.emptyDataStore  → Empty UI (lang=null)
-     * - FakeFixtures.onboardingDone → Empty UI (lang=EN, isEffectivelyEmpty)
-     * - FakeFixtures.activeUser     → Content (lang=EN, recentTopic="Travel" 등)
-     */
+    // ──────────────────────────────────────────────────────────────────
+    // 초기 cache 상태
+    // ──────────────────────────────────────────────────────────────────
+//    private val _state = MutableStateFlow(FakeFixtures.emptyDataStore)
+//    private val _state = MutableStateFlow(FakeFixtures.onboardingDone)
+    private val _state = MutableStateFlow(FakeFixtures.activeUser)
 
-//    private val _state = MutableStateFlow(FakeFixtures.emptyDataStore) // DASH-001 AC 8: '신규 사용자는 Empty Dashboard UI가 출력된다.' 확인용
-//    private val _state = MutableStateFlow(FakeFixtures.onboardingDone) // DASH-001 AC 5: '현재 선택 언어 기준 Dashboard 카드 데이터가 정상 출력된다.' 중  선택 언어는 있되 기록 전무 시 확인용
-    private val _state =
-        MutableStateFlow(FakeFixtures.activeUser) // DASH-001 AC 2, AC 3, AC 4, AC 5, AC 12 확인용
-    // DASH-001 AC 2: Dashboard 진입 시 UserLangPref preload가 수행된다.
-    // DASH-001 AC 3: selectedLearningLanguage가 확인된다.
-    // DASH-001 AC 4: Local Cache 기반으로 Dashboard가 빠르게 렌더링된다.
-    // DASH-001 AC 5: 현재 선택 언어 기준 Dashboard 카드 데이터가 정상 출력된다.
-    // DASH-001 AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.
+    /**
+     * sync() 가 어떻게 끝나는지.
+     *
+     *  - SUCCESS: delay 후 _state.updatedAt 갱신 → 두 번째 emit (AC 1, 6, 10, 12 검증)
+     *  (AC 1: Dashboard 진입 시 DashSummary fetch가 수행된다.)
+     *  (AC 6: Firebase background sync가 수행된다.)
+     *  (AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.)
+     *  (AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.)
+     *
+     *  - FAILURE: delay 후 Result.failure 반환, _state 미변경 (AC 7 검증)
+     *  (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
+     *
+     *  - SUCCESS_NOOP: 성공 반환만 하고 _state 미변경 (sync 호출은 됐지만 데이터 변동 없는 케이스)
+     */
+    private val syncBehavior: SyncBehavior = SyncBehavior.SUCCESS
 
     override fun observeLearningState(): Flow<GlobalLangState> = _state.asStateFlow()
     override fun observeUserPref() = _state.map { it.userPref }
@@ -67,8 +72,34 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
         _state.map { it.flashcardSummaries[lang] }
 
     override suspend fun preload(): Result<Unit> {
-        // Fake 는 init 시점에 _state 가 채워져 있어 noop(No Operation). (호출 자체는 정상 수행된다)
+        // Fake 는 init 시점에 _state 가 채워져 있어 noop.
         return Result.success(Unit)
+    }
+
+    /**
+     * Firebase background sync 시뮬레이션. (AC 1, 6, 7, 10, 12)
+     * (AC 1: Dashboard 진입 시 DashSummary fetch가 수행된다.)
+     * (AC 6: Firebase background sync가 수행된다.)
+     * (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
+     * (AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.)
+     * (AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.)
+     *
+     * 네트워크 지연을 흉내내기 위해 delay 를 둠. 이게 있어야 AC 12 의
+     * "cache 먼저 → sync 후 갱신" 사이클이 logcat 에서 시각적으로 분리됨.
+     */
+    override suspend fun sync(): Result<Unit> {
+        delay(SYNC_DELAY_MS)
+        return when (syncBehavior) {
+            SyncBehavior.SUCCESS -> {
+                _state.value = _state.value.withRefreshedTimestamps()
+                Result.success(Unit)
+            }
+
+            SyncBehavior.SUCCESS_NOOP -> Result.success(Unit)
+            SyncBehavior.FAILURE -> Result.failure(
+                IOException("simulated sync failure (FakeLearningStateRepo)")
+            )
+        }
     }
 
     override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> {
@@ -84,7 +115,6 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
         return Result.success(Unit)
     }
 
-    // 필요해지는 시점에 채울 것
     override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<Unit> =
         Result.success(Unit)
 
@@ -101,21 +131,46 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
         _state.value = GlobalLangState.initial()
         return Result.success(Unit)
     }
+
+    // ──────────────────────────────────────────────────────────────────
+    // sync 결과를 _state 에 반영할 때 timestamp 만 현재 시각으로 갱신.
+    // 실제 Firebase 라면 값 자체도 바뀌었겠지만, fake 는 "최신화됐다" 라는
+    // 신호만 의미 있게 흘리면 됨. dashSummary 의 updatedAt 이 STALE → now 로
+    // 바뀌니까 collect 에서 두 번째 emit 이 찍힘.
+    // ──────────────────────────────────────────────────────────────────
+    private fun GlobalLangState.withRefreshedTimestamps(): GlobalLangState {
+        val now = System.currentTimeMillis()
+        return copy(
+            userPref = userPref?.copy(updatedAt = now),
+            langStates = langStates.mapValues { (_, v) -> v.copy(updatedAt = now) },
+            dashSummaries = dashSummaries.mapValues { (_, v) -> v.copy(updatedAt = now) },
+            sessionSummaries = sessionSummaries.mapValues { (_, v) -> v.copy(updatedAt = now) },
+            flashcardSummaries = flashcardSummaries.mapValues { (_, v) -> v.copy(updatedAt = now) }
+        )
+    }
+
+    private enum class SyncBehavior { SUCCESS, SUCCESS_NOOP, FAILURE }
+
+    private companion object {
+        // 네트워크 지연 흉내. 너무 짧으면 logcat 의 두 emit 이 같은 frame 에 묻혀서 안 보임.
+        const val SYNC_DELAY_MS = 800L
+    }
 }
 
 /**
  * Dashboard 화면 시나리오 fixture.
  *
- * updatedAt 의 STALE_TIMESTAMP 는 "오래된 cache" 의 의도를 표현하기 위한 고정값일 뿐,
- * 현재 코드는 timestamp 를 검사하지 않으므로 값 자체는 동작에 영향이 없음.
- * Firebase background sync 가 들어오면 이 값이 최신 timestamp 로 덮여야 함
+ * updatedAt 의 STALE_TIMESTAMP 는 "오래된 cache" 의 의도를 표현하기 위한 고정값.
+ * sync 가 호출되면 이 값이 현재 시각으로 덮인다.
  */
 private object FakeFixtures {
 
     // AC 8: 진짜 신규 사용자, Initial Setup 도 아직.
+    // (AC 8: 신규 사용자는 Empty Dashboard UI가 출력된다.)
     val emptyDataStore: GlobalLangState = GlobalLangState.initial()
 
     // AC 5 의 Empty 분기 검증: Initial Setup 끝났지만 활동 0 회.
+    // (AC 5: 현재 선택 언어 기준 Dashboard 카드 데이터가 정상 출력된다.)
     val onboardingDone: GlobalLangState = run {
         val lang = LangCode.EN
         GlobalLangState(
@@ -131,7 +186,7 @@ private object FakeFixtures {
         )
     }
 
-    // AC 메인 검증: 며칠 학습한 사용자.
+    // DASH-001 AC 메인 검증: 며칠 학습한 사용자, 오래된 cache.
     val activeUser: GlobalLangState = run {
         val primary = LangCode.EN
         GlobalLangState(
@@ -208,6 +263,5 @@ private object FakeFixtures {
         )
     }
 
-    // 2023-11-14 부근. 캐시가 "오래됐다" 의 의도를 코드에 남기기 위한 고정값.
     private const val STALE_TIMESTAMP: Long = 1_700_000_000_000L
 }

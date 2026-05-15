@@ -11,6 +11,8 @@ import com.example.umma.data.model.learningstate.SessionSummaryDto
 import com.example.umma.data.model.learningstate.UserLangPrefDto
 import com.example.umma.data.model.learningstate.toDomain
 import com.example.umma.data.model.learningstate.toDto
+import com.example.umma.data.source.remote.LearningStateRemote
+import com.example.umma.data.source.remote.LearningStateRemoteDataSource
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.FlashcardSummary
 import com.example.umma.domain.model.learningstate.GlobalLangState
@@ -19,12 +21,13 @@ import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
+import com.example.umma.domain.repository.AuthRepository
 import com.example.umma.domain.repository.LearningStateRepo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,7 +41,9 @@ import javax.inject.Singleton
  */
 @Singleton
 class LearningStateRepoImpl @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    private val remoteDataSource: LearningStateRemoteDataSource,
+    private val authRepository: AuthRepository
 ) : LearningStateRepo {
 
     // 저장/복원 시점에는 문자열 형태로만 다루고, Domain 모델은 바깥에서 유지한다.
@@ -318,5 +323,79 @@ class LearningStateRepoImpl @Inject constructor(
 
         fun flashcardSummaryKey(lang: LangCode) =
             stringPreferencesKey("$FLASHCARD_SUMMARY_PREFIX${lang.code}")
+    }
+
+    /**
+     * Firebase 에서 최신 LearningState 를 받아 DataStore + 메모리 스냅샷 갱신.
+     *
+     * SSOT: DASH-001_Dashboard_Entry.md (AC 1, 6, 10)
+     * AC 1: Dashboard 진입 시 DashSummary fetch가 수행된다.
+     * AC 6: Firebase background sync가 수행된다.
+     * AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.
+     *
+     * 흐름:
+     *  1. currentUserUid.first() 로 현재 uid 한 번 읽기 (Flow 라 .first() 필요)
+     *  2. uid 없으면 noop success — 로그인 안 된 상태는 "에러 아니라 할 일 없음"
+     *  3. remoteDataSource.fetch(uid) 로 최신 데이터
+     *  4. Remote DTO → Domain 변환
+     *  5. persistSnapshot() 로 DataStore 저장 (기존 persistStateSafely 의 규칙 따름:
+     *     저장 성공해야 메모리 갱신)
+     *  6. _state.value = next 로 observe* Flow 들이 자동 emit
+     *
+     * 에러 정책:
+     *  - 인증 만료 / 네트워크 / 매핑 실패 전부 Result.failure
+     *  - cache 미변경 (DataStore 도 _state 도)
+     *  - 호출자(DashboardViewModel.triggerSync) 가 errorMessage 처리 (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
+     */
+    override suspend fun sync(): Result<Unit> {
+        return try {
+            // 1, 2.
+            val userUid = authRepository.currentUserUid.first()
+            if (userUid.isNullOrBlank()) {
+                return Result.success(Unit)
+            }
+
+            // 3.
+            val remote = remoteDataSource.fetch(userUid)
+
+            // 4.
+            val next = remote.toGlobalLangState()
+
+            // 5, 6. persistStateSafely 안 쓰는 이유: transform 이 아니라 통째로 교체라
+            //   별도 헬퍼가 더 직관적. 규칙(저장 성공 → 메모리 갱신) 은 같음.
+            persistSnapshot(next)
+            _state.value = next
+
+            Result.success(Unit)
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
+    /**
+     * Remote DTO 묶음 → GlobalLangState 변환.
+     *
+     * preload() 의 readSnapshot() 과 변환 결과는 같지만 입력 형태가 달라서 분리:
+     *  - readSnapshot: Preferences 의 prefix key 기반
+     *  - 여기: List 기반 (Firestore 컬렉션 결과)
+     */
+    private fun LearningStateRemote.toGlobalLangState(): GlobalLangState {
+        return GlobalLangState(
+            userPref = userPref?.toDomain(),
+            langStates = langStates.associate { dto ->
+                dto.toDomain().let { it.lang to it }
+            },
+            dashSummaries = dashSummaries.associate { dto ->
+                dto.toDomain().let { it.lang to it }
+            },
+            sessionSummaries = sessionSummaries.associate { dto ->
+                dto.toDomain().let { it.lang to it }
+            },
+            flashcardSummaries = flashcardSummaries.associate { dto ->
+                dto.toDomain().let { it.lang to it }
+            },
+            isPreloaded = true,
+            schema = GlobalLangState.SCHEMA
+        )
     }
 }

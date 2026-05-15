@@ -5,6 +5,8 @@ import com.example.umma.core.util.NetworkConnectivityMonitorImpl
 import com.example.umma.data.repository.AuthRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
+import com.example.umma.data.source.remote.LearningStateRemoteDataSource
+import com.example.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.example.umma.domain.repository.AuthRepository
 import com.example.umma.domain.repository.ChatRepository
 import com.example.umma.domain.repository.LearningStateRepo
@@ -49,4 +51,11 @@ abstract class RepositoryModule {
     abstract fun bindNetworkConnectivityMonitor(
         networkConnectivityMonitorImpl: NetworkConnectivityMonitorImpl
     ): NetworkConnectivityMonitor
+
+    @Binds
+    @Singleton
+    abstract fun bindLearningStateRemoteDataSource(
+        impl: LearningStateRemoteDataSourceImpl
+    ): LearningStateRemoteDataSource
+
 }
