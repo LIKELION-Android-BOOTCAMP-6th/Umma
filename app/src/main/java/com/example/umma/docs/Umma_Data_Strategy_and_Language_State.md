@@ -76,6 +76,8 @@ Spanish Flashcard
 
   "correctedText":"I like traveling",
 
+  "explanation":"traveling을 목적어로 사용해 자연스럽게 표현합니다",
+
   "hint":"좋아하다 + 여행",
 
   "ttsAudioUrl":"...",

@@ -39,11 +39,15 @@
 
 | 단계 | 사용자 행동 | 시스템 반응 | 성공 분기 | 실패 분기 | 상태 | 상세 이슈 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Correction 진입 | 진입 경로: Dashboard 교정 대기 카드, 하단 탭 | Global Learning State, SessionSummary, LangState snapshot 로드 | 교정 준비 상태 진입 | 언어 없음 / 세션 없음 / 교정 불가 | Loading / Empty / Error | COR-001 |
-| 교정 결과 준비 | 화면 진입 후 대기 | recentFullContext에서 user turn 중심 후보를 내부 추출하고 교정 결과와 설명을 생성 | 교정 결과 카드 준비 | 후보 없음 / AI 실패 / 파싱 실패 | Loading / Empty / Error | COR-002 |
-| 결과 카드 확인 | 교정 결과 카드 확인 | 교정 전/후 문장과 설명을 표시 | 저장 가능한 카드 출력 | 렌더링 실패 | Content / Error | COR-003 |
-| Flashcard 저장 | 저장할 카드 선택 후 저장 | 선택 항목을 local first 저장 요청으로 전달 | 저장 요청 성공 | 저장 요청 실패 | Saving / Error | COR-004 |
-| 교정 완료 | 저장 요청 후 완료 처리 | 로컬 완료 파이프라인 실행 후 Firestore sync 예약 | Dashboard 복귀 | 로컬 파이프라인 실패 / sync pending | Completing / Done / Retry | COR-005 |
+| 화면 진입 경로 정리 | Dashboard 교정 대기 카드, 하단 탭에서 진입 | 기존 Feedback 명칭을 Correction 기준으로 정리하고 화면 shell로 연결 | Correction 화면 진입 가능 | 라우트/콜백 미연결 | Idle / Error | COR-001 |
+| 초기 상태 로드 | Correction 화면 진입 | Global Learning State, SessionSummary, LangState snapshot 로드 | 교정 준비 상태 진입 | 언어 없음 / 세션 없음 / 교정 불가 | Loading / Empty / Error | COR-002 |
+| 후보 추출 | 화면 진입 후 대기 | recentFullContext에서 user turn 중심 후보를 내부 추출 | 후보 목록 내부 준비 | 후보 없음 / 원문 부족 | Loading / Empty | COR-003 |
+| 교정 결과 생성 | 후보 준비 완료 | 후보와 LangState snapshot으로 교정 결과와 설명 생성 | CorrectionSuggestion 준비 | AI 실패 / 파싱 실패 | Loading / Error / Retry | COR-004 |
+| 결과 카드 표시 | 교정 결과 카드 확인 | 교정 전/후 문장과 설명을 표시 | 저장 가능한 카드 출력 | 렌더링 실패 | Content / Error | COR-005 |
+| 저장 카드 선택 | 저장할 카드 선택/해제 | 선택 상태를 화면 상태로 관리 | 저장 대상 준비 | 선택 항목 없음 | Content / Disabled | COR-006 |
+| Flashcard 저장 요청 준비 | 저장 버튼 클릭 | 선택 항목을 저장 요청 모델로 변환 | 완료 파이프라인 호출 가능 | 저장 요청 변환 실패 | Preparing / Error | COR-007 |
+| 완료 파이프라인 | 저장 요청 후 완료 처리 | LangState 업데이트, Flashcard local 저장, Session Memory 압축, Summary 갱신 | 로컬 완료 성공 | 로컬 파이프라인 실패 | Completing / Retry | COR-008 |
+| 복귀 및 후처리 | 완료 후 Dashboard 복귀 | Dashboard 최신 Summary 렌더링, sync pending 상태 유지 | Dashboard 복귀 완료 | 복귀 실패 / sync pending | Done / PendingSync | COR-009 |
 
 ---
 
@@ -51,13 +55,25 @@
 
 ### User Flow Issues
 
-- [COR-001 Correction 진입 및 초기 상태](./FLOW_CORRECTION/COR-001_Entry.md)
-- [COR-002 교정 결과 준비](./FLOW_CORRECTION/COR-002_Result_Preparation.md)
-- [COR-003 교정 결과 카드](./FLOW_CORRECTION/COR-003_Result_Cards.md)
-- [COR-004 Flashcard 저장](./FLOW_CORRECTION/COR-004_Flashcard_Save.md)
-- [COR-005 교정 완료 정리](./FLOW_CORRECTION/COR-005_Completion.md)
+- [COR-001 Correction 화면 진입 경로 정리](./FLOW_CORRECTION/COR-001_Entry_Route.md)
+- [COR-002 Correction 초기 상태 로드](./FLOW_CORRECTION/COR-002_Initial_State.md)
+- [COR-003 교정 후보 내부 추출](./FLOW_CORRECTION/COR-003_Candidate_Extraction.md)
+- [COR-004 교정 결과 생성](./FLOW_CORRECTION/COR-004_Suggestion_Generation.md)
+- [COR-005 교정 결과 카드 표시](./FLOW_CORRECTION/COR-005_Result_Cards.md)
+- [COR-006 저장 카드 선택 상태](./FLOW_CORRECTION/COR-006_Card_Selection.md)
+- [COR-007 Flashcard 저장 요청 준비](./FLOW_CORRECTION/COR-007_Save_Request.md)
+- [COR-008 교정 완료 파이프라인](./FLOW_CORRECTION/COR-008_Completion_Pipeline.md)
+- [COR-009 Dashboard 복귀 및 후처리](./FLOW_CORRECTION/COR-009_Return_and_Sync.md)
 
-`COR-001 ~ COR-005`는 화면 작업만이 아니라 필요한 ViewModel, UseCase 연결, Repository 사용, fake/real 연결까지 포함하는 vertical slice 단위로 작성한다.
+`COR-001 ~ COR-009`는 팀원이 완료 여부를 빠르게 확인할 수 있도록 작은 단위로 분리한다.
+각 이슈는 담당 범위를 넘는 구현을 끌어오지 않고, 필요한 선행 결과는 이전 이슈의 완료 결과를 사용한다.
+
+### 이슈 분할 기준
+
+- 하나의 이슈는 화면, 상태, domain 처리, 저장, 후처리 중 하나의 책임만 중심으로 잡는다.
+- 팀원이 PR을 올렸을 때 1차 리뷰에서 완료 여부를 판단할 수 있을 정도로 작업 단위를 작게 유지한다.
+- 뒤 이슈의 구현을 앞 이슈에서 미리 완성하지 않는다.
+- mock 데이터로 확인 가능한 이슈는 실제 API 연결을 기다리지 않고 먼저 완료할 수 있다.
 
 ---
 
@@ -66,11 +82,12 @@
 1. AI Chat에서 한두 턴 이상 대화한다.
 2. Dashboard로 돌아와 교정 대기 카드를 확인한다.
 3. Dashboard 교정 대기 카드나 하단 탭에서 Correction 화면에 진입한다.
-4. Loading 후 교정 결과 카드 목록이 표시된다.
-5. 교정 전/후 문장과 설명을 확인한다.
-6. 저장할 교정 결과 카드를 선택해 Flashcard로 저장한다.
-7. 로컬 완료 파이프라인 성공 후 교정 완료 처리를 수행한다.
-8. Dashboard로 돌아왔을 때 교정 대기 상태가 최신 Summary 기준으로 갱신된다.
+4. 초기 상태 로드 후 교정 가능 상태를 확인한다.
+5. 내부 후보 추출과 교정 결과 생성이 진행된다.
+6. 교정 결과 카드 목록이 표시된다.
+7. 저장할 교정 결과 카드를 선택해 Flashcard 저장을 요청한다.
+8. 로컬 완료 파이프라인 성공 후 Dashboard로 복귀한다.
+9. Dashboard로 돌아왔을 때 교정 대기 상태가 최신 Summary 기준으로 갱신된다.
 
 ---
 
@@ -120,7 +137,7 @@ MVP에서는 최근 100턴까지만 후보 추출 대상으로 삼는다.
 ```text
 교정 결과 카드 확인
 → 사용자가 Flashcard 저장 항목 선택
-→ CompleteCorrectionSessionUseCase 호출
+→ CompleteCorrectionUseCase 호출
 → LangState 업데이트 입력 생성 및 적용
 → Flashcard local first 저장
 → Session Memory 압축 요청

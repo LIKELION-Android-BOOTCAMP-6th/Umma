@@ -20,7 +20,7 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - [ ] MVP 후보 추출 범위가 최근 100턴으로 제한된다.
 - [ ] AI 교정 요청과 선택 결과 저장 요청을 함께 다루는 `CorrectionRepository` domain repository interface가 준비된다.
 - [ ] Flashcard 저장은 `CorrectionRepository`의 저장 계약 안에서 local first로 처리한다.
-- [ ] 완료 정리를 위한 `CompleteCorrectionSessionUseCase` usecase 경계가 준비된다.
+- [ ] 완료 정리를 위한 `CompleteCorrectionUseCase` usecase 경계가 준비된다.
 - [ ] Flashcard 저장, LangState 업데이트, Session Memory 압축, Summary 갱신이 하나의 로컬 완료 파이프라인으로 묶인다.
 - [ ] 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
 - [ ] mock/real 교체가 Hilt binding 기준으로 가능해야 한다.
@@ -39,7 +39,7 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - CorrectionRepository 기반 교정 결과 파생 Flashcard 저장 계약
 - 완료 정리 UseCase 계약
 - fake repository / real repository 교체 기준
-- User Flow `COR-001 ~ COR-005`가 사용할 공통 인터페이스 정리
+- User Flow `COR-001 ~ COR-009`가 사용할 공통 인터페이스 정리
 
 ### 제외 범위
 
@@ -67,10 +67,10 @@ domain/repository
 
 domain/usecase/correction
 → PrepareCorrectionUseCase
-→ ExtractCorrectionCandidatesUseCase
-→ GenerateCorrectionSuggestionsUseCase
-→ SaveCorrectionFlashcardsUseCase
-→ CompleteCorrectionSessionUseCase
+→ ExtractCandidatesUseCase
+→ GenerateSuggestionsUseCase
+→ BuildFlashcardSaveRequestUseCase
+→ CompleteCorrectionUseCase
 
 data/repository
 → CorrectionRepositoryImpl
@@ -135,11 +135,14 @@ CorrectionCandidate + LangState snapshot
 ```text
 선택된 CorrectionSuggestion
 → Flashcard 저장 요청 모델 변환
-→ CorrectionRepository.saveCorrectionFlashcards(...)
+→ CorrectionRepository.saveFlashcards(...)
 → Room local first 저장
 → Firestore background sync
 ```
 
+- Flashcard 앞면은 모국어 문장으로 구성한다.
+- Flashcard 뒷면은 교정된 외국어 문장과 짧은 교정 설명으로 구성한다.
+- 발음 재생은 뒷면의 교정된 외국어 문장을 대상으로 하며, MVP에서는 Android `TextToSpeech`를 사용한다.
 - Room 저장 성공 후 Firestore sync 실패는 사용자 저장 실패로 보지 않는다.
 - sync 실패 상태는 pending sync / dirty flag 개념으로 관리한다.
 - 저장 항목이 0개이면 완료/압축으로 바로 넘기지 않는다.
@@ -150,7 +153,7 @@ CorrectionCandidate + LangState snapshot
 
 ```text
 사용자가 저장할 CorrectionSuggestion 선택
-→ CompleteCorrectionSessionUseCase 호출
+→ CompleteCorrectionUseCase 호출
 → LangState 업데이트 입력 생성 및 적용
 → Flashcard local first 저장
 → Session Memory 압축 요청
@@ -175,6 +178,7 @@ CorrectionCandidate + LangState snapshot
 - 실제 API 연결은 `CorrectionRepository` interface 뒤에 둔다.
 - ViewModel과 Composable은 fake/real 구현체를 구분하지 않는다.
 - 여러 repository를 함께 fake로 바꿔야 하는 경우 `USER_FLOW_MOCK_REAL_DATA_GUIDE.md`의 build variant와 Hilt binding 기준을 따른다.
+- 발음 재생은 MVP에서 Android `TextToSpeech`를 사용하고, 추후 클라우드 TTS로 교체 가능한 구조를 유지한다.
 
 ---
 
@@ -182,11 +186,15 @@ CorrectionCandidate + LangState snapshot
 
 `SCI-001`이 완료되면 다음 작업이 가능해야 한다.
 
-- `COR-001`: Correction 화면 진입과 초기 상태 구현
-- `COR-002`: 교정 결과 준비 흐름 구현
-- `COR-003`: 교정 결과 카드 UI 구현
-- `COR-004`: Flashcard 저장 구현
-- `COR-005`: 교정 완료 정리 구현
+- `COR-001`: Correction 화면 진입 경로 정리
+- `COR-002`: Correction 초기 상태 로드
+- `COR-003`: 교정 후보 내부 추출
+- `COR-004`: 교정 결과 생성
+- `COR-005`: 교정 결과 카드 표시
+- `COR-006`: 저장 카드 선택 상태 구현
+- `COR-007`: Flashcard 저장 요청 준비
+- `COR-008`: 교정 완료 파이프라인 구현
+- `COR-009`: Dashboard 복귀 및 후처리 구현
 
 User Flow 작업자는 이 문서의 공통 계약을 변경하지 않고, 각 이슈의 AC 범위 안에서 구현한다.
 공통 계약 변경이 필요하면 `SCI-001` 문서를 먼저 수정하고 팀장/부팀장 리뷰를 거친다.
