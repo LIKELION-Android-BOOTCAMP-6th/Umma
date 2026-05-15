@@ -35,11 +35,15 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 
 ### User Flow 구현 이슈
 
-- [COR-001 Correction 진입 및 초기 상태](../User_FlowDB/FLOW_CORRECTION/COR-001_Entry.md)
-- [COR-002 교정 결과 준비](../User_FlowDB/FLOW_CORRECTION/COR-002_Result_Preparation.md)
-- [COR-003 교정 결과 카드](../User_FlowDB/FLOW_CORRECTION/COR-003_Result_Cards.md)
-- [COR-004 Flashcard 저장](../User_FlowDB/FLOW_CORRECTION/COR-004_Flashcard_Save.md)
-- [COR-005 교정 완료 정리](../User_FlowDB/FLOW_CORRECTION/COR-005_Completion.md)
+- [COR-001 Correction 화면 진입 경로 정리](../User_FlowDB/FLOW_CORRECTION/COR-001_Entry_Route.md)
+- [COR-002 Correction 초기 상태 로드](../User_FlowDB/FLOW_CORRECTION/COR-002_Initial_State.md)
+- [COR-003 교정 후보 내부 추출](../User_FlowDB/FLOW_CORRECTION/COR-003_Candidate_Extraction.md)
+- [COR-004 교정 결과 생성](../User_FlowDB/FLOW_CORRECTION/COR-004_Suggestion_Generation.md)
+- [COR-005 교정 결과 카드 표시](../User_FlowDB/FLOW_CORRECTION/COR-005_Result_Cards.md)
+- [COR-006 저장 카드 선택 상태](../User_FlowDB/FLOW_CORRECTION/COR-006_Card_Selection.md)
+- [COR-007 Flashcard 저장 요청 준비](../User_FlowDB/FLOW_CORRECTION/COR-007_Save_Request.md)
+- [COR-008 교정 완료 파이프라인](../User_FlowDB/FLOW_CORRECTION/COR-008_Completion_Pipeline.md)
+- [COR-009 Dashboard 복귀 및 후처리](../User_FlowDB/FLOW_CORRECTION/COR-009_Return_and_Sync.md)
 
 ---
 
@@ -49,7 +53,7 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 
 - `CorrectionCandidate`, `CorrectionSuggestion` 등 필요한 domain 계약
 - `CorrectionRepository` 안에서 교정 결과 생성과 선택 결과 저장 요청을 함께 다루는 통합 repository 계약
-- `CompleteCorrectionSessionUseCase` 완료 usecase의 책임
+- `CompleteCorrectionUseCase` 완료 usecase의 책임
 - fake/real 구현체를 Hilt binding으로 교체할 수 있는 DI 기준
 - 기존 `feedback` 명칭을 `correction`으로 정리하는 기준
 
@@ -91,7 +95,7 @@ Correction 화면 진입
 → user turn 중심 후보를 내부 추출
 → LangState snapshot 기반 CorrectionSuggestion 생성
 → 사용자가 저장할 교정 결과 카드 선택
-→ CompleteCorrectionSessionUseCase 호출
+→ CompleteCorrectionUseCase 호출
 → LangState 업데이트 입력 생성 및 적용
 → Flashcard local first 저장
 → Session Memory 압축 요청
@@ -179,4 +183,4 @@ Correction은 AI 응답과 저장 흐름이 포함되므로 mock/real 교체 가
 
 ## 12. 한 줄 요약
 
-> `SYS-CORRECTION-INFRA`는 User Flow 구현 전에 필요한 Correction 공통 계약을 `SCI-001` 한 단위로 선행 정리하고, 실제 화면 기능은 `FLOW-CORRECTION`의 `COR-001 ~ COR-005`에서 구현한다.
+> `SYS-CORRECTION-INFRA`는 User Flow 구현 전에 필요한 Correction 공통 계약을 `SCI-001` 한 단위로 선행 정리하고, 실제 화면 기능은 `FLOW-CORRECTION`의 `COR-001 ~ COR-009`에서 구현한다.
