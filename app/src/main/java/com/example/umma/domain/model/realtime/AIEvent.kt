@@ -38,6 +38,11 @@ sealed interface AIEvent {
     /** AI의 현재 동작 상태(듣기, 생각, 말하기 등) 변화를 알리는 이벤트입니다. */
     data class StateChanged(val state: AIState) : AIEvent
 
+    /** AI가 시스템 또는 외부 오류로 인해 응답이 방해 받았음을 알리는 이벤트입니다. */
+    data class SessionInterrupted(
+        val message: String = "Live session interrupted"
+    ) : AIEvent
+
     /** 세션 또는 스트리밍 중 발생한 오류를 알리는 이벤트입니다. */
     data class Error(val message: String) : AIEvent
 }
