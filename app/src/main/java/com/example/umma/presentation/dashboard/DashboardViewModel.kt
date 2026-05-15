@@ -114,18 +114,21 @@ class DashboardViewModel @Inject constructor(
                 val lang = global.selectedLang
                 val summary = global.currentDashSummary()
                 val empty = summary == null || summary.isEffectivelyEmpty
+                val learningLangs = global.userPref?.learningLangs.orEmpty()
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         selectedLearningLanguage = lang,
                         summary = summary,
-                        isEmpty = empty
+                        isEmpty = empty,
+                        learningLanguages = learningLangs
                     )
                 }
                 Log.d(
                     TAG,
                     "state emit: lang=$lang, " +
+                            "learningLangs=$learningLangs, " +
                             "summary=[recentTopic=${summary?.recentTopic}, " +
                             "recentMinutes=${summary?.recentMinutes}, " +
                             "dueFlashcards=${summary?.dueFlashcards}, " +
@@ -138,7 +141,7 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * (2) Firebase background sync. (AC 1, 6, 10, 11)
+     * DASH-001: Firebase background sync.
      * AC 1: Dashboard 진입 시 DashSummary fetch가 수행된다.
      * AC 6: Firebase background sync가 수행된다.
      * AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.
@@ -171,7 +174,7 @@ class DashboardViewModel @Inject constructor(
                     // 여기선 별도 작업 없음.
                 }
                 .onFailure { e ->
-                    // AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
+                    // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
                     Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
                     _uiState.update {
                         it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))

@@ -5,6 +5,7 @@ import com.example.umma.core.util.NetworkConnectivityMonitorImpl
 import com.example.umma.data.repository.AuthRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
+import com.example.umma.data.repository.fake.FakeLearningStateRepo
 import com.example.umma.data.source.remote.LearningStateRemoteDataSource
 import com.example.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.example.umma.domain.repository.AuthRepository
@@ -41,9 +42,9 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindLearningStateRepo(
-        learningStateRepoImpl: LearningStateRepoImpl
-        // DASH-001 AC 검증용 - push 시 윗줄로 원복 필요
-//        fakeLearningStateRepo: FakeLearningStateRepo
+//        learningStateRepoImpl: LearningStateRepoImpl
+        // DASH-001, DASH-006 AC 검증용 - push 시 윗줄로 원복 필요
+        fakeLearningStateRepo: FakeLearningStateRepo
     ): LearningStateRepo
 
     @Binds

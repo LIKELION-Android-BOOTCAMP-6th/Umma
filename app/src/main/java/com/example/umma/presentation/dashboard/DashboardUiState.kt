@@ -22,5 +22,6 @@ data class DashboardUiState(
     val selectedLearningLanguage: LangCode? = null,
     val summary: DashSummary? = null,
     val errorMessage: UiText? = null,
-    val isEmpty: Boolean = false
+    val isEmpty: Boolean = false,
+    val learningLanguages: List<LangCode> = emptyList(),
 )
