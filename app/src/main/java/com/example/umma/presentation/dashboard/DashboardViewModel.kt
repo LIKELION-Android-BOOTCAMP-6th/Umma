@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.example.umma.domain.model.learningstate.LangCode
+import com.example.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
 
 /**
  * Dashboard 화면의 ViewModel.
@@ -38,7 +40,7 @@ class DashboardViewModel @Inject constructor(
     private val preloadLearningState: PreloadLearningStateUseCase,
     private val observeLearningState: ObserveLearningStateUseCase,
     private val syncLearningState: SyncLearningStateUseCase,
-//    private val changeSelectedLang: ChangeSelectedLangUseCase // DASH-001 검증용 임시 주입 (DASH-006 본 PR 에서 정식 적용 예정)
+    private val changeSelectedLang: ChangeSelectedLangUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -184,25 +186,64 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * 학습 언어 변경 시 호출. (DASH-006)
+     * 학습 언어 변경 시 호출. (DASH-006 Phase 2 본 구현)
      *
-     * 본 구현은 DASH-006 PR 에서:
-     *  1. ChangeSelectedLangUseCase(LangCode) 호출
-     *  2. observeLearningState() collect 가 새 selectedLang / summary 자동 emit
-     *     → _uiState 갱신은 자동, 여기서 별도로 손댈 필요 없음
+     * AC 4: 언어 선택 시 selectedLearningLanguage가 갱신된다.
+     * AC 5: selectedLearningLanguage 변경 후 해당 언어의 Dashboard Summary가 로드된다.
+     * AC 6: Dashboard의 모든 카드가 변경된 언어 기준으로 다시 렌더링된다.
+     *
+     * 흐름 (SSOT "변경 정책" 매핑):
+     *  1. [changeSelectedLang] 호출 — Repo 의 _state.userPref.selectedLang 갱신
+     *     → observeLearningState() collect 가 새 emit 받아 _uiState.selectedLearningLanguage,
+     *       _uiState.summary 자동 갱신 (AC 4, 5)
+     *     → Compose recomposition 으로 카드 재렌더링 (AC 6)
+     *     ※ SSOT 의 "DashSummary Local Cache fetch" 단계는 별도 호출 불필요.
+     *       cache(_state) 가 모든 언어 summary 를 들고 있고 currentDashSummary() 가
+     *       새 selectedLang 기준으로 자동 추출.
+     *  2. [triggerSync] 호출 — UserLangPref + DashSummary Firebase background sync.
+     *     onEnter() 직후라 이미 fetchJob 이 active 면 dedup 으로 skip — 의도된 동작.
+     *
+     * 동일 언어 재선택은 no-op. happy path 의 일부지만 불필요한 sync 트리거를 막는
+     * 의미도 있음.
+     *
+     * Phase 3 에서 추가될 사항:
+     *  - isChangingLanguage 중복 방지 (AC 7)
+     *  - 실패 시 rollback + Snackbar (AC 8)
+     *  - fallback / Error UI (AC 9, 10)
+     *
+     * @param langCode UI 에서 전달되는 언어 코드 문자열 (예: "en", "ja").
+     *                 LangCode 도메인 타입으로 매핑 후 처리.
      */
     fun onChangeLearningLanguage(langCode: String) {
-        Log.d(
-            TAG,
-            "onChangeLearningLanguage(langCode=$langCode) — DASH-006 hook (not implemented yet)"
-        )
-//        val lang = LangCode.fromCode(langCode) ?: run {
-//            Log.w(TAG, "unknown langCode=$langCode, skip")
-//            return
-//        }
-//        viewModelScope.launch {
-//            changeSelectedLang(lang)
-//        }
+        // UI 에서 전달된 문자열 코드를 도메인 enum 으로 매핑.
+        //   LearningLanguageSelector 가 LangCode.code 그대로 넘기는 현 흐름에선
+        //   null 이 거의 안 나오지만, ViewModel 입장에선 외부 input 이라 가드.
+        //   (향후 deeplink / 외부 트리거 / 잘못된 langs 목록 등에서 들어올 수 있음)
+        val lang = LangCode.fromCode(langCode) ?: run {
+            Log.w(TAG, "unknown langCode=$langCode, skip")
+            return
+        }
+        // 동일 언어 재선택 no-op. 불필요한 Repo write / observe 재emit / sync 재트리거 방지.
+        val current = _uiState.value.selectedLearningLanguage
+        if (lang == current) {
+            Log.d(TAG, "onChangeLearningLanguage skipped — same lang ($lang)")
+            return
+        }
+        viewModelScope.launch {
+            Log.d(TAG, "onChangeLearningLanguage(lang=$lang) — local update start")
+            // local update. observe collect 가 새 emit 받아 _uiState 자동 갱신 (AC 4, 5, 6).
+            changeSelectedLang(lang)
+                .onSuccess {
+                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리, sync 트리거")
+                    // local update 끝, observe 가 UI 반영. Firebase sync 백그라운드 진행.
+                    // fetchJob dedup 으로 onEnter() sync 와 자연 충돌 회피.
+                    triggerSync()
+                }
+                .onFailure { e ->
+                    // Phase 3 에서 rollback + Snackbar 처리 예정. happy path 단계라 로깅만.
+                    Log.w(TAG, "changeSelectedLang failed (Phase 3 rollback 예정)", e)
+                }
+        }
     }
 
     private companion object {
