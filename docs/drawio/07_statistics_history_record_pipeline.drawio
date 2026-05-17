@@ -1,0 +1,184 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="페이지-1" id="a0kfTVOIgeDGV-TnBtVI">
+    <mxGraphModel dx="1789" dy="1213" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1050" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#111827;" value="Statistics History 기록 파이프라인" vertex="1">
+          <mxGeometry height="40" width="620" x="60" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontColor=#4B5563;" value="LS-006 Language State update → ExternalMetrics snapshot → StatisticsHistory Room local save → Firestore pending sync" vertex="1">
+          <mxGeometry height="28" width="1050" x="62" y="72" as="geometry" />
+        </mxCell>
+        <mxCell id="lane1" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="LS-006 Language State Update" vertex="1">
+          <mxGeometry height="760" width="380" x="60" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="lane2" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="Statistics UseCase" vertex="1">
+          <mxGeometry height="760" width="420" x="440" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="lane3" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="Room Local Source" vertex="1">
+          <mxGeometry height="760" width="420" x="860" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="lane4" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="Firestore Background Sync" vertex="1">
+          <mxGeometry height="760" width="370" x="1280" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="n1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="분석 payload 생성&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Correction / 학습 분석 입력&lt;/span&gt;" vertex="1">
+          <mxGeometry height="72" width="280" x="110" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="n2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="Internal Metrics 업데이트&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Type A/B/C + 이동평균&lt;/span&gt;" vertex="1">
+          <mxGeometry height="78" width="280" x="110" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="ExternalMetrics 재계산&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;MVP 5개 지표&lt;/span&gt;" vertex="1">
+          <mxGeometry height="72" width="280" x="110" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="Local LangState&lt;br&gt;저장 성공?" vertex="1">
+          <mxGeometry height="110" width="190" x="155" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="err1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#7F1D1D;fontSize=12;" value="Language State 업데이트 실패&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;history 기록 시작하지 않음&lt;/span&gt;" vertex="1">
+          <mxGeometry height="70" width="280" x="110" y="735" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="RecordStatisticsHistoryUseCase&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;LangState 저장 성공 후 호출&lt;/span&gt;" vertex="1">
+          <mxGeometry height="78" width="320" x="490" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="ExternalMetrics snapshot 생성&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;language + recordedAt + sourceEventId&lt;/span&gt;" vertex="1">
+          <mxGeometry height="84" width="320" x="490" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="같은 language +&lt;br&gt;sourceEventId 있음?" vertex="1">
+          <mxGeometry height="120" width="210" x="545" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="n6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3F4F6;strokeColor=#9CA3AF;fontColor=#374151;fontSize=12;" value="기존 history 유지&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;중복 요청은 성공으로 간주 가능&lt;/span&gt;" vertex="1">
+          <mxGeometry height="72" width="320" x="490" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="n7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="StatisticsHistory local 저장&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Room local first&lt;/span&gt;" vertex="1">
+          <mxGeometry height="78" width="320" x="910" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="Room 저장&lt;br&gt;성공?" vertex="1">
+          <mxGeometry height="110" width="190" x="975" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="err2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#7F1D1D;fontSize=12;" value="History 기록 실패 / Retry&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;LangState는 되돌리지 않음&lt;br&gt;누락 history 보정 대상&lt;/span&gt;" vertex="1">
+          <mxGeometry height="86" width="320" x="910" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="n8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="Statistics 화면에서 조회 가능&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;그래프 source of truth&lt;br&gt;화면 진입이 생성 트리거 아님&lt;/span&gt;" vertex="1">
+          <mxGeometry height="94" width="320" x="910" y="665" as="geometry" />
+        </mxCell>
+        <mxCell id="n9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="Firestore background sync 예약&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;users/{uid}/statistics_history/{historyId}&lt;/span&gt;" vertex="1">
+          <mxGeometry height="82" width="280" x="1320" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="Firestore sync&lt;br&gt;성공?" vertex="1">
+          <mxGeometry height="110" width="190" x="1365" y="325" as="geometry" />
+        </mxCell>
+        <mxCell id="n10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=12;" value="syncStatus = synced&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;remote 반영 완료&lt;/span&gt;" vertex="1">
+          <mxGeometry height="70" width="280" x="1320" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="n11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#7F1D1D;fontSize=12;" value="syncStatus = pending / failed&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;화면 실패 아님&lt;br&gt;다음 sync에서 재시도&lt;/span&gt;" vertex="1">
+          <mxGeometry height="86" width="280" x="1320" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#CBD5E1;fontColor=#334155;fontSize=12;align=left;verticalAlign=top;spacing=12;" value="정합성 메모&lt;br&gt;• StatisticsHistory 기록은 LS-006의 ExternalMetrics 재계산과 local LangState 저장 성공 이후에만 시작한다.&lt;br&gt;• Room local 저장 성공 시 Statistics 화면에서 사용할 수 있는 history로 본다.&lt;br&gt;• Firestore sync 실패는 history 기록 실패가 아니며 pending sync로 남긴다.&lt;br&gt;• Room local 저장 실패는 history 기록 실패지만, 이미 성공한 LangState 업데이트를 임의로 rollback하지 않는다." vertex="1">
+          <mxGeometry height="105" width="1580" x="60" y="915" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="n1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n2" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="n2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="n3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="d1" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="d1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="err1" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="d1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="n4" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="595" />
+              <mxPoint x="420" y="229" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="n4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n5" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="n5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="d2" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="d2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#475569;" target="n6" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="d2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="n7" value="No">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="840" y="500" />
+              <mxPoint x="840" y="229" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="n7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="d3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="d3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="err2" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="err2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="n7" value="Retry">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="890" y="563" />
+              <mxPoint x="890" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="d3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="n8" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1260" y="375" />
+              <mxPoint x="1260" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="n8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=block;endFill=1;" target="n9" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1300" y="712" />
+              <mxPoint x="1300" y="231" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="n6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=block;endFill=1;" target="n9" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="840" y="686" />
+              <mxPoint x="840" y="835" />
+              <mxPoint x="1300" y="835" />
+              <mxPoint x="1300" y="231" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="n9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=block;endFill=1;" target="d4" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="d4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="n10" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="d4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="n11" value="No">
+          <mxGeometry relative="1" x="-0.5729" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1620" y="380" />
+              <mxPoint x="1620" y="693" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="n11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="n9" value="Retry later">
+          <mxGeometry relative="1" x="-0.6116" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1460" y="770" />
+              <mxPoint x="1640" y="770" />
+              <mxPoint x="1640" y="231" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

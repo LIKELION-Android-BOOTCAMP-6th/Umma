@@ -69,6 +69,7 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 
 ```text
 ├── docs/                   # 설계 및 기획 문서 (System/User FlowDB)
+│   └── drawio/             # 문서 이해를 돕는 draw.io 도식 원본
 ├── app/src/main/java/com/example/umma
 │   ├── core/                   # 앱 전역 공용 모듈
 │   ├── navigation/          # 라우트, 네비게이션 호스트, 바텀바
