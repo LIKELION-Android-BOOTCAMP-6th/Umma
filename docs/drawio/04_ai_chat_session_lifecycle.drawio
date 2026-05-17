@@ -1,0 +1,109 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="페이지-1" id="6WcMNK7SrqtdC9ITYIzY">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="827" pageHeight="1169" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=28;fontStyle=1;fontColor=#172033;align=left;" value="AI Chat 실시간 세션 라이프사이클" vertex="1">
+          <mxGeometry height="40" width="640" x="60" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;fontColor=#5B6472;align=left;" value="진입, 세션 부트스트랩, PTT 입력, streaming, final turn 저장, 종료/재진입 복구의 책임 경계" vertex="1">
+          <mxGeometry height="28" width="940" x="60" y="82" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-user" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F4F8FF;strokeColor=#86A8E7;fontColor=#172033;fontSize=15;fontStyle=1;align=center;verticalAlign=top;spacingTop=12;" value="User / Navigation" vertex="1">
+          <mxGeometry height="720" width="280" x="60" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-ui" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7E6;strokeColor=#D9A441;fontColor=#172033;fontSize=15;fontStyle=1;align=center;verticalAlign=top;spacingTop=12;" value="AI Chat UI / ViewModel" vertex="1">
+          <mxGeometry height="720" width="360" x="380" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-realtime" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1FBF6;strokeColor=#57A773;fontColor=#172033;fontSize=15;fontStyle=1;align=center;verticalAlign=top;spacingTop=12;" value="Realtime Infra / Gemini Live" vertex="1">
+          <mxGeometry height="720" width="360" x="780" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-memory" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F7F2FF;strokeColor=#9B7BD6;fontColor=#172033;fontSize=15;fontStyle=1;align=center;verticalAlign=top;spacingTop=12;" value="Session Memory" vertex="1">
+          <mxGeometry height="720" width="420" x="1180" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="entry" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8C7E8;fontSize=13;fontStyle=1;align=center;" value="1. AI Chat 진입&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Dashboard 또는 직접 경로&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="220" x="90" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="init" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0AF55;fontSize=13;fontStyle=1;align=center;" value="2. 초기 상태 구성&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;selectedLearningLanguage&lt;br&gt;LangState snapshot&lt;br&gt;마이크 권한 대상 상태&lt;/font&gt;" vertex="1">
+          <mxGeometry height="95" width="250" x="435" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="bootstrap" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8DC8A4;fontSize=13;fontStyle=1;align=center;" value="3. 세션 부트스트랩&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;activeSessionId 확인&lt;br&gt;같은 언어 앱 상태 복원 시도&lt;br&gt;실패 시 새 LiveSession 생성&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="250" x="835" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ptt" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0AF55;fontSize=13;fontStyle=1;align=center;" value="4. PTT 입력&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;press 중 Recording&lt;br&gt;release 시 user turn 종료 신호&lt;br&gt;중복 입력 방지&lt;/font&gt;" vertex="1">
+          <mxGeometry height="95" width="250" x="435" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="stream" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8DC8A4;fontSize=13;fontStyle=1;align=center;" value="5. 음성 스트림&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;오디오 chunk 전송&lt;br&gt;partial transcript 수신&lt;br&gt;AI 응답 streaming&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="250" x="835" y="365" as="geometry" />
+        </mxCell>
+        <mxCell id="feedback" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0AF55;fontSize=13;fontStyle=1;align=center;" value="6. 화면 피드백&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Recording / Thinking / Speaking&lt;br&gt;중앙 비주얼 상태 반영&lt;br&gt;자막 On이면 마지막 확정 턴 표시&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="250" x="435" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="final" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8DC8A4;fontSize=13;fontStyle=1;align=center;" value="7. final transcript 확정&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;partial stream은 저장하지 않음&lt;br&gt;확정 user / assistant turn만 저장 입력&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="250" x="835" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="append" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B9A1E8;fontSize=13;fontStyle=1;align=center;" value="8. Session Memory append&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;recentFullContext 갱신&lt;br&gt;Room local append&lt;br&gt;Firestore batch sync&lt;/font&gt;" vertex="1">
+          <mxGeometry height="115" width="280" x="1250" y="525" as="geometry" />
+        </mxCell>
+        <mxCell id="ready" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B9A1E8;fontSize=13;fontStyle=1;align=center;" value="Correction / Flashcard 준비&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;후속 학습 흐름은&lt;br&gt;Session Memory의 확정 turn을 참조&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="280" x="1250" y="700" as="geometry" />
+        </mxCell>
+        <mxCell id="exit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8C7E8;fontSize=13;fontStyle=1;align=center;" value="9. 화면 이탈 / 재진입&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;사용자가 화면을 나가거나&lt;br&gt;다시 AI Chat으로 진입&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="220" x="90" y="700" as="geometry" />
+        </mxCell>
+        <mxCell id="restore" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#E0AF55;fontSize=13;fontStyle=1;align=center;" value="10. CHAT-008 종료 및 재진입 복구&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;녹음/재생 정리&lt;br&gt;저장 중 상태 보호&lt;br&gt;복구 실패 시 새 LiveSession 전환&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="260" x="430" y="700" as="geometry" />
+        </mxCell>
+        <mxCell id="note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFCEB;strokeColor=#D6BF58;fontSize=12;fontColor=#3F3A1F;align=left;verticalAlign=top;spacing=14;" value="핵심 규칙&lt;br&gt;1. Firebase Live API 세션은 장기 재개 대상이 아니다. 앱 상태 복원 뒤 실행 시점에 새 LiveSession을 연결할 수 있다.&lt;br&gt;2. 저장 기준은 partial transcript가 아니라 final transcript다.&lt;br&gt;3. recentFullContext는 turn list 원문 buffer이며, Correction / Flashcard 흐름의 입력 기준이다.&lt;br&gt;4. CHAT-008은 화면 피드백이 아니라 화면 이탈/재진입 복구 경로다." vertex="1">
+          <mxGeometry height="90" width="1540" x="60" y="910" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="entry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#4E7CCB;fontColor=#4E7CCB;endArrow=block;endFill=1;" target="init" value="진입">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="init" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#D9A441;fontColor=#9A6A00;endArrow=block;endFill=1;" target="bootstrap" value="CHAT-001">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="bootstrap" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#57A773;fontColor=#348653;endArrow=block;endFill=1;" target="ptt" value="RT-001 Ready">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="960" y="330" />
+              <mxPoint x="560" y="330" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="ptt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#57A773;fontColor=#348653;endArrow=block;endFill=1;" target="stream" value="CHAT-003 / RT-002">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="stream" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#D9A441;fontColor=#9A6A00;endArrow=block;endFill=1;" target="feedback" value="state events">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="950" y="490" />
+              <mxPoint x="560" y="490" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="stream" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#57A773;fontColor=#348653;endArrow=block;endFill=1;" target="final" value="final only">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="final" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B7BD6;fontColor=#7251B5;endArrow=block;endFill=1;" target="append" value="RT-003 / CHAT-007">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="append" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9B7BD6;fontColor=#7251B5;endArrow=block;endFill=1;" target="ready" value="context ready">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="exit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#4E7CCB;fontColor=#4E7CCB;endArrow=block;endFill=1;" target="restore" value="사용자 행동">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="restore" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#D9A441;fontColor=#9A6A00;endArrow=block;endFill=1;dashed=1;exitX=0;exitY=0.25;exitDx=0;exitDy=0;" target="init" value="복구 후 초기 상태 재구성">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="410" y="726" />
+              <mxPoint x="410" y="270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

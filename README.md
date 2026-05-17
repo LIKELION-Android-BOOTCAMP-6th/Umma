@@ -68,8 +68,9 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 ## 📂 Project Structure
 
 ```text
-app/src/main/java/com/example/umma
-├── core/                   # 앱 전역 공용 모듈
+├── docs/                   # 설계 및 기획 문서 (System/User FlowDB)
+├── app/src/main/java/com/example/umma
+│   ├── core/                   # 앱 전역 공용 모듈
 │   ├── navigation/          # 라우트, 네비게이션 호스트, 바텀바
 │   ├── theme/               # 색상, 타이포그래피, 테마
 │   └── ui/                  # 공통 UI 컴포넌트, LCE 상태 처리, 다국어 텍스트
