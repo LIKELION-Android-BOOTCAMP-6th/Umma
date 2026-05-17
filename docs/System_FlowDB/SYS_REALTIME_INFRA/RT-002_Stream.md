@@ -56,8 +56,7 @@
 - 최종 transcript가 도착하면 해당 user turn 또는 assistant turn을 확정 후보로 본다.
 - UI 자막은 `CHAT-003` 정책을 따른다. 즉, 자막 On 상태에서도 마지막 확정 턴만 보여준다.
 - 필요 시 입력 레벨, 재생 상태, 로딩 상태를 presentation에 전달할 수 있다.
-- `AIEvent.StateChanged`는 AI 응답 상태를 표현하고, 입력 강도 피드백은 `inputLevel: Float` 같은 별도 presentation 상태로 전달한다.
-- `inputLevel`은 AudioRecorder에서 산출한 입력 강도를 0.0~1.0 범위로 정규화한 값으로 다룬다.
+- `AIEvent.StateChanged`는 AI 응답 상태를 표현하고, 입력 강도 피드백은 별도 presentation 상태로 전달한다.
 
 ---
 

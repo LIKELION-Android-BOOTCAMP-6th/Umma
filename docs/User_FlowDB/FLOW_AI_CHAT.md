@@ -15,8 +15,8 @@
 - Initial Setup 완료 상태
 - selectedLearningLanguage 존재
 - LangState preload 완료 상태
-- Firebase Live API 연결 설정 가능 상태
-- 마이크 권한 확인 대상 상태
+- Firebase Live API 세션 준비 완료 상태
+- 마이크 권한 허용 상태
 
 ---
 
@@ -156,7 +156,6 @@ Dashboard 또는 다른 경로에서 들어온 사용자를 현재 세션으로 
 ### 정책
 
 - `Recording` 상태에서는 사용자의 음성 입력 강도에 맞춰 파형, 볼륨 미터, 미세한 확장 애니메이션을 보여준다.
-- 입력 강도는 `inputLevel: Float` 같은 presentation state로 전달하며, 값 범위는 0.0~1.0 기준으로 정규화한다.
 - `Streaming` 또는 `Speaking` 상태에서는 AI 음성 출력 중임을 나타내는 별도 반응을 보여준다.
 - `Loading` 상태에서는 세션 준비 중임을 보여준다.
 - 이 비주얼은 장식이 아니라 입력/출력 상태 피드백이다.
