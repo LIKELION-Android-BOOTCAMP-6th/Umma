@@ -52,7 +52,7 @@ import com.example.umma.presentation.dashboard.component.DashboardError
 fun DashboardScreen(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
-    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
@@ -137,7 +137,7 @@ fun DashboardScreen(
                 else -> DashboardContent(
                     onNavigateToAnalytics = onNavigateToAnalytics,
                     onNavigateToChat = onNavigateToChat,
-                    onNavigateToFeedbackList = onNavigateToFeedbackList,
+                    onNavigateToCorrection = onNavigateToCorrection,
                     onNavigateToStudyList = onNavigateToStudyList,
                     onNavigateToMyPage = onNavigateToMyPage
                 )
@@ -158,7 +158,7 @@ fun DashboardScreen(
 private fun DashboardContent(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
-    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
 ) {
@@ -174,7 +174,7 @@ private fun DashboardContent(
         // === DASH-002 자리: 카드 4 개 (현재는 navigate 버튼) ===
         Button(onClick = onNavigateToChat) { Text("대화") }
         Button(onClick = onNavigateToStudyList) { Text("학습") }
-        Button(onClick = onNavigateToFeedbackList) { Text("교정") }
+        Button(onClick = onNavigateToCorrection) { Text("교정") }
         Button(onClick = onNavigateToAnalytics) { Text("통계") }
 
         Spacer(modifier = Modifier.height(SpacingS))

@@ -1,4 +1,4 @@
-package com.example.umma.presentation.feedback
+package com.example.umma.presentation.correction
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -11,13 +11,13 @@ import androidx.compose.ui.text.style.TextAlign
 import com.example.umma.core.ui.component.UmmaAppBar
 
 /**
- * 피드백 리스트 화면을 구성하는 컴포저블입니다.
+ * 교정 화면을 구성하는 컴포저블입니다.
  *
  * 사용자의 학습 결과에 대한 교정 및 피드백 목록을 제공합니다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FeedbackListScreen() {
+fun CorrectionScreen() {
     Scaffold(
         topBar = {
             UmmaAppBar(

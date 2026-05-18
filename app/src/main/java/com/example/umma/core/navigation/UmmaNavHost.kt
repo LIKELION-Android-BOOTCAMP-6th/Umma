@@ -12,7 +12,7 @@ import com.example.umma.presentation.analytics.AnalyticsScreen
 import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
-import com.example.umma.presentation.feedback.FeedbackListScreen
+import com.example.umma.presentation.correction.CorrectionScreen
 import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.study.StudyListScreen
 
@@ -55,7 +55,7 @@ fun UmmaNavHost(
                     onNavigateToChat = { navController.navigate(Route.Chat) },
                     onNavigateToAnalytics = { navController.navigate(Route.Analytics) },
                     onNavigateToStudyList = { navController.navigate(Route.StudyList) },
-                    onNavigateToFeedbackList = { navController.navigate(Route.FeedbackList) },
+                    onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
                     onNavigateToMyPage = { navController.navigate(Route.MyPage) }
                 )
 
@@ -80,8 +80,8 @@ fun UmmaNavHost(
         }
 
         // 교정 그래프
-        navigation<Route.FeedbackGraph>(startDestination = Route.FeedbackList) {
-            composable<Route.FeedbackList> { FeedbackListScreen() }
+        navigation<Route.CorrectionGraph>(startDestination = Route.CorrectionList) {
+            composable<Route.CorrectionList> { CorrectionScreen() }
         }
     }
 }
