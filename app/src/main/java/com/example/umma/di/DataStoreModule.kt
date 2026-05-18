@@ -27,7 +27,7 @@ object DataStoreModule {
     fun provideLearningStateDataStore(
         @ApplicationContext context: Context
     ): DataStore<Preferences> {
-        // LS-007 초기 저장값과 이후 local preload가 같은 파일을 바라보도록 고정한다.
+        // 초기 저장값과 이후 local preload가 같은 파일을 바라보도록 고정한다.
         return PreferenceDataStoreFactory.create(
             produceFile = { context.preferencesDataStoreFile("learning_state.preferences_pb") }
         )

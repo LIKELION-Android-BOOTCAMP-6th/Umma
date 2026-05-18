@@ -10,6 +10,8 @@ import com.example.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.example.umma.domain.repository.AuthRepository
 import com.example.umma.domain.repository.ChatRepository
 import com.example.umma.domain.repository.LearningStateRepo
+import com.example.umma.data.repository.SessionMemoryRepositoryImpl
+import com.example.umma.domain.repository.SessionMemoryRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -56,5 +58,11 @@ abstract class RepositoryModule {
     abstract fun bindLearningStateRemoteDataSource(
         impl: LearningStateRemoteDataSourceImpl
     ): LearningStateRemoteDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindSessionMemoryRepository(
+        impl: SessionMemoryRepositoryImpl
+    ): SessionMemoryRepository
 
 }
