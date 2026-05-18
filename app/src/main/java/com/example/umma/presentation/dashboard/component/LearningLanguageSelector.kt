@@ -49,6 +49,8 @@ fun LearningLanguageSelector(
     onLanguageSelected: (LangCode) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Dropdown 메뉴 열림 여부. 칩 탭 시 true, 항목 선택 또는 외부 탭 시 false.
+    //   remember 로 recomposition 사이에 값 보존.
     var expanded by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {

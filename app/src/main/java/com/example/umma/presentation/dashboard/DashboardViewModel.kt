@@ -41,7 +41,11 @@ class DashboardViewModel @Inject constructor(
     private val changeSelectedLang: ChangeSelectedLangUseCase,
 ) : ViewModel() {
 
+    // UI state 의 단일 source of truth (쓰기 가능). _ prefix = 외부 비공개 컨벤션.
+    // View 가 직접 못 건들고 ViewModel 내부에서 update() 로만 변경.
     private val _uiState = MutableStateFlow(DashboardUiState())
+
+    // 위 _uiState 의 읽기 전용 노출. Screen 이 collectAsStateWithLifecycle 로 구독.
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     /**
@@ -52,6 +56,8 @@ class DashboardViewModel @Inject constructor(
      * isActive 체크에서 collect 셋업은 skip 됨 — 이게 의도된 동작.
      * ViewModel onCleared() 시 viewModelScope 와 함께 자동 cancel.
      */
+    // observeLearningState() Flow 를 collect 하는 background job 핸들.
+    // null = 아직 셋업 안 됨. ensureObservation() 에서 1 회만 셋업, ViewModel 사망 시 자동 cancel.
     private var enterJob: Job? = null
 
     /**
@@ -62,6 +68,8 @@ class DashboardViewModel @Inject constructor(
      * skip. 재진입 (AC 10) 도 같은 경로로 처리.
      * AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.
      */
+    // triggerSync() (Firebase background sync) 의 in-flight job 핸들.
+    // active 면 새 sync 호출 skip — AC 11 dedup 의 근거.
     private var fetchJob: Job? = null
 
     /**
@@ -111,7 +119,9 @@ class DashboardViewModel @Inject constructor(
             //   TTL(Time To Live) 체크 없이 _state 의 값 그대로 흘려보냄. 최신화는 triggerSync() 담당.
             //   sync 가 _state 를 갱신하면 여기 collect 가 새 emit 을 한 번 더 받는다.
             observeLearningState().collect { global ->
+                // 이번 emit 의 사용자 학습 설정 스냅샷. 신규 사용자 / preload 직후엔 null.
                 val userPref = global.userPref
+                // 학습 중인 언어 목록. userPref null 이면 빈 리스트로 안전 처리.
                 val learningLangs = userPref?.learningLangs.orEmpty()
 
                 // AC 10: userPref 가 채워졌는데 learningLangs 가 비어있으면 Fatal.
@@ -133,6 +143,11 @@ class DashboardViewModel @Inject constructor(
                 // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → primaryLang fallback.
                 //   복구 저장도 시도 (fire-and-forget). 다음 emit 에선 정합 상태로 들어옴.
                 // (AC 9: selectedLearningLanguage가 없는 경우 primaryLearningLanguage로 fallback된다.)
+
+                // UI 가 실제로 쓸 lang. selectedLang 을 그대로 쓰지 않고 정합성 가드 한 번 거친 값.
+                //  - null : userPref 자체 없음 (신규/preload 직후)
+                //  - selectedLang : 정상 케이스
+                //  - primaryLang : selectedLang ∉ learningLangs 인 오염 케이스 (AC 9 fallback)
                 val effectiveLang: LangCode? = when {
                     userPref == null -> null
                     userPref.selectedLang in learningLangs -> userPref.selectedLang
@@ -148,7 +163,9 @@ class DashboardViewModel @Inject constructor(
                     }
                 }
 
+                // effectiveLang 기준 카드 데이터. null 가능 (effectiveLang null 또는 해당 lang summary 없음).
                 val summary = effectiveLang?.let { global.dashSummaries[it] }
+                // "보여줄 게 없는" 상태 — Empty 분기 판정용.
                 val empty = summary == null || summary.isEffectivelyEmpty
 
                 _uiState.update {
@@ -233,10 +250,12 @@ class DashboardViewModel @Inject constructor(
      *                 LangCode 도메인 타입으로 매핑 후 처리.
      */
     fun onChangeLearningLanguage(langCode: String) {
+        // UI 에서 받은 문자열 코드를 도메인 enum 으로 매핑. 매핑 실패 시 무시.
         val lang = LangCode.fromCode(langCode) ?: run {
             Log.w(TAG, "unknown langCode=$langCode, skip")
             return
         }
+        // 현재 UI 가 보여주고 있는 lang. 같은 값이면 변경할 게 없으니 no-op.
         val current = _uiState.value.selectedLearningLanguage
         if (lang == current) {
             Log.d(TAG, "onChangeLearningLanguage skipped — same lang ($lang)")
@@ -247,7 +266,11 @@ class DashboardViewModel @Inject constructor(
         //   compareAndSet 으로 "false → true" 전이를 한 번만 성공시키고,
         //   실패하면 다른 호출이 이미 in-flight 인 것.
         // (AC 7: 언어 변경 저장 중 중복 요청이 방지된다.)
+
+        // AC 7 가드의 "락 획득" 결과. true = 이 호출이 변경 처리권을 잡음.
+        //   false = 다른 호출이 이미 in-flight, 이 호출은 skip.
         val acquired = run {
+            // 직전 state 스냅샷. compareAndSet 의 "예상값" 으로 사용.
             val prev = _uiState.value
             if (prev.isChangingLanguage) {
                 false
