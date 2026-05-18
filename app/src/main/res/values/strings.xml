@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">Umma</string>
     <string name="dashboard_err_sync_failed">동기화 실패 — 마지막으로 저장된 데이터를 표시 중</string>
+    <string name="dashboard_err_no_learning_langs">학습 언어를 불러오지 못했습니다.</string>
+    <string name="dashboard_err_lang_change_failed">언어 변경에 실패했습니다.</string>
+    <string name="dashboard_retry">다시 시도</string>
 </resources>

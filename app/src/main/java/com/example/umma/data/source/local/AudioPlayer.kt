@@ -3,11 +3,12 @@ package com.example.umma.data.source.local
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import com.example.umma.domain.audio.AudioOutput
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AudioPlayer @Inject constructor() {
+class AudioPlayer @Inject constructor() : AudioOutput {
 
 
     // 오디오 플레이어 규격 정의
@@ -39,7 +40,7 @@ class AudioPlayer @Inject constructor() {
             .setAudioAttributes(
                 AudioAttributes
                     .Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -56,25 +57,25 @@ class AudioPlayer @Inject constructor() {
     }
 
     // 오디오 트랙에 삽입된 데이터 재생
-    fun startPlaying() {
+    override fun startPlaying() {
         if (audioTrack?.state == AudioTrack.STATE_INITIALIZED) {
             audioTrack?.play()
         }
     }
 
     // 오디오 트랙에 데이터 삽입
-    fun playAudioChunk(audioData: ByteArray) {
-        audioTrack?.write(audioData, 0, audioData.size)
+    override fun playAudioChunk(audio: ByteArray) {
+        audioTrack?.write(audio, 0, audio.size)
     }
 
     // 재생 멈춤
-    fun stopPlaying() {
+    override fun stopPlaying() {
         audioTrack?.stop()
         audioTrack?.flush()
     }
 
     // 메모리 릴리즈
-    fun release() {
+    override fun release() {
         audioTrack?.release()
         audioTrack = null
     }
