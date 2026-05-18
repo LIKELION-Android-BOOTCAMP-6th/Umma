@@ -204,6 +204,10 @@ proguard/
 # Google Services (e.g. APIs or Firebase)
 # google-services.json
 
+# Project Management & Rules
+AGENTS.md
+RULES.md
+
 # Android Patch
 
 # External native build folder generated in Android Studio 2.2 and later
