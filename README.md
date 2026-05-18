@@ -14,7 +14,7 @@
 
 기존 AI 영어 학습 앱들은 사용자의 실제 말하기 수준을 정밀하게 진단하지 못한 채 사전에 준비된 스크립트 기반 학습을 제공합니다. 학습한 표현이 반복되지 않아 쉽게 잊히고, 장기 기억으로 연결되지 못합니다.
 
-Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** 의 통합 루프를 통해, 학습자의 실제 발화를 기반으로 한 초개인화된 언어 성장 경험을 제공합니다.
+Umma는 **"대화 → 교정(Correction) → 저장 → 반복학습 → 성장 추적"** 의 통합 루프를 통해, 학습자의 실제 발화를 기반으로 한 초개인화된 언어 성장 경험을 제공합니다.
 
 ---
 
@@ -30,18 +30,18 @@ Umma는 **"대화 → 교정 → 저장 → 반복학습 → 성장 추적"** �
 
 ## ✨ 핵심 기능
 
-### 1. AI 자유 회화 🗣️
+### 1. AI 자유 회화 (Gemini Live) 🗣️
 
 - **관심사 기반 주제 추천**: 사용자의 관심사를 반영하여 AI가 먼저 대화를 리드합니다.
 - **수준 맞춤 대화**: 사용자의 현재 언어 수준보다 약간 높은(i+1) 난이도로 자연스럽게 대화를 이어갑니다.
 - **실시간 음성 대화**: Firebase AI Logic 기반 Gemini Live로 양방향 음성 대화를 제공합니다.
 - **음성 중심 UX**: MVP에서는 Push-to-Talk 방식으로 발화 시점을 명확히 제어합니다.
 
-### 2. 문장 교정 ✏️
+### 2. 문장 교정 (Correction) ✏️
 
-- **대화 후 교정**: 대화 도중 흐름을 끊지 않고, 대화 종료 후 교정 화면에서 분석합니다.
-- **핵심 문장 추출**: Session Memory의 `recentFullContext`에서 사용자 발화 중심으로 교정 후보를 추출합니다.
-- **선택적 저장**: 기억하고 싶은 문장만 골라 플래시카드로 저장합니다.
+- **통합 교정 파이프라인**: 대화 종료 후 세션 메모리의 `recentFullContext`에서 사용자 발화 후보를 추출하고 AI 교정을 생성합니다.
+- **정교한 분석**: 단순히 틀린 곳을 찾는 것이 아니라, 사용자의 `LangState`를 고려하여 더 자연스러운 표현(`CorrectionSuggestion`)을 제안합니다.
+- **선택적 저장**: 기억하고 싶은 교정 결과만 골라 플래시카드로 저장하며, 저장 시 세션 압축 및 상태 업데이트가 자동으로 이루어집니다.
 
 ### 3. Dashboard 📊
 
@@ -68,32 +68,36 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 ## 📂 Project Structure
 
 ```text
-app/src/main/java/com/example/umma
-├── core/                   # App-wide common modules
-│   ├── navigation/          # Route, NavHost, BottomBar
-│   ├── theme/               # Color, Type, Theme
-│   └── ui/                  # Common UI, LCE, UiText
-├── di/                     # Dependency Injection Modules
-├── domain/                 # Pure Kotlin Business Logic
-│   ├── model/               # Domain Models
-│   │   └── learningstate/   # LangState / DashSummary / UserLangPref
-│   ├── repository/          # Repository Interfaces
-│   └── usecase/             # UseCases
-│       └── learningstate/   # Learning state read/write use cases
-├── data/                   # Data Implementations
-│   ├── repository/          # Repository Implementations
+├── docs/                   # 설계 및 기획 문서 (System/User FlowDB)
+│   └── drawio/             # 문서 이해를 돕는 draw.io 도식 원본
+├── app/src/main/java/com/example/umma
+│   ├── core/                   # 앱 전역 공용 모듈
+│   ├── navigation/          # 라우트, 네비게이션 호스트, 바텀바
+│   ├── theme/               # 색상, 타이포그래피, 테마
+│   └── ui/                  # 공통 UI 컴포넌트, LCE 상태 처리, 다국어 텍스트
+├── di/                     # 의존성 주입(Hilt) 모듈
+├── domain/                 # 순수 코틀린 비즈니스 로직
+│   ├── model/               # 도메인 모델
+│   │   ├── learningstate/   # 학습 상태 / 대시보드 요약 / 유저 언어 설정
+│   │   └── correction/      # 교정 후보 / 제안 / 결과 모델
+│   ├── repository/          # 저장소 인터페이스
+│   └── usecase/             # 유즈케이스 (비즈니스 규칙)
+│       ├── learningstate/   # 학습 상태 읽기/쓰기 관련 유즈케이스
+│       └── correction/      # 교정 후보 추출 및 완료 파이프라인 유즈케이스
+├── data/                   # 데이터 계층 구현부
+│   ├── repository/          # 저장소 구현체
 │   ├── source/
-│   │   ├── local/           # DataStore, Room, device sources
-│   │   └── remote/          # Firebase, Google Auth, Firebase AI
-│   └── mapper/              # DTO <-> Domain mapping
-└── presentation/           # UI & State Management
-    ├── auth/                # SignIn, AppEntry
-    ├── onboarding/          # Initial Setup
-    ├── dashboard/           # Dashboard screen and cards
-    ├── chat/                # Voice Chat UI & ViewModel
-    ├── feed_back/           # Correction / feedback screens
-    ├── study/               # Flashcard / SRS screens
-    └── analytics/           # Statistics screens
+│   │   ├── local/           # 데이터스토어, 로컬 DB(Room), 기기 자원
+│   │   └── remote/          # 파이어베이스, 구글 인증, AI 연동(Gemini Live)
+│   └── mapper/              # 데이터 객체(DTO/Entity)와 도메인 모델 간 매퍼
+└── presentation/           # UI 및 상태 관리 (화면 구성)
+    ├── auth/                # 로그인, 앱 진입부
+    ├── onboarding/          # 초기 학습 언어 및 환경 설정
+    ├── dashboard/           # 대시보드 화면 및 요약 카드
+    ├── chat/                # 음성 채팅 화면 및 뷰모델
+    ├── correction/          # 문장 교정 화면 (구 피드백)
+    ├── study/               # 플래시카드 및 반복학습 화면
+    └── analytics/           # 학습 성장 통계 화면
 ```
 
 ---
@@ -135,7 +139,7 @@ app/src/main/java/com/example/umma
 | F1 | 인증·세션 | 소셜 로그인, 자동 로그인, 로그아웃, 회원 탈퇴 |
 | F2 | 앱 골격·네비·디자인 시스템 | 패키지 구조, Navigation Graph, 공통 테마/컴포넌트 |
 | F3 | AI 회화 | Firebase AI Logic / Gemini Live 연동, 실시간 음성 입출력 |
-| F4 | 문장 교정 | 대화 종료 후 문장 추출 및 교정 카드 UI |
+| F4 | 문장 교정 (Correction) | 세션 맥락 기반 문장 추출 및 AI 교정 파이프라인 구현 |
 | F5 | 플래시카드 & SRS | 카드 저장(Room), 5단계 자기 평가 기반 복습 스케줄링 |
 | F6 | 성장 통계 & 마이페이지 | 언어 데이터 분석 시각화, 프로필·설정 |
 
@@ -178,7 +182,7 @@ app/src/main/java/com/example/umma
 | DI | Hilt | 의존성 주입 |
 | Local DB | Room | SRS 플래시카드 및 오프라인 대화 로그 저장 |
 | Audio Engine | AudioRecord / AudioTrack (또는 Media3 ExoPlayer) | 음성 입출력 처리 |
-| AI | Google Gemini with Firebase AI Logic | 실시간 음성 대화 모델 |
+| AI | Google Gemini with Firebase AI Logic | 실시간 음성 대화 모델 (Gemini Live) |
 | Backend | Firebase | Auth, Firestore, Storage, Cloud Functions, FCM |
 
 ---
@@ -210,7 +214,7 @@ Firebase AI Logic에서 제공하는 Gemini Live와의 실시간 음성 대화�
 - **Audio Input**: `AudioRecord`로 사용자 음성을 캡처하여 청크 단위로 서버에 전송합니다.
 - **Audio Output**: `AudioTrack`으로 AI 응답 음성을 재생합니다.
 - `AudioTrack`: 저레벨 API로 latency가 적지만, 버퍼·포맷을 수동 관리해야 함 (커스텀 자유도 ↑)
-- **대화 주도권 전환**: MVP 단계에서는 **버튼 방식**으로 발화 시점을 명시적으로 제어하고, 추가 개발 기간에 **자동 감지(Barge-in) 방식**으로 전환할 예정입니다.
+- **대화 주도권 전환**: MVP 단계에서는 **버튼 방식(Push-to-Talk)**으로 발화 시점을 명시적으로 제어하고, 추가 개발 기간에 **자동 감지(Barge-in) 방식**으로 전환할 예정입니다.
 
 ### 🧠 학습 데이터 구조
 
@@ -221,14 +225,14 @@ users/{uid}
 ├── user_learning_preference/current
 ├── language_states/{lang}
 ├── dashboard_summaries/{lang}
-├── sessions/{lang}
+├── sessions/{lang} (recentFullContext 포함)
 └── flashcards/{cardId}
 ```
 
 - `lang`: Session, Flashcard, Statistics, Language State가 어떤 언어의 데이터인지 나타내는 소속 필드
 - `selectedLearningLanguage`: Dashboard와 기능 이동이 현재 바라보는 앱 전역 언어 컨텍스트
 - Dashboard는 `DashSummary[selectedLearningLanguage]`만 사용하여 빠르게 렌더링합니다.
-- AI Chat은 언어별 재사용 Session Memory에 확정 turn 단위로 대화 맥락을 저장합니다.
+- AI Chat은 언어별 재사용 Session Memory에 확정 turn 단위로 대화 맥락을 저장하며, 이는 Correction의 핵심 소스가 됩니다.
 
 ---
 
