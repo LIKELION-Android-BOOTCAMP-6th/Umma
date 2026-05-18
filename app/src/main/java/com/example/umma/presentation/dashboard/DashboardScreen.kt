@@ -31,6 +31,7 @@ import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.presentation.dashboard.component.DashboardEmpty
 import com.example.umma.presentation.dashboard.component.DashboardSkeleton
 import com.example.umma.presentation.dashboard.component.LearningLanguageSelector
+import com.example.umma.presentation.dashboard.component.DashboardError
 
 /**
  * 대시보드(홈) 화면.
@@ -106,7 +107,7 @@ fun DashboardScreen(
                         LearningLanguageSelector(
                             selectedLang = selected,
                             learningLangs = uiState.learningLanguages,
-                            isLoading = uiState.isLoading,
+                            isLoading = uiState.isLoading || uiState.isChangingLanguage,
                             onLanguageSelected = { lang ->
                                 viewModel.onChangeLearningLanguage(lang.code)
                             }
@@ -124,6 +125,7 @@ fun DashboardScreen(
         ) {
             when {
                 uiState.isLoading -> DashboardSkeleton()
+                uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
                 uiState.isEmpty -> DashboardEmpty(onStartConversation = onNavigateToChat)
                 else -> DashboardContent(
                     onNavigateToAnalytics = onNavigateToAnalytics,

@@ -5,9 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.umma.R
 import com.example.umma.core.ui.UiText
-import com.example.umma.domain.model.learningstate.currentDashSummary
+import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.isEffectivelyEmpty
-import com.example.umma.domain.model.learningstate.selectedLang
+import com.example.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
 import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.SyncLearningStateUseCase
@@ -19,8 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import com.example.umma.domain.model.learningstate.LangCode
-import com.example.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
 
 /**
  * Dashboard 화면의 ViewModel.
@@ -113,23 +111,59 @@ class DashboardViewModel @Inject constructor(
             //   TTL(Time To Live) 체크 없이 _state 의 값 그대로 흘려보냄. 최신화는 triggerSync() 담당.
             //   sync 가 _state 를 갱신하면 여기 collect 가 새 emit 을 한 번 더 받는다.
             observeLearningState().collect { global ->
-                val lang = global.selectedLang
-                val summary = global.currentDashSummary()
+                val userPref = global.userPref
+                val learningLangs = userPref?.learningLangs.orEmpty()
+
+                // AC 10: userPref 가 채워졌는데 learningLangs 가 비어있으면 Fatal.
+                //   userPref==null 은 preload 직후/신규 사용자 — Empty 분기에서 처리하므로 여기선 패스.
+                // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
+                if (userPref != null && learningLangs.isEmpty()) {
+                    Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            hasFatalError = true,
+                            isEmpty = false,
+                            summary = null
+                        )
+                    }
+                    return@collect
+                }
+
+                // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → primaryLang fallback.
+                //   복구 저장도 시도 (fire-and-forget). 다음 emit 에선 정합 상태로 들어옴.
+                // (AC 9: selectedLearningLanguage가 없는 경우 primaryLearningLanguage로 fallback된다.)
+                val effectiveLang: LangCode? = when {
+                    userPref == null -> null
+                    userPref.selectedLang in learningLangs -> userPref.selectedLang
+                    else -> {
+                        Log.w(
+                            TAG,
+                            "AC 9 fallback — selectedLang=${userPref.selectedLang} " +
+                                    "not in learningLangs=$learningLangs, using primary=${userPref.primaryLang}"
+                        )
+                        // 복구 저장. 실패해도 다음 emit 까진 effectiveLang 으로 계속 동작.
+                        launch { changeSelectedLang(userPref.primaryLang) }
+                        userPref.primaryLang
+                    }
+                }
+
+                val summary = effectiveLang?.let { global.dashSummaries[it] }
                 val empty = summary == null || summary.isEffectivelyEmpty
-                val learningLangs = global.userPref?.learningLangs.orEmpty()
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        selectedLearningLanguage = lang,
+                        selectedLearningLanguage = effectiveLang,
                         summary = summary,
                         isEmpty = empty,
-                        learningLanguages = learningLangs
+                        learningLanguages = learningLangs,
+                        hasFatalError = false
                     )
                 }
                 Log.d(
                     TAG,
-                    "state emit: lang=$lang, " +
+                    "state emit: lang=$effectiveLang, " +
                             "learningLangs=$learningLangs, " +
                             "summary=[recentTopic=${summary?.recentTopic}, " +
                             "recentMinutes=${summary?.recentMinutes}, " +
@@ -142,23 +176,7 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    /**
-     * DASH-001: Firebase background sync.
-     * AC 1: Dashboard 진입 시 DashSummary fetch가 수행된다.
-     * AC 6: Firebase background sync가 수행된다.
-     * AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.
-     * AC 11: Summary fetch 중 중복 요청이 방지된다.
-     *
-     *  - AC 1, 6: 진입 시 fetch.
-     *  - AC 10: 재진입 시 fetch 재트리거 → 최신 emit 으로 UI 갱신.
-     *  - AC 11: 직전 호출이 active 면 skip — 중복 네트워크 요청 방지.
-     *  - AC 7: 실패 시 cache 그대로 두고 errorMessage 만 세팅.
-     * (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
-     *
-     * isLoading 은 건드리지 않는다. cache 가 이미 UI 에 떠 있는 상태(AC 12)에서
-     * 백그라운드로 갱신하는 동작이라 Skeleton 깜빡임이 있으면 안 됨.
-     * (AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.)
-     */
+    // DASH-001: Firebase background sync.
     private fun triggerSync() {
         if (fetchJob?.isActive == true) {
             Log.d(TAG, "triggerSync() skipped — AC 11 dedup, in-flight job exists")
@@ -215,34 +233,54 @@ class DashboardViewModel @Inject constructor(
      *                 LangCode 도메인 타입으로 매핑 후 처리.
      */
     fun onChangeLearningLanguage(langCode: String) {
-        // UI 에서 전달된 문자열 코드를 도메인 enum 으로 매핑.
-        //   LearningLanguageSelector 가 LangCode.code 그대로 넘기는 현 흐름에선
-        //   null 이 거의 안 나오지만, ViewModel 입장에선 외부 input 이라 가드.
-        //   (향후 deeplink / 외부 트리거 / 잘못된 langs 목록 등에서 들어올 수 있음)
         val lang = LangCode.fromCode(langCode) ?: run {
             Log.w(TAG, "unknown langCode=$langCode, skip")
             return
         }
-        // 동일 언어 재선택 no-op. 불필요한 Repo write / observe 재emit / sync 재트리거 방지.
         val current = _uiState.value.selectedLearningLanguage
         if (lang == current) {
             Log.d(TAG, "onChangeLearningLanguage skipped — same lang ($lang)")
             return
         }
+        // DASH-006 AC 7: 가드 + flag set 을 같은 동기 블록에서 atomic 하게.
+        //   MutableStateFlow.update 가 lock 기반이라 동시 호출 시 직렬화됨.
+        //   compareAndSet 으로 "false → true" 전이를 한 번만 성공시키고,
+        //   실패하면 다른 호출이 이미 in-flight 인 것.
+        // (AC 7: 언어 변경 저장 중 중복 요청이 방지된다.)
+        val acquired = run {
+            val prev = _uiState.value
+            if (prev.isChangingLanguage) {
+                false
+            } else {
+                _uiState.compareAndSet(
+                    prev,
+                    prev.copy(isChangingLanguage = true, errorMessage = null)
+                )
+            }
+        }
+        if (!acquired) {
+            Log.d(TAG, "onChangeLearningLanguage skipped — AC 7 dedup, change in-flight")
+            return
+        }
+
         viewModelScope.launch {
             Log.d(TAG, "onChangeLearningLanguage(lang=$lang) — local update start")
-            // local update. observe collect 가 새 emit 받아 _uiState 자동 갱신 (AC 4, 5, 6).
+
             changeSelectedLang(lang)
                 .onSuccess {
                     Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리, sync 트리거")
-                    // local update 끝, observe 가 UI 반영. Firebase sync 백그라운드 진행.
-                    // fetchJob dedup 으로 onEnter() sync 와 자연 충돌 회피.
                     triggerSync()
+                    fetchJob?.join()
+                    Log.d(TAG, "onChangeLearningLanguage complete — sync joined")
                 }
                 .onFailure { e ->
-                    // Phase 3 에서 rollback + Snackbar 처리 예정. happy path 단계라 로깅만.
-                    Log.w(TAG, "changeSelectedLang failed (Phase 3 rollback 예정)", e)
+                    Log.w(TAG, "changeSelectedLang failed — AC 8 auto-rollback via observe", e)
+                    _uiState.update {
+                        it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_lang_change_failed))
+                    }
                 }
+
+            _uiState.update { it.copy(isChangingLanguage = false) }
         }
     }
 
