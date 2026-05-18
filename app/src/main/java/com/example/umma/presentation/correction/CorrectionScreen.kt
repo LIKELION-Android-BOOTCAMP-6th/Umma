@@ -29,6 +29,7 @@ fun CorrectionScreen() {
         Column(
             modifier = Modifier.padding(paddingValues)
         ) {
+            // 현재는 라우팅만 연결된 상태라 화면 뼈대만 둔다.
             Text(
                 text = "교정 플레이스 홀더", textAlign = TextAlign.Center
             )

@@ -9,15 +9,17 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 
 ## 완료 기준(AC)
 
-- [ ] 기존 `feedback` 화면/라우트/콜백 명칭을 `correction` 기준으로 정리할 대상이 확인된다.
-- [ ] `CorrectionCandidate`의 역할이 내부 후보 추출 모델로 정의된다.
+- [x] 기존 `feedback` 화면/라우트/콜백 명칭을 `correction` 기준으로 정리할 대상이 확인된다.
+- [x] `CorrectionCandidate`의 역할이 내부 후보 추출 모델로 정의된다.
+- [x] 현재 선택 언어와 Session Memory 언어가 일치할 때만 후보를 추출한다.
 - [ ] `CorrectionSuggestion`의 역할이 화면 카드 표시 및 Flashcard 저장 선택 모델로 정의된다.
 - [ ] 기존 `CorrectionResult`가 LangState 업데이트 입력용 최소 모델임을 문서와 코드 주석에서 구분한다.
 - [ ] Correction 화면 진입 기준이 `SessionSummary.correctionAvailable`임을 확정한다.
 - [ ] `DashSummary.correctionAvailable`은 Dashboard 표시용 파생값임을 확정한다.
 - [ ] 교정 완료 시 `SessionSummary`와 `DashSummary`를 같은 완료 흐름에서 함께 갱신하는 계약을 마련한다.
-- [ ] Session Memory의 `recentFullContext`는 화면에서 직접 파싱하지 않고 domain UseCase를 통해 다룬다.
-- [ ] MVP 후보 추출 범위가 최근 100턴으로 제한된다.
+- [x] Session Memory의 `recentFullContext`는 화면에서 직접 파싱하지 않고 domain UseCase를 통해 다룬다.
+- [x] MVP 후보 추출 범위가 최근 100턴으로 제한된다.
+- [x] 필요한 assistant turn은 짧은 문맥으로만 첨부한다.
 - [ ] AI 교정 요청과 선택 결과 저장 요청을 함께 다루는 `CorrectionRepository` domain repository interface가 준비된다.
 - [ ] Flashcard 저장은 `CorrectionRepository`의 저장 계약 안에서 local first로 처리한다.
 - [ ] 완료 정리를 위한 `CompleteCorrectionUseCase` usecase 경계가 준비된다.
@@ -39,7 +41,7 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - CorrectionRepository 기반 교정 결과 파생 Flashcard 저장 계약
 - 완료 정리 UseCase 계약
 - fake repository / real repository 교체 기준
-- User Flow `COR-001 ~ COR-009`가 사용할 공통 인터페이스 정리
+- User Flow `COR-001 ~ COR-007`이 사용할 공통 인터페이스 정리
 
 ### 제외 범위
 
@@ -69,7 +71,7 @@ domain/usecase/correction
 → PrepareCorrectionUseCase
 → ExtractCandidatesUseCase
 → GenerateSuggestionsUseCase
-→ BuildFlashcardSaveRequestUseCase
+→ PrepareSaveRequestUseCase
 → CompleteCorrectionUseCase
 
 data/repository
@@ -186,15 +188,13 @@ CorrectionCandidate + LangState snapshot
 
 `SCI-001`이 완료되면 다음 작업이 가능해야 한다.
 
-- `COR-001`: Correction 화면 진입 경로 정리
-- `COR-002`: Correction 초기 상태 로드
-- `COR-003`: 교정 후보 내부 추출
-- `COR-004`: 교정 결과 생성
-- `COR-005`: 교정 결과 카드 표시
-- `COR-006`: 저장 카드 선택 상태 구현
-- `COR-007`: Flashcard 저장 요청 준비
-- `COR-008`: 교정 완료 파이프라인 구현
-- `COR-009`: Dashboard 복귀 및 후처리 구현
+- `COR-001`: Correction 초기 상태 로드
+- `COR-002`: 교정 결과 생성
+- `COR-003`: 교정 결과 카드 표시
+- `COR-004`: 저장 카드 선택 상태 구현
+- `COR-005`: Flashcard 저장 요청 준비
+- `COR-006`: 교정 완료 결과 연결
+- `COR-007`: Dashboard 복귀 및 후처리 구현
 
 User Flow 작업자는 이 문서의 공통 계약을 변경하지 않고, 각 이슈의 AC 범위 안에서 구현한다.
 공통 계약 변경이 필요하면 `SCI-001` 문서를 먼저 수정하고 팀장/부팀장 리뷰를 거친다.

@@ -31,19 +31,17 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 
 ### System Flow 선행 이슈
 
-- [SCI-001 Correction 선행 계약 및 최소 인프라 정리](./SYS_CORRECTION_INFRA/SCI-001_Correction_Contract.md)
+- [SCI-001 Correction 선행 계약 및 최소 인프라 정리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_CORRECTION_INFRA/SCI-001_Correction_Contract.md)
 
 ### User Flow 구현 이슈
 
-- [COR-001 Correction 화면 진입 경로 정리](../User_FlowDB/FLOW_CORRECTION/COR-001_Entry_Route.md)
-- [COR-002 Correction 초기 상태 로드](../User_FlowDB/FLOW_CORRECTION/COR-002_Initial_State.md)
-- [COR-003 교정 후보 내부 추출](../User_FlowDB/FLOW_CORRECTION/COR-003_Candidate_Extraction.md)
-- [COR-004 교정 결과 생성](../User_FlowDB/FLOW_CORRECTION/COR-004_Suggestion_Generation.md)
-- [COR-005 교정 결과 카드 표시](../User_FlowDB/FLOW_CORRECTION/COR-005_Result_Cards.md)
-- [COR-006 저장 카드 선택 상태](../User_FlowDB/FLOW_CORRECTION/COR-006_Card_Selection.md)
-- [COR-007 Flashcard 저장 요청 준비](../User_FlowDB/FLOW_CORRECTION/COR-007_Save_Request.md)
-- [COR-008 교정 완료 파이프라인](../User_FlowDB/FLOW_CORRECTION/COR-008_Completion_Pipeline.md)
-- [COR-009 Dashboard 복귀 및 후처리](../User_FlowDB/FLOW_CORRECTION/COR-009_Return_and_Sync.md)
+- [COR-001 Correction 초기 상태 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md)
+- [COR-002 교정 결과 생성](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-002_Suggestion_Generation.md)
+- [COR-003 교정 결과 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-003_Result_Cards.md)
+- [COR-004 저장 카드 선택 상태](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-004_Card_Selection.md)
+- [COR-005 Flashcard 저장 요청 준비](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-005_Save_Request.md)
+- [COR-006 교정 완료 결과 연결](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md)
+- [COR-007 Dashboard 복귀 및 후처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-007_Return_and_Sync.md)
 
 ---
 
@@ -149,7 +147,7 @@ Correction 작업이 시작되는 시점부터 다음 명칭으로 정리한다.
 | --- | --- |
 | `presentation/feedback` | `presentation/correction` |
 | `FeedbackListScreen` | `CorrectionScreen` |
-| `Route.FeedbackList` / `Route.FeedbackGraph` | `Route.Correction` / `Route.CorrectionGraph` |
+| `Route.FeedbackList` / `Route.FeedbackGraph` | `Route.CorrectionList` / `Route.CorrectionGraph` |
 | `onNavigateToFeedbackList` | `onNavigateToCorrection` |
 | `Feedback` 탭/문구 | `Correction` 기준 문구 |
 
@@ -165,22 +163,22 @@ Correction은 AI 응답과 저장 흐름이 포함되므로 mock/real 교체 가
 - UI 작업자는 mock repository로 카드 표시와 저장 상태를 먼저 구현할 수 있다.
 - 실제 API 연결은 같은 domain 계약을 사용해야 한다.
 - ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
-- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](../User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
+- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
 
 ---
 
 ## 11. 연결 문서
 
-- [FLOW_CORRECTION.md](../User_FlowDB/FLOW_CORRECTION.md)
-- [SYS_LEARNING_STATE_INFRA.md](./SYS_LEARNING_STATE_INFRA.md)
-- [SYS_LEARNING_STATE_INFRA_OVERVIEW.md](./SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md)
-- [SYS_REALTIME_INFRA.md](./SYS_REALTIME_INFRA.md)
-- [FLOW_AI_CHAT.md](../User_FlowDB/FLOW_AI_CHAT.md)
-- [FLOW_DASHBOARD.md](../User_FlowDB/FLOW_DASHBOARD.md)
-- [DASH-003_Correction_Pending_Card.md](../User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md)
+- [FLOW_CORRECTION.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
+- [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
+- [SYS_LEARNING_STATE_INFRA_OVERVIEW.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md)
+- [SYS_REALTIME_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_REALTIME_INFRA.md)
+- [FLOW_AI_CHAT.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_AI_CHAT.md)
+- [FLOW_DASHBOARD.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_DASHBOARD.md)
+- [DASH-003_Correction_Pending_Card.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md)
 
 ---
 
 ## 12. 한 줄 요약
 
-> `SYS-CORRECTION-INFRA`는 User Flow 구현 전에 필요한 Correction 공통 계약을 `SCI-001` 한 단위로 선행 정리하고, 실제 화면 기능은 `FLOW-CORRECTION`의 `COR-001 ~ COR-009`에서 구현한다.
+> `SYS-CORRECTION-INFRA`는 User Flow 구현 전에 필요한 Correction 공통 계약을 `SCI-001` 한 단위로 선행 정리하고, 실제 화면 기능은 `FLOW-CORRECTION`의 `COR-001 ~ COR-007`에서 구현한다.

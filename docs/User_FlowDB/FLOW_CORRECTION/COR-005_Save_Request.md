@@ -1,4 +1,4 @@
-# [Feature] COR-007 Flashcard 저장 요청
+# [Feature] COR-005 Flashcard 저장 요청
 
 ## User Story
 
@@ -12,20 +12,20 @@
 - [ ] 저장 요청은 현재 선택 언어 기준으로 생성된다.
 - [ ] Flashcard 앞면은 모국어 문장으로 구성한다.
 - [ ] Flashcard 뒷면은 교정된 외국어 문장과 짧은 설명으로 구성한다.
-- [ ] Flashcard 저장 요청은 `SCI-001`에서 정의한 `CorrectionRepository` 저장 계약에 맞는 입력으로 구성한다.
+- [ ] Flashcard 저장 요청은 `SYS-CORRECTION-INFRA`에서 정의한 저장 계약에 맞는 입력으로 구성한다.
 - [ ] 저장 대상이 0개이면 완료 파이프라인을 호출하지 않는다.
 - [ ] 저장 요청 변환 실패 시 Error 상태를 표시한다.
 - [ ] 저장 버튼 중복 클릭을 방지한다.
-- [ ] 저장 요청 모델이 준비되면 `COR-008` 완료 파이프라인으로 넘긴다.
+- [ ] 저장 요청 모델이 준비되면 `COR-006` 완료 파이프라인으로 넘긴다.
 
 ---
 
 # Flow (링크)
 
-- FLOW-CORRECTION
-- COR-006 → 저장 카드 선택 상태
-- COR-007 → Flashcard 저장 요청 준비
-- SCI-001 → CorrectionRepository 저장 계약
+- [FLOW-CORRECTION](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
+- [COR-004 → 저장 카드 선택 상태](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-004_Card_Selection.md)
+- [COR-005 → Flashcard 저장 요청 준비](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-005_Save_Request.md)
+- [SYS-CORRECTION-INFRA → Flashcard 저장 요청 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_CORRECTION_INFRA.md)
 
 ---
 
@@ -34,8 +34,7 @@
 ## 포함 범위
 
 - 저장 요청 모델 변환
-- `BuildFlashcardSaveRequestUseCase` 연결
-- `COR-008`에서 사용할 저장 입력 구성
+- `COR-006`에서 사용할 저장 입력 구성
 - Preparing / Error 상태
 - 중복 저장 요청 방지
 
@@ -53,7 +52,7 @@
 ## 저장 요청 준비 역할
 
 저장 요청은 사용자가 선택한 `CorrectionSuggestion`을 Flashcard 저장에 필요한 입력으로 변환하는 단계다.
-실제 로컬 완료 파이프라인은 `COR-008`에서 처리한다.
+실제 로컬 완료 파이프라인은 `COR-006`에서 처리한다.
 
 ## 사용 데이터
 
@@ -78,7 +77,7 @@ selected CorrectionSuggestion list
 → CompleteCorrectionUseCase로 전달
 ```
 
-최종 Saved 상태는 `COR-008` 로컬 완료 파이프라인이 성공한 뒤 표시한다.
+최종 Saved 상태는 `COR-006` 로컬 완료 파이프라인이 성공한 뒤 표시한다.
 
 ---
 
@@ -88,7 +87,7 @@ selected CorrectionSuggestion list
 - 저장 요청에는 현재 선택 언어, 교정 전 문장, 교정 후 문장, 앞면 모국어 문장, 뒷면 설명이 포함되어야 한다.
 - 저장 버튼 클릭 후 요청 준비 중에는 중복 클릭을 막는다.
 - 저장 대상이 0개인 경우 UseCase를 호출하지 않는다.
-- 이 이슈에서는 실제 local transaction을 완료하지 않고 `COR-008`로 넘길 입력을 준비한다.
+- 이 이슈에서는 실제 local transaction을 완료하지 않고 `COR-006`로 넘길 입력을 준비한다.
 
 ---
 
@@ -97,11 +96,9 @@ selected CorrectionSuggestion list
 ## 권장 구조
 
 ```text
-domain/model/correction/
-→ FlashcardSaveRequest
-
-domain/usecase/correction/
-→ BuildFlashcardSaveRequestUseCase
+presentation/correction/
+→ CorrectionViewModel
+→ CorrectionUiState
 ```
 
 ## 요청 모델 필드
@@ -113,8 +110,8 @@ domain/usecase/correction/
 - 설명
 - 원본 `CorrectionSuggestion` id
 
-저장 요청은 `COR-008` 완료 파이프라인의 입력으로 전달한다.
-실제 local first 저장 실행은 `COR-008`에서 `CompleteCorrectionUseCase`가 담당한다.
+저장 요청 모델의 세부 계약은 `SYS-CORRECTION-INFRA`를 따른다.
+실제 local first 저장 실행은 `COR-006`에서 호출하는 `CompleteCorrectionUseCase`가 담당한다.
 
 ---
 
