@@ -46,6 +46,10 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 //    private val _state = MutableStateFlow(FakeFixtures.emptyDataStore)
 //    private val _state = MutableStateFlow(FakeFixtures.onboardingDone)
     private val _state = MutableStateFlow(FakeFixtures.activeUser)
+    // DASH-006 AC 9 검증
+//    private val _state = MutableStateFlow(FakeFixtures.corruptedSelectedLang)
+    // DASH-006 AC 10 검증
+//    private val _state = MutableStateFlow(FakeFixtures.emptyLearningLangs)
 
     /**
      * sync() 가 어떻게 끝나는지.
@@ -62,6 +66,17 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
      *  - SUCCESS_NOOP: 성공 반환만 하고 _state 미변경 (sync 호출은 됐지만 데이터 변동 없는 케이스)
      */
     private val syncBehavior: SyncBehavior = SyncBehavior.SUCCESS
+
+    /**
+     * changeSelectedLang() 가 어떻게 끝나는지. (DASH-006 AC 8 검증용)
+     *
+     *  - SUCCESS: _state.userPref.selectedLang 갱신 후 Result.success
+     *  - FAILURE: Result.failure 반환, _state 미변경
+     *    → ViewModel observe collect 가 새 emit 안 받음 → UI 자연 보존 (AC 8 자동 rollback)
+     *    → ViewModel 은 errorMessage 만 set → Snackbar 노출
+     * (AC 8: 언어 변경 실패 시 이전 selectedLearningLanguage가 유지된다.)
+     */
+    private val changeBehavior: ChangeBehavior = ChangeBehavior.SUCCESS
 
     override fun observeLearningState(): Flow<GlobalLangState> = _state.asStateFlow()
     override fun observeUserPref() = _state.map { it.userPref }
@@ -103,6 +118,13 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
     }
 
     override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> {
+        // DASH-006 AC 8 검증용: FAILURE 모드면 _state 안 건드리고 실패 반환.
+        // (AC 8: 언어 변경 실패 시 이전 selectedLearningLanguage가 유지된다.)
+        if (changeBehavior == ChangeBehavior.FAILURE) {
+            return Result.failure(
+                IOException("simulated changeSelectedLang failure (FakeLearningStateRepo)")
+            )
+        }
         // DASH-006 본 구현 검증 시 활용. selectedLang 만 바꾸고 나머지는 유지.
         val current = _state.value
         val userPref = current.userPref ?: return Result.success(Unit)
@@ -150,6 +172,7 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
     }
 
     private enum class SyncBehavior { SUCCESS, SUCCESS_NOOP, FAILURE }
+    private enum class ChangeBehavior { SUCCESS, FAILURE }
 
     private companion object {
         // 네트워크 지연 흉내. 너무 짧으면 logcat 의 두 emit 이 같은 frame 에 묻혀서 안 보임.
@@ -262,6 +285,26 @@ private object FakeFixtures {
             isPreloaded = true
         )
     }
+
+    // DASH-006 AC 9 검증: selectedLang ∉ learningLangs 인 데이터 오염 상태.
+    //   primaryLang(EN) 으로 fallback 되어야 함 + changeSelectedLang(EN) 복구 저장 발화.
+    // (AC 9: selectedLearningLanguage가 없는 경우 primaryLearningLanguage로 fallback된다.)
+    val corruptedSelectedLang: GlobalLangState = activeUser.copy(
+        userPref = activeUser.userPref!!.copy(
+            selectedLang = LangCode.KO,   // learningLangs 에 없는 값 (nativeLang 이지만 학습 언어로는 없음)
+            learningLangs = listOf(LangCode.EN, LangCode.JA),
+            primaryLang = LangCode.EN
+        )
+    )
+
+    // DASH-006 AC 10 검증: userPref 는 있는데 learningLangs 가 empty.
+    //   hasFatalError=true 로 DashboardError 화면 노출.
+    // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
+    val emptyLearningLangs: GlobalLangState = activeUser.copy(
+        userPref = activeUser.userPref!!.copy(
+            learningLangs = emptyList()
+        )
+    )
 
     private const val STALE_TIMESTAMP: Long = 1_700_000_000_000L
 }

@@ -42,7 +42,6 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindLearningStateRepo(
         learningStateRepoImpl: LearningStateRepoImpl
-        // DASH-001 AC 검증용 - push 시 윗줄로 원복 필요
 //        fakeLearningStateRepo: FakeLearningStateRepo
     ): LearningStateRepo
 

@@ -30,6 +30,8 @@ import com.example.umma.core.theme.SpacingS
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.presentation.dashboard.component.DashboardEmpty
 import com.example.umma.presentation.dashboard.component.DashboardSkeleton
+import com.example.umma.presentation.dashboard.component.LearningLanguageSelector
+import com.example.umma.presentation.dashboard.component.DashboardError
 
 /**
  * 대시보드(홈) 화면.
@@ -55,7 +57,9 @@ fun DashboardScreen(
     onNavigateToMyPage: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
+    // 현재 Activity 컨텍스트. Toast 표시 + UiText.asString(context) 변환용.
     val context = LocalContext.current
+    // 직전 뒤로가기 누른 시각 (ms). 2 초 내 두 번 누르면 앱 종료 (오발 방지 더블탭).
     var backPressedTime by remember { mutableLongStateOf(0L) }
 
     BackHandler {
@@ -68,7 +72,10 @@ fun DashboardScreen(
         }
     }
 
+    // ViewModel 의 uiState 를 lifecycle 안전하게 구독한 결과.
+    //   값이 바뀌면 Compose 가 recomposition.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    // Snackbar 큐 host. errorMessage 가 세팅되면 LaunchedEffect 가 여기로 showSnackbar 호출.
     val snackbarHostState = remember { SnackbarHostState() }
 
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
@@ -92,7 +99,29 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            UmmaAppBar(title = "Umma", isCenterTitle = false)
+            UmmaAppBar(
+                title = "Umma",
+                isCenterTitle = false,
+                actions = {
+                    // DASH-006 Phase 1: 학습 언어 selector.
+                    //   learningLanguages 가 비어있거나 selectedLang 가 null 인 동안에는
+                    //   렌더하지 않는다. 초기 preload 중(isLoading=true) 자연스럽게 hidden.
+                    //   selectedLang null 케이스 fallback 처리는 Phase 3 범위.
+
+                    // selector 렌더 가드용 로컬 스냅샷. null 체크 결과를 한 번만 잡아두기 위함.
+                    val selected = uiState.selectedLearningLanguage
+                    if (selected != null && uiState.learningLanguages.isNotEmpty()) {
+                        LearningLanguageSelector(
+                            selectedLang = selected,
+                            learningLangs = uiState.learningLanguages,
+                            isLoading = uiState.isLoading || uiState.isChangingLanguage,
+                            onLanguageSelected = { lang ->
+                                viewModel.onChangeLearningLanguage(lang.code)
+                            }
+                        )
+                    }
+                }
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
@@ -101,35 +130,18 @@ fun DashboardScreen(
                 .padding(paddingValues)
                 .fillMaxSize()
         ) {
-            // DASH-001 : Loading / Empty / Content 분기.
-            //   Error 분기는 Snackbar 로 갈음 — UI 는 cache 유지가 정책.
             when {
-                uiState.isLoading -> {
-                    DashboardSkeleton()
-                }
-
-                uiState.isEmpty -> {
-                    DashboardEmpty(
-                        onStartConversation = onNavigateToChat
-                    )
-                }
-
-                else -> {
-                    DashboardContent(
-                        onNavigateToAnalytics = onNavigateToAnalytics,
-                        onNavigateToChat = onNavigateToChat,
-                        onNavigateToFeedbackList = onNavigateToFeedbackList,
-                        onNavigateToStudyList = onNavigateToStudyList,
-                        onNavigateToMyPage = onNavigateToMyPage,
-                        onChangeLearningLanguage = viewModel::onChangeLearningLanguage
-                    )
-                }
+                uiState.isLoading -> DashboardSkeleton()
+                uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
+                uiState.isEmpty -> DashboardEmpty(onStartConversation = onNavigateToChat)
+                else -> DashboardContent(
+                    onNavigateToAnalytics = onNavigateToAnalytics,
+                    onNavigateToChat = onNavigateToChat,
+                    onNavigateToFeedbackList = onNavigateToFeedbackList,
+                    onNavigateToStudyList = onNavigateToStudyList,
+                    onNavigateToMyPage = onNavigateToMyPage
+                )
             }
-
-            Spacer(modifier = Modifier.height(SpacingS))
-
-            // === 마이페이지 ===
-            Button(onClick = onNavigateToMyPage) { Text("마이페이지") }
         }
     }
 }
@@ -149,7 +161,6 @@ private fun DashboardContent(
     onNavigateToFeedbackList: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
-    onChangeLearningLanguage: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -165,16 +176,6 @@ private fun DashboardContent(
         Button(onClick = onNavigateToStudyList) { Text("학습") }
         Button(onClick = onNavigateToFeedbackList) { Text("교정") }
         Button(onClick = onNavigateToAnalytics) { Text("통계") }
-
-        Spacer(modifier = Modifier.height(SpacingS))
-
-        // === DASH-006 자리: 학습 언어 selector ===
-        Button(onClick = { onChangeLearningLanguage("en") }) {
-            Text("학습 언어 → EN")
-        }
-        Button(onClick = { onChangeLearningLanguage("ja") }) {
-            Text("학습 언어 → JA")
-        }
 
         Spacer(modifier = Modifier.height(SpacingS))
 

@@ -5,9 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.umma.R
 import com.example.umma.core.ui.UiText
-import com.example.umma.domain.model.learningstate.currentDashSummary
+import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.isEffectivelyEmpty
-import com.example.umma.domain.model.learningstate.selectedLang
+import com.example.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
 import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.SyncLearningStateUseCase
@@ -38,10 +38,14 @@ class DashboardViewModel @Inject constructor(
     private val preloadLearningState: PreloadLearningStateUseCase,
     private val observeLearningState: ObserveLearningStateUseCase,
     private val syncLearningState: SyncLearningStateUseCase,
-//    private val changeSelectedLang: ChangeSelectedLangUseCase // DASH-001 검증용 임시 주입 (DASH-006 본 PR 에서 정식 적용 예정)
+    private val changeSelectedLang: ChangeSelectedLangUseCase,
 ) : ViewModel() {
 
+    // UI state 의 단일 source of truth (쓰기 가능). _ prefix = 외부 비공개 컨벤션.
+    // View 가 직접 못 건들고 ViewModel 내부에서 update() 로만 변경.
     private val _uiState = MutableStateFlow(DashboardUiState())
+
+    // 위 _uiState 의 읽기 전용 노출. Screen 이 collectAsStateWithLifecycle 로 구독.
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     /**
@@ -52,6 +56,8 @@ class DashboardViewModel @Inject constructor(
      * isActive 체크에서 collect 셋업은 skip 됨 — 이게 의도된 동작.
      * ViewModel onCleared() 시 viewModelScope 와 함께 자동 cancel.
      */
+    // observeLearningState() Flow 를 collect 하는 background job 핸들.
+    // null = 아직 셋업 안 됨. ensureObservation() 에서 1 회만 셋업, ViewModel 사망 시 자동 cancel.
     private var enterJob: Job? = null
 
     /**
@@ -62,6 +68,8 @@ class DashboardViewModel @Inject constructor(
      * skip. 재진입 (AC 10) 도 같은 경로로 처리.
      * AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.
      */
+    // triggerSync() (Firebase background sync) 의 in-flight job 핸들.
+    // active 면 새 sync 호출 skip — AC 11 dedup 의 근거.
     private var fetchJob: Job? = null
 
     /**
@@ -111,21 +119,69 @@ class DashboardViewModel @Inject constructor(
             //   TTL(Time To Live) 체크 없이 _state 의 값 그대로 흘려보냄. 최신화는 triggerSync() 담당.
             //   sync 가 _state 를 갱신하면 여기 collect 가 새 emit 을 한 번 더 받는다.
             observeLearningState().collect { global ->
-                val lang = global.selectedLang
-                val summary = global.currentDashSummary()
+                // 이번 emit 의 사용자 학습 설정 스냅샷. 신규 사용자 / preload 직후엔 null.
+                val userPref = global.userPref
+                // 학습 중인 언어 목록. userPref null 이면 빈 리스트로 안전 처리.
+                val learningLangs = userPref?.learningLangs.orEmpty()
+
+                // AC 10: userPref 가 채워졌는데 learningLangs 가 비어있으면 Fatal.
+                //   userPref==null 은 preload 직후/신규 사용자 — Empty 분기에서 처리하므로 여기선 패스.
+                // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
+                if (userPref != null && learningLangs.isEmpty()) {
+                    Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            hasFatalError = true,
+                            isEmpty = false,
+                            summary = null
+                        )
+                    }
+                    return@collect
+                }
+
+                // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → primaryLang fallback.
+                //   복구 저장도 시도 (fire-and-forget). 다음 emit 에선 정합 상태로 들어옴.
+                // (AC 9: selectedLearningLanguage가 없는 경우 primaryLearningLanguage로 fallback된다.)
+
+                // UI 가 실제로 쓸 lang. selectedLang 을 그대로 쓰지 않고 정합성 가드 한 번 거친 값.
+                //  - null : userPref 자체 없음 (신규/preload 직후)
+                //  - selectedLang : 정상 케이스
+                //  - primaryLang : selectedLang ∉ learningLangs 인 오염 케이스 (AC 9 fallback)
+                val effectiveLang: LangCode? = when {
+                    userPref == null -> null
+                    userPref.selectedLang in learningLangs -> userPref.selectedLang
+                    else -> {
+                        Log.w(
+                            TAG,
+                            "AC 9 fallback — selectedLang=${userPref.selectedLang} " +
+                                    "not in learningLangs=$learningLangs, using primary=${userPref.primaryLang}"
+                        )
+                        // 복구 저장. 실패해도 다음 emit 까진 effectiveLang 으로 계속 동작.
+                        launch { changeSelectedLang(userPref.primaryLang) }
+                        userPref.primaryLang
+                    }
+                }
+
+                // effectiveLang 기준 카드 데이터. null 가능 (effectiveLang null 또는 해당 lang summary 없음).
+                val summary = effectiveLang?.let { global.dashSummaries[it] }
+                // "보여줄 게 없는" 상태 — Empty 분기 판정용.
                 val empty = summary == null || summary.isEffectivelyEmpty
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        selectedLearningLanguage = lang,
+                        selectedLearningLanguage = effectiveLang,
                         summary = summary,
-                        isEmpty = empty
+                        isEmpty = empty,
+                        learningLanguages = learningLangs,
+                        hasFatalError = false
                     )
                 }
                 Log.d(
                     TAG,
-                    "state emit: lang=$lang, " +
+                    "state emit: lang=$effectiveLang, " +
+                            "learningLangs=$learningLangs, " +
                             "summary=[recentTopic=${summary?.recentTopic}, " +
                             "recentMinutes=${summary?.recentMinutes}, " +
                             "dueFlashcards=${summary?.dueFlashcards}, " +
@@ -137,23 +193,7 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    /**
-     * (2) Firebase background sync. (AC 1, 6, 10, 11)
-     * AC 1: Dashboard 진입 시 DashSummary fetch가 수행된다.
-     * AC 6: Firebase background sync가 수행된다.
-     * AC 10: Dashboard 재진입 시 최신 Summary 데이터가 반영된다.
-     * AC 11: Summary fetch 중 중복 요청이 방지된다.
-     *
-     *  - AC 1, 6: 진입 시 fetch.
-     *  - AC 10: 재진입 시 fetch 재트리거 → 최신 emit 으로 UI 갱신.
-     *  - AC 11: 직전 호출이 active 면 skip — 중복 네트워크 요청 방지.
-     *  - AC 7: 실패 시 cache 그대로 두고 errorMessage 만 세팅.
-     * (AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
-     *
-     * isLoading 은 건드리지 않는다. cache 가 이미 UI 에 떠 있는 상태(AC 12)에서
-     * 백그라운드로 갱신하는 동작이라 Skeleton 깜빡임이 있으면 안 됨.
-     * (AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.)
-     */
+    // DASH-001: Firebase background sync.
     private fun triggerSync() {
         if (fetchJob?.isActive == true) {
             Log.d(TAG, "triggerSync() skipped — AC 11 dedup, in-flight job exists")
@@ -171,7 +211,7 @@ class DashboardViewModel @Inject constructor(
                     // 여기선 별도 작업 없음.
                 }
                 .onFailure { e ->
-                    // AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
+                    // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
                     Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
                     _uiState.update {
                         it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
@@ -181,25 +221,90 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * 학습 언어 변경 시 호출. (DASH-006)
+     * 학습 언어 변경 시 호출. (DASH-006 Phase 2 본 구현)
      *
-     * 본 구현은 DASH-006 PR 에서:
-     *  1. ChangeSelectedLangUseCase(LangCode) 호출
-     *  2. observeLearningState() collect 가 새 selectedLang / summary 자동 emit
-     *     → _uiState 갱신은 자동, 여기서 별도로 손댈 필요 없음
+     * AC 4: 언어 선택 시 selectedLearningLanguage가 갱신된다.
+     * AC 5: selectedLearningLanguage 변경 후 해당 언어의 Dashboard Summary가 로드된다.
+     * AC 6: Dashboard의 모든 카드가 변경된 언어 기준으로 다시 렌더링된다.
+     *
+     * 흐름 (SSOT "변경 정책" 매핑):
+     *  1. [changeSelectedLang] 호출 — Repo 의 _state.userPref.selectedLang 갱신
+     *     → observeLearningState() collect 가 새 emit 받아 _uiState.selectedLearningLanguage,
+     *       _uiState.summary 자동 갱신 (AC 4, 5)
+     *     → Compose recomposition 으로 카드 재렌더링 (AC 6)
+     *     ※ SSOT 의 "DashSummary Local Cache fetch" 단계는 별도 호출 불필요.
+     *       cache(_state) 가 모든 언어 summary 를 들고 있고 currentDashSummary() 가
+     *       새 selectedLang 기준으로 자동 추출.
+     *  2. [triggerSync] 호출 — UserLangPref + DashSummary Firebase background sync.
+     *     onEnter() 직후라 이미 fetchJob 이 active 면 dedup 으로 skip — 의도된 동작.
+     *
+     * 동일 언어 재선택은 no-op. happy path 의 일부지만 불필요한 sync 트리거를 막는
+     * 의미도 있음.
+     *
+     * Phase 3 에서 추가될 사항:
+     *  - isChangingLanguage 중복 방지 (AC 7)
+     *  - 실패 시 rollback + Snackbar (AC 8)
+     *  - fallback / Error UI (AC 9, 10)
+     *
+     * @param langCode UI 에서 전달되는 언어 코드 문자열 (예: "en", "ja").
+     *                 LangCode 도메인 타입으로 매핑 후 처리.
      */
     fun onChangeLearningLanguage(langCode: String) {
-        Log.d(
-            TAG,
-            "onChangeLearningLanguage(langCode=$langCode) — DASH-006 hook (not implemented yet)"
-        )
-//        val lang = LangCode.fromCode(langCode) ?: run {
-//            Log.w(TAG, "unknown langCode=$langCode, skip")
-//            return
-//        }
-//        viewModelScope.launch {
-//            changeSelectedLang(lang)
-//        }
+        // UI 에서 받은 문자열 코드를 도메인 enum 으로 매핑. 매핑 실패 시 무시.
+        val lang = LangCode.fromCode(langCode) ?: run {
+            Log.w(TAG, "unknown langCode=$langCode, skip")
+            return
+        }
+        // 현재 UI 가 보여주고 있는 lang. 같은 값이면 변경할 게 없으니 no-op.
+        val current = _uiState.value.selectedLearningLanguage
+        if (lang == current) {
+            Log.d(TAG, "onChangeLearningLanguage skipped — same lang ($lang)")
+            return
+        }
+        // DASH-006 AC 7: 가드 + flag set 을 같은 동기 블록에서 atomic 하게.
+        //   MutableStateFlow.update 가 lock 기반이라 동시 호출 시 직렬화됨.
+        //   compareAndSet 으로 "false → true" 전이를 한 번만 성공시키고,
+        //   실패하면 다른 호출이 이미 in-flight 인 것.
+        // (AC 7: 언어 변경 저장 중 중복 요청이 방지된다.)
+
+        // AC 7 가드의 "락 획득" 결과. true = 이 호출이 변경 처리권을 잡음.
+        //   false = 다른 호출이 이미 in-flight, 이 호출은 skip.
+        val acquired = run {
+            // 직전 state 스냅샷. compareAndSet 의 "예상값" 으로 사용.
+            val prev = _uiState.value
+            if (prev.isChangingLanguage) {
+                false
+            } else {
+                _uiState.compareAndSet(
+                    prev,
+                    prev.copy(isChangingLanguage = true, errorMessage = null)
+                )
+            }
+        }
+        if (!acquired) {
+            Log.d(TAG, "onChangeLearningLanguage skipped — AC 7 dedup, change in-flight")
+            return
+        }
+
+        viewModelScope.launch {
+            Log.d(TAG, "onChangeLearningLanguage(lang=$lang) — local update start")
+
+            changeSelectedLang(lang)
+                .onSuccess {
+                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리, sync 트리거")
+                    triggerSync()
+                    fetchJob?.join()
+                    Log.d(TAG, "onChangeLearningLanguage complete — sync joined")
+                }
+                .onFailure { e ->
+                    Log.w(TAG, "changeSelectedLang failed — AC 8 auto-rollback via observe", e)
+                    _uiState.update {
+                        it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_lang_change_failed))
+                    }
+                }
+
+            _uiState.update { it.copy(isChangingLanguage = false) }
+        }
     }
 
     private companion object {
