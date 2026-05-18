@@ -13,7 +13,12 @@ data class AuthUiState(
     val errorMessage: String? = null,
     /** 첫 사용자 대시보드 진입 시 닉네임, 학습 언어 설정 다이얼로그 */
     val initialSetupDialogStep: InitialSetupDialogStep = InitialSetupDialogStep.NONE,
-    val nickname: String = ""
+    val nickname: String = "",
+    /**
+     * 로그아웃 완료 여부
+     * 로그아웃 버튼 클릭 -> 로그아웃 완료 기다리지 않고 즉시 화면 이동하는 상황 방지용
+     * */
+    val isLogoutCompleted: Boolean = false
 )
 
 /**
@@ -31,15 +36,15 @@ enum class GoogleAuthState {
 }
 
 /**
- * 첫 사용자 대시보드 진입 시 닉네임, 학습 언어 설정 다이얼로그
+ * 초기 설정 미완료 사용자 대시보드 진입 시 닉네임, 학습 언어 설정 다이얼로그
  */
 enum class InitialSetupDialogStep {
-    // 기존 유저 또는 설정 완료
+    /** 기존 가입자 또는 모든 초기 설정이 완료 */
     NONE,
 
-    // 사용자 첫 방문, 닉네임 입력 다이얼로그 표시
+    /** 닉네임 입력 다이얼로그 표시 */
     NICKNAME,
 
-    // 사용자 첫 방문, 닉네임 입력 완료 하여 학습 언어 선택 다이얼로그 표시
+    /** 닉네임 입력 완료 후 학습할 주 언어 선택 다이얼로그 표시 */
     LANGUAGE
 }

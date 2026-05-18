@@ -143,6 +143,7 @@ class AuthViewModel @Inject constructor(
             }
         }
     }
+
     /**
      * 닉네임 다이얼로그 확인 클릭 시 실행
      * 닉네임 검사, 저장, 다이얼로그 상태 변경
@@ -204,6 +205,13 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 로컬 Firebase 세션 확인하여 로그인 여부 판단
+     * 초기 설정 : 닉네임, 학습 언어 선택
+     * 미인증 (uid == null) : GoogleAuthState.IDLE -> 온보딩 이동
+     * 가입, 초기 설정 필요(isNewUser) -> 대시보드 이동, 다이얼로그 표시
+     * 가입, 초기 설정 완료(!isNewUser) -> 대시보드 이동
+     */
     fun checkSession() {
         viewModelScope.launch {
             val uid = getCurrentUserUidUseCase.getCurrentUserUid()
@@ -235,10 +243,22 @@ class AuthViewModel @Inject constructor(
      */
     fun signOut() {
         viewModelScope.launch {
-            signOutUseCase()
-            _uiState.update { AuthUiState() }
+            val result = signOutUseCase()
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        googleState = GoogleAuthState.IDLE,
+                        errorMessage = null,
+                        nickname = "",
+                        initialSetupDialogStep = InitialSetupDialogStep.NONE,
+                        isLogoutCompleted = true
+                    )
+                }
+            }.onFailure {
+                _uiState.update { it.copy(errorMessage = "로그아웃에 실패했습니다.") }
+            }
+
         }
     }
-
-
 }

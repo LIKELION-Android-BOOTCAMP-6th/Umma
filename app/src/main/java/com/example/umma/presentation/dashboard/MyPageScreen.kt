@@ -13,6 +13,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +48,14 @@ fun MyPageScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showNativeLanguageDialog by remember { mutableStateOf(false) }
     var selectedNativeLanguage by remember { mutableStateOf(LangCode.KO) }
+    val uiState by authViewModel.uiState.collectAsState()
+
+    LaunchedEffect(uiState.isLogoutCompleted) {
+        if (uiState.isLogoutCompleted) {
+            onNavigateToOnBoarding()
+        }
+    }
+
     Scaffold(
         topBar = {
             UmmaAppBar(
@@ -64,6 +74,7 @@ fun MyPageScreen(
 
 
         ) {
+            // Dialog 모국어 선택
             if (showNativeLanguageDialog) {
                 UmmaDialog(
                     title = "모국어 선택",
@@ -93,7 +104,7 @@ fun MyPageScreen(
                     }
                 }
             }
-
+            // Dialog 로그아웃
             if (showLogoutDialog) {
                 UmmaDialog(
                     title = "로그아웃 하시겠습니까?",
@@ -102,7 +113,6 @@ fun MyPageScreen(
                     onConfirm = {
                         showLogoutDialog = false
                         authViewModel.signOut()
-                        onNavigateToOnBoarding()
                     },
                     onCancel = { showLogoutDialog = false }) {
                     Text(
