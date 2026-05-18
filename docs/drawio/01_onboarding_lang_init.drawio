@@ -1,0 +1,210 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="페이지-1" id="oaXoQgSyE19i0Ey-5PPN">
+    <mxGraphModel dx="2173" dy="1473" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=28;fontStyle=1;fontColor=#111827;" value="온보딩과 현재 선택 언어 초기화 흐름" vertex="1">
+          <mxGeometry height="40" width="700" x="60" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontColor=#4B5563;" value="App Entry → Google Login → Initial Setup → selectedLearningLanguage = primaryLearningLanguage → Initial Learning State → Dashboard" vertex="1">
+          <mxGeometry height="28" width="1180" x="62" y="72" as="geometry" />
+        </mxCell>
+        <mxCell id="lane1" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="앱 진입 / 인증" vertex="1">
+          <mxGeometry height="850" width="330" x="60" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="lane2" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="Initial Setup 입력" vertex="1">
+          <mxGeometry height="850" width="390" x="390" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="lane3" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="LS-007 초기 학습 상태 생성" vertex="1">
+          <mxGeometry height="850" width="480" x="780" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="n6" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="UserLangPref.initial(nativeLang, primaryLang)&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;selectedLang = primaryLang&lt;br&gt;learningLangs = [primaryLang]&lt;/span&gt;" vertex="1">
+          <mxGeometry height="92" width="370" x="55" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="n7" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="LangState.initial(primaryLang)&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Internal / External Metrics 초기값&lt;br&gt;lastAnalyzedAt = null&lt;/span&gt;" vertex="1">
+          <mxGeometry height="86" width="370" x="55" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="n8" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="DashSummary.initial(primaryLang)&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;recentMinutes = 0&lt;br&gt;correctionAvailable = false&lt;br&gt;dueFlashcards = 0&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="370" x="55" y="325" as="geometry" />
+        </mxCell>
+        <mxCell id="n9" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="SessionSummary.initial(primaryLang)&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Correction 진입 판단용 요약&lt;br&gt;원문 turn list 아님&lt;/span&gt;" vertex="1">
+          <mxGeometry height="84" width="370" x="55" y="465" as="geometry" />
+        </mxCell>
+        <mxCell id="n10" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="FlashcardSummary.initial(primaryLang)&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;dueFlashcards = 0&lt;br&gt;savedFlashcards = 0&lt;/span&gt;" vertex="1">
+          <mxGeometry height="78" width="370" x="55" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="lane3" source="n6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n7" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="lane3" source="n7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n8" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="lane3" source="n8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n9" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="lane3" source="n9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n10" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lane4" parent="1" style="swimlane;html=1;rounded=0;startSize=34;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=14;fontStyle=1;" value="저장 / 복구 / 진입" vertex="1">
+          <mxGeometry height="850" width="460" x="1260" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="retry1" parent="lane4" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#7F1D1D;fontSize=12;" value="저장 실패 / Retry&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;사용자 재시도 가능&lt;br&gt;부분 생성은 재시도 시 보정&lt;/span&gt;" vertex="1">
+          <mxGeometry height="82" width="300" x="80" y="752" as="geometry" />
+        </mxCell>
+        <mxCell id="n1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="앱 실행&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Splash 표시&lt;/span&gt;" vertex="1">
+          <mxGeometry height="68" width="240" x="105" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="n2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="Firebase 세션 확인&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;AUTH-002&lt;br&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry height="88" width="240" x="105" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="로그인 세션&lt;br&gt;있음?" vertex="1">
+          <mxGeometry height="110" width="185" x="132" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="Google 로그인&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;AUTH-001&lt;br&gt;Firebase 사용자 인증&lt;/span&gt;" vertex="1">
+          <mxGeometry height="82" width="240" x="105" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="err1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#7F1D1D;fontSize=12;" value="Auth Error / Retry&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;인증 취소 / Firebase 실패&lt;/span&gt;" vertex="1">
+          <mxGeometry height="66" width="240" x="105" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="Initial Setup&lt;br&gt;완료됨?" vertex="1">
+          <mxGeometry height="110" width="185" x="490" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="Initial Setup Dialog&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;AUTH-004&lt;br&gt;최초 사용자에게 표시&lt;/span&gt;" vertex="1">
+          <mxGeometry height="82" width="290" x="440" y="355" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" value="사용자 입력&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;nickname&lt;br&gt;nativeLanguage&lt;br&gt;primaryLearningLanguage&lt;br&gt;관심 주제 5개&lt;/span&gt;" vertex="1">
+          <mxGeometry height="112" width="290" x="440" y="485" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="입력값&lt;br&gt;유효?" vertex="1">
+          <mxGeometry height="105" width="180" x="495" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="inputErr" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FEE2E2;strokeColor=#DC2626;fontColor=#7F1D1D;fontSize=12;" value="입력 보정&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;완료 버튼 비활성화&lt;br&gt;또는 안내 표시&lt;/span&gt;" vertex="1">
+          <mxGeometry height="72" width="250" x="455" y="810" as="geometry" />
+        </mxCell>
+        <mxCell id="n11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3E8FF;strokeColor=#9333EA;fontColor=#111827;fontSize=13;" value="LearningStateRepo.createInitial(...)&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;UserLangPref + LangState + DashSummary&lt;br&gt;SessionSummary + FlashcardSummary&lt;/span&gt;" vertex="1">
+          <mxGeometry height="96" width="350" x="1315" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="n12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3E8FF;strokeColor=#9333EA;fontColor=#111827;fontSize=13;" value="Local / Remote 저장&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;가능한 batch / transaction 형태&lt;br&gt;mapper로 Domain ↔ Firestore 변환&lt;/span&gt;" vertex="1">
+          <mxGeometry height="92" width="350" x="1315" y="335" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=12;" value="초기 저장&lt;br&gt;성공?" vertex="1">
+          <mxGeometry height="110" width="185" x="1398" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="n13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="GlobalLangState 갱신&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;selectedLearningLanguage = primaryLearningLanguage&lt;/span&gt;" vertex="1">
+          <mxGeometry height="76" width="350" x="1315" y="635" as="geometry" />
+        </mxCell>
+        <mxCell id="n14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="Dashboard 진입&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Empty Summary 기준 렌더링 가능&lt;br&gt;이후 모든 Flow의 현재 언어 컨텍스트 확보&lt;/span&gt;" vertex="1">
+          <mxGeometry height="92" width="350" x="1315" y="755" as="geometry" />
+        </mxCell>
+        <mxCell id="note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#CBD5E1;fontColor=#334155;fontSize=12;align=left;verticalAlign=top;spacing=12;" value="정합성 메모&lt;br&gt;• AUTH-002는 인증 세션 확인만 담당하며 UserLangPref preload, selectedLearningLanguage 결정, Dashboard Summary preload는 수행하지 않는다.&lt;br&gt;• 온보딩 완료 시 selectedLearningLanguage는 primaryLearningLanguage와 같은 값으로 초기화된다.&lt;br&gt;• Initial Setup에서 만드는 SessionSummary는 교정 가능 여부 판단용 요약이며, 실제 원문 Session Memory turn list는 SYS-REALTIME-INFRA의 RT-003에서 다룬다.&lt;br&gt;• 초기 저장은 같은 uid / primaryLang 기준으로 idempotent해야 하며, 일부 문서만 생성된 경우 재시도 시 덮어쓰기 또는 merge로 보정한다." vertex="1">
+          <mxGeometry height="115" width="1660" x="60" y="1000" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="n1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n2" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="n2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="d1" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="d1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="d2" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="370" y="495" />
+              <mxPoint x="370" y="245" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="d1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#92400E;" target="n3" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="n3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="d2" value="login success">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="410" y="666" />
+              <mxPoint x="410" y="245" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="n3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="err1" value="fail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="d2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#1D4ED8;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="n14" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="770" y="245" />
+              <mxPoint x="770" y="850" />
+              <mxPoint x="1285" y="850" />
+              <mxPoint x="1285" y="801" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="d2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#92400E;" target="n4" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="n4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n5" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="n5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="d3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="d3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="inputErr" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="inputErr" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="n5" value="수정">
+          <mxGeometry relative="1" x="-0.1835" as="geometry">
+            <mxPoint y="-1" as="offset" />
+            <Array as="points">
+              <mxPoint x="750" y="846" />
+              <mxPoint x="750" y="541" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="d3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="800" y="703" />
+              <mxPoint x="800" y="241" />
+            </Array>
+            <mxPoint x="830" y="241" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="n10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9333EA;strokeWidth=2;endArrow=block;endFill=1;" target="n11" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1235" y="744" />
+              <mxPoint x="1235" y="243" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="n11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="n12" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="n12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#475569;strokeWidth=2;endArrow=block;endFill=1;" target="d4" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="d4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16A34A;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="n13" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="n13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=block;endFill=1;" target="n14" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="d4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="retry1" value="No">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1270" y="535" />
+              <mxPoint x="1270" y="923" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="retry1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#DC2626;strokeWidth=1.5;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;" target="n11" value="Retry">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1690" y="936" />
+              <mxPoint x="1690" y="243" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
