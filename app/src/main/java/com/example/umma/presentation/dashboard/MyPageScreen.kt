@@ -61,7 +61,7 @@ fun MyPageScreen(
             UmmaAppBar(
                 title = "마이페이지",
                 isCenterTitle = true,
-                onBackClick = onBackClick
+                onBackClick = if (uiState.isLoading) null else onBackClick
             )
         }
     ) { paddingValues ->
@@ -123,6 +123,7 @@ fun MyPageScreen(
             //
             Button(
                 onClick = { showNativeLanguageDialog = true },
+                enabled = !uiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -137,6 +138,7 @@ fun MyPageScreen(
 
             Button(
                 onClick = { showLogoutDialog = true },
+                enabled = !uiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -151,6 +153,7 @@ fun MyPageScreen(
         }
     }
 }
+
 
 /**
  * 다이얼로그에 학습 언어 리스트에 사용되는 버튼

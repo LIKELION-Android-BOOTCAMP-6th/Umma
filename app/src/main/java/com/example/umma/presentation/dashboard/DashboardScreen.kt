@@ -202,7 +202,8 @@ fun DashboardScreen(
                         OutlinedTextField(
                             value = nicknameInput,
                             onValueChange = { nicknameInput = it },
-                            placeholder = { Text("닉네임을 입력하세요 (2~10자)") },
+//                            placeholder = { Text("2~10자 입력") },
+                            placeholder = { Text("2~10자 입력") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )

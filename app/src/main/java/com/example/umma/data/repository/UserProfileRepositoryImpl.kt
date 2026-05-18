@@ -1,5 +1,7 @@
 package com.example.umma.data.repository
 
+import com.example.umma.data.model.learningstate.toDto
+import com.example.umma.data.model.user.toDto
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.FlashcardSummary
 import com.example.umma.domain.model.learningstate.LangState
@@ -40,27 +42,27 @@ class UserProfileRepositoryImpl @Inject constructor(
         val userRef = firestore.collection("users").document(profile.uid)
 
         // 프로필 정보 저장
-        batch.set(userRef, profile)
+        batch.set(userRef, profile.toDto())
 
         // 언어 설정 저장
         val prefRef = userRef.collection("user_learning_preference").document("current")
-        batch.set(prefRef, langPref)
+        batch.set(prefRef, langPref.toDto())
 
         // 언어 상태 저장
         val stateRef = userRef.collection("learning_states").document(initialLangState.lang.code)
-        batch.set(stateRef, initialLangState)
+        batch.set(stateRef, initialLangState.toDto())
 
         // 대시보드 요약 저장
         val dashRef = userRef.collection("dashboard_summaries").document(dashSummary.lang.code)
-        batch.set(dashRef, dashSummary)
+        batch.set(dashRef, dashSummary.toDto())
 
         // 세션 요약 저장
         val sessionRef = userRef.collection("session_summaries").document(sessionSummary.lang.code)
-        batch.set(sessionRef, sessionSummary)
+        batch.set(sessionRef, sessionSummary.toDto())
 
         // 플래시카드 요약 저장
         val cardRef = userRef.collection("flashcard_summaries").document(flashcardSummary.lang.code)
-        batch.set(cardRef, flashcardSummary)
+        batch.set(cardRef, flashcardSummary.toDto())
 
         // 한번에 저장 하나라도 하나라도 실패 시 전체 실패
         batch.commit().await()

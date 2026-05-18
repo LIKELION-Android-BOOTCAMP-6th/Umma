@@ -243,6 +243,7 @@ class AuthViewModel @Inject constructor(
      */
     fun signOut() {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
             val result = signOutUseCase()
             result.onSuccess {
                 _uiState.update {
