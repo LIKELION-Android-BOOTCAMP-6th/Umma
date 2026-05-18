@@ -13,18 +13,18 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - [x] `CorrectionCandidate`의 역할이 내부 후보 추출 모델로 정의된다.
 - [x] 현재 선택 언어와 Session Memory 언어가 일치할 때만 후보를 추출한다.
 - [x] `CorrectionSuggestion`의 역할이 화면 카드 표시 및 Flashcard 저장 선택 모델로 정의된다.
-- [ ] 기존 `CorrectionResult`가 LangState 업데이트 입력용 최소 모델임을 문서와 코드 주석에서 구분한다.
-- [ ] Correction 화면 진입 기준이 `SessionSummary.correctionAvailable`임을 확정한다.
-- [ ] `DashSummary.correctionAvailable`은 Dashboard 표시용 파생값임을 확정한다.
-- [ ] 교정 완료 시 `SessionSummary`와 `DashSummary`를 같은 완료 흐름에서 함께 갱신하는 계약을 마련한다.
+- [x] 기존 `CorrectionResult`가 LangState 업데이트 입력용 최소 모델임을 문서와 코드 주석에서 구분한다.
+- [x] Correction 화면 진입 기준이 `SessionSummary.correctionAvailable`임을 확정한다.
+- [x] `DashSummary.correctionAvailable`은 Dashboard 표시용 파생값임을 확정한다.
+- [x] 교정 완료 시 `SessionSummary`와 `DashSummary`를 같은 완료 흐름에서 함께 갱신하는 계약을 마련한다.
 - [x] Session Memory의 `recentFullContext`는 화면에서 직접 파싱하지 않고 domain UseCase를 통해 다룬다.
 - [x] MVP 후보 추출 범위가 최근 100턴으로 제한된다.
 - [x] 필요한 assistant turn은 짧은 문맥으로만 첨부한다.
 - [x] AI 교정 요청과 선택 결과 저장 요청을 함께 다루는 `CorrectionRepository` domain repository interface가 준비된다.
 - [x] Flashcard 저장은 `CorrectionRepository`의 저장 계약 안에서 local first로 처리한다.
-- [ ] 완료 정리를 위한 `CompleteCorrectionUseCase` usecase 경계가 준비된다.
-- [ ] Flashcard 저장, LangState 업데이트, Session Memory 압축, Summary 갱신이 하나의 로컬 완료 파이프라인으로 묶인다.
-- [ ] 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
+- [x] 완료 정리를 위한 `CompleteCorrectionUseCase` usecase 경계가 준비된다.
+- [x] Flashcard 저장, LangState 업데이트, Session Memory 압축, Summary 갱신이 하나의 로컬 완료 파이프라인으로 묶인다.
+- [x] 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
 - [x] mock/real 교체가 Hilt binding 기준으로 가능해야 한다.
 
 ---
@@ -156,9 +156,9 @@ CorrectionCandidate + LangState snapshot
 ```text
 사용자가 저장할 CorrectionSuggestion 선택
 → CompleteCorrectionUseCase 호출
-→ LangState 업데이트 입력 생성 및 적용
 → Flashcard local first 저장
 → Session Memory 압축 요청
+→ LangState 업데이트 입력 생성 및 적용
 → SessionSummary.correctionAvailable false
 → DashSummary.correctionAvailable 동시 반영
 → Firestore background sync 예약

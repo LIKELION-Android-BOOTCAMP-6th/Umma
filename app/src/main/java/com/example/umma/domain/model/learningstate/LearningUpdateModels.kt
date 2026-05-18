@@ -29,6 +29,9 @@ enum class TurnSpeaker {
 
 /**
  * 교정 결과를 Language State 업데이트 입력으로 넘기기 위한 최소 표현.
+ *
+ * 이 모델은 화면용 교정 카드가 아니라, LS-006 업데이트 정책이 참조하는
+ * 최소 입력 덩어리다. `CorrectionSuggestion`의 화면/저장 계약과는 역할이 다르다.
  */
 data class CorrectionResult(
     // 교정된 최종 문장.
@@ -78,6 +81,8 @@ data class LangStateUpdateInput(
     val recentUserTurns: List<ConversationTurn>,
     // 교정 결과가 있으면 함께 반영한다.
     val correctionResult: CorrectionResult?,
+    // 교정 완료처럼 correctionAvailable 값을 명시적으로 덮어써야 하는 경우 사용한다.
+    val correctionAvailableOverride: Boolean? = null,
     // 플래시카드 복습 이벤트 묶음.
     val flashcardReviewEvents: List<FlashcardReviewEvent>,
     // 분석이 끝난 시각.

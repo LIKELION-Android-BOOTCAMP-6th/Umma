@@ -58,4 +58,27 @@ class CorrectionRepositoryImplTest {
         assertTrue(second.localSavedSuggestionIds.isEmpty())
         assertTrue(second.pendingSyncSuggestionIds.isEmpty())
     }
+
+    @Test
+    fun `rollbackFlashcards removes cards saved by the same request`() = runBlocking {
+        val request = CorrectionSaveRequest(
+            lang = LangCode.EN,
+            flashcards = listOf(
+                CorrectionFlashcardSaveItem(
+                    suggestionId = "s-1",
+                    frontText = "나는 학교에 간다",
+                    backText = "I go to school.",
+                    explanation = "go 뒤에는 to school 을 사용한다."
+                )
+            ),
+            requestedAt = 789L
+        )
+
+        repository.saveFlashcards(request).getOrThrow()
+        val rollback = repository.rollbackFlashcards(request)
+        val afterRollback = repository.saveFlashcards(request).getOrThrow()
+
+        assertTrue(rollback.isSuccess)
+        assertEquals(listOf("s-1"), afterRollback.localSavedSuggestionIds)
+    }
 }

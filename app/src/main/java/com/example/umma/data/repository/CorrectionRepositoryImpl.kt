@@ -68,4 +68,22 @@ open class CorrectionRepositoryImpl @Inject constructor() : CorrectionRepository
             )
         }
     }
+
+    override suspend fun rollbackFlashcards(
+        request: CorrectionSaveRequest
+    ): Result<Unit> {
+        return runCatching {
+            // 완료 파이프라인이 중간 실패하면 같은 저장 요청으로 만든 카드만 되돌린다.
+            val langStore = savedFlashcardsByLang[request.lang] ?: return@runCatching
+
+            request.flashcards.forEach { flashcard ->
+                langStore.remove(flashcard.suggestionId)
+            }
+
+            // 언어별 저장소가 비면 map에서도 제거해 다음 local 상태가 깔끔하게 시작되도록 한다.
+            if (langStore.isEmpty()) {
+                savedFlashcardsByLang.remove(request.lang)
+            }
+        }
+    }
 }

@@ -72,7 +72,7 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 | --- | --- |
 | `presentation` | `CorrectionScreen`, `CorrectionViewModel`, UI 상태, 사용자 선택, 로딩/에러/저장 이벤트 처리 |
 | `domain` | 후보 추출 규칙, 교정 결과 모델, UseCase, Repository interface |
-| `data` | AI 교정 요청 구현, Session Memory 조회, Flashcard local first 저장, 완료 파이프라인 rollback/commit 처리, DTO/Entity 변환 |
+| `data` | AI 교정 요청 구현, Session Memory 조회/압축 저장, Flashcard local first 저장, 보상 rollback 저장소 계약, DTO/Entity 변환 |
 | `di` | fake/real 구현체 바인딩, 테스트용 repository 교체 |
 
 Composable은 `recentFullContext`를 직접 파싱하지 않는다.
@@ -94,9 +94,9 @@ Correction 화면 진입
 → LangState snapshot 기반 CorrectionSuggestion 생성
 → 사용자가 저장할 교정 결과 카드 선택
 → CompleteCorrectionUseCase 호출
-→ LangState 업데이트 입력 생성 및 적용
 → Flashcard local first 저장
 → Session Memory 압축 요청
+→ LangState 업데이트 입력 생성 및 적용
 → SessionSummary.correctionAvailable false 갱신
 → DashSummary.correctionAvailable 동시 반영
 → Firestore background sync 예약

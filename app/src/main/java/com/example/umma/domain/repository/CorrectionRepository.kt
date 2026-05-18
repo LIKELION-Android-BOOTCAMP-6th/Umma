@@ -23,4 +23,11 @@ interface CorrectionRepository {
     suspend fun saveFlashcards(
         request: CorrectionSaveRequest
     ): Result<CorrectionSaveResult>
+
+    /**
+     * 완료 파이프라인이 중간 실패했을 때, 방금 저장한 Flashcard 변경분을 되돌린다.
+     */
+    suspend fun rollbackFlashcards(
+        request: CorrectionSaveRequest
+    ): Result<Unit>
 }

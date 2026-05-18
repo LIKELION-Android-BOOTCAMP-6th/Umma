@@ -114,6 +114,7 @@ class LearningStateRepoImpl @Inject constructor(
             val measuredMinutes = calculateRecentMinutes(input)
             val hasUserTurns =
                 input.recentUserTurns.any { it.speaker == com.example.umma.domain.model.learningstate.TurnSpeaker.USER }
+            val correctionAvailable = input.correctionAvailableOverride ?: hasUserTurns
 
             val updatedDash = current.dashSummaries[lang]
                 ?: DashSummary.initial(lang)
@@ -125,7 +126,7 @@ class LearningStateRepoImpl @Inject constructor(
                 dashSummaries = current.dashSummaries + (
                         lang to updatedDash.copy(
                             recentMinutes = measuredMinutes,
-                            correctionAvailable = hasUserTurns,
+                            correctionAvailable = correctionAvailable,
                             grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
                             fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
                             vocabDelta = deltaFromInternal(preparedState.external.vocabularyLevel.ordinal.toDouble() / 5.0),
@@ -136,7 +137,7 @@ class LearningStateRepoImpl @Inject constructor(
                 sessionSummaries = current.sessionSummaries + (
                         lang to updatedSession.copy(
                             recentMinutes = measuredMinutes,
-                            correctionAvailable = hasUserTurns || updatedSession.correctionAvailable,
+                            correctionAvailable = correctionAvailable,
                             updatedAt = input.analyzedAt
                         )
                         ),
