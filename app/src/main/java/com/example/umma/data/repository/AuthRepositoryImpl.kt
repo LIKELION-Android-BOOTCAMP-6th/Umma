@@ -21,7 +21,7 @@ class AuthRepositoryImpl @Inject constructor(
             trySend(auth.currentUser?.uid)
         }
         firebaseAuth.addAuthStateListener(authStateListener)
-        
+
         awaitClose {
             firebaseAuth.removeAuthStateListener(authStateListener)
         }
@@ -32,7 +32,7 @@ class AuthRepositoryImpl @Inject constructor(
             val credential = GoogleAuthProvider.getCredential(idToken, null)
             val authResult = firebaseAuth.signInWithCredential(credential).await()
             val user = authResult.user
-            
+
             if (user != null) {
                 Result.success(user.uid)
             } else {
@@ -50,5 +50,19 @@ class AuthRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * 동기, 즉시 조회
+     */
+    override fun getCurrentUserUid(): String? {
+        return firebaseAuth.currentUser?.uid
+    }
+
+    /**
+     * 동기, 즉시 조회
+     */
+    override fun getCurrentUserEmail(): String? {
+        return firebaseAuth.currentUser?.email
     }
 }

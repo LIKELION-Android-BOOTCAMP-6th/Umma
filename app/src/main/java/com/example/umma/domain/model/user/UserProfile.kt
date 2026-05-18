@@ -1,5 +1,11 @@
 package com.example.umma.domain.model.user
 
+import com.google.firebase.firestore.PropertyName
+
+/**
+ * 신규 사용자 프로필 데이터 구조
+ * 최초 로그인 시 생성
+ */
 data class UserProfile(
     val uid: String,
     val nickname: String,
@@ -7,6 +13,7 @@ data class UserProfile(
     // 관심 주제 목록 - 첫 대화일 때 다이얼로그 창에서 선택
     val interestTopics: List<String>,
     // 초기 설정 완료 여부
+    @get:PropertyName("isSetupCompleted")
     val isSetupCompleted: Boolean,
     // 저장 구조 버전.
     val schema: Int = SCHEMA,
@@ -29,7 +36,7 @@ data class UserProfile(
                 nickname = nickname,
                 email = email,
                 interestTopics = interestTopics,
-                isSetupCompleted = false,
+                isSetupCompleted = true,
                 schema = SCHEMA,
                 // ***** 기기 시간 사용하는 상태
                 createdAt = System.currentTimeMillis()
