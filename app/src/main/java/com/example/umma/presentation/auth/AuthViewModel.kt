@@ -6,10 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.usecase.auth.CheckInitialSetupUseCase
 import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.example.umma.domain.usecase.auth.LogoutUseCase
 import com.example.umma.domain.usecase.auth.SignInWithGoogleUseCase
-import com.example.umma.domain.usecase.auth.SignOutUseCase
 import com.example.umma.domain.usecase.user.InitializeUserDataUseCase
-import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,9 +32,7 @@ class AuthViewModel @Inject constructor(
      * 첫 사용자 데이터 Firestore 저장용 */
     private val initializeUserDataUseCase: InitializeUserDataUseCase,
     private val checkInitialSetupUseCase: CheckInitialSetupUseCase,
-    private val signOutUseCase: SignOutUseCase,
-    private val firestore: FirebaseFirestore
-
+    private val logoutUseCase: LogoutUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
@@ -112,7 +109,6 @@ class AuthViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 errorMessage = message,
-                googleState = GoogleAuthState.FAILED
             )
         }
     }
@@ -129,17 +125,22 @@ class AuthViewModel @Inject constructor(
 
     /**
      * 신규 가입자 대상 초기 설정 프로세스 시작
+     * Dashboard 진입 시 1회 호출
+     * 신규 사용자 여부 확인 후 초기 설정 다이얼로그 표시 여부 결정
      */
     fun startInitialSetupFlow() {
         viewModelScope.launch {
+            // uid 없으면 로그인 상태 아님
             val uid = getCurrentUserUidUseCase.getCurrentUserUid()
             if (uid == null) return@launch
 
+            // Firestore 에서 신규 사용자 여부 확인
+            // 판단 기준: users/{uid} 문서 없음 또는 isSetupCompleted == false
             val isNewUser = checkInitialSetupUseCase(uid)
 
             if (isNewUser) {
+                // 신규 사용자 -> 닉네임 입력 다이얼로그 표시
                 _uiState.update { it.copy(initialSetupDialogStep = InitialSetupDialogStep.NICKNAME) }
-            } else {
             }
         }
     }
@@ -244,7 +245,7 @@ class AuthViewModel @Inject constructor(
     fun signOut() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val result = signOutUseCase()
+            val result = logoutUseCase()
             result.onSuccess {
                 _uiState.update {
                     it.copy(
@@ -257,7 +258,12 @@ class AuthViewModel @Inject constructor(
                     )
                 }
             }.onFailure {
-                _uiState.update { it.copy(errorMessage = "로그아웃에 실패했습니다.") }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "로그아웃에 실패했습니다."
+                    )
+                }
             }
 
         }
