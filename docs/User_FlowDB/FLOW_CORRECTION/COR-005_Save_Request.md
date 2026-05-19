@@ -42,7 +42,7 @@
 
 - 카드 선택 UI
 - 로컬 완료 파이프라인 내부 처리
-- Session Memory 압축 실행
+- Session Memory 압축 실행 또는 저장소 구현
 - Dashboard 복귀 처리
 
 ---

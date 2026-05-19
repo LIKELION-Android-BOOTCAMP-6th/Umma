@@ -25,7 +25,8 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - [x] Flashcard 저장은 `CorrectionRepository`의 저장 계약 안에서 local first로 처리한다.
 - [x] Flashcard 저장 결과가 Firestore sync pending 상태를 표현할 수 있도록 준비된다.
 - [x] 완료 정리를 위한 `CompleteCorrectionUseCase` usecase 경계가 준비된다.
-- [x] Flashcard 저장, LangState 업데이트, Session Memory 압축, Summary 갱신이 하나의 로컬 완료 파이프라인으로 묶인다.
+- [x] Flashcard 저장, LangState 업데이트, Summary 갱신이 하나의 로컬 완료 파이프라인으로 묶인다.
+- [x] Session Memory 압축은 RT-003 머지 후 실제 저장소 계약으로 연결할 후속 지점으로 명시된다.
 - [x] 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
 - [x] mock/real 교체가 Hilt binding 기준으로 가능해야 한다.
 
@@ -124,6 +125,8 @@ recentFullContext
 - 사용자에게 후보 목록을 보여주지 않는다.
 - Composable은 `recentFullContext`를 직접 파싱하지 않는다.
 - 후보가 없으면 AI 요청 없이 Empty 상태로 이어진다.
+- RT-003이 교정용 read model을 제공하더라도 후보 확정 규칙은 Correction domain UseCase가 담당한다.
+- `recentFullContext`는 오래된 turn부터 최신 turn 순서로 전달되는 것을 전제로 한다.
 
 ### 3. 교정 결과 계약
 
@@ -159,7 +162,7 @@ CorrectionCandidate + LangState snapshot
 - 발음 재생은 뒷면의 교정된 외국어 문장을 대상으로 하며, MVP에서는 Android `TextToSpeech`를 사용한다.
 - local 저장 성공 후 Firestore sync 실패는 사용자 저장 실패로 보지 않는다.
 - sync 실패 상태는 pending sync / dirty flag 개념으로 관리한다.
-- 저장 항목이 0개이면 완료/압축으로 바로 넘기지 않는다.
+- 저장 항목이 0개이면 완료 파이프라인으로 바로 넘기지 않는다.
 - 별도 `FlashcardRepository` 생성을 이번 선행 계약의 필수 조건으로 두지 않는다.
 - 교정 흐름의 저장 계약은 `CorrectionRepository` 안에 두고, 학습/복습용 Flashcard 흐름은 별도 화면 계약에서 다룬다.
 - Firestore에 저장되는 Flashcard 문서 구조는 SRS에서 읽을 수 있는 원본 카드 계약과 충돌하지 않아야 한다.
@@ -174,17 +177,21 @@ CorrectionCandidate + LangState snapshot
 사용자가 저장할 CorrectionSuggestion 선택
 → CompleteCorrectionUseCase 호출
 → Flashcard local first 저장
-→ Session Memory 압축 요청
 → LangState 업데이트 입력 생성 및 적용
 → SessionSummary.correctionAvailable false
 → DashSummary.correctionAvailable 동시 반영
 → Firestore background sync 예약
 ```
 
+Session Memory 원문 buffer 압축과 정리는 `SYS-REALTIME-INFRA`의 `RT-003`이 제공하는 실제 `SessionMemory` 저장소 계약을 따른다.
+Correction-infra는 `SessionMemoryRepository` / `SessionMemoryRepositoryImpl`을 직접 만들지 않고,
+후속 연결 작업에서 RT-003의 compression 계약을 `CompleteCorrectionUseCase` 완료 흐름에 붙일 지점만 남긴다.
+
 - 교정 화면을 단순히 이탈했다고 완료 처리하지 않는다.
 - `SessionSummary`와 `DashSummary` 중 하나만 갱신하는 구현은 허용하지 않는다.
 - LangState 업데이트가 필요한 경우 `LS-006` 정책과 `CorrectionResult` 입력을 따른다.
-- Flashcard 저장, LangState 업데이트, Session Memory 압축, Summary 갱신은 하나의 로컬 완료 파이프라인으로 묶는다.
+- Flashcard 저장, LangState 업데이트, Summary 갱신은 하나의 로컬 완료 파이프라인으로 묶는다.
+- Session Memory 압축이 연결된 이후에는 RT-003의 rollback 또는 commit marker 정책을 따른다.
 - 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
 - 저장소가 하나의 transaction으로 묶이지 않는 경우 보상 rollback 또는 commit marker 방식으로 부분 완료 상태를 남기지 않는다.
 - Firestore background sync는 로컬 완료 이후 비동기로 수행하며, sync 실패는 pending sync / dirty flag로 관리한다.

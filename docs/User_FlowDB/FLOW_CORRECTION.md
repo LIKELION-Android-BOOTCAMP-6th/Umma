@@ -142,7 +142,8 @@ SRS는 이 저장을 대신 수행하지 않고, 저장된 Flashcard를 이후 �
 → Done 또는 Retry 상태 전환
 ```
 
-저장 항목이 0개이면 완료/압축을 수행하지 않는다.
+저장 항목이 0개이면 완료 파이프라인을 수행하지 않는다.
+Session Memory 압축은 RT-003 실제 저장소 계약이 머지된 뒤 후속 연결 작업에서 붙인다.
 로컬 완료 파이프라인 내부 순서, rollback, pending sync 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
 Firestore sync 실패만 발생한 경우에는 로컬 저장 성공을 유지하고 pending sync 상태로 다룬다.
 

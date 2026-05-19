@@ -15,7 +15,6 @@ import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
 import com.example.umma.presentation.correction.CorrectionScreen
-import com.example.umma.presentation.onboarding.OnBoardingScreen
 import com.example.umma.presentation.study.StudyListScreen
 
 @Composable

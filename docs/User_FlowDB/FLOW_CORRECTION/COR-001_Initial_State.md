@@ -40,7 +40,7 @@
 - 교정 결과 생성
 - 교정 결과 카드 UI
 - Flashcard 저장
-- Session Memory 압축
+- Session Memory 압축 또는 저장소 구현
 
 ---
 

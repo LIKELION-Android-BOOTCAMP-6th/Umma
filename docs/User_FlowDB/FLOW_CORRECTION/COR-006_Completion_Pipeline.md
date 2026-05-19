@@ -40,7 +40,7 @@
 
 - 로컬 완료 파이프라인 내부 순서 구현
 - LangState 업데이트 입력 생성 및 적용
-- Session Memory 압축 내부 처리
+- Session Memory 압축 실행 또는 저장소 구현
 - `SessionSummary` / `DashSummary` 갱신 내부 처리
 - Session Memory append
 - LangState 수치 계산 공식
@@ -58,6 +58,8 @@
 `CompleteCorrectionUseCase` 내부에서 선택된 교정 결과는 새 Flashcard로 최초 local first 저장된다.
 이 저장은 SRS가 대신 수행하지 않는다.
 파이프라인 내부 순서와 rollback 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
+Session Memory compression은 RT-003 실제 저장소 계약이 머지된 뒤 후속 작업에서 연결한다.
+이 이슈에서는 `CompleteCorrectionUseCase` 결과를 화면 상태로 연결하는 데 집중한다.
 
 ## 실패 정책
 

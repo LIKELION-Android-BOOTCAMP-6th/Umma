@@ -6,10 +6,7 @@ import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.CorrectionSaveResult
 import com.example.umma.domain.model.correction.CorrectionSuggestion
 import com.example.umma.domain.model.learningstate.CorrectionResult
-import com.example.umma.domain.model.learningstate.SessionMemoryCompressionInput
-import com.example.umma.domain.model.learningstate.SessionMemoryCompressionResult
 import com.example.umma.domain.repository.CorrectionRepository
-import com.example.umma.domain.repository.SessionMemoryRepository
 import com.example.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import javax.inject.Inject
 
@@ -17,13 +14,15 @@ import javax.inject.Inject
  * Correction 완료 파이프라인을 하나의 UseCase 경계로 묶는다.
  *
  * 이 UseCase는 화면에서 해야 할 "저장 후 처리"를 받아서,
- * local-first 저장, Session Memory 압축, LangState / Summary 갱신을 한 번에 정리한다.
+ * local-first 저장과 LangState / Summary 완료 갱신을 한 번에 정리한다.
+ *
+ * Session Memory 원문 buffer 압축은 RT-003의 실제 저장소 계약이 머지된 뒤
+ * 후속 작업에서 연결한다. Correction-infra는 해당 저장소 구현을 선점하지 않는다.
  */
 class CompleteCorrectionUseCase @Inject constructor(
     private val prepareSaveRequestUseCase: PrepareSaveRequestUseCase,
     private val correctionRepository: CorrectionRepository,
-    private val applyLanguageStateUpdateUseCase: ApplyLanguageStateUpdateUseCase,
-    private val sessionMemoryRepository: SessionMemoryRepository
+    private val applyLanguageStateUpdateUseCase: ApplyLanguageStateUpdateUseCase
 ) {
 
     suspend operator fun invoke(
@@ -43,22 +42,15 @@ class CompleteCorrectionUseCase @Inject constructor(
 
         // 교정 결과는 LangState 업데이트용 최소 모델만 넘긴다.
         val correctionResult = buildCorrectionResult(input.selectedSuggestions)
-        val compressionInput = SessionMemoryCompressionInput(
-            uid = input.langStateUpdateInput.uid,
-            lang = input.langStateUpdateInput.lang,
-            sessionMemoryKey = input.langStateUpdateInput.sessionMemoryKey,
-            requestedAt = input.requestedAt
-        )
 
         var saveResult: CorrectionSaveResult? = null
-        var compressionResult: SessionMemoryCompressionResult? = null
 
         return try {
             // Flashcard 저장이 먼저 성공해야 다음 단계가 이어진다.
             saveResult = correctionRepository.saveFlashcards(saveRequest).getOrThrow()
 
-            // 세션 원문은 교정 이후 압축해서 다음 교정 주기의 입력을 줄인다.
-            compressionResult = sessionMemoryRepository.compressRecentFullContext(compressionInput).getOrThrow()
+            // RT-003 머지 후 이 지점에서 Session Memory compression 계약을 연결한다.
+            // 현재 브랜치에서는 Realtime-infra의 저장소 구현과 충돌하지 않도록 호출을 비워 둔다.
 
             // 교정 완료 시점에는 correctionAvailable 을 false 로 내려서 다음 진입 판단을 맞춘다.
             applyLanguageStateUpdateUseCase(
@@ -80,9 +72,7 @@ class CompleteCorrectionUseCase @Inject constructor(
         } catch (error: Throwable) {
             rollbackLocalChanges(
                 saveRequest = saveRequest,
-                saveResult = saveResult,
-                compressionInput = compressionInput,
-                compressionResult = compressionResult
+                saveResult = saveResult
             )
             Result.failure(error)
         }
@@ -90,15 +80,10 @@ class CompleteCorrectionUseCase @Inject constructor(
 
     private suspend fun rollbackLocalChanges(
         saveRequest: CorrectionSaveRequest,
-        saveResult: CorrectionSaveResult?,
-        compressionInput: SessionMemoryCompressionInput,
-        compressionResult: SessionMemoryCompressionResult?
+        saveResult: CorrectionSaveResult?
     ) {
-        // 성공한 단계만 역순으로 되돌려 부분 완료 상태가 남지 않도록 한다.
-        if (compressionResult != null) {
-            sessionMemoryRepository.rollbackRecentFullContextCompression(compressionInput)
-        }
-
+        // 현재 Correction-infra가 직접 수행한 local 저장만 되돌린다.
+        // Session Memory rollback은 RT-003 compression 계약이 확정된 뒤 후속 연결 작업에서 다룬다.
         if (saveResult != null) {
             correctionRepository.rollbackFlashcards(saveRequest)
         }

@@ -113,6 +113,6 @@ data class ExtractCandidatesInput(
     val selectedLang: LangCode,
     // 현재 Session Memory 가 속한 언어.
     val sessionLang: LangCode,
-    // 최신 턴부터 오래된 턴 순으로 정렬된 전체 문맥.
+    // 오래된 턴부터 최신 턴 순으로 정렬된 전체 문맥. RT-003의 createdAt ASC read model과 맞춘다.
     val recentFullContext: List<ConversationTurn>
 )

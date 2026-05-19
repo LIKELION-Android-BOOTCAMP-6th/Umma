@@ -14,10 +14,12 @@ Correction 후보 준비
 → Flashcard 저장 요청 생성
 → local-first 저장
 → Firestore sync 시도
-→ Session Memory 압축
 → LangState / SessionSummary / DashSummary 갱신
 → 실패 시 보상 rollback
 ```
+
+Session Memory 원문 buffer 압축은 `SYS-REALTIME-INFRA`의 RT-003 실제 저장소 계약이 머지된 뒤 연결한다.
+이 브랜치의 Correction 코드는 해당 저장소 구현을 직접 만들지 않는다.
 
 ---
 
@@ -293,7 +295,6 @@ Firestore sync가 실패해도 local 저장 성공을 사용자 저장 실패로
 CompleteCorrectionInput
 → PrepareSaveRequestUseCase
 → CorrectionRepository.saveFlashcards()
-→ SessionMemoryRepository.compressRecentFullContext()
 → ApplyLanguageStateUpdateUseCase
 → CompleteCorrectionResult
 ```
@@ -304,11 +305,14 @@ CompleteCorrectionInput
 | --- | --- |
 | `PrepareSaveRequestUseCase` | 선택 결과를 Flashcard 저장 요청으로 정규화 |
 | `CorrectionRepository.saveFlashcards` | 새 Flashcard local-first 저장과 Firestore sync 시도 |
-| `SessionMemoryRepository.compressRecentFullContext` | 교정이 끝난 최근 대화 원문 압축 |
 | `ApplyLanguageStateUpdateUseCase` | `LangState`, `SessionSummary`, `DashSummary` 갱신 |
 
 `ApplyLanguageStateUpdateUseCase` 호출 시에는 `correctionAvailableOverride = false`가 들어간다.
 교정이 완료된 세션은 다시 교정 대기 상태로 남아 있으면 안 되기 때문이다.
+
+RT-003 머지 후에는 이 흐름의 `saveFlashcards()`와 `ApplyLanguageStateUpdateUseCase` 사이에
+Realtime-infra가 제공하는 Session Memory compression 계약을 연결한다.
+그때 rollback 또는 commit marker 정책도 RT-003의 저장소 계약을 따른다.
 
 완료 결과는 다음 값을 화면으로 돌려준다.
 
@@ -324,25 +328,24 @@ CompleteCorrectionResult
 
 ## 9. 실패와 rollback 흐름
 
-`CompleteCorrectionUseCase`는 저장, 압축, 상태 갱신 중 하나라도 실패하면 catch 블록으로 들어간다.
+`CompleteCorrectionUseCase`는 저장 또는 상태 갱신 중 하나라도 실패하면 catch 블록으로 들어간다.
 
 ```text
 try
 → saveFlashcards 성공
-→ compressRecentFullContext 성공
 → applyLanguageStateUpdate 성공
 → 완료
 
 catch
-→ 성공한 단계만 역순 rollback
+→ Correction-infra가 성공시킨 local 저장만 rollback
 → Result.failure(error)
 ```
 
 rollback 순서는 다음 기준을 따른다.
 
-1. Session Memory 압축이 성공했다면 `rollbackRecentFullContextCompression()`을 호출한다.
-2. Flashcard 저장이 성공했다면 `CorrectionRepository.rollbackFlashcards()`를 호출한다.
-3. 아직 성공하지 않은 단계는 rollback하지 않는다.
+1. Flashcard 저장이 성공했다면 `CorrectionRepository.rollbackFlashcards()`를 호출한다.
+2. 아직 성공하지 않은 단계는 rollback하지 않는다.
+3. Session Memory rollback은 RT-003 compression 계약이 연결된 후 해당 정책을 따른다.
 
 Flashcard rollback은 local 저장을 반드시 되돌린다.
 remote delete는 best-effort다.
@@ -383,7 +386,7 @@ fake는 화면 상태와 저장 파이프라인을 AI 없이 테스트하기 위
 | --- | --- |
 | `GenerateSuggestionsUseCaseTest` | 후보 입력이 교정 결과 계약으로 연결되는지 확인 |
 | `PrepareSaveRequestUseCaseTest` | 선택 결과 중복 제거, 언어 검증, 필수 텍스트 검증 |
-| `CompleteCorrectionUseCaseTest` | 저장, 압축, 상태 갱신 순서와 실패 시 rollback |
+| `CompleteCorrectionUseCaseTest` | 저장, 상태 갱신 순서와 실패 시 rollback |
 | `CorrectionRepositoryImplTest` | local-first 저장, Firestore pending sync, 중복 저장 방지, rollback |
 | `CorrectionAiResponseMapperTest` | AI JSON 파싱, candidateId 매칭, 필수 필드 검증 |
 | `FakeCorrectionRepositoryTest` | fake 구현도 같은 저장 계약을 사용하는지 확인 |

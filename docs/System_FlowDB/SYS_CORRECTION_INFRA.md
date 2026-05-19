@@ -78,7 +78,7 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 | --- | --- |
 | `presentation` | `CorrectionScreen`, `CorrectionViewModel`, UI 상태, 사용자 선택, 로딩/에러/저장 이벤트 처리 |
 | `domain` | 후보 추출 규칙, 교정 결과 모델, UseCase, Repository interface |
-| `data` | AI 교정 요청 구현, AI 응답 파싱/mapper, Session Memory 조회/압축 저장, Flashcard local first 저장, 보상 rollback 저장소 계약, DTO/Entity 변환 |
+| `data` | AI 교정 요청 구현, AI 응답 파싱/mapper, Flashcard local first 저장, 보상 rollback 저장소 계약, DTO/Entity 변환 |
 | `di` | fake/real 구현체 바인딩, 테스트용 repository 교체 |
 
 Composable은 `recentFullContext`를 직접 파싱하지 않는다.
@@ -104,12 +104,16 @@ Correction 화면 진입
 → 사용자가 저장할 교정 결과 카드 선택
 → CompleteCorrectionUseCase 호출
 → Flashcard local first 저장
-→ Session Memory 압축 요청
 → LangState 업데이트 입력 생성 및 적용
 → SessionSummary.correctionAvailable false 갱신
 → DashSummary.correctionAvailable 동시 반영
 → Firestore background sync 예약
 ```
+
+Session Memory 원문 buffer 압축과 정리는 `SYS-REALTIME-INFRA`의 `RT-003` 실제 저장소 계약이 머지된 뒤 후속 연결 작업에서 붙인다.
+Correction-infra는 `SessionMemoryRepository` 구현체를 직접 제공하지 않고, 후속 작업에서 RT-003 계약을 소비할 연결 지점만 남긴다.
+RT-003이 교정용 read model을 제공하더라도, 어떤 user turn을 `CorrectionCandidate`로 확정할지는 Correction domain UseCase가 최종 결정한다.
+`recentFullContext`는 오래된 turn부터 최신 turn 순서로 전달되는 것을 전제로 한다.
 
 사용자에게는 `CorrectionCandidate` 목록을 보여주지 않는다.
 후보 추출은 교정 결과 카드를 만들기 위한 내부 준비 단계다.
@@ -122,7 +126,8 @@ Correction 화면 진입
 - `DashSummary.correctionAvailable`은 Dashboard 카드 표시용 파생값이다.
 - 교정 완료 시 두 값은 같은 완료 흐름 안에서 함께 갱신한다.
 - 둘 중 하나만 갱신하는 구현은 허용하지 않는다.
-- Flashcard 저장, LangState 업데이트, Session Memory 압축, Summary 갱신은 하나의 로컬 완료 파이프라인으로 묶는다.
+- Flashcard 저장, LangState 업데이트, Summary 갱신은 하나의 로컬 완료 파이프라인으로 묶는다.
+- Session Memory 압축은 RT-003 계약이 확정된 뒤 같은 완료 흐름의 후속 연결 지점으로 붙인다.
 - 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 둔다.
 - 저장소가 하나의 transaction으로 묶이지 않는 경우 보상 rollback 또는 commit marker 방식으로 부분 완료 상태를 남기지 않는다.
 - Firestore background sync 실패는 로컬 완료 실패로 보지 않고 pending sync로 관리한다.

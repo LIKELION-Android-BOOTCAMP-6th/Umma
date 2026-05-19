@@ -8,12 +8,9 @@ import com.example.umma.domain.model.learningstate.ConversationTurn
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
-import com.example.umma.domain.model.learningstate.SessionMemoryCompressionInput
-import com.example.umma.domain.model.learningstate.SessionMemoryCompressionResult
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.repository.LearningStateRepo
-import com.example.umma.domain.repository.SessionMemoryRepository
 import com.example.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -30,16 +27,14 @@ class CompleteCorrectionUseCaseTest {
     private val correctionRepository = RecordingCorrectionRepository(events)
     private val learningStateRepo = RecordingLearningStateRepo(events)
     private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(learningStateRepo)
-    private val sessionMemoryRepository = RecordingSessionMemoryRepository(events)
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
         correctionRepository = correctionRepository,
-        applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase,
-        sessionMemoryRepository = sessionMemoryRepository
+        applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase
     )
 
     @Test
-    fun `runs save compress and state update in order`() = kotlinx.coroutines.runBlocking {
+    fun `runs save and state update in order`() = kotlinx.coroutines.runBlocking {
         val suggestion = CorrectionSuggestion(
             id = "s-1",
             lang = LangCode.EN,
@@ -82,12 +77,10 @@ class CompleteCorrectionUseCaseTest {
         assertEquals(listOf("s-1"), completed.savedFlashcardIds)
         assertEquals(listOf("s-1"), completed.pendingSyncFlashcardIds)
         assertEquals("session-en", completed.sessionMemoryKey)
-        assertEquals(listOf("save", "compress", "update"), events)
+        assertEquals(listOf("save", "update"), events)
 
         assertNotNull(learningStateRepo.lastUpdateInput)
         assertFalse(learningStateRepo.lastUpdateInput!!.correctionAvailableOverride!!)
-        assertEquals("session-en", sessionMemoryRepository.lastCompressionInput!!.sessionMemoryKey)
-        assertEquals("uid-1", sessionMemoryRepository.lastCompressionInput!!.uid)
     }
 
     @Test
@@ -104,23 +97,7 @@ class CompleteCorrectionUseCaseTest {
     }
 
     @Test
-    fun `rolls back saved flashcards when compression fails`() = kotlinx.coroutines.runBlocking {
-        val suggestion = baseSuggestion()
-        sessionMemoryRepository.failCompress = true
-
-        val result = useCase(
-            CompleteCorrectionInput(
-                selectedSuggestions = listOf(suggestion),
-                langStateUpdateInput = baseUpdateInput()
-            )
-        )
-
-        assertTrue(result.isFailure)
-        assertEquals(listOf("save", "compress", "rollback-save"), events)
-    }
-
-    @Test
-    fun `rolls back compression and flashcards when state update fails`() = kotlinx.coroutines.runBlocking {
+    fun `rolls back saved flashcards when state update fails`() = kotlinx.coroutines.runBlocking {
         val suggestion = baseSuggestion()
         learningStateRepo.failUpdate = true
 
@@ -132,7 +109,7 @@ class CompleteCorrectionUseCaseTest {
         )
 
         assertTrue(result.isFailure)
-        assertEquals(listOf("save", "compress", "update", "rollback-compress", "rollback-save"), events)
+        assertEquals(listOf("save", "update", "rollback-save"), events)
     }
 
     private fun baseUpdateInput(): LangStateUpdateInput {
@@ -251,34 +228,4 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
     }
 
-    private class RecordingSessionMemoryRepository(
-        private val events: MutableList<String>
-    ) : SessionMemoryRepository {
-        var lastCompressionInput: SessionMemoryCompressionInput? = null
-        var failCompress: Boolean = false
-
-        override suspend fun compressRecentFullContext(
-            input: SessionMemoryCompressionInput
-        ): Result<SessionMemoryCompressionResult> {
-            events += "compress"
-            if (failCompress) {
-                return Result.failure(IllegalStateException("compress failed"))
-            }
-            lastCompressionInput = input
-            return Result.success(
-                SessionMemoryCompressionResult(
-                    sessionMemoryKey = input.sessionMemoryKey,
-                    compressedAt = input.requestedAt,
-                    recentFullContextCompacted = true
-                )
-            )
-        }
-
-        override suspend fun rollbackRecentFullContextCompression(
-            input: SessionMemoryCompressionInput
-        ): Result<Unit> {
-            events += "rollback-compress"
-            return Result.success(Unit)
-        }
-    }
 }

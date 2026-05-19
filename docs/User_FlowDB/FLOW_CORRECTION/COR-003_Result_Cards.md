@@ -38,7 +38,7 @@
 
 - 카드 선택 상태
 - Flashcard 실제 저장
-- Session Memory 압축
+- Session Memory 압축 또는 저장소 구현
 - LangState 수치 계산
 - Dashboard Summary 갱신
 
