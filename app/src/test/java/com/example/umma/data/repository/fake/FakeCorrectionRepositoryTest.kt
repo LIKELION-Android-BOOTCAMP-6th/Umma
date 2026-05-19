@@ -1,5 +1,9 @@
 package com.example.umma.data.repository.fake
 
+import com.example.umma.data.model.correction.CorrectionFlashcardDto
+import com.example.umma.data.repository.correction.CorrectionFlashcardStore
+import com.example.umma.data.source.local.InMemoryCorrectionFlashcardLocalDataSource
+import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.example.umma.domain.model.correction.CorrectionCandidate
 import com.example.umma.domain.model.correction.GenerateSuggestionsInput
 import com.example.umma.domain.model.learningstate.LangCode
@@ -12,7 +16,12 @@ import org.junit.Test
 
 class FakeCorrectionRepositoryTest {
 
-    private val repository: CorrectionRepository = FakeCorrectionRepository()
+    private val repository: CorrectionRepository = FakeCorrectionRepository(
+        CorrectionFlashcardStore(
+            localDataSource = InMemoryCorrectionFlashcardLocalDataSource(),
+            remoteDataSource = NoopCorrectionFlashcardRemoteDataSource()
+        )
+    )
 
     @Test
     fun `fake repository follows correction repository suggestion contract`() = runBlocking {
@@ -35,5 +44,14 @@ class FakeCorrectionRepositoryTest {
         assertEquals("corr-en-1-def", suggestion.id)
         assertEquals("this is test", suggestion.nativeText)
         assertEquals("This is test.", suggestion.afterText)
+    }
+
+    private class NoopCorrectionFlashcardRemoteDataSource : CorrectionFlashcardRemoteDataSource {
+        override suspend fun syncFlashcards(
+            flashcards: List<CorrectionFlashcardDto>
+        ): Result<List<String>> = Result.success(flashcards.map { it.id })
+
+        override suspend fun deleteFlashcards(flashcardIds: List<String>): Result<Unit> =
+            Result.success(Unit)
     }
 }

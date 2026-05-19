@@ -53,12 +53,12 @@
 
 ### User Flow Issues
 
-- [SRS-001 반복학습 진입 및 언어 컨텍스트](./FLOW_SRS/SRS-001_Entry_Context.md)
-- [SRS-002 복습 카드 덱 로드](./FLOW_SRS/SRS-002_Deck_Load.md)
-- [SRS-003 카드 앞/뒤 표시 및 뒤집기](./FLOW_SRS/SRS-003_Card_Flip.md)
-- [SRS-004 발음 재생](./FLOW_SRS/SRS-004_Pronunciation_Playback.md)
-- [SRS-005 복습 평가 및 스케줄 반영](./FLOW_SRS/SRS-005_Grading_and_Schedule.md)
-- [SRS-006 완료, 복귀, 동기화](./FLOW_SRS/SRS-006_Completion_and_Return.md)
+- [SRS-001 반복학습 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-001_Entry_Context.md)
+- [SRS-002 복습 카드 덱 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-002_Deck_Load.md)
+- [SRS-003 카드 앞/뒤 표시 및 뒤집기](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-003_Card_Flip.md)
+- [SRS-004 발음 재생](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-004_Pronunciation_Playback.md)
+- [SRS-005 복습 평가 및 스케줄 반영](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-005_Grading_and_Schedule.md)
+- [SRS-006 완료, 복귀, 동기화](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-006_Completion_and_Return.md)
 
 `SRS-001 ~ SRS-006`는 팀원이 작은 PR 단위로 완료할 수 있도록 쪼갠다.  
 각 이슈는 화면, 카드 표시, 상호작용, 스케줄, 완료 정리 중 하나의 책임을 중심으로 잡는다.
@@ -129,7 +129,7 @@ MVP에서는 Android `TextToSpeech`를 사용한다.
 ### 8.4 복습 평가 정책
 
 4단계 평가 버튼은 `Again / Hard / Good / Easy`로 고정한다.  
-평가 결과에 따라 `interval`, `ease_factor`, `next_review_at`이 갱신된다.
+평가 결과에 따라 `interval`, `easeFactor`, `nextReviewAt`이 갱신된다.
 세부 계산은 `SRI-003`의 SM-2 기반 `ReviewSchedulePolicy`를 따른다.
 
 ### 8.5 저장 정책

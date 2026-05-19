@@ -7,6 +7,10 @@ import com.example.umma.data.repository.CorrectionRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
 import com.example.umma.data.repository.SessionMemoryRepositoryImpl
+import com.example.umma.data.source.local.CorrectionFlashcardLocalDataSource
+import com.example.umma.data.source.local.InMemoryCorrectionFlashcardLocalDataSource
+import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
+import com.example.umma.data.source.remote.FirestoreCorrectionFlashcardRemoteDataSource
 import com.example.umma.data.source.remote.LearningStateRemoteDataSource
 import com.example.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.example.umma.domain.repository.AuthRepository
@@ -69,6 +73,18 @@ abstract class RepositoryModule {
     abstract fun bindNetworkConnectivityMonitor(
         networkConnectivityMonitorImpl: NetworkConnectivityMonitorImpl
     ): NetworkConnectivityMonitor
+
+    @Binds
+    @Singleton
+    abstract fun bindCorrectionFlashcardLocalDataSource(
+        impl: InMemoryCorrectionFlashcardLocalDataSource
+    ): CorrectionFlashcardLocalDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindCorrectionFlashcardRemoteDataSource(
+        impl: FirestoreCorrectionFlashcardRemoteDataSource
+    ): CorrectionFlashcardRemoteDataSource
 
     @Binds
     @Singleton

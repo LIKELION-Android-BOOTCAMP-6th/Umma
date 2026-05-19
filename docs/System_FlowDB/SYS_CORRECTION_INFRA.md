@@ -51,6 +51,8 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 
 - `CorrectionCandidate`, `CorrectionSuggestion` 등 필요한 domain 계약
 - `CorrectionRepository` 안에서 교정 결과 생성과 선택 결과 저장 요청을 함께 다루는 통합 repository 계약
+- 실제 AI API 호출을 붙일 수 있는 data 계층 adapter / mapper 경계
+- 교정 결과에서 파생된 Flashcard를 local first로 저장하고 Firestore sync 대상으로 넘기는 저장 경계
 - `CompleteCorrectionUseCase` 완료 usecase의 책임
 - fake/real 구현체를 Hilt binding으로 교체할 수 있는 DI 기준
 - 기존 `feedback` 명칭을 `correction`으로 정리하는 기준
@@ -59,10 +61,14 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 
 - Correction 화면 상태와 UI
 - Loading / Empty / Error / Retry / Saved / Completing 상태
+- `CorrectionRepository`를 호출해 실제 AI 교정 결과를 화면 상태로 연결
 - 교정 결과 카드 렌더링
 - 저장할 카드 선택
-- Flashcard 저장 호출
+- Flashcard 저장 호출과 완료/실패 상태 표시
 - 완료 후 Dashboard 복귀
+
+실제 AI API 호출과 Firestore 문서 저장 자체는 data 계층 작업이므로 System Flow에서 연결 가능한 구조를 준비한다.
+다만 사용자가 화면에서 진입해 AI 결과를 보고 저장하는 end-to-end 흐름 검증은 `FLOW-CORRECTION`의 User Flow 이슈에서 수행한다.
 
 ---
 
@@ -72,7 +78,7 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 | --- | --- |
 | `presentation` | `CorrectionScreen`, `CorrectionViewModel`, UI 상태, 사용자 선택, 로딩/에러/저장 이벤트 처리 |
 | `domain` | 후보 추출 규칙, 교정 결과 모델, UseCase, Repository interface |
-| `data` | AI 교정 요청 구현, Session Memory 조회/압축 저장, Flashcard local first 저장, 보상 rollback 저장소 계약, DTO/Entity 변환 |
+| `data` | AI 교정 요청 구현, AI 응답 파싱/mapper, Session Memory 조회/압축 저장, Flashcard local first 저장, 보상 rollback 저장소 계약, DTO/Entity 변환 |
 | `di` | fake/real 구현체 바인딩, 테스트용 repository 교체 |
 
 Composable은 `recentFullContext`를 직접 파싱하지 않는다.
@@ -80,6 +86,7 @@ ViewModel은 UseCase를 호출하고, 비즈니스 규칙은 domain 계층에서
 Repository는 저장과 외부 통신을 담당하며, 화면 정책이나 점수 계산을 직접 결정하지 않는다.
 `CorrectionRepository`는 교정 결과 생성과 선택된 교정 결과의 Flashcard 저장 요청만 담당한다.
 단, 후보 추출 규칙과 완료 순서 결정은 UseCase에 둔다.
+실제 AI 응답 원문과 JSON 파싱은 data 계층 내부에서 처리하고, presentation/domain은 `CorrectionSuggestion` 계약만 바라본다.
 
 ---
 
@@ -91,7 +98,9 @@ Correction 화면 진입
 → SessionSummary.correctionAvailable 확인
 → Session Memory의 recentFullContext 조회
 → user turn 중심 후보를 내부 추출
-→ LangState snapshot 기반 CorrectionSuggestion 생성
+→ LangState snapshot과 후보를 입력으로 실제 AI 교정 API 호출
+→ AI 응답 파싱 및 필수 필드 검증
+→ CorrectionSuggestion 생성
 → 사용자가 저장할 교정 결과 카드 선택
 → CompleteCorrectionUseCase 호출
 → Flashcard local first 저장
@@ -122,7 +131,32 @@ Correction 화면 진입
 
 ---
 
-## 8. 모델 기준
+## 8. Flashcard 저장 책임
+
+Correction에서 사용자가 선택한 `CorrectionSuggestion`을 새 Flashcard로 최초 생성하고 저장하는 책임은 `SYS-CORRECTION-INFRA`의 저장 계약에 둔다.
+이 저장은 local first로 수행하며, Firestore 동기화는 로컬 완료 이후 background sync / pending sync로 관리한다.
+
+SRS는 Correction에서 이미 저장된 Flashcard 원본을 조회하고 복습 결과에 따라 schedule/review 상태를 갱신한다.
+따라서 새 Flashcard 생성 저장을 `SYS-SRS-INFRA`나 SRS User Flow로 넘기지 않는다.
+
+```text
+CorrectionSuggestion 선택
+→ CorrectionSaveRequest 생성
+→ CorrectionRepository.saveFlashcards(...)
+→ Flashcard local first 최초 저장
+→ Firestore background sync 예약
+→ 이후 SRS에서 due deck 조회 대상으로 사용
+```
+
+Flashcard 문서/Entity는 SRS에서 읽을 수 있는 원본 카드 계약과 호환되어야 한다.
+다만 due deck 조회, SM-2 schedule 계산, review 결과 갱신은 `SYS-SRS-INFRA`의 `FlashcardRepository` 책임이다.
+Room DAO가 아직 준비되지 않은 경우에는 in-memory local data source로 local-first 순서와 중복 저장 방지 계약을 먼저 고정한다.
+Firestore sync는 `users/{uid}/flashcards/{flashcardId}` 문서 저장으로 연결하고, 실패 시 pending sync로 남긴다.
+MVP 발음 재생은 뒷면의 `backText`를 그대로 읽는 방식이므로 별도 `pronunciationText` 저장 필드는 두지 않는다.
+
+---
+
+## 9. 모델 기준
 
 | 모델 | 역할 |
 | --- | --- |
@@ -135,9 +169,21 @@ Correction 화면 진입
 `CorrectionSuggestion`은 아직 구현되지 않은 경우 `SCI-001`에서 domain 모델로 정의한다.
 기존 `CorrectionResult`와 화면 표시 모델을 섞지 않는다.
 
+### AI 응답 계약
+
+MVP User Flow는 실제 AI 교정 API를 호출해 교정 결과를 생성해야 한다.
+AI 응답은 data 계층에서 정해진 응답 계약으로 파싱하고, 필수 필드를 검증한 뒤 `CorrectionSuggestion` 목록으로 변환한다.
+AI 요청 실패, 응답 파싱 실패, 필수 필드 누락은 화면에서 Error / Retry 상태로 연결할 수 있어야 한다.
+
+System Flow에서는 실제 AI 연결이 들어갈 data adapter와 응답 mapper의 경계를 준비한다.
+User Flow에서는 그 repository 계약을 호출해 화면 상태와 실제 최소 성공 흐름을 검증한다.
+
+다만 교정 품질을 높이기 위한 prompt tuning, JSON schema 정교화, fallback 고도화는 후속 개선 범위로 둔다.
+fake/mock 또는 `CorrectionSuggestionFixtureBuilder`는 실제 AI 없이도 화면 상태, 저장 요청, 완료 파이프라인, rollback을 테스트하기 위한 보조 수단이며 실제 AI 연동을 대체하지 않는다.
+
 ---
 
-## 9. 현재 코드 정리 기준
+## 10. 현재 코드 정리 기준
 
 현재 코드에는 `presentation/feedback/FeedbackListScreen.kt`, `Route.FeedbackList`, `Route.FeedbackGraph`, `onNavigateToFeedbackList`처럼 `Feedback` 명칭이 남아 있다.
 
@@ -156,19 +202,20 @@ Correction 작업이 시작되는 시점부터 다음 명칭으로 정리한다.
 
 ---
 
-## 10. mock/real 정책
+## 11. mock/real 정책
 
 Correction은 AI 응답과 저장 흐름이 포함되므로 mock/real 교체 가능 구조가 필요하다.
 
 - UI 작업자는 mock repository로 카드 표시와 저장 상태를 먼저 구현할 수 있다.
-- 실제 API 연결은 같은 domain 계약을 사용해야 한다.
+- 실제 AI API 연결은 같은 domain 계약을 사용해야 하며, fake/mock 구현만으로 `COR-002` 최종 완료를 대체하지 않는다.
 - ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
 - 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
 
 ---
 
-## 11. 연결 문서
+## 12. 연결 문서
 
+- [SYS_CORRECTION_INFRA_OVERVIEW.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_CORRECTION_INFRA/SYS_CORRECTION_INFRA_OVERVIEW.md)
 - [FLOW_CORRECTION.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
 - [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
 - [SYS_LEARNING_STATE_INFRA_OVERVIEW.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md)
@@ -179,6 +226,6 @@ Correction은 AI 응답과 저장 흐름이 포함되므로 mock/real 교체 가
 
 ---
 
-## 12. 한 줄 요약
+## 13. 한 줄 요약
 
 > `SYS-CORRECTION-INFRA`는 User Flow 구현 전에 필요한 Correction 공통 계약을 `SCI-001` 한 단위로 선행 정리하고, 실제 화면 기능은 `FLOW-CORRECTION`의 `COR-001 ~ COR-007`에서 구현한다.

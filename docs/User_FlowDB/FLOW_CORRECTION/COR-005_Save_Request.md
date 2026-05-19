@@ -53,6 +53,8 @@
 
 저장 요청은 사용자가 선택한 `CorrectionSuggestion`을 Flashcard 저장에 필요한 입력으로 변환하는 단계다.
 실제 로컬 완료 파이프라인은 `COR-006`에서 처리한다.
+새 Flashcard의 최초 local 저장은 SRS가 아니라 Correction 완료 흐름에서 수행되므로,
+이 이슈의 요청 모델은 `CorrectionRepository.saveFlashcards(...)`가 바로 저장할 수 있는 형태로 준비되어야 한다.
 
 ## 사용 데이터
 
@@ -75,6 +77,7 @@
 selected CorrectionSuggestion list
 → Flashcard 저장 요청 모델 변환
 → CompleteCorrectionUseCase로 전달
+→ COR-006에서 새 Flashcard 최초 local 저장 실행
 ```
 
 최종 Saved 상태는 `COR-006` 로컬 완료 파이프라인이 성공한 뒤 표시한다.
@@ -88,6 +91,7 @@ selected CorrectionSuggestion list
 - 저장 버튼 클릭 후 요청 준비 중에는 중복 클릭을 막는다.
 - 저장 대상이 0개인 경우 UseCase를 호출하지 않는다.
 - 이 이슈에서는 실제 local transaction을 완료하지 않고 `COR-006`로 넘길 입력을 준비한다.
+- SRS용 `FlashcardRepository` 조회/복습 계약으로 저장 책임을 넘기지 않는다.
 
 ---
 
@@ -112,6 +116,7 @@ presentation/correction/
 
 저장 요청 모델의 세부 계약은 `SYS-CORRECTION-INFRA`를 따른다.
 실제 local first 저장 실행은 `COR-006`에서 호출하는 `CompleteCorrectionUseCase`가 담당한다.
+이 저장은 새 Flashcard 최초 생성 저장이며, SRS의 review schedule 갱신 저장과 구분한다.
 
 ---
 

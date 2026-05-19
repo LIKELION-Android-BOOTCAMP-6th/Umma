@@ -5,6 +5,7 @@
 - 사용자가 AI Chat 이후 저장된 대화에서 교정된 문장 카드를 바로 확인할 수 있다.
 - 사용자는 교정 결과 카드 중 복습하고 싶은 항목을 Flashcard로 저장할 수 있다.
 - 저장 완료 결과를 받으면 Dashboard 복귀와 다음 AI Chat 준비 흐름으로 이어진다.
+- MVP에서는 실제 AI 교정 API를 연결해 교정 결과 생성이 동작해야 하며, fake/mock 구현은 AI 없이 화면과 저장 파이프라인을 검증하기 위한 보조 수단으로 사용한다.
 
 ---
 
@@ -26,8 +27,10 @@
 - 교정 가능 여부는 `SessionSummary.correctionAvailable`을 기준으로 판단한다.
 - `DashSummary.correctionAvailable`은 Dashboard 표시용 파생값으로만 본다.
 - 후보 추출은 `SYS-CORRECTION-INFRA` 계약에 따른 내부 처리이며, 사용자는 후보 목록을 선택하지 않는다.
+- 교정 결과 생성은 실제 AI 응답을 파싱해 필수 필드가 채워진 `CorrectionSuggestion` 목록으로 변환하는 흐름을 포함한다.
 - 사용자는 진입 후 Loading을 거쳐 교정 결과 카드 목록을 확인한다.
 - 사용자는 저장할 교정 결과 카드를 선택하여 Flashcard로 저장한다.
+- 선택된 교정 결과의 새 Flashcard 최초 생성과 local first 저장은 Correction 완료 흐름에서 수행한다.
 - Flashcard 저장과 완료 처리는 `SYS-CORRECTION-INFRA`의 저장/완료 계약을 따른다.
 - 완료 성공 결과를 받으면 Dashboard 복귀 흐름으로 이어진다.
 - 완료 실패 결과를 받으면 Retry 상태를 제공한다.
@@ -39,11 +42,11 @@
 | 단계 | 사용자 행동 | 시스템 반응 | 성공 분기 | 실패 분기 | 상태 | 상세 이슈 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 초기 상태 로드 | Correction 화면 진입 | Global Learning State, SessionSummary, LangState snapshot 로드 | 교정 준비 상태 진입 | 언어 없음 / 세션 없음 / 교정 불가 | Loading / Empty / Error | COR-001 |
-| 교정 결과 생성 | 교정 준비 상태 진입 | SYS 후보 추출 계약과 LangState snapshot으로 교정 결과와 설명 생성 | CorrectionSuggestion 준비 | 후보 없음 / AI 실패 / 파싱 실패 | Loading / Empty / Error / Retry | COR-002 |
+| 교정 결과 생성 | 교정 준비 상태 진입 | SYS 후보 추출 계약, LangState snapshot, 실제 AI 응답으로 교정 결과 생성 | CorrectionSuggestion 준비 | 후보 없음 / AI 실패 / 파싱 실패 | Loading / Empty / Error / Retry | COR-002 |
 | 결과 카드 표시 | 교정 결과 카드 확인 | 교정 전/후 문장과 설명을 표시 | 저장 가능한 카드 출력 | 렌더링 실패 | Content / Error | COR-003 |
 | 저장 카드 선택 | 저장할 카드 선택/해제 | 선택 상태를 화면 상태로 관리 | 저장 대상 준비 | 선택 항목 없음 | Content / Disabled | COR-004 |
 | Flashcard 저장 요청 준비 | 저장 버튼 클릭 | 선택 항목을 저장 요청 모델로 변환 | 완료 파이프라인 호출 가능 | 저장 요청 변환 실패 | Preparing / Error | COR-005 |
-| 완료 결과 연결 | 저장 요청 후 완료 처리 | `CompleteCorrectionUseCase` 호출 및 완료 결과 반영 | 로컬 완료 성공 | 로컬 완료 실패 | Completing / Retry | COR-006 |
+| 완료 결과 연결 | 저장 요청 후 완료 처리 | `CompleteCorrectionUseCase` 호출, 새 Flashcard local first 저장 결과 반영 | 로컬 완료 성공 | 로컬 완료 실패 | Completing / Retry | COR-006 |
 | 복귀 및 후처리 | 완료 후 Dashboard 복귀 | Dashboard 복귀 이벤트 처리, sync pending 상태 유지 | Dashboard 복귀 완료 | 복귀 실패 / sync pending | Done / PendingSync | COR-007 |
 
 ---
@@ -68,7 +71,8 @@
 - 하나의 이슈는 화면, 상태, domain 처리, 저장, 후처리 중 하나의 책임만 중심으로 잡는다.
 - 팀원이 PR을 올렸을 때 1차 리뷰에서 완료 여부를 판단할 수 있을 정도로 작업 단위를 작게 유지한다.
 - 뒤 이슈의 구현을 앞 이슈에서 미리 완성하지 않는다.
-- mock 데이터로 확인 가능한 이슈는 실제 API 연결을 기다리지 않고 먼저 완료할 수 있다.
+- mock 데이터로 확인 가능한 화면/상태 이슈는 실제 API 연결을 기다리지 않고 먼저 검증할 수 있다.
+- 단, `COR-002` 완료 기준에는 실제 AI API 호출, 응답 파싱, `CorrectionSuggestion` 변환, 실패/Error/Retry 검증이 포함된다.
 
 ---
 
@@ -105,12 +109,14 @@ GlobalLangState
 ```text
 SYS-CORRECTION-INFRA 후보 추출 계약
 → 내부 후보 준비
-→ LangState snapshot 기반 교정 결과와 설명 생성
+→ 실제 AI 교정 API 호출
+→ AI 응답 파싱 및 필수 필드 검증
 → CorrectionSuggestion 생성
 → CorrectionSuggestion 카드 표시
 ```
 
 후보 추출 세부 정책과 내부 후보 모델은 `SYS-CORRECTION-INFRA`의 후보 추출 계약을 따른다.
+AI 응답 원문이나 JSON 파싱은 화면에서 직접 처리하지 않고, `CorrectionRepository`의 data 계층 구현과 mapper를 통해 `CorrectionSuggestion`으로 변환한다.
 
 ### 7.3 모델 분리
 
@@ -123,17 +129,22 @@ SYS-CORRECTION-INFRA 후보 추출 계약
 ### 7.4 완료 기준
 
 교정 화면을 단순히 이탈했다고 완료로 보지 않는다.
+Correction에서 선택한 교정 결과는 이 완료 흐름 안에서 새 Flashcard로 최초 저장된다.
+SRS는 이 저장을 대신 수행하지 않고, 저장된 Flashcard를 이후 복습 대상으로 조회한다.
 
 ```text
 교정 결과 카드 확인
 → 사용자가 Flashcard 저장 항목 선택
 → CompleteCorrectionUseCase 호출
+→ 새 Flashcard local first 저장
+→ Firestore background sync 예약
 → 완료 성공/실패 결과 수신
 → Done 또는 Retry 상태 전환
 ```
 
 저장 항목이 0개이면 완료/압축을 수행하지 않는다.
 로컬 완료 파이프라인 내부 순서, rollback, pending sync 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
+Firestore sync 실패만 발생한 경우에는 로컬 저장 성공을 유지하고 pending sync 상태로 다룬다.
 
 ---
 

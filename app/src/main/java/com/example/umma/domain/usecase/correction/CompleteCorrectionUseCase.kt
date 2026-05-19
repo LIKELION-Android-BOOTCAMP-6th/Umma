@@ -71,8 +71,8 @@ class CompleteCorrectionUseCase @Inject constructor(
 
             Result.success(
                 CompleteCorrectionResult(
-                    savedFlashcardIds = saveResult.localSavedSuggestionIds,
-                    pendingSyncFlashcardIds = saveResult.pendingSyncSuggestionIds,
+                    savedFlashcardIds = saveResult.localSavedFlashcardIds,
+                    pendingSyncFlashcardIds = saveResult.pendingSyncFlashcardIds,
                     sessionMemoryKey = input.langStateUpdateInput.sessionMemoryKey,
                     completedAt = input.requestedAt
                 )

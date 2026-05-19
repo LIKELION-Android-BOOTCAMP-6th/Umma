@@ -185,8 +185,8 @@ class CompleteCorrectionUseCaseTest {
             events += "save"
             return Result.success(
                 CorrectionSaveResult(
-                    localSavedSuggestionIds = request.flashcards.map { it.suggestionId },
-                    pendingSyncSuggestionIds = request.flashcards.map { it.suggestionId },
+                    localSavedFlashcardIds = request.flashcards.map { it.suggestionId },
+                    pendingSyncFlashcardIds = request.flashcards.map { it.suggestionId },
                     savedAt = request.requestedAt
                 )
             )

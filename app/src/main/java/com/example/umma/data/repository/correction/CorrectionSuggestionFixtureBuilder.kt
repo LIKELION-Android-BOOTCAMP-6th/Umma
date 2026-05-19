@@ -5,15 +5,15 @@ import com.example.umma.domain.model.correction.CorrectionSuggestion
 import com.example.umma.domain.model.correction.GenerateSuggestionsInput
 
 /**
- * Correction Repository 구현체들이 공유하는 deterministic 변환 규칙입니다.
+ * 실제 AI 없이 CorrectionSuggestion fixture를 만드는 deterministic builder입니다.
  *
- * 이 객체는 실제 AI 응답을 대신하는 "더미 변환기"가 아니다.
- * 지금 단계에서는 교정 결과의 계약 모양을 먼저 고정해 두고,
- * repository 구현체가 같은 입력에 대해 같은 출력 형태를 내도록 맞추기 위한 보조 계층이다.
+ * 이 객체는 실제 AI 응답 mapper가 아니다.
+ * fake/test 환경에서 교정 결과의 계약 모양을 고정하고,
+ * 같은 입력에 대해 예측 가능한 CorrectionSuggestion을 만들기 위한 fixture 생성기다.
  *
- * 즉, 화면과 저장소가 기대하는 결과 구조를 안정적으로 검증하기 위한 내부 공통 규칙 모음이다.
+ * 실제 AI 연동 후에도 화면 상태, 저장 요청, rollback 흐름을 AI 없이 검증할 때만 사용한다.
  */
-internal object CorrectionRepositorySupport {
+internal object CorrectionSuggestionFixtureBuilder {
 
     fun buildSuggestions(input: GenerateSuggestionsInput): List<CorrectionSuggestion> {
         // 후보가 없으면 결과도 비어 있어야 화면이 Empty 상태로 자연스럽게 이어진다.

@@ -44,9 +44,9 @@ data class CorrectionFlashcardSaveItem(
  */
 data class CorrectionSaveResult(
     // 로컬 저장에 반영된 카드 ID.
-    val localSavedSuggestionIds: List<String>,
+    val localSavedFlashcardIds: List<String>,
     // 원격 pending sync 로 남은 카드 ID.
-    val pendingSyncSuggestionIds: List<String>,
+    val pendingSyncFlashcardIds: List<String>,
     // 저장 반영 시각.
     val savedAt: Long
 )
