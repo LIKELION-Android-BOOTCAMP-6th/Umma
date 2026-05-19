@@ -1,5 +1,6 @@
 package com.example.umma.presentation.dashboard
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -49,6 +51,14 @@ fun MyPageScreen(
     var showNativeLanguageDialog by remember { mutableStateOf(false) }
     var selectedNativeLanguage by remember { mutableStateOf(LangCode.KO) }
     val uiState by authViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            authViewModel.updateErrorMessage(null)
+        }
+    }
 
     LaunchedEffect(uiState.isLogoutCompleted) {
         if (uiState.isLogoutCompleted) {

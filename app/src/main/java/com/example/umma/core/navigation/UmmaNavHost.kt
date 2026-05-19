@@ -80,7 +80,8 @@ fun UmmaNavHost(
                 MyPageScreen(
                     onNavigateToOnBoarding = {
                         navController.navigate(Route.OnBoarding) {
-                            popUpTo(Route.HomeGraph) { inclusive = true }
+                            // 로그아웃 후 BackStack 전체 초기화
+                            popUpTo(0) { inclusive = true }
                         }
                     },
                     onBackClick = { navController.popBackStack() }
