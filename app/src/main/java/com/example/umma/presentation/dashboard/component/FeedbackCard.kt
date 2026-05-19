@@ -27,11 +27,35 @@ import com.example.umma.core.theme.TitleCardR
 /**
  * 대시보드 - 교정 대기 카드.
  *
- * SSOT: DASH-001 "Dashboard 카드 구성 → 2. 교정 대기 카드" / DASH-003 본 구현 대상.
+ * SSOT: DASH-003_Correction_Pending_Card.md
+ *  (선반영 메모: DASH-001 "Dashboard 카드 구성 → 2. 교정 대기 카드" 에서 골격을 먼저 잡았다.)
+ *
+ * 충족 AC:
+ *  - AC 1 카드 정상 출력
+ *  - AC 2 최근 대화 기록 존재 여부 — 우상단 빨간 점 ([correctionAvailable] 기반.
+ *         correctionAvailable=true 이면 재사용 가능한 최근 대화 존재가 함의되므로
+ *         AC 2 / AC 5 가 동일 시각 시그널로 충족된다)
+ *  - AC 4 최근 대화 시간 표시 — 하단 "대화 기록" 칩 ([recentConversationMinutes] > 0)
+ *  - AC 5 현재 선택 언어의 재사용 Session Memory 에 교정 가능한 turn 존재 표시
+ *         — 동일 빨간 점
+ *  - AC 6 카드 클릭 → Correction 화면 이동 (호출자 [onClick] 람다가 navigate 담당,
+ *         UmmaNavHost 에서 Route.FeedbackList 로 wiring 됨)
+ *  - AC 8 recentFullContext 가 없을 경우 Empty 표시 — 점/칩 모두 자동 hide.
+ *         본문 텍스트는 영구 CTA ("더 좋은 표현을 배워봐요!") 로 유지
+ *         (ConversationCard 와 동일 패턴)
+ *  - AC 9 카드 클릭 중 중복 Navigation 방지 — [rememberDashboardCardClick] 500ms throttle
+ *
+ * 스킵 AC:
+ *  - AC 3 현재 선택 언어가 카드에 표시 — 화면 우측 상단 LearningLanguageSelector
+ *         (DASH-006) 가 이미 현재 언어를 노출하므로 카드 본문에 중복 표시하지 않는다.
+ *  - AC 7 selectedLearningLanguage 가 Correction 화면으로 전달 — 팀 정책상 Correction
+ *         화면이 [GlobalLangState] 를 직접 구독하므로 Dashboard 측 인자 전달 불필요.
  *
  * @param correctionAvailable 현재 선택 언어의 재사용 Session Memory 에 교정 가능한 turn 존재 여부.
  *                            true 일 때 우상단 배지 dot 노출.
  * @param recentConversationMinutes 최근 대화 누적 분. null 또는 0 이면 칩 미표시.
+ * @param onClick 카드 클릭 시 호출. throttle 은 카드 내부에서 처리되므로 호출자는
+ *                단순히 navigate 만 수행하면 된다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,9 +66,13 @@ fun FeedbackCard(
     modifier: Modifier = Modifier
 ) {
     val accent = TextLogout
+    // AC 9: 카드 onClick 을 throttle 로 감싸 연타 → 중복 navigate 차단.
+    //   DASH-002 ConversationCard 와 동일 헬퍼 (DashboardCardCommon.rememberDashboardCardClick)
+    //   재사용. 500ms 윈도우 안의 추가 클릭은 silently drop.
+    val throttledOnClick = rememberDashboardCardClick(onClick)
 
     Card(
-        onClick = onClick,
+        onClick = throttledOnClick,
         modifier = modifier,
         shape = RoundedCornerShape(CardCornerRadius),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
