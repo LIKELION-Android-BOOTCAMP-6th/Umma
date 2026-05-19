@@ -1,9 +1,15 @@
 package com.example.umma.presentation.auth
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.umma.domain.model.learningstate.LangCode
+import com.example.umma.domain.usecase.auth.CheckInitialSetupUseCase
 import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.usecase.auth.SignInWithGoogleUseCase
+import com.example.umma.domain.usecase.auth.SignOutUseCase
+import com.example.umma.domain.usecase.user.InitializeUserDataUseCase
+import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,10 +28,17 @@ class AuthViewModel @Inject constructor(
     /**
      * 로그인 상태 확인용
      */
-    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase
+    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
+    /**
+     * 첫 사용자 데이터 Firestore 저장용 */
+    private val initializeUserDataUseCase: InitializeUserDataUseCase,
+    private val checkInitialSetupUseCase: CheckInitialSetupUseCase,
+    private val signOutUseCase: SignOutUseCase,
+    private val firestore: FirebaseFirestore
+
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AuthUiState())
+    private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     init {
@@ -37,10 +50,14 @@ class AuthViewModel @Inject constructor(
      */
     private fun observeAuthStatus() {
         viewModelScope.launch {
-            getCurrentUserUidUseCase().collect() { uid ->
+            getCurrentUserUidUseCase().collect { uid ->
                 if (uid != null) {
                     _uiState.update {
                         it.copy(googleState = GoogleAuthState.SUCCESS)
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(googleState = GoogleAuthState.IDLE)
                     }
                 }
             }
@@ -53,7 +70,6 @@ class AuthViewModel @Inject constructor(
      * useCase 실행 후 결과로 ui 상태 업데이트
      */
     fun signInWithGoogle(idToken: String) {
-        if (_uiState.value.isLoading) return
         viewModelScope.launch {
             /** 로그인 시작 로딩... */
             _uiState.update {
@@ -62,15 +78,16 @@ class AuthViewModel @Inject constructor(
                     errorMessage = null
                 )
             }
-            signInWithGoogleUseCase(idToken).onSuccess {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        googleState = GoogleAuthState.SUCCESS
-                    )
-                }
-            }
-                .onFailure {
+            try {
+                val result = signInWithGoogleUseCase(idToken)
+                result.onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            googleState = GoogleAuthState.SUCCESS
+                        )
+                    }
+                }.onFailure {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -79,6 +96,15 @@ class AuthViewModel @Inject constructor(
                         )
                     }
                 }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "google 로그인 시도 중 에러 발생"
+                    )
+                }
+                Log.e("UmmaDev", "signInWithGoogle - ", e)
+            }
         }
     }
 
@@ -88,6 +114,152 @@ class AuthViewModel @Inject constructor(
                 errorMessage = message,
                 googleState = GoogleAuthState.FAILED
             )
+        }
+    }
+
+    /**
+     * Google 로그인 버튼 중복 클릭 방지를 위해 추가
+     */
+    fun updateLoading(isLoading: Boolean) {
+        _uiState.update {
+            it.copy(isLoading = isLoading)
+        }
+    }
+
+
+    /**
+     * 신규 가입자 대상 초기 설정 프로세스 시작
+     */
+    fun startInitialSetupFlow() {
+        viewModelScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+            if (uid == null) return@launch
+
+            val isNewUser = checkInitialSetupUseCase(uid)
+
+            if (isNewUser) {
+                _uiState.update { it.copy(initialSetupDialogStep = InitialSetupDialogStep.NICKNAME) }
+            } else {
+            }
+        }
+    }
+
+    /**
+     * 닉네임 다이얼로그 확인 클릭 시 실행
+     * 닉네임 검사, 저장, 다이얼로그 상태 변경
+     */
+    fun onNicknameConfirm(nickname: String) {
+        // 공백 검사, 글자수 제한
+        if (nickname.isBlank() || nickname.length !in 2..10) {
+            _uiState.update { it.copy(errorMessage = "닉네임은 2자 이상 10자 이하로 입력해 주세요.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                nickname = nickname,
+                initialSetupDialogStep = InitialSetupDialogStep.LANGUAGE,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun onLanguageSelectAndSave(selectedLang: LangCode) {
+        _uiState.update { it.copy(isLoading = true) }
+
+        viewModelScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+            val email = getCurrentUserUidUseCase.getCurrentUserEmail()
+            if (uid.isNullOrBlank() || email.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "관리자에게 문의 바랍니다."
+                    )
+                }
+                return@launch
+            }
+
+            val result = initializeUserDataUseCase(
+                uid = uid,
+                email = email,
+                nickname = _uiState.value.nickname,
+                nativeLang = LangCode.KO,
+                primaryLang = selectedLang,
+                topics = emptyList()
+            )
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        initialSetupDialogStep = InitialSetupDialogStep.NONE
+                    )
+                }
+            }.onFailure { e ->
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "저장 실패..."
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 로컬 Firebase 세션 확인하여 로그인 여부 판단
+     * 초기 설정 : 닉네임, 학습 언어 선택
+     * 미인증 (uid == null) : GoogleAuthState.IDLE -> 온보딩 이동
+     * 가입, 초기 설정 필요(isNewUser) -> 대시보드 이동, 다이얼로그 표시
+     * 가입, 초기 설정 완료(!isNewUser) -> 대시보드 이동
+     */
+    fun checkSession() {
+        viewModelScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+            // 미로그인 -> OnBoarding 이동
+            if (uid == null) {
+                _uiState.update { it.copy(googleState = GoogleAuthState.IDLE) }
+                return@launch
+            }
+            // 로그인 O
+            val isNewUser = checkInitialSetupUseCase(uid)
+
+            _uiState.update {
+                it.copy(
+                    googleState = GoogleAuthState.SUCCESS,
+                    initialSetupDialogStep = if (isNewUser) {
+                        InitialSetupDialogStep.NICKNAME
+                    } else {
+                        InitialSetupDialogStep.NONE
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * 현재 로그인된 사용자의 로그아웃 처리
+     * Firebase Authentication 세션 완전히 해제
+     * 파이어베이스가 구글 서버에 저장된 유저의 로그인 토큰을 만료, 인증 세션 끊는 작업
+     */
+    fun signOut() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val result = signOutUseCase()
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        googleState = GoogleAuthState.IDLE,
+                        errorMessage = null,
+                        nickname = "",
+                        initialSetupDialogStep = InitialSetupDialogStep.NONE,
+                        isLogoutCompleted = true
+                    )
+                }
+            }.onFailure {
+                _uiState.update { it.copy(errorMessage = "로그아웃에 실패했습니다.") }
+            }
+
         }
     }
 }

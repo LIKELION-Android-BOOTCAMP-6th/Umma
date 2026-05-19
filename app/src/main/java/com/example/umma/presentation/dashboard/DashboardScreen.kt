@@ -28,10 +28,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.umma.core.theme.BackgroundPrimary
@@ -73,7 +77,8 @@ fun DashboardScreen(
     onNavigateToFeedbackList: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
-    viewModel: DashboardViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel(),
+    authViewModel: AuthViewModel = hiltViewModel()
 ) {
     // 현재 Activity 컨텍스트. Toast 표시 + UiText.asString(context) 변환용.
     val context = LocalContext.current
@@ -93,9 +98,11 @@ fun DashboardScreen(
     // ViewModel 의 uiState 를 lifecycle 안전하게 구독한 결과.
     //   값이 바뀌면 Compose 가 recomposition.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val authState by authViewModel.uiState.collectAsStateWithLifecycle()
     // Snackbar 큐 host. errorMessage 가 세팅되면 LaunchedEffect 가 여기로 showSnackbar 호출.
     val snackbarHostState = remember { SnackbarHostState() }
-
+    var nicknameInput by remember { mutableStateOf("") }
+    var selectedLanguage by remember { mutableStateOf(LangCode.KO) }
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
@@ -104,6 +111,12 @@ fun DashboardScreen(
     // 디버그용: state 변동 시 로그.
     LaunchedEffect(uiState) {
         Log.d("DashboardScreen", "uiState=$uiState")
+    }
+
+    LaunchedEffect(uiState.isEmpty) {
+        if (uiState.isEmpty && authState.initialSetupDialogStep == InitialSetupDialogStep.NONE) {
+            authViewModel.startInitialSetupFlow()
+        }
     }
 
     // DASH-001 AC 7: errorMessage 가 세팅되면 Snackbar 표시.
@@ -169,6 +182,73 @@ fun DashboardScreen(
                     onNavigateToFeedbackList = onNavigateToFeedbackList,
                     onNavigateToStudyList = onNavigateToStudyList
                 )
+            }
+        }
+        // 사용자 닉네임 설정 다이얼로그
+        when (authState.initialSetupDialogStep) {
+            InitialSetupDialogStep.NONE -> {}
+            //
+            InitialSetupDialogStep.NICKNAME -> {
+                UmmaDialog(
+                    title = "닉네임 설정",
+                    modifier = Modifier.padding(horizontal = SpacingL),
+                    onCancel = {},
+                    onConfirm = { authViewModel.onNicknameConfirm(nicknameInput) },
+                    confirmText = "확인",
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        OutlinedTextField(
+                            value = nicknameInput,
+                            onValueChange = { nicknameInput = it },
+//                            placeholder = { Text("2~10자 입력") },
+                            placeholder = { Text("2~10자 입력") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                    if (authState.errorMessage != null) {
+                        Spacer(
+                            modifier = Modifier.height(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // 학습 언어 선택 다이얼로그
+            InitialSetupDialogStep.LANGUAGE -> {
+
+                UmmaDialog(
+                    title = "학습 언어 선택",
+                    modifier = Modifier.padding(horizontal = SpacingL),
+                    onCancel = {},
+                    onConfirm = {
+                        authViewModel.onLanguageSelectAndSave(
+                            selectedLang = selectedLanguage,
+                        )
+                    },
+                    confirmText = "완료"
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                    ) {
+
+                        learningLanguageOptions.forEach { (code, label) ->
+                            val isSelected = (selectedLanguage == code)
+                            LanguageButton(
+                                text = label,
+                                isSelected = isSelected,
+                                onClick = { selectedLanguage = code }
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -291,3 +371,40 @@ private fun DashboardCardGrid(
         Spacer(modifier = Modifier.height(SpacingL))
     }
 }
+
+/**
+ * 다이얼로그에 학습 언어 리스트에 사용되는 버튼
+ */
+@Composable
+private fun LanguageButton(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = BackgroundSecondary
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    )
+    {
+        Text(
+            text = text,
+            fontSize = 16.sp,
+            color = if (isSelected) ThemePrimary else TextPrimary
+        )
+    }
+}
+
+private val learningLanguageOptions = listOf(
+    LangCode.KO to "한국어",
+    LangCode.EN to "English",
+    LangCode.JA to "日本語",
+    LangCode.ES to "Español"
+)
