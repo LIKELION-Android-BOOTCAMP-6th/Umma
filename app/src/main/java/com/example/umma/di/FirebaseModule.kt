@@ -1,6 +1,7 @@
 package com.example.umma.di
 
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -26,6 +27,10 @@ object FirebaseModule {
     @Provides
     @Singleton
     fun provideFirestore(): FirebaseFirestore {
-        return FirebaseFirestore.getInstance()
+//        return FirebaseFirestore.getInstance()
+        return FirebaseFirestore.getInstance(
+            FirebaseApp.getInstance(),
+            "default"
+        )
     }
 }

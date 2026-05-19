@@ -5,6 +5,7 @@ import com.example.umma.core.util.NetworkConnectivityMonitorImpl
 import com.example.umma.data.repository.AuthRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
+import com.example.umma.data.repository.UserProfileRepositoryImpl
 import com.example.umma.data.source.remote.LearningStateRemoteDataSource
 import com.example.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.example.umma.domain.repository.AuthRepository
@@ -12,6 +13,7 @@ import com.example.umma.domain.repository.ChatRepository
 import com.example.umma.domain.repository.LearningStateRepo
 import com.example.umma.data.repository.SessionMemoryRepositoryImpl
 import com.example.umma.domain.repository.SessionMemoryRepository
+import com.example.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -65,4 +67,9 @@ abstract class RepositoryModule {
         impl: SessionMemoryRepositoryImpl
     ): SessionMemoryRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindUserProfileRepository(
+        userProfileRepositoryImpl: UserProfileRepositoryImpl
+    ): UserProfileRepository
 }
