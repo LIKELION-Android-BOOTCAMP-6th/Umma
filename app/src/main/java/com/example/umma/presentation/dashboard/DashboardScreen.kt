@@ -4,14 +4,22 @@ import android.app.Activity
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -20,18 +28,32 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.umma.core.theme.SpacingS
+import com.example.umma.core.theme.BackgroundPrimary
+import com.example.umma.core.theme.SpacingL
+import com.example.umma.core.theme.SpacingM
+import com.example.umma.core.theme.SpacingXS
+import com.example.umma.core.theme.TextExplanationR
+import com.example.umma.core.theme.TextPrimary
 import com.example.umma.core.ui.component.UmmaAppBar
+import com.example.umma.domain.model.learningstate.DashSummary
+import com.example.umma.presentation.dashboard.component.AnalyticsCard
+import com.example.umma.presentation.dashboard.component.ConversationCard
 import com.example.umma.presentation.dashboard.component.DashboardEmpty
-import com.example.umma.presentation.dashboard.component.DashboardSkeleton
-import com.example.umma.presentation.dashboard.component.LearningLanguageSelector
 import com.example.umma.presentation.dashboard.component.DashboardError
+import com.example.umma.presentation.dashboard.component.DashboardSkeleton
+import com.example.umma.presentation.dashboard.component.FeedbackCard
+import com.example.umma.presentation.dashboard.component.LearningLanguageSelector
+import com.example.umma.presentation.dashboard.component.StudyCard
 
 /**
  * 대시보드(홈) 화면.
@@ -55,7 +77,8 @@ fun DashboardScreen(
     onNavigateToCorrection: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
-    viewModel: DashboardViewModel = hiltViewModel()
+    viewModel: DashboardViewModel = hiltViewModel(),
+    authViewModel: AuthViewModel = hiltViewModel()
 ) {
     // 현재 Activity 컨텍스트. Toast 표시 + UiText.asString(context) 변환용.
     val context = LocalContext.current
@@ -75,9 +98,11 @@ fun DashboardScreen(
     // ViewModel 의 uiState 를 lifecycle 안전하게 구독한 결과.
     //   값이 바뀌면 Compose 가 recomposition.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val authState by authViewModel.uiState.collectAsStateWithLifecycle()
     // Snackbar 큐 host. errorMessage 가 세팅되면 LaunchedEffect 가 여기로 showSnackbar 호출.
     val snackbarHostState = remember { SnackbarHostState() }
-
+    var nicknameInput by remember { mutableStateOf("") }
+    var selectedLanguage by remember { mutableStateOf(LangCode.KO) }
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
@@ -86,6 +111,12 @@ fun DashboardScreen(
     // 디버그용: state 변동 시 로그.
     LaunchedEffect(uiState) {
         Log.d("DashboardScreen", "uiState=$uiState")
+    }
+
+    LaunchedEffect(uiState.isEmpty) {
+        if (uiState.isEmpty && authState.initialSetupDialogStep == InitialSetupDialogStep.NONE) {
+            authViewModel.startInitialSetupFlow()
+        }
     }
 
     // DASH-001 AC 7: errorMessage 가 세팅되면 Snackbar 표시.
@@ -98,6 +129,7 @@ fun DashboardScreen(
     }
 
     Scaffold(
+        containerColor = BackgroundPrimary,
         topBar = {
             UmmaAppBar(
                 title = "Umma",
@@ -120,6 +152,15 @@ fun DashboardScreen(
                             }
                         )
                     }
+                    // 와이어프레임 정합: AppBar 우측 끝에 마이페이지 진입 IconButton.
+                    Spacer(modifier = Modifier.width(SpacingXS))
+                    IconButton(onClick = onNavigateToMyPage) {
+                        Icon(
+                            imageVector = Icons.Outlined.AccountCircle,
+                            contentDescription = "마이페이지",
+                            tint = TextPrimary
+                        )
+                    }
                 }
             )
         },
@@ -135,6 +176,7 @@ fun DashboardScreen(
                 uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
                 uiState.isEmpty -> DashboardEmpty(onStartConversation = onNavigateToChat)
                 else -> DashboardContent(
+                    summary = uiState.summary,
                     onNavigateToAnalytics = onNavigateToAnalytics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
@@ -143,43 +185,227 @@ fun DashboardScreen(
                 )
             }
         }
+        // 사용자 닉네임 설정 다이얼로그
+        when (authState.initialSetupDialogStep) {
+            InitialSetupDialogStep.NONE -> {}
+            //
+            InitialSetupDialogStep.NICKNAME -> {
+                UmmaDialog(
+                    title = "닉네임 설정",
+                    modifier = Modifier.padding(horizontal = SpacingL),
+                    onCancel = {},
+                    onConfirm = { authViewModel.onNicknameConfirm(nicknameInput) },
+                    confirmText = "확인",
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        OutlinedTextField(
+                            value = nicknameInput,
+                            onValueChange = { nicknameInput = it },
+//                            placeholder = { Text("2~10자 입력") },
+                            placeholder = { Text("2~10자 입력") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                    if (authState.errorMessage != null) {
+                        Spacer(
+                            modifier = Modifier.height(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // 학습 언어 선택 다이얼로그
+            InitialSetupDialogStep.LANGUAGE -> {
+
+                UmmaDialog(
+                    title = "학습 언어 선택",
+                    modifier = Modifier.padding(horizontal = SpacingL),
+                    onCancel = {},
+                    onConfirm = {
+                        authViewModel.onLanguageSelectAndSave(
+                            selectedLang = selectedLanguage,
+                        )
+                    },
+                    confirmText = "완료"
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                    ) {
+
+                        learningLanguageOptions.forEach { (code, label) ->
+                            val isSelected = (selectedLanguage == code)
+                            LanguageButton(
+                                text = label,
+                                isSelected = isSelected,
+                                onClick = { selectedLanguage = code }
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 /**
  * Dashboard "success(content)" 상태에서 보여지는 UI.
  *
- * 현재는 placeholder(navigate 버튼 + 임시 selector) 그대로 유지한다.
- * 후속:
- *  - DASH-002: 카드 4 개 컴포저블로 교체
- *  - DASH-006: 학습 언어 selector 컴포저블로 교체
+ * 와이어프레임 정합: 상단 인사 텍스트 + 2x2 카드 그리드.
+ *
+ * 카드 4 종은 모두 [summary] 의 필드를 매핑해 받는다 — DASH-001 의 "DashSummary
+ * 만 사용한다" 정책. 카드 props 명은 카드 의미(recentConversationTopic 등) 기준이고,
+ * 도메인 모델(DashSummary.recentTopic 등) → props 매핑은 여기서만 한 곳에 모아둔다.
+ *
+ * onClick 시그니처는 현재 () -> Unit. DASH-002~005 본 구현에서 selectedLearningLanguage
+ * 전달이 요구되면, 화면 측에서 selected 를 클로저로 capture 해 navigate 람다에 실어 보낸다
+ * — 카드 디자인은 그대로 유지.
  */
 @Composable
 private fun DashboardContent(
+    summary: DashSummary?,
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
     onNavigateToStudyList: () -> Unit,
-    onNavigateToMyPage: () -> Unit,
 ) {
     Column(
         modifier = Modifier
-            .padding(SpacingS)
+            .padding(horizontal = SpacingL)
             .fillMaxSize()
     ) {
-        Text(text = "Dashboard placeholder (DASH-002 ~ DASH-006 본 구현 전)")
+        Spacer(modifier = Modifier.height(SpacingXS))
 
-        Spacer(modifier = Modifier.height(SpacingS))
+        Text(
+            text = "편안한 대화, 즐거운 학습!",
+            style = TextExplanationR,
+            color = TextPrimary
+        )
 
-        // === DASH-002 자리: 카드 4 개 (현재는 navigate 버튼) ===
-        Button(onClick = onNavigateToChat) { Text("대화") }
-        Button(onClick = onNavigateToStudyList) { Text("학습") }
-        Button(onClick = onNavigateToCorrection) { Text("교정") }
-        Button(onClick = onNavigateToAnalytics) { Text("통계") }
+        Spacer(modifier = Modifier.height(SpacingL))
 
-        Spacer(modifier = Modifier.height(SpacingS))
-
-        // === 마이페이지 ===
-        Button(onClick = onNavigateToMyPage) { Text("마이페이지") }
+        DashboardCardGrid(
+            summary = summary,
+            onNavigateToChat = onNavigateToChat,
+            onNavigateToStudyList = onNavigateToStudyList,
+            onNavigateToFeedbackList = onNavigateToFeedbackList,
+            onNavigateToAnalytics = onNavigateToAnalytics
+        )
     }
 }
+
+/**
+ * 2x2 카드 그리드. (대화 / 학습) (교정 / 통계).
+ *
+ * 모든 카드는 [summary] 의 필드를 받아 표시 — null 인 경우 합리적 기본값으로 매핑.
+ *  - non-null 필드(Int/Boolean): ?: 0 / ?: false 로 fallback
+ *  - nullable 필드(topic): 그대로 null 전달 — 카드 내부에서 표시 분기.
+ */
+@Composable
+private fun DashboardCardGrid(
+    summary: DashSummary?,
+    onNavigateToChat: () -> Unit,
+    onNavigateToStudyList: () -> Unit,
+    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToAnalytics: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(SpacingM)
+        ) {
+            ConversationCard(
+                recentConversationTopic = summary?.recentTopic,
+                recentConversationMinutes = summary?.recentMinutes,
+                onClick = onNavigateToChat,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            )
+            StudyCard(
+                dueFlashcards = summary?.dueFlashcards ?: 0,
+                recentSavedFlashcards = summary?.savedFlashcards ?: 0,
+                onClick = onNavigateToStudyList,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            )
+        }
+
+        Spacer(modifier = Modifier.height(SpacingM))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(SpacingM)
+        ) {
+            FeedbackCard(
+                correctionAvailable = summary?.correctionAvailable ?: false,
+                recentConversationMinutes = summary?.recentMinutes,
+                onClick = onNavigateToFeedbackList,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            )
+            AnalyticsCard(
+                grammarScoreDelta = summary?.grammarDelta ?: 0,
+                vocabularyScoreDelta = summary?.vocabDelta ?: 0,
+                fluencyScoreDelta = summary?.fluencyDelta ?: 0,
+                naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
+                onClick = onNavigateToAnalytics,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            )
+        }
+
+        Spacer(modifier = Modifier.height(SpacingL))
+    }
+}
+
+/**
+ * 다이얼로그에 학습 언어 리스트에 사용되는 버튼
+ */
+@Composable
+private fun LanguageButton(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = BackgroundSecondary
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    )
+    {
+        Text(
+            text = text,
+            fontSize = 16.sp,
+            color = if (isSelected) ThemePrimary else TextPrimary
+        )
+    }
+}
+
+private val learningLanguageOptions = listOf(
+    LangCode.KO to "한국어",
+    LangCode.EN to "English",
+    LangCode.JA to "日本語",
+    LangCode.ES to "Español"
+)

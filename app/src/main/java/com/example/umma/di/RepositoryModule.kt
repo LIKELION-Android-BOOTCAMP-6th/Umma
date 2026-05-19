@@ -11,6 +11,7 @@ import com.example.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.local.InMemoryCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.example.umma.data.source.remote.FirestoreCorrectionFlashcardRemoteDataSource
+import com.example.umma.data.repository.UserProfileRepositoryImpl
 import com.example.umma.data.source.remote.LearningStateRemoteDataSource
 import com.example.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.example.umma.domain.repository.AuthRepository
@@ -18,6 +19,7 @@ import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.repository.ChatRepository
 import com.example.umma.domain.repository.LearningStateRepo
 import com.example.umma.domain.repository.SessionMemoryRepository
+import com.example.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -92,4 +94,9 @@ abstract class RepositoryModule {
         impl: LearningStateRemoteDataSourceImpl
     ): LearningStateRemoteDataSource
 
+    @Binds
+    @Singleton
+    abstract fun bindUserProfileRepository(
+        userProfileRepositoryImpl: UserProfileRepositoryImpl
+    ): UserProfileRepository
 }

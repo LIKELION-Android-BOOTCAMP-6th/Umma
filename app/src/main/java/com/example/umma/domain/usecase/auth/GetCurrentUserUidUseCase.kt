@@ -12,4 +12,9 @@ class GetCurrentUserUidUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
     operator fun invoke(): Flow<String?> = authRepository.currentUserUid
+
+    /** 동기, 즉시 조회*/
+    fun getCurrentUserUid(): String? = authRepository.getCurrentUserUid()
+    /** 동기, 즉시 조회*/
+    fun getCurrentUserEmail(): String? = authRepository.getCurrentUserEmail()
 }
