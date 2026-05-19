@@ -252,7 +252,7 @@ private fun DashboardCardGrid(
             )
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
-                recentSavedFlashcards = summary?.savedFlashcards ?: 0,
+                savedFlashcards = summary?.savedFlashcards ?: 0,
                 onClick = onNavigateToStudyList,
                 modifier = Modifier
                     .weight(1f)
