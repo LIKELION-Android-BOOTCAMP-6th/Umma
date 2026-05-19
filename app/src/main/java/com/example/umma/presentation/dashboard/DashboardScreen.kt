@@ -19,11 +19,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -53,8 +53,8 @@ import com.example.umma.core.theme.TextPrimary
 import com.example.umma.core.theme.ThemePrimary
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.core.ui.component.UmmaDialog
-import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.DashSummary
+import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.presentation.auth.AuthViewModel
 import com.example.umma.presentation.auth.InitialSetupDialogStep
 import com.example.umma.presentation.dashboard.component.AnalyticsCard
@@ -343,7 +343,7 @@ private fun DashboardCardGrid(
             )
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
-                recentSavedFlashcards = summary?.savedFlashcards ?: 0,
+                savedFlashcards = summary?.savedFlashcards ?: 0,
                 onClick = onNavigateToStudyList,
                 modifier = Modifier
                     .weight(1f)
