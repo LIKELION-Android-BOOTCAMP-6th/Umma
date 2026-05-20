@@ -1,4 +1,4 @@
-# [Feature] COR-002 Correction 초기 상태 로드
+# [Feature] COR-001 Correction 초기 상태 로드
 
 ## User Story
 
@@ -15,16 +15,15 @@
 - [ ] 현재 선택 언어의 Session Memory 조회 준비 상태를 확인한다.
 - [ ] 언어 없음, 세션 없음, 교정 불가 상태는 Empty UI로 분기한다.
 - [ ] 초기 로딩 중 중복 요청과 중복 초기화가 방지된다.
-- [ ] Ready 상태가 되면 사용자 버튼 없이 `COR-003` 후보 추출 흐름으로 이어질 수 있다.
+- [ ] Ready 상태가 되면 사용자 버튼 없이 `COR-002` 교정 결과 생성 흐름으로 이어질 수 있다.
 
 ---
 
 # Flow (링크)
 
-- FLOW-CORRECTION
-- COR-001 → Correction 화면 진입 경로 정리
-- COR-002 → Correction 초기 상태 로드
-- SYS-LEARNING-STATE-INFRA → GlobalLangState / SessionSummary / LangState
+- [FLOW-CORRECTION](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
+- [COR-001 → Correction 초기 상태 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md)
+- [SYS-LEARNING-STATE-INFRA → GlobalLangState / SessionSummary / LangState](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
 
 ---
 
@@ -38,11 +37,10 @@
 
 ## 제외 범위 (Out of Scope)
 
-- 후보 추출
 - 교정 결과 생성
 - 교정 결과 카드 UI
 - Flashcard 저장
-- Session Memory 압축
+- Session Memory 압축 또는 저장소 구현
 
 ---
 
@@ -98,9 +96,6 @@ Empty 상태는 짧은 안내와 AI Chat 이동 CTA를 제공할 수 있다.
 presentation/correction/
 → CorrectionViewModel
 → CorrectionUiState
-
-domain/usecase/correction/
-→ PrepareCorrectionUseCase
 ```
 
 ## 상태 구조 예시
@@ -112,9 +107,9 @@ Ready(lang, sessionSummary, langState)
 Error(message)
 ```
 
-Ready 상태는 후보 추출을 시작할 수 있는 상태다.
+Ready 상태는 교정 결과 생성을 시작할 수 있는 상태다.
 Correction 화면에는 별도의 "교정 요청" 버튼을 두지 않으므로,
-Ready 상태가 되면 ViewModel 흐름에서 후보 추출을 이어서 시작한다.
+Ready 상태가 되면 ViewModel 흐름에서 `COR-002` 교정 결과 생성으로 이어진다.
 
 ---
 
@@ -122,8 +117,8 @@ Ready 상태가 되면 ViewModel 흐름에서 후보 추출을 이어서 시작�
 
 - 선택 언어가 없으면 Empty 상태가 표시된다.
 - `SessionSummary.correctionAvailable == false`이면 Empty 상태가 표시된다.
-- 조건이 충족되면 `COR-003` 후보 추출을 시작할 수 있는 Ready 상태가 된다.
-- Ready 상태 이후 사용자의 추가 버튼 클릭 없이 후보 추출 흐름으로 이어진다.
+- 조건이 충족되면 `COR-002` 교정 결과 생성을 시작할 수 있는 Ready 상태가 된다.
+- Ready 상태 이후 사용자의 추가 버튼 클릭 없이 교정 결과 생성 흐름으로 이어진다.
 
 ---
 

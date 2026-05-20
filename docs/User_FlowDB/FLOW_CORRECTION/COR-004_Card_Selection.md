@@ -1,4 +1,4 @@
-# [Feature] COR-006 저장 카드 선택 상태
+# [Feature] COR-004 저장 카드 선택 상태
 
 ## User Story
 
@@ -20,9 +20,9 @@
 
 # Flow (링크)
 
-- FLOW-CORRECTION
-- COR-005 → 교정 결과 카드 표시
-- COR-006 → 저장 카드 선택 상태
+- [FLOW-CORRECTION](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
+- [COR-003 → 교정 결과 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-003_Result_Cards.md)
+- [COR-004 → 저장 카드 선택 상태](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-004_Card_Selection.md)
 
 ---
 

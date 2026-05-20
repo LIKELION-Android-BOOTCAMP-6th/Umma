@@ -1,0 +1,28 @@
+package com.example.umma.domain.model.correction
+
+import com.example.umma.domain.model.learningstate.LangCode
+
+/**
+ * Correction 화면에서 직접 보여주고 선택할 수 있는 교정 결과 카드 모델입니다.
+ *
+ * 이 모델은 화면 표시와 Flashcard 저장 선택의 공통 계약으로 사용된다.
+ * Flashcard 저장 시에는 nativeText가 앞면, afterText와 explanation이 뒷면의 원본이 된다.
+ */
+data class CorrectionSuggestion(
+    // 카드 추적용 고유 식별자.
+    val id: String,
+    // 현재 선택된 학습 언어.
+    val lang: LangCode,
+    // 이 제안의 근거가 된 후보 ID 목록.
+    val sourceCandidateIds: List<String>,
+    // 원본 user turn 순서.
+    val sourceTurnIndex: Int,
+    // 교정 전 원문.
+    val beforeText: String,
+    // Flashcard 앞면에 표시할 모국어 문장. MVP에서는 후보의 의미 문장으로 전달한다.
+    val nativeText: String,
+    // 교정 후 문장.
+    val afterText: String,
+    // 간단한 교정 설명.
+    val explanation: String
+)
