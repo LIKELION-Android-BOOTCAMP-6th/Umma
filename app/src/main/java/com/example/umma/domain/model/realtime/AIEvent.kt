@@ -1,5 +1,6 @@
 package com.example.umma.domain.model.realtime
 
+import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 
 /**
@@ -16,8 +17,31 @@ sealed interface AIEvent {
     /** 실시간 음성 인식 중인 미확정 자막 데이터입니다. */
     data class PartialTranscription(val text: String?, val role: TurnSpeaker) : AIEvent
 
-    /** 확정된(Final) 자막 데이터입니다. 이 데이터를 기반으로 턴 저장 로직이 트리거됩니다. */
-    data class FinalTranscription(val text: String, val role: TurnSpeaker) : AIEvent
+    /** 확정된(Final) 자막 데이터입니다.
+     *  이 데이터를 기반으로 턴 저장 로직이 트리거됩니다.
+     *  RT-003 정책에 의하여 turn commit 입력에 사용됨.
+     *
+     * @property turnId 중복 저장 방지를 위한 turn 식별자
+     * @property sessionId 현재 turn 이 속한 세션 식별자
+     * @property sessionLang 세션이 시작될 때 고정된 학습 언어
+     * @property text 확정된 발화 텍스트
+     * @property role 발화 주체
+     * @property createdAt turn 확정 시각
+     * @property durationMs 발화 길이
+     * @property tokenCount 토큰 수
+     * @property confidence STT 신뢰도
+     *  */
+    data class FinalTranscription(
+        val turnId: String,
+        val sessionId: String,
+        val text: String,
+        val sessionLang: LangCode,
+        val role: TurnSpeaker,
+        val createdAt: Long,
+        val durationMs: Long? = null,
+        val tokenCount: Int? = null,
+        val confidence: Double? = null
+    ) : AIEvent
 
     /** AI가 생성한 실시간 오디오(PCM) 데이터입니다. */
     data class AudioResponse(val audio: ByteArray) : AIEvent {
