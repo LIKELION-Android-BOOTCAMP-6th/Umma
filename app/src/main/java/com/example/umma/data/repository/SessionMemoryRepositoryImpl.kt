@@ -160,14 +160,16 @@ class SessionMemoryRepositoryImpl @Inject constructor(
                 }
             }
 
-            val currentMeta = localDataSource.getMetadata(userId, language.code)
-            if (currentMeta != null) {
-                localDataSource.saveMetadata(
-                    currentMeta.copy(
-                        isPendingTurnSync = false,
-                        isPendingCompressionSync = false
+            if (syncResult.isSuccess) {
+                val currentMeta = localDataSource.getMetadata(userId, language.code)
+                if (currentMeta != null) {
+                    localDataSource.saveMetadata(
+                        currentMeta.copy(
+                            isPendingTurnSync = false,
+                            isPendingCompressionSync = false
+                        )
                     )
-                )
+                }
             }
 
             syncResult
