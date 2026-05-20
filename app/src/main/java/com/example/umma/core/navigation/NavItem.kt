@@ -8,10 +8,10 @@ sealed class NavItem(
     val label: String,
     @field:DrawableRes val iconRes: Int
 ) {
-    // 학습 탭
-    object Study: NavItem(
-        route = Route.StudyList,
-        label = "학습",
+    // SRS 반복학습 탭
+    object SrsStudy: NavItem(
+        route = Route.SrsStudy,
+        label = "복습",
         iconRes = R.drawable.import_contacts_24
     )
 
@@ -48,7 +48,7 @@ sealed class NavItem(
             Chat,
             Correction,
             Dashboard,
-            Study,
+            SrsStudy,
             Analytics,
         )
     }

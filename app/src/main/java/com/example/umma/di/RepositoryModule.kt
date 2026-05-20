@@ -18,7 +18,9 @@ import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.repository.ChatRepository
 import com.example.umma.domain.repository.LearningStateRepo
 import com.example.umma.data.repository.SessionMemoryRepositoryImpl
+import com.example.umma.data.repository.FlashcardRepositoryImpl
 import com.example.umma.domain.repository.SessionMemoryRepository
+import com.example.umma.domain.repository.FlashcardRepository
 import com.example.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
@@ -93,6 +95,14 @@ abstract class RepositoryModule {
     abstract fun bindSessionMemoryRepository(
         impl: SessionMemoryRepositoryImpl
     ): SessionMemoryRepository
+
+    // SRS 반복학습 저장소. 화면 개발 시 FakeFlashcardRepository 로 교체 가능.
+    @Binds
+    @Singleton
+    abstract fun bindFlashcardRepository(
+        impl: FlashcardRepositoryImpl
+//        impl: FakeFlashcardRepository
+    ): FlashcardRepository
 
     @Binds
     @Singleton

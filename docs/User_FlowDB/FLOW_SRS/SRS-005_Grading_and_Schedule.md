@@ -16,6 +16,7 @@
 - [ ] 현재 카드의 review 결과가 local first로 저장된다.
 - [ ] 평가 중 중복 입력이 방지된다.
 - [ ] review 결과 저장 실패 시 재시도 가능한 상태가 된다.
+- [ ] `Again` 선택 시 세션 내 재등장은 UI/ViewModel이 관리한다.
 
 ---
 
@@ -67,11 +68,12 @@ MVP에서는 SM-2를 기반으로 하되, Anki식 `Again / Hard / Good / Easy` 4
 ## 스케줄 정책
 
 - `ReviewDecision`은 현재 카드와 버튼 선택을 연결한다.
-- `ReviewSchedulePolicy`는 SM-2 기반으로 interval과 next review time을 계산한다.
+- `ReviewSchedulePolicy`는 SM-2 기반으로 interval(분 단위)과 차기 복습 시점(밀리초)을 계산한다.
 - `easeFactor`는 반복 성과에 맞게 갱신한다.
-- 신규 카드처럼 현재 interval이 없거나 0인 경우에는 기본 interval을 `1일`로 보고 `Hard / Good / Easy` 계산을 시작한다.
-- `Again`은 당일 재노출을 위해 저장 후에도 due 상태로 남을 수 있다.
-- 계산 결과는 현재 카드 review 결과의 local first 갱신으로 이어진다.
+- **Again 처리**: `Again` 선택 시 해당 카드는 즉시 다시 봐야 하는 카드로 취급한다. 세션 내 재등장 순서는 UI/ViewModel이 관리한다.
+- 신규 카드처럼 현재 interval이 없거나 0인 경우에는 기본 interval을 `1440분`으로 보고 `Hard / Good / Easy` 계산을 시작한다.
+- 계산 결과는 `ApplyReviewDecisionUseCase`를 통해 카드 원본에 반영된다.
+- summary 반영은 `SYS-LEARNING-STATE-INFRA`의 후속 연동 지점에서 처리한다.
 - review 결과 local 갱신과 sync pending 응답 계약은 `SRI-002`를 따르고, 스케줄 계산 정책은 `SRI-003`을 따른다.
 - 저장 성공 이후 다음 카드 이동과 덱 완료 상태는 `SRS-006`에서 처리한다.
 

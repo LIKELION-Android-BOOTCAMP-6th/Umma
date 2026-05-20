@@ -6,7 +6,7 @@
 - 사용자는 Flashcard의 앞면과 뒷면을 확인하며 반복학습할 수 있다.
 - 사용자는 뒷면의 발음 재생을 들을 수 있고, MVP에서는 Android `TextToSpeech`를 사용한다.
 - 사용자는 SM-2 기반 4단계 평가 버튼으로 현재 기억 정도를 평가하고, 시스템은 다음 복습 시점을 갱신한다.
-- 학습 결과는 local first로 반영되고, Dashboard의 복습 요약은 최신 상태로 갱신된다.
+- 학습 결과는 local first로 반영되고, Dashboard의 복습 요약은 후속 LearningState 연동 결과로 최신 상태를 반영한다.
 
 ---
 
@@ -31,7 +31,7 @@
 - 사용자는 뒷면의 발음 재생을 들을 수 있다.
 - 사용자는 SM-2 기반 4단계 평가 버튼으로 복습 결과를 기록할 수 있다.
 - 평가는 local first로 저장되고, 다음 복습 시점이 갱신된다.
-- review 결과 저장 후 `FlashcardSummary`와 `DashSummary`의 due 수치가 최신 상태로 반영된다.
+- review 결과 저장 후 `FlashcardSummary`와 `DashSummary`의 due 수치는 후속 LearningState 연동 결과로 반영된다.
 - 복습 카드가 없으면 Empty 상태가 표시된다.
 
 ---

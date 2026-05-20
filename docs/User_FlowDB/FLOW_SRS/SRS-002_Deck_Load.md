@@ -11,8 +11,8 @@
 
 - [ ] 현재 선택 언어의 due Flashcard만 로드된다.
 - [ ] 복습 카드 덱은 Flashcard 원본을 기준으로 구성된다.
-- [ ] due 카드가 없으면 Empty 상태가 표시된다.
-- [ ] deck 로드 실패 시 재시도 가능한 상태가 된다.
+- [ ] due 카드가 없으면 `ReviewDeckState.Empty`가 표시된다.
+- [ ] deck 로드 실패 시 `ReviewDeckState.Retry` 또는 `ReviewDeckState.Error`가 표시된다.
 - [ ] deck 순서는 매번 같은 기준으로 정렬된다.
 - [ ] deck 조회 중에는 UI가 안전한 Loading 상태를 유지한다.
 
@@ -31,9 +31,9 @@
 
 - due Flashcard 조회
 - deck 정렬 정책
-- Empty / Loading / Retry 처리
+- `ReviewDeckState` 기반 Empty / Retry / Error / Content 처리
 - selectedLearningLanguage 기준 deck 분리
-- `SRI-002`의 `FlashcardRepository` 조회 계약 연결
+- `SRI-002`의 `FlashcardRepository`와 `ReviewDeckState` 계약 연결
 
 ### 제외 범위 (Out of Scope)
 
@@ -97,6 +97,7 @@ com.example.umma
 
 > deck은 가능한 한 미리 정렬된 상태로 ViewModel에 전달한다.
 > 화면에서 카드 순서를 다시 계산하지 않도록 경계를 두는 편이 유지보수에 유리하다.
+> Loading 상태는 저장소 계약이 아니라 화면이 첫 상태를 받을 때까지 유지하는 UI 책임이다.
 
 ---
 

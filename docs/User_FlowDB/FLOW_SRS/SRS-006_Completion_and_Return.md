@@ -11,8 +11,8 @@
 
 - [ ] 현재 카드 review 결과 저장 성공 이후 다음 카드 또는 완료 상태로 자연스럽게 넘어간다.
 - [ ] 덱이 끝나면 완료 상태가 표시된다.
-- [ ] review 결과 저장 완료 파이프라인에서 갱신된 FlashcardSummary와 DashSummary의 due 수치를 관찰한다.
-- [ ] Firestore background sync 실패는 로컬 완료 실패로 보지 않는다.
+- [ ] review 결과 저장 후 summary 연동 결과를 관찰한다.
+- [ ] Firestore background sync 실패는 로컬 완료 실패로 보지 않고 pending sync로 관리된다.
 - [ ] 재진입 시 현재 진행 상태가 안전하게 복원된다.
 
 ---
@@ -51,7 +51,7 @@
 
 ```text
 현재 카드 review 결과 local first 저장 성공
-→ FlashcardSummary / DashSummary 갱신
+→ summary 연동 결과 관찰
 → Firestore background sync pending 상태 관찰
 → 다음 카드로 이동
 → 덱 종료 시 완료 상태 표시
@@ -59,7 +59,7 @@
 
 `dueFlashcards`는 현재 카드가 저장될 때마다 최신 상태로 다시 관찰 가능해야 한다.
 Firestore background sync는 덱 종료를 기다리지 않고 review 결과 저장 완료 시점마다 후속 처리된다.
-현재 카드의 평가 저장과 summary 갱신 파이프라인은 `SRS-005`가 호출하는 `SRI-003` 정책의 책임이며, 이 문서는 저장 성공 이후의 진행/완료/복귀 상태를 다룬다.
+현재 카드의 평가 저장은 `SRS-005`가, summary 반영은 `SYS-LEARNING-STATE-INFRA`의 후속 연동이 책임지며, 이 문서는 저장 성공 이후의 진행/완료/복귀 상태를 다룬다.
 
 ---
 

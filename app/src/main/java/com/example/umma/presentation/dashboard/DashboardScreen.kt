@@ -89,7 +89,7 @@ fun DashboardScreen(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToStudyList: () -> Unit,
+    onNavigateToSrsStudy: () -> Unit,
     onNavigateToMyPage: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
@@ -194,7 +194,7 @@ fun DashboardScreen(
                     onNavigateToAnalytics = onNavigateToAnalytics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
-                    onNavigateToStudyList = onNavigateToStudyList
+                    onNavigateToSrsStudy = onNavigateToSrsStudy
                 )
             }
         }
@@ -306,7 +306,7 @@ private fun DashboardContent(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToStudyList: () -> Unit,
+    onNavigateToSrsStudy: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -326,7 +326,7 @@ private fun DashboardContent(
         DashboardCardGrid(
             summary = summary,
             onNavigateToChat = onNavigateToChat,
-            onNavigateToStudyList = onNavigateToStudyList,
+            onNavigateToSrsStudy = onNavigateToSrsStudy,
             onNavigateToCorrection = onNavigateToCorrection,
             onNavigateToAnalytics = onNavigateToAnalytics
         )
@@ -344,7 +344,7 @@ private fun DashboardContent(
 private fun DashboardCardGrid(
     summary: DashSummary?,
     onNavigateToChat: () -> Unit,
-    onNavigateToStudyList: () -> Unit,
+    onNavigateToSrsStudy: () -> Unit,
     onNavigateToCorrection: () -> Unit,
     onNavigateToAnalytics: () -> Unit
 ) {
@@ -366,7 +366,7 @@ private fun DashboardCardGrid(
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
                 savedFlashcards = summary?.savedFlashcards ?: 0,
-                onClick = onNavigateToStudyList,
+                onClick = onNavigateToSrsStudy,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
