@@ -67,4 +67,42 @@ class UserProfileRepositoryImpl @Inject constructor(
         // 한번에 저장 하나라도 하나라도 실패 시 전체 실패
         batch.commit().await()
     }
+
+    /**
+     * 사용자 프로필 전체 조회
+     * @param uid 사용자 UID
+     * @return 조회한 유저의 문서, 문서가 없다면 null
+     */
+    override suspend fun getUserProfile(uid: String): UserProfile? {
+        return try {
+            val document = firestore.collection("users").document(uid).get().await()
+            if (!document.exists()) return null
+            UserProfile(
+                uid = document.getString("uid") ?: uid,
+                nickname = document.getString("nickname") ?: "",
+
+                email = document.getString("email") ?: "",
+                interestTopics = (document.get("interestTopics") as? List<String>) ?: emptyList(),
+                isSetupCompleted = document.getBoolean("isSetupCompleted") ?: false,
+                schema = (document.getLong("schemaVersion") ?: 1L).toInt(),
+                createdAt = document.getLong("createdAt")
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * @param uid 사용자 UID
+     * @param topics 문자열 리스트 (예: "Travel", "FOOD")
+     */
+    override suspend fun saveInterestTopics(
+        uid: String,
+        topics: List<String>
+    ): Result<Unit> = runCatching {
+        firestore.collection("users")
+            .document(uid)
+            .update("interestTopics", topics)
+            .await()
+    }
 }

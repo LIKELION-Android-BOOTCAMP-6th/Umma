@@ -113,6 +113,21 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun updateNicknameErrorMessage(message: String?) {
+        _uiState.update {
+            it.copy(
+                nicknameError = message,
+            )
+        }
+    }
+    fun updateLearningLanguageErrorMessage(message: String?) {
+        _uiState.update {
+            it.copy(
+                learningLanguageError = message,
+            )
+        }
+    }
+
     /**
      * Google 로그인 버튼 중복 클릭 방지를 위해 추가
      */
@@ -152,19 +167,19 @@ class AuthViewModel @Inject constructor(
     fun onNicknameConfirm(nickname: String) {
         // 공백 검사, 글자수 제한
         if (nickname.isBlank() || nickname.length !in 2..10) {
-            _uiState.update { it.copy(errorMessage = "닉네임은 2자 이상 10자 이하로 입력해 주세요.") }
+            _uiState.update { it.copy(nicknameError = "닉네임은 2자 이상 10자 이하로 입력해 주세요.") }
             return
         }
         _uiState.update {
             it.copy(
                 nickname = nickname,
                 initialSetupDialogStep = InitialSetupDialogStep.LANGUAGE,
-                errorMessage = null
+                nicknameError = null
             )
         }
     }
 
-    fun onLanguageSelectAndSave(selectedLang: LangCode) {
+    fun onLanguageSelectAndSave(selectedLearningLanguage: LangCode) {
         _uiState.update { it.copy(isLoading = true) }
 
         viewModelScope.launch {
@@ -174,7 +189,7 @@ class AuthViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = "관리자에게 문의 바랍니다."
+                        learningLanguageError = "관리자에게 문의 바랍니다."
                     )
                 }
                 return@launch
@@ -185,21 +200,24 @@ class AuthViewModel @Inject constructor(
                 email = email,
                 nickname = _uiState.value.nickname,
                 nativeLang = LangCode.KO,
-                primaryLang = selectedLang,
+                primaryLang = selectedLearningLanguage,
                 topics = emptyList()
             )
             result.onSuccess {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        initialSetupDialogStep = InitialSetupDialogStep.NONE
+                        initialSetupDialogStep = InitialSetupDialogStep.NONE,
+                        learningLanguageError = null
                     )
                 }
             }.onFailure { e ->
+                Log.e("AuthViewModel", "onLanguageSelectAndSave 실패", e)  // ← 추가
+
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = "저장 실패..."
+                        learningLanguageError = "저장에 실패했습니다. 다시 시도해주세요"
                     )
                 }
             }
@@ -254,7 +272,8 @@ class AuthViewModel @Inject constructor(
                         errorMessage = null,
                         nickname = "",
                         initialSetupDialogStep = InitialSetupDialogStep.NONE,
-                        isLogoutCompleted = true
+                        isLogoutCompleted = true,
+                        learningLanguageError = null
                     )
                 }
             }.onFailure {

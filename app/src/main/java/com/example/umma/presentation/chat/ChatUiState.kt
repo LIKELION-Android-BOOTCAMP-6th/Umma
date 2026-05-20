@@ -1,6 +1,7 @@
 package com.example.umma.presentation.chat
 
 import com.example.umma.domain.model.realtime.AIState
+import com.example.umma.domain.model.user.Topic
 
 /**
  * AI Chat 화면의 UI 상태를 정의하는 데이터 클래스입니다.
@@ -26,19 +27,34 @@ data class ChatUiState(
     val lastFinalAITranscript: String = "",
     val inputLevel: Float = 0f,
     val outputLevel: Float = 0f,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+
+    // 사용자가 선택한 관심 주제 목록, 5개여야 저장 가능
+    val selectedTopic: List<Topic> = emptyList(),
+
+    /**
+     * ChatScreen 진입 시 사용자의 interestTopics 가 비어있으면 true 로 설정.
+     * Topic 5개 선택 후 저장 완료 시 false 로 변경.
+     */
+    val showTopicDialog: Boolean = false,
+    // 저장 중 중복 클릭 방지용 true 일 때 버튼 비활성화
+    val isTopicSaving: Boolean = false,
+    val topicError: String? = null
 )
 
 /**
  * 앱 레벨의 세션 연결 상태를 정의합니다.
  */
-enum class SessionState { 
+enum class SessionState {
     /** 대화 시작 전 초기 상태 */
-    IDLE, 
+    IDLE,
+
     /** 서버 연결 및 초기화 시도 중 */
-    LOADING, 
+    LOADING,
+
     /** 통신 준비 완료 및 대화 가능 상태 */
-    READY, 
+    READY,
+
     /** 연결 실패 상태 */
-    ERROR 
+    ERROR
 }

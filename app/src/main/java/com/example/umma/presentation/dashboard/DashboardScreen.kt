@@ -47,8 +47,11 @@ import com.example.umma.core.theme.BackgroundPrimary
 import com.example.umma.core.theme.BackgroundSecondary
 import com.example.umma.core.theme.SpacingL
 import com.example.umma.core.theme.SpacingM
+import com.example.umma.core.theme.SpacingS
 import com.example.umma.core.theme.SpacingXS
+import com.example.umma.core.theme.TextAnalysisR
 import com.example.umma.core.theme.TextExplanationR
+import com.example.umma.core.theme.TextLogout
 import com.example.umma.core.theme.TextPrimary
 import com.example.umma.core.theme.ThemePrimary
 import com.example.umma.core.ui.component.UmmaAppBar
@@ -113,7 +116,7 @@ fun DashboardScreen(
     // Snackbar 큐 host. errorMessage 가 세팅되면 LaunchedEffect 가 여기로 showSnackbar 호출.
     val snackbarHostState = remember { SnackbarHostState() }
     var nicknameInput by remember { mutableStateOf("") }
-    var selectedLanguage by remember { mutableStateOf(LangCode.KO) }
+    var selectedLearningLanguage by remember { mutableStateOf<LangCode?>(null) }
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
@@ -215,17 +218,24 @@ fun DashboardScreen(
                     ) {
                         OutlinedTextField(
                             value = nicknameInput,
-                            onValueChange = { nicknameInput = it },
-//                            placeholder = { Text("2~10자 입력") },
+                            onValueChange = {
+                                nicknameInput = it
+                                authViewModel.updateNicknameErrorMessage(null)
+                            },
                             placeholder = { Text("2~10자 입력") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
-                    }
-                    if (authState.errorMessage != null) {
-                        Spacer(
-                            modifier = Modifier.height(8.dp)
-                        )
+                        authState.nicknameError?.let {
+                            Spacer(
+                                modifier = Modifier.height(SpacingS)
+                            )
+                            Text(
+                                text = it,
+                                color = TextLogout,
+                                fontSize = TextAnalysisR.fontSize,
+                            )
+                        }
                     }
                 }
             }
@@ -238,9 +248,11 @@ fun DashboardScreen(
                     modifier = Modifier.padding(horizontal = SpacingL),
                     onCancel = {},
                     onConfirm = {
-                        authViewModel.onLanguageSelectAndSave(
-                            selectedLang = selectedLanguage,
-                        )
+                        selectedLearningLanguage?.let {
+                            authViewModel.onLanguageSelectAndSave(
+                                selectedLearningLanguage = it,
+                            )
+                        }
                     },
                     confirmText = "완료"
                 ) {
@@ -251,11 +263,21 @@ fun DashboardScreen(
                     ) {
 
                         learningLanguageOptions.forEach { (code, label) ->
-                            val isSelected = (selectedLanguage == code)
+                            val isSelected = (selectedLearningLanguage == code)
                             LanguageButton(
                                 text = label,
                                 isSelected = isSelected,
-                                onClick = { selectedLanguage = code }
+                                onClick = { selectedLearningLanguage = code }
+                            )
+                        }
+                        authState.learningLanguageError?.let {
+                            Spacer(
+                                modifier = Modifier.height(SpacingS)
+                            )
+                            Text(
+                                text = it,
+                                color = TextLogout,
+                                fontSize = TextAnalysisR.fontSize,
                             )
                         }
                     }
