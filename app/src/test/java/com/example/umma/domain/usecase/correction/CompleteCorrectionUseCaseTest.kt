@@ -9,10 +9,17 @@ import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
 import com.example.umma.domain.model.learningstate.TurnSpeaker
+import com.example.umma.domain.model.realtime.AppendTurnCommand
+import com.example.umma.domain.model.realtime.CompressSessionMemoryCommand
+import com.example.umma.domain.model.realtime.SessionMemory
+import com.example.umma.domain.model.realtime.SessionTurn
 import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.repository.LearningStateRepo
+import com.example.umma.domain.repository.SessionMemoryRepository
 import com.example.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
+import com.example.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,14 +30,19 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class CompleteCorrectionUseCaseTest {
 
+    // 완료 파이프라인은 순서가 중요한 계약이다.
+    // Recording fake 들은 실제 저장소 대신 호출 순서와 실패 정책만 작게 관찰한다.
     private val events = CopyOnWriteArrayList<String>()
     private val correctionRepository = RecordingCorrectionRepository(events)
     private val learningStateRepo = RecordingLearningStateRepo(events)
+    private val sessionMemoryRepository = RecordingSessionMemoryRepository(events)
     private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(learningStateRepo)
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
         correctionRepository = correctionRepository,
-        applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase
+        applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase,
+        buildSessionCompressionPayloadUseCase = BuildSessionCompressionPayloadUseCase(),
+        compressSessionMemoryUseCase = CompressSessionMemoryUseCase(sessionMemoryRepository)
     )
 
     @Test
@@ -74,13 +86,19 @@ class CompleteCorrectionUseCaseTest {
 
         assertTrue(result.isSuccess)
         val completed = result.getOrThrow()
+        // 성공 경로는 local save -> LangState/Summary update -> RT compression 순서를 지켜야 한다.
+        // 이 순서가 깨지면 저장되지 않은 교정을 완료 처리하거나, 처리 전 대화를 압축할 수 있다.
         assertEquals(listOf("s-1"), completed.savedFlashcardIds)
         assertEquals(listOf("s-1"), completed.pendingSyncFlashcardIds)
         assertEquals("session-en", completed.sessionMemoryKey)
-        assertEquals(listOf("save", "update"), events)
+        assertTrue(completed.sessionCompressionApplied)
+        assertFalse(completed.sessionCompressionPending)
+        assertEquals(listOf("save", "update", "compress"), events)
 
         assertNotNull(learningStateRepo.lastUpdateInput)
+        // 완료된 세션이 다시 Correction 대기 상태로 보이지 않도록 correctionAvailable 을 false 로 내린다.
         assertFalse(learningStateRepo.lastUpdateInput!!.correctionAvailableOverride!!)
+        assertNotNull(sessionMemoryRepository.lastCompressionCommand)
     }
 
     @Test
@@ -92,6 +110,7 @@ class CompleteCorrectionUseCaseTest {
 
         val result = useCase(input)
 
+        // 선택된 카드가 없으면 save/update/compress 중 어느 단계도 건드리지 않아야 한다.
         assertTrue(result.isFailure)
         assertTrue(events.isEmpty())
     }
@@ -109,7 +128,30 @@ class CompleteCorrectionUseCaseTest {
         )
 
         assertTrue(result.isFailure)
+        // LangState 갱신 실패는 local completion 실패다.
+        // 이미 저장한 Flashcard 는 보상 rollback 으로 되돌려 부분 완료 상태를 남기지 않는다.
         assertEquals(listOf("save", "update", "rollback-save"), events)
+    }
+
+    @Test
+    fun `does not rollback saved state when compression fails`() = kotlinx.coroutines.runBlocking {
+        val suggestion = baseSuggestion()
+        sessionMemoryRepository.failCompression = true
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(suggestion),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val completed = result.getOrThrow()
+        // compression 은 RT-003 후속 정리라 실패해도 사용자 저장 결과는 유지한다.
+        // 대신 pending flag 로 후속 재시도 대상임을 알려준다.
+        assertFalse(completed.sessionCompressionApplied)
+        assertTrue(completed.sessionCompressionPending)
+        assertEquals(listOf("save", "update", "compress"), events)
     }
 
     private fun baseUpdateInput(): LangStateUpdateInput {
@@ -160,6 +202,7 @@ class CompleteCorrectionUseCaseTest {
             request: CorrectionSaveRequest
         ): Result<CorrectionSaveResult> {
             events += "save"
+            // remote sync 가 아직 남아있는 일반적인 local-first 결과를 흉내 낸다.
             return Result.success(
                 CorrectionSaveResult(
                     localSavedFlashcardIds = request.flashcards.map { it.suggestionId },
@@ -207,6 +250,7 @@ class CompleteCorrectionUseCaseTest {
 
         override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<Unit> {
             events += "update"
+            // state update 실패를 주입해 CompleteCorrectionUseCase 의 rollback 경로를 확인한다.
             if (failUpdate) {
                 return Result.failure(IllegalStateException("update failed"))
             }
@@ -226,6 +270,50 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
+    }
+
+    private class RecordingSessionMemoryRepository(
+        private val events: MutableList<String>
+    ) : SessionMemoryRepository {
+        var failCompression: Boolean = false
+        var lastCompressionCommand: CompressSessionMemoryCommand? = null
+
+        override suspend fun appendTurn(command: AppendTurnCommand): Result<Unit> {
+            return Result.success(Unit)
+        }
+
+        override fun observeRecentFullContext(language: LangCode): Flow<List<SessionTurn>> {
+            return emptyFlow()
+        }
+
+        override suspend fun getSessionMemory(language: LangCode): Result<SessionMemory> {
+            return Result.failure(UnsupportedOperationException("not used"))
+        }
+
+        override suspend fun compressSessionMemory(
+            command: CompressSessionMemoryCommand
+        ): Result<Unit> {
+            events += "compress"
+            lastCompressionCommand = command
+            // compression 실패는 fatal 이 아니라 pending 으로 내려가야 하므로 별도 실패 스위치를 둔다.
+            return if (failCompression) {
+                Result.failure(IllegalStateException("compression failed"))
+            } else {
+                Result.success(Unit)
+            }
+        }
+
+        override fun getCorrectionContext(language: LangCode): Flow<List<SessionTurn>> {
+            return emptyFlow()
+        }
+
+        override fun getFlashcardContext(language: LangCode): Flow<List<SessionTurn>> {
+            return emptyFlow()
+        }
+
+        override suspend fun syncPendingTurns(language: LangCode): Result<Unit> {
+            return Result.success(Unit)
+        }
     }
 
 }

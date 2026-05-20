@@ -17,7 +17,7 @@
 - Global Learning State preload 완료 상태
 - 현재 선택 언어의 `SessionSummary` 조회 가능 상태
 - 현재 선택 언어의 `LangState` snapshot 조회 가능 상태
-- AI Chat에서 확정된 turn이 Session Memory에 저장된 상태
+- AI Chat에서 확정된 turn이 RT-003 Session Memory에 저장되고 correction context로 조회 가능한 상태
 
 ---
 
@@ -27,7 +27,7 @@
 - 교정 가능 여부는 `SessionSummary.correctionAvailable`을 기준으로 판단한다.
 - `DashSummary.correctionAvailable`은 Dashboard 표시용 파생값으로만 본다.
 - 후보 추출은 `SYS-CORRECTION-INFRA` 계약에 따른 내부 처리이며, 사용자는 후보 목록을 선택하지 않는다.
-- 교정 결과 생성은 실제 AI 응답을 파싱해 필수 필드가 채워진 `CorrectionSuggestion` 목록으로 변환하는 흐름을 포함한다.
+- 교정 결과 생성은 최소 프롬프트 계약을 통해 교정 수준과 응답 형식을 고정하고, 실제 AI 응답을 파싱해 필수 필드가 채워진 `CorrectionSuggestion` 목록으로 변환하는 흐름을 포함한다.
 - 사용자는 진입 후 Loading을 거쳐 교정 결과 카드 목록을 확인한다.
 - 사용자는 저장할 교정 결과 카드를 선택하여 Flashcard로 저장한다.
 - 선택된 교정 결과의 새 Flashcard 최초 생성과 local first 저장은 Correction 완료 흐름에서 수행한다.
@@ -118,6 +118,17 @@ SYS-CORRECTION-INFRA 후보 추출 계약
 후보 추출 세부 정책과 내부 후보 모델은 `SYS-CORRECTION-INFRA`의 후보 추출 계약을 따른다.
 AI 응답 원문이나 JSON 파싱은 화면에서 직접 처리하지 않고, `CorrectionRepository`의 data 계층 구현과 mapper를 통해 `CorrectionSuggestion`으로 변환한다.
 
+MVP에서의 프롬프트 엔지니어링은 선택 사항이 아니라 실제 AI 교정이 정상 동작하기 위한 최소 구현에 포함한다.
+프롬프트는 `LangState` snapshot, 현재 선택 언어, `CorrectionCandidate` 원문, 필요한 assistant 문맥을 입력으로 사용해 다음 기준을 지켜야 한다.
+
+- 학습자의 현재 수준을 벗어나 지나치게 어려운 문장으로 바꾸지 않는다.
+- 의미를 바꾸지 않고 자연스러운 외국어 문장으로 교정한다.
+- `nativeText`, `afterText`, `explanation`이 항상 채워진 응답 구조를 요청한다.
+- `candidateId`를 유지해 AI 응답과 원본 후보를 매칭할 수 있게 한다.
+- 설명은 Flashcard 뒷면에 표시 가능한 짧은 학습 설명으로 제한한다.
+
+다만 교정 품질을 더 높이기 위한 세부 prompt tuning, JSON schema 정교화, fallback 고도화는 후속 개선 범위로 둔다.
+
 ### 7.3 모델 분리
 
 - `CorrectionSuggestion`: 화면 카드 표시와 Flashcard 저장 선택에 사용하는 결과 모델
@@ -143,9 +154,13 @@ SRS는 이 저장을 대신 수행하지 않고, 저장된 Flashcard를 이후 �
 ```
 
 저장 항목이 0개이면 완료 파이프라인을 수행하지 않는다.
-Session Memory 압축은 RT-003 실제 저장소 계약이 머지된 뒤 후속 연결 작업에서 붙인다.
+Session Memory 저장/조회/압축 실행은 RT-003 계약을 따른다.
+Correction 화면은 RT-003 correction context를 읽어 후보 추출 입력으로 변환하지만, Session Memory 저장소 구현을 직접 만들지 않는다.
+Correction 완료 흐름은 선택된 교정 결과와 분석 대상 turn으로 최소 압축 payload를 만든 뒤 RT-003 compression 계약을 호출한다.
+압축 payload가 비어 있으면 원문 buffer만 비우지 않도록 compression을 호출하지 않는다.
 로컬 완료 파이프라인 내부 순서, rollback, pending sync 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
 Firestore sync 실패만 발생한 경우에는 로컬 저장 성공을 유지하고 pending sync 상태로 다룬다.
+compression 실패는 저장 완료 자체를 되돌리지 않고 후속 재시도 대상으로 남긴다.
 
 ---
 

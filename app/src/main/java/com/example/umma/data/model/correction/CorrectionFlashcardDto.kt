@@ -61,7 +61,8 @@ fun CorrectionFlashcardSaveItem.toCorrectionFlashcardDto(
     // suggestionId를 문서 id로 고정하면 같은 교정 결과의 중복 저장을 같은 카드로 합칠 수 있다.
     return CorrectionFlashcardDto(
         id = suggestionId,
-        language = lang.name,
+        // Firestore 표준 필드값은 enum name(EN)이 아니라 LS-001 언어 코드(en)를 사용한다.
+        language = lang.code,
         // 현재는 id와 같지만, 카드가 어떤 교정 결과에서 만들어졌는지 추적하기 위해 별도 필드로 남긴다.
         sourceSuggestionId = suggestionId,
         frontText = frontText.trim(),

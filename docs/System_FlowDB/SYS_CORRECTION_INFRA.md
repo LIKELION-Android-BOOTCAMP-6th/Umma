@@ -96,7 +96,8 @@ Repository는 저장과 외부 통신을 담당하며, 화면 정책이나 점�
 Correction 화면 진입
 → GlobalLangState에서 selectedLearningLanguage 확인
 → SessionSummary.correctionAvailable 확인
-→ Session Memory의 recentFullContext 조회
+→ RT-003 Session Memory의 correction context 조회
+→ SessionTurn read model을 Correction 후보 입력으로 변환
 → user turn 중심 후보를 내부 추출
 → LangState snapshot과 후보를 입력으로 실제 AI 교정 API 호출
 → AI 응답 파싱 및 필수 필드 검증
@@ -110,8 +111,8 @@ Correction 화면 진입
 → Firestore background sync 예약
 ```
 
-Session Memory 원문 buffer 압축과 정리는 `SYS-REALTIME-INFRA`의 `RT-003` 실제 저장소 계약이 머지된 뒤 후속 연결 작업에서 붙인다.
-Correction-infra는 `SessionMemoryRepository` 구현체를 직접 제공하지 않고, 후속 작업에서 RT-003 계약을 소비할 연결 지점만 남긴다.
+Session Memory 저장/조회/압축 구현은 `SYS-REALTIME-INFRA`의 `RT-003` 실제 저장소 계약을 따른다.
+Correction-infra는 `SessionMemoryRepository` 구현체를 직접 제공하지 않고, RT-003의 `SessionTurn` read model을 Correction 후보 입력으로 변환하는 연결 지점만 담당한다.
 RT-003이 교정용 read model을 제공하더라도, 어떤 user turn을 `CorrectionCandidate`로 확정할지는 Correction domain UseCase가 최종 결정한다.
 `recentFullContext`는 오래된 turn부터 최신 turn 순서로 전달되는 것을 전제로 한다.
 
@@ -127,8 +128,11 @@ RT-003이 교정용 read model을 제공하더라도, 어떤 user turn을 `Corre
 - 교정 완료 시 두 값은 같은 완료 흐름 안에서 함께 갱신한다.
 - 둘 중 하나만 갱신하는 구현은 허용하지 않는다.
 - Flashcard 저장, LangState 업데이트, Summary 갱신은 하나의 로컬 완료 파이프라인으로 묶는다.
-- Session Memory 압축은 RT-003 계약이 확정된 뒤 같은 완료 흐름의 후속 연결 지점으로 붙인다.
-- 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 둔다.
+- Correction-infra는 교정 결과와 분석 대상 turn으로 `recentTopics`, `topicSummaries`, `topicKeySentences` 압축 payload를 생성한다.
+- Session Memory 압축 저장/초기화 실행은 RT-003의 `CompressSessionMemoryUseCase` 계약을 호출한다.
+- 압축 payload가 비어 있으면 RT-003 compression을 호출하지 않는다.
+- compression 실패는 Flashcard 저장과 LangState/Summary 갱신을 롤백하지 않고 후속 재시도 대상으로 남긴다.
+- Flashcard 저장 또는 LangState/Summary 갱신이 실패하면 Correction-infra가 직접 수행한 로컬 변경을 rollback하고 Retry 상태로 둔다.
 - 저장소가 하나의 transaction으로 묶이지 않는 경우 보상 rollback 또는 commit marker 방식으로 부분 완료 상태를 남기지 않는다.
 - Firestore background sync 실패는 로컬 완료 실패로 보지 않고 pending sync로 관리한다.
 - `recentFullContext`는 화면에 원문 그대로 노출하지 않는다.
@@ -183,14 +187,17 @@ AI 요청 실패, 응답 파싱 실패, 필수 필드 누락은 화면에서 Err
 System Flow에서는 실제 AI 연결이 들어갈 data adapter와 응답 mapper의 경계를 준비한다.
 User Flow에서는 그 repository 계약을 호출해 화면 상태와 실제 최소 성공 흐름을 검증한다.
 
-다만 교정 품질을 높이기 위한 prompt tuning, JSON schema 정교화, fallback 고도화는 후속 개선 범위로 둔다.
+MVP 최소 프롬프트 계약은 User Flow의 실제 AI 연동에 포함한다.
+프롬프트는 `LangState` snapshot, 현재 선택 언어, `CorrectionCandidate`, 필요한 assistant 문맥을 바탕으로 교정 수준, 의미 보존, 필수 응답 필드, `candidateId` 유지를 명시해야 한다.
+다만 교정 품질을 더 높이기 위한 세부 prompt tuning, JSON schema 정교화, fallback 고도화는 후속 개선 범위로 둔다.
 fake/mock 또는 `CorrectionSuggestionFixtureBuilder`는 실제 AI 없이도 화면 상태, 저장 요청, 완료 파이프라인, rollback을 테스트하기 위한 보조 수단이며 실제 AI 연동을 대체하지 않는다.
 
 ---
 
 ## 10. 현재 코드 정리 기준
 
-현재 코드에는 `presentation/feedback/FeedbackListScreen.kt`, `Route.FeedbackList`, `Route.FeedbackGraph`, `onNavigateToFeedbackList`처럼 `Feedback` 명칭이 남아 있다.
+Correction 화면/라우트/콜백은 `Correction` 기준으로 정리한다.
+Dashboard 카드 컴포넌트에 남아 있는 `FeedbackCard` 같은 과거 명칭은 Dashboard Flow의 책임 범위에서 별도로 정리한다.
 
 Correction 작업이 시작되는 시점부터 다음 명칭으로 정리한다.
 
@@ -200,7 +207,6 @@ Correction 작업이 시작되는 시점부터 다음 명칭으로 정리한다.
 | `FeedbackListScreen` | `CorrectionScreen` |
 | `Route.FeedbackList` / `Route.FeedbackGraph` | `Route.CorrectionList` / `Route.CorrectionGraph` |
 | `onNavigateToFeedbackList` | `onNavigateToCorrection` |
-| `Feedback` 탭/문구 | `Correction` 기준 문구 |
 
 이미 완료된 시스템 문서나 현재 작업 중인 온보딩/대시보드 문서는 별도 수정하지 않는다.
 명칭 정리는 Correction 작업 범위 안에서만 진행한다.
