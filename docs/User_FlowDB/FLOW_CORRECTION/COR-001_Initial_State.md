@@ -12,7 +12,7 @@
 - [ ] 현재 선택 언어의 `SessionSummary`를 로드한다.
 - [ ] `SessionSummary.correctionAvailable`을 기준으로 교정 가능 여부를 판단한다.
 - [ ] 현재 선택 언어의 `LangState` snapshot을 로드한다.
-- [ ] 현재 선택 언어의 Session Memory 조회 준비 상태를 확인한다.
+- [ ] 현재 선택 언어의 RT-003 correction context 조회 준비 상태를 확인한다.
 - [ ] 언어 없음, 세션 없음, 교정 불가 상태는 Empty UI로 분기한다.
 - [ ] 초기 로딩 중 중복 요청과 중복 초기화가 방지된다.
 - [ ] Ready 상태가 되면 사용자 버튼 없이 `COR-002` 교정 결과 생성 흐름으로 이어질 수 있다.
@@ -41,6 +41,7 @@
 - 교정 결과 카드 UI
 - Flashcard 저장
 - Session Memory 압축 또는 저장소 구현
+- RT-003 correction context 내부 필터링 구현
 
 ---
 
@@ -84,6 +85,7 @@ Empty 상태는 짧은 안내와 AI Chat 이동 CTA를 제공할 수 있다.
 - 현재 선택 언어는 route 인자가 아니라 Global Learning State에서 읽는다.
 - 교정 가능 여부는 `SessionSummary.correctionAvailable`만 기준으로 삼는다.
 - `DashSummary.correctionAvailable`은 Dashboard 표시용 값이므로 진입 판단에는 사용하지 않는다.
+- Session Memory 저장소를 직접 구현하지 않고 RT-003의 correction context 조회 UseCase를 사용할 준비 상태만 확인한다.
 - 상태가 부족한 경우 Error보다 Empty로 우선 분기하되, 로드 자체가 실패한 경우만 Error로 둔다.
 
 ---

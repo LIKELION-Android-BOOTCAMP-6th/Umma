@@ -11,7 +11,7 @@ import javax.inject.Inject
  * Correction Flashcard의 local-first 저장 순서를 담당하는 data 계층 store입니다.
  *
  * RepositoryImpl 안에 local/remote 저장 순서를 직접 넣지 않고 이 store로 분리해 둔다.
- * 나중에 in-memory local 구현이 Room DAO로 바뀌어도 domain 계약과 UseCase는 흔들리지 않는다.
+ * local source는 Room DAO 기반이므로, Correction에서 저장한 원본 카드를 SRS가 같은 DB에서 조회할 수 있다.
  */
 class CorrectionFlashcardStore @Inject constructor(
     private val localDataSource: CorrectionFlashcardLocalDataSource,
@@ -22,12 +22,17 @@ class CorrectionFlashcardStore @Inject constructor(
         val flashcardDtos = request.flashcards.map { item ->
             item.toCorrectionFlashcardDto(
                 lang = request.lang,
+                // Correction에서 처음 만든 카드는 생성 직후 바로 학습 가능해야 하므로
+                // requestedAt을 createdAt/updatedAt/nextReviewAt의 기준 시각으로 맞춘다.
                 requestedAt = request.requestedAt
             )
         }
 
         // 1) 사용자 완료 기준은 local save다. 이 단계가 실패하면 완료 파이프라인도 실패해야 한다.
-        val localSavedIds = localDataSource.saveFlashcards(flashcardDtos)
+        val localSavedIds = localDataSource.saveFlashcards(
+            uid = request.uid,
+            flashcards = flashcardDtos
+        )
 
         // 2) 중복 요청으로 새로 저장된 카드가 없으면 remote sync도 새로 예약하지 않는다.
         val newlySavedFlashcards = flashcardDtos.filter { it.id in localSavedIds }
@@ -43,6 +48,11 @@ class CorrectionFlashcardStore @Inject constructor(
         val syncedIds = remoteDataSource.syncFlashcards(newlySavedFlashcards)
             .getOrElse { emptyList() }
             .toSet()
+        // syncedIds만 dirty=false로 전환한다. 나머지 localSavedIds는 pending sync로 유지된다.
+        localDataSource.markSynced(
+            uid = request.uid,
+            flashcardIds = syncedIds.toList()
+        )
         val pendingSyncIds = localSavedIds.filterNot { it in syncedIds }
 
         return CorrectionSaveResult(
@@ -56,7 +66,10 @@ class CorrectionFlashcardStore @Inject constructor(
         val flashcardIds = request.flashcards.map { it.suggestionId }
 
         // local rollback은 완료 파이프라인의 부분 완료 상태를 없애기 위한 필수 보상 작업이다.
-        localDataSource.rollbackFlashcards(flashcardIds)
+        localDataSource.rollbackFlashcards(
+            uid = request.uid,
+            flashcardIds = flashcardIds
+        )
 
         // remote delete는 best-effort다. 이미 Firestore sync가 성공했을 수 있으므로 정리만 시도한다.
         remoteDataSource.deleteFlashcards(flashcardIds)

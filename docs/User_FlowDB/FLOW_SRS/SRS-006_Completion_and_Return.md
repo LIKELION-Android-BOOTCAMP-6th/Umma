@@ -2,16 +2,16 @@
 
 ## User Story
 
-사용자는 카드 저장이 끝난 뒤 다음 카드 또는 완료 상태로 자연스럽게 이동하고,
+사용자는 현재 카드의 review 결과 저장이 끝난 뒤 다음 카드 또는 완료 상태로 자연스럽게 이동하고,
 필요하면 Dashboard로 자연스럽게 돌아갈 수 있어야 한다.
 
 ---
 
 ## 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] 현재 카드 저장 성공 이후 다음 카드 또는 완료 상태로 자연스럽게 넘어간다.
+- [ ] 현재 카드 review 결과 저장 성공 이후 다음 카드 또는 완료 상태로 자연스럽게 넘어간다.
 - [ ] 덱이 끝나면 완료 상태가 표시된다.
-- [ ] 저장 완료 파이프라인에서 갱신된 FlashcardSummary와 DashSummary의 due 수치를 관찰한다.
+- [ ] review 결과 저장 완료 파이프라인에서 갱신된 FlashcardSummary와 DashSummary의 due 수치를 관찰한다.
 - [ ] Firestore background sync 실패는 로컬 완료 실패로 보지 않는다.
 - [ ] 재진입 시 현재 진행 상태가 안전하게 복원된다.
 
@@ -50,7 +50,7 @@
 ## 완료 흐름
 
 ```text
-현재 카드 local first 저장 성공
+현재 카드 review 결과 local first 저장 성공
 → FlashcardSummary / DashSummary 갱신
 → Firestore background sync pending 상태 관찰
 → 다음 카드로 이동
@@ -58,7 +58,7 @@
 ```
 
 `dueFlashcards`는 현재 카드가 저장될 때마다 최신 상태로 다시 관찰 가능해야 한다.
-Firestore background sync는 덱 종료를 기다리지 않고 카드 저장 완료 시점마다 후속 처리된다.
+Firestore background sync는 덱 종료를 기다리지 않고 review 결과 저장 완료 시점마다 후속 처리된다.
 현재 카드의 평가 저장과 summary 갱신 파이프라인은 `SRS-005`가 호출하는 `SRI-003` 정책의 책임이며, 이 문서는 저장 성공 이후의 진행/완료/복귀 상태를 다룬다.
 
 ---
@@ -98,7 +98,7 @@ com.example.umma
 
 ## Edge Cases
 
-- 마지막 카드 저장 직후 앱이 종료되는 경우
+- 마지막 카드 review 결과 저장 직후 앱이 종료되는 경우
 - 로컬 저장은 성공했지만 remote sync가 실패하는 경우
 - Dashboard 요약 수치가 잠시 늦게 반영되는 경우
 - 동일 카드에 대해 완료 요청이 중복으로 들어오는 경우

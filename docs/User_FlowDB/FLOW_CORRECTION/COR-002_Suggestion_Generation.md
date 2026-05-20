@@ -11,7 +11,9 @@
 - [ ] `COR-001` Ready 상태 이후 사용자 추가 입력 없이 교정 결과 생성을 시작한다.
 - [ ] `SYS-CORRECTION-INFRA`의 후보 추출 계약과 교정 결과 생성 계약을 호출한다.
 - [ ] 실제 AI 교정 API를 호출해 교정 결과를 생성한다.
+- [ ] 실제 AI 요청에는 LangState snapshot과 후보 문맥을 반영한 MVP 최소 프롬프트 계약을 적용한다.
 - [ ] AI 응답은 정해진 응답 계약으로 파싱되어 `CorrectionSuggestion` 목록으로 변환된다.
+- [ ] AI 응답의 `candidateId`가 원본 `CorrectionCandidate`와 매칭되지 않으면 Error 상태로 전환한다.
 - [ ] 실제 AI 성공 응답에서 `nativeText`, `afterText`, `explanation`이 채워진 `CorrectionSuggestion` 1개 이상을 생성하고 Content 상태로 전환한다.
 - [ ] 결과가 비어 있으면 Empty 상태를 반환한다.
 - [ ] AI 요청 실패, 응답 파싱 실패, 필수 필드 누락 시 Error 상태로 전환하고 Retry 액션을 제공한다.
@@ -34,8 +36,10 @@
 ## 포함 범위
 
 - 교정 결과 생성 UseCase 연결
+- RT-003 correction context를 Correction 후보 입력으로 변환하는 UseCase 연결
 - `CorrectionRepository` 결과 생성 계약 연결
 - 실제 AI API 호출 및 응답 파싱 결과 연결
+- LangState snapshot과 후보 문맥을 반영한 MVP 최소 프롬프트 구성
 - `CorrectionSuggestion` 목록 화면 상태 연결
 - Loading / Error / Retry 상태
 
@@ -66,6 +70,7 @@
 
 - 교정 결과 생성 세부 정책은 `SYS-CORRECTION-INFRA`의 교정 결과 계약을 따른다.
 - MVP 최종 구현에서는 실제 AI 응답을 `CorrectionSuggestion`으로 변환하는 흐름이 동작해야 한다.
+- MVP 최소 프롬프트는 학습자의 현재 수준을 반영하고, 의미 보존, 응답 JSON 형식, `candidateId` 유지, 짧은 설명 생성을 명시해야 한다.
 - 결과가 있으면 `COR-003` 카드 표시로 이어진다.
 - 결과가 없으면 Empty 상태로 분기한다.
 
@@ -78,9 +83,12 @@
 
 ```text
 COR-001 Ready
+→ RT-003 correction context 조회
+→ SessionTurn을 Correction 후보 입력으로 변환
 → SYS 후보 추출 계약 호출
 → LangState snapshot
 → CorrectionRepository 결과 생성 계약 호출
+→ LangState / candidate / assistantContext 기반 MVP 최소 프롬프트 구성
 → 실제 AI API 요청
 → AI 응답 파싱 및 필수 필드 검증
 → CorrectionSuggestion 변환
@@ -95,6 +103,9 @@ COR-001 Ready
 ## 작업 지시
 
 - 후보 추출 규칙과 교정 결과 생성 계약을 이 이슈에서 다시 정의하지 않는다.
+- Session Memory 저장소 구현을 만들지 않고 RT-003 read model을 `ExtractSessionCandidatesUseCase` 경유로 사용한다.
+- 실제 AI 요청 프롬프트는 data 계층 adapter 또는 prompt builder에서 구성하고, ViewModel/Composable에 문자열 조립 책임을 두지 않는다.
+- 프롬프트는 `candidateId`, 원문 후보, 필요한 assistant 문맥, LangState snapshot을 포함해 일관된 교정 수준과 응답 구조를 요청한다.
 - AI 원문 응답과 JSON 파싱은 ViewModel/Composable에서 직접 처리하지 않고 `CorrectionRepository`의 data 계층 구현을 통해 처리한다.
 - Retry는 새 세션을 만들지 않고 현재 선택 언어와 같은 Session Memory 기준으로 다시 수행한다.
 - 결과가 비어 있으면 카드 화면으로 넘어가지 않고 Empty 상태를 표시한다.
@@ -114,8 +125,11 @@ presentation/correction/
 ## 결과 계약
 
 ```text
-SYS 후보 추출 계약 결과 + LangState snapshot
+RT-003 SessionTurn read model
+→ ExtractSessionCandidatesUseCase
+→ SYS 후보 추출 계약 결과 + LangState snapshot
 → CorrectionRepository
+→ AI prompt builder / adapter
 → AI response mapper
 → CorrectionSuggestion 화면 상태
 ```
@@ -125,7 +139,9 @@ SYS 후보 추출 계약 결과 + LangState snapshot
 ## 검증 기준
 
 - `COR-001` Ready 상태 이후 교정 결과 생성이 자동으로 시작된다.
+- 실제 AI 요청에 LangState snapshot과 후보 문맥이 포함된다.
 - 실제 AI 성공 응답 기준으로 필수 필드가 채워진 `CorrectionSuggestion`을 1개 이상 생성할 수 있다.
+- AI 응답의 `candidateId`가 기존 후보와 매칭되지 않으면 Error 상태로 전환된다.
 - fake/mock 또는 `CorrectionSuggestionFixtureBuilder`로도 Content / Empty / Error 상태를 검증할 수 있다.
 - `CorrectionSuggestion` 목록을 받으면 Content 상태로 전환된다.
 - 결과가 비어 있으면 Empty 상태로 전환된다.
@@ -139,6 +155,7 @@ SYS 후보 추출 계약 결과 + LangState snapshot
 - SYS 후보 추출 결과가 비어 있음
 - 후보는 있으나 AI 응답이 비어 있음
 - AI 응답 JSON 구조가 깨짐
+- AI 응답의 `candidateId`가 원본 후보와 매칭되지 않음
 - 일부 후보만 교정 결과로 변환됨
 - 네트워크 실패로 교정 결과 생성이 중단됨
 - Retry 중 선택 언어가 변경됨

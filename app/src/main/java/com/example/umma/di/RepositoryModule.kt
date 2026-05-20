@@ -7,7 +7,7 @@ import com.example.umma.data.repository.CorrectionRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
 import com.example.umma.data.source.local.CorrectionFlashcardLocalDataSource
-import com.example.umma.data.source.local.InMemoryCorrectionFlashcardLocalDataSource
+import com.example.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.example.umma.data.source.remote.FirestoreCorrectionFlashcardRemoteDataSource
 import com.example.umma.data.repository.UserProfileRepositoryImpl
@@ -73,7 +73,7 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindCorrectionFlashcardLocalDataSource(
-        impl: InMemoryCorrectionFlashcardLocalDataSource
+        impl: RoomCorrectionFlashcardLocalDataSource
     ): CorrectionFlashcardLocalDataSource
 
     @Binds

@@ -34,7 +34,7 @@ Flashcard 원본 카드가 어떤 필드를 갖고 각 필드가 어떤 의미�
 
 ### 제외 범위
 
-- FlashcardRepository 조회/저장 구현
+- FlashcardRepository 조회/복습 결과 갱신 구현
 - SRS 스케줄 계산 세부 정책
 - Flashcard 화면 세부 UI 구현
 - 카드 뒤집기 애니메이션

@@ -8,7 +8,9 @@
 Correction의 큰 흐름은 다음과 같다.
 
 ```text
-Correction 후보 준비
+RT-003 correction context 조회
+→ SessionTurn을 Correction 후보 입력으로 변환
+→ Correction 후보 준비
 → 교정 결과 생성
 → 사용자가 저장할 카드 선택
 → Flashcard 저장 요청 생성
@@ -18,8 +20,9 @@ Correction 후보 준비
 → 실패 시 보상 rollback
 ```
 
-Session Memory 원문 buffer 압축은 `SYS-REALTIME-INFRA`의 RT-003 실제 저장소 계약이 머지된 뒤 연결한다.
-이 브랜치의 Correction 코드는 해당 저장소 구현을 직접 만들지 않는다.
+Session Memory 저장/조회/압축 실행은 `SYS-REALTIME-INFRA`의 RT-003 실제 저장소 계약을 사용한다.
+Correction 코드는 해당 저장소 구현을 직접 만들지 않고, RT-003 `SessionTurn` read model을 후보 추출 입력으로 변환하는 경계만 담당한다.
+Correction 완료 시에는 교정 결과와 분석 대상 turn으로 최소 압축 payload를 만들고, 기존 RT-003 compression 계약에 넘긴다.
 
 ---
 
@@ -29,19 +32,44 @@ Session Memory 원문 buffer 압축은 `SYS-REALTIME-INFRA`의 RT-003 실제 저
 | --- | --- | --- |
 | `domain/model/correction` | `CorrectionCandidate`, `CorrectionSuggestion`, `CorrectionContracts`, `CorrectionCompletionModels` | Correction에서 주고받는 순수 도메인 계약 |
 | `domain/repository` | `CorrectionRepository` | 교정 결과 생성, Flashcard 저장, rollback 계약 |
-| `domain/usecase/correction` | `GenerateSuggestionsUseCase`, `PrepareSaveRequestUseCase`, `CompleteCorrectionUseCase` | 후보를 교정 결과로 바꾸고, 선택 결과를 저장/완료 파이프라인으로 연결 |
+| `domain/usecase/correction` | `ExtractCandidatesUseCase`, `ExtractSessionCandidatesUseCase`, `GenerateSuggestionsUseCase`, `PrepareSaveRequestUseCase`, `CompleteCorrectionUseCase` | RT-003 turn을 후보 입력으로 변환하고, 후보를 교정 결과/저장/완료 파이프라인으로 연결 |
 | `data/repository` | `CorrectionRepositoryImpl`, `FakeCorrectionRepository` | repository 계약의 실제 data 구현과 fake 교체 지점 |
 | `data/repository/correction` | `CorrectionAiResponseMapper`, `CorrectionFlashcardStore` | AI 응답 파싱과 local-first 저장 순서 |
-| `data/model/correction` | `CorrectionFlashcardDto` | Firestore / local cache가 공유하는 저장 DTO |
-| `data/source/local` | `CorrectionFlashcardLocalDataSource` | Room DAO 준비 전까지 local-first 저장 계약을 고정하는 임시 local source |
+| `data/model/correction` | `CorrectionFlashcardDto` | Firestore / Room local source가 공유하는 저장 DTO |
+| `data/source/local` | `CorrectionFlashcardLocalDataSource`, `CorrectionFlashcardDao`, `CorrectionFlashcardEntity`, `CorrectionFlashcardDatabase` | Correction에서 최초 생성한 Flashcard를 Room에 local first 저장하는 source |
 | `data/source/remote` | `CorrectionFlashcardRemoteDataSource` | Firestore `users/{uid}/flashcards/{flashcardId}` sync |
 | `di` | `RepositoryModule` | fake/real repository와 local/remote source 바인딩 |
 
 ---
 
-## 3. 교정 결과 생성 흐름
+## 3. 후보 준비 흐름
 
-### 3.1 입력 모델
+Correction은 Session Memory 저장소를 직접 구현하지 않는다.
+`SYS-REALTIME-INFRA`의 RT-003이 제공하는 correction context를 읽고, `ExtractSessionCandidatesUseCase`에서 Correction 후보 추출 입력으로 변환한다.
+
+```text
+GetCorrectionContextUseCase(language)
+→ Flow<List<SessionTurn>>
+→ ExtractSessionCandidatesUseCase(selectedLang, sessionLang, sessionTurns)
+→ ExtractCandidatesUseCase
+→ List<CorrectionCandidate>
+```
+
+역할 분리는 다음과 같다.
+
+| 단계 | 책임 |
+| --- | --- |
+| RT-003 `SessionMemoryRepository` | 확정 turn 저장, recentFullContext 조회, correction context 제공 |
+| `ExtractSessionCandidatesUseCase` | `SessionTurn`을 `ConversationTurn` 입력으로 변환하고 원본 `turnId` 보존 |
+| `ExtractCandidatesUseCase` | 언어 일치, 최근 100턴 제한, user turn 필터링, assistant 문맥 첨부 |
+
+`ExtractSessionCandidatesUseCase`는 전달받은 turn 순서를 재정렬하지 않는다.
+RT-003 read model은 오래된 turn부터 최신 turn 순서로 제공되어야 하며,
+Correction은 그 순서를 기준으로 `sourceTurnIndex`를 계산한다.
+
+## 4. 교정 결과 생성 흐름
+
+### 4.1 입력 모델
 
 교정 결과 생성의 입력은 `GenerateSuggestionsInput`이다.
 
@@ -56,7 +84,7 @@ GenerateSuggestionsInput
 - `assistantContext`는 발화 의미를 보조하는 문맥일 뿐, 화면 카드의 원본이 아니다.
 - `LangState`는 현재 선택 언어, 난이도, 학습 상태를 반영하기 위한 snapshot이다.
 
-### 3.2 UseCase 호출
+### 4.2 UseCase 호출
 
 ```text
 Correction 화면 / ViewModel
@@ -67,7 +95,7 @@ Correction 화면 / ViewModel
 `GenerateSuggestionsUseCase`는 복잡한 로직을 직접 갖지 않는다.
 UseCase의 역할은 presentation이 repository interface만 바라보도록 연결하는 것이다.
 
-### 3.3 현재 data 구현
+### 4.3 현재 data 구현
 
 현재 `CorrectionRepositoryImpl.generateSuggestions()`는 실제 AI API 연결 전까지 `CorrectionSuggestionFixtureBuilder.buildSuggestions(input)`을 사용한다.
 
@@ -85,7 +113,7 @@ GenerateSuggestionsInput
 - fake/real이 같은 `CorrectionSuggestion` 계약을 사용하도록 고정한다.
 - User Flow에서 실제 AI 연결이 들어와도 domain/presentation 계약이 흔들리지 않게 한다.
 
-### 3.4 실제 AI 연결 시 들어갈 위치
+### 4.4 실제 AI 연결 시 들어갈 위치
 
 실제 AI API 연결은 `CorrectionRepositoryImpl.generateSuggestions()` 내부 data 계층에 들어간다.
 
@@ -103,7 +131,7 @@ AI 응답 원문과 파싱 구조는 data 계층 내부에 머물러야 한다.
 
 ---
 
-## 4. AI 응답 파싱 흐름
+## 5. AI 응답 파싱 흐름
 
 `CorrectionAiResponseMapper`는 실제 AI 응답을 `CorrectionSuggestion`으로 변환하는 mapper다.
 
@@ -147,7 +175,7 @@ raw JSON
 
 ---
 
-## 5. CorrectionSuggestion의 역할
+## 6. CorrectionSuggestion의 역할
 
 `CorrectionSuggestion`은 화면 표시와 저장 선택을 동시에 연결하는 중심 모델이다.
 
@@ -174,13 +202,14 @@ CorrectionSuggestion
 
 ---
 
-## 6. 저장 요청 준비 흐름
+## 7. 저장 요청 준비 흐름
 
 사용자가 저장할 교정 결과를 선택하면 `PrepareSaveRequestUseCase`가 `CorrectionSaveRequest`를 만든다.
 
 ```text
 selectedSuggestions
 → distinctBy(id)로 중복 제거
+→ uid 필수값 검증
 → 언어가 모두 같은지 검증
 → nativeText / afterText 필수값 검증
 → CorrectionFlashcardSaveItem 생성
@@ -191,6 +220,7 @@ selectedSuggestions
 
 | Flashcard 저장 항목 | 값 |
 | --- | --- |
+| `uid` | `LangStateUpdateInput.uid` |
 | `suggestionId` | `CorrectionSuggestion.id` |
 | `frontText` | `CorrectionSuggestion.nativeText` |
 | `backText` | `CorrectionSuggestion.afterText` |
@@ -201,7 +231,7 @@ SRS 화면에서 뒷면의 `backText`를 Android `TextToSpeech` 입력으로 사
 
 ---
 
-## 7. Flashcard 저장 흐름
+## 8. Flashcard 저장 흐름
 
 `CorrectionRepository.saveFlashcards()`는 `CorrectionFlashcardStore`에 저장 순서를 위임한다.
 
@@ -210,12 +240,13 @@ CorrectionSaveRequest
 → CorrectionRepositoryImpl.saveFlashcards()
 → CorrectionFlashcardStore.save()
 → CorrectionFlashcardDto 변환
-→ localDataSource.saveFlashcards()
+→ localDataSource.saveFlashcards(uid, flashcards)
 → remoteDataSource.syncFlashcards()
+→ sync 성공 ID는 local dirty=false 갱신
 → CorrectionSaveResult
 ```
 
-### 7.1 DTO 변환
+### 8.1 DTO 변환
 
 `CorrectionFlashcardSaveItem.toCorrectionFlashcardDto()`는 domain 저장 요청을 data 저장 DTO로 바꾼다.
 
@@ -253,22 +284,42 @@ Firestore 필드명은 DTO의 camelCase 이름을 그대로 사용한다.
 
 `sourceSuggestionId`도 현재는 `id`와 같지만, 나중에 카드 ID 정책이 바뀌어도 어떤 교정 결과에서 만들어진 카드인지 추적하기 위해 별도 필드로 유지한다.
 
-### 7.2 local-first 저장
+### 8.2 Room local-first 저장
 
-현재는 Flashcard Room DAO가 준비되기 전이므로 `InMemoryCorrectionFlashcardLocalDataSource`가 local 저장 계약을 임시로 담당한다.
+Correction은 새 Flashcard 최초 저장 책임을 가지므로 Room DAO 기반 local 저장소를 선행으로 제공한다.
+Room Entity는 SRS가 이후 같은 원본 카드를 조회할 수 있도록 `frontText`, `backText`, `explanation`, `nextReviewAt`, `interval`, `easeFactor`, `dirty` 필드를 유지한다.
 
 ```text
-flashcardsById
-→ flashcard.id 기준 중복 확인
+CorrectionFlashcardLocalDataSource
+→ CorrectionFlashcardDao.insertFlashcards(...)
+→ userId + flashcard.id 기준 중복 확인
 → 새 카드만 저장
 → 저장된 card id 목록 반환
 ```
 
-이 구현은 영구 저장소가 아니라 계약 고정용이다.
-SRS 인프라에서 Room Entity / DAO가 준비되면 `CorrectionFlashcardLocalDataSource`의 구현만 Room 기반으로 교체한다.
-domain UseCase와 `CorrectionRepository` 계약은 바뀌지 않아야 한다.
+`userId + id`를 복합 키로 두어 같은 기기에서 계정이 바뀌어도 카드가 섞이지 않게 한다.
+같은 `suggestionId`에서 파생된 카드는 같은 Flashcard로 취급해 중복 저장을 막는다.
+domain UseCase와 `CorrectionRepository`는 Room 세부 구현을 직접 알지 않는다.
 
-### 7.3 Firestore sync
+SRS는 같은 Room 원본을 사용하되, 새 Flashcard 최초 저장을 다시 구현하지 않는다.
+이를 위해 `CorrectionFlashcardLocalDataSource`는 SRS Repository가 재사용할 수 있는 낮은 레벨의 조회/갱신 통로를 함께 제공한다.
+
+```text
+SRS due deck 조회
+→ getDueFlashcards(uid, language, now, limit)
+→ userId + language + nextReviewAt <= now 기준 조회
+→ nextReviewAt / createdAt / id 기준 정렬
+
+SRS review 결과 반영
+→ updateReviewSchedule(uid, flashcardId, nextReviewAt, interval, easeFactor, updatedAt)
+→ 같은 Room 원본 row 갱신
+→ dirty = true 로 후속 sync 대상 표시
+```
+
+due deck 구성, SM-2 계산, review 완료 파이프라인 조립은 `SYS-SRS-INFRA`의 `FlashcardRepository`와 SRS UseCase 책임이다.
+Correction-infra는 SRS가 같은 원본을 읽고 갱신할 수 있는 저장소 통로만 선행 제공한다.
+
+### 8.3 Firestore sync
 
 local 저장이 성공한 새 카드만 Firestore sync 대상으로 보낸다.
 
@@ -280,14 +331,14 @@ newlySavedFlashcards
 ```
 
 Firestore에는 `dirty = false`로 저장한다.
-local 원본은 sync 결과를 보고 pending 여부를 판단한다.
+local 원본은 sync 성공 ID만 `dirty = false`로 갱신하고, 실패한 카드는 `dirty = true`로 남겨 pending 여부를 판단한다.
 
 Firestore sync가 실패해도 local 저장 성공을 사용자 저장 실패로 바꾸지 않는다.
 대신 `CorrectionSaveResult.pendingSyncFlashcardIds`에 남겨 후속 sync 대상으로 다룬다.
 
 ---
 
-## 8. 완료 파이프라인 흐름
+## 9. 완료 파이프라인 흐름
 
 `CompleteCorrectionUseCase`는 사용자가 선택한 교정 결과를 저장하고, 교정 완료 후 필요한 로컬 상태 정리를 한 번에 묶는다.
 
@@ -310,9 +361,11 @@ CompleteCorrectionInput
 `ApplyLanguageStateUpdateUseCase` 호출 시에는 `correctionAvailableOverride = false`가 들어간다.
 교정이 완료된 세션은 다시 교정 대기 상태로 남아 있으면 안 되기 때문이다.
 
-RT-003 머지 후에는 이 흐름의 `saveFlashcards()`와 `ApplyLanguageStateUpdateUseCase` 사이에
-Realtime-infra가 제공하는 Session Memory compression 계약을 연결한다.
-그때 rollback 또는 commit marker 정책도 RT-003의 저장소 계약을 따른다.
+Session Memory compression의 저장/초기화 실행은 Realtime-infra가 제공하는 RT-003 계약이다.
+Correction 완료 파이프라인은 선택된 교정 결과와 분석 대상 user turn으로 `recentTopics`, `topicSummaries`, `topicKeySentences`를 만든다.
+그 결과가 비어 있지 않을 때만 RT-003 `CompressSessionMemoryUseCase`를 호출한다.
+빈 payload로 원문 buffer를 지우는 구현은 허용하지 않는다.
+compression 실패는 Flashcard 저장과 학습 상태 갱신을 롤백하지 않고 `sessionCompressionPending`으로 남긴다.
 
 완료 결과는 다음 값을 화면으로 돌려준다.
 
@@ -321,12 +374,13 @@ CompleteCorrectionResult
 → savedFlashcardIds
 → pendingSyncFlashcardIds
 → sessionMemoryKey
+→ sessionCompressionApplied / sessionCompressionPending
 → completedAt
 ```
 
 ---
 
-## 9. 실패와 rollback 흐름
+## 10. 실패와 rollback 흐름
 
 `CompleteCorrectionUseCase`는 저장 또는 상태 갱신 중 하나라도 실패하면 catch 블록으로 들어간다.
 
@@ -345,7 +399,7 @@ rollback 순서는 다음 기준을 따른다.
 
 1. Flashcard 저장이 성공했다면 `CorrectionRepository.rollbackFlashcards()`를 호출한다.
 2. 아직 성공하지 않은 단계는 rollback하지 않는다.
-3. Session Memory rollback은 RT-003 compression 계약이 연결된 후 해당 정책을 따른다.
+3. Session Memory compression 실패는 완료 실패로 키우지 않고 pending 결과로 남긴다.
 
 Flashcard rollback은 local 저장을 반드시 되돌린다.
 remote delete는 best-effort다.
@@ -356,7 +410,7 @@ Firestore sync만 실패한 경우는 local completion 실패가 아니다.
 
 ---
 
-## 10. DI와 fake/real 교체
+## 11. DI와 fake/real 교체
 
 `RepositoryModule`은 다음 바인딩을 제공한다.
 
@@ -365,7 +419,8 @@ CorrectionRepository
 → CorrectionRepositoryImpl
 
 CorrectionFlashcardLocalDataSource
-→ InMemoryCorrectionFlashcardLocalDataSource
+→ RoomCorrectionFlashcardLocalDataSource
+→ CorrectionFlashcardDao
 
 CorrectionFlashcardRemoteDataSource
 → FirestoreCorrectionFlashcardRemoteDataSource
@@ -380,22 +435,25 @@ fake는 화면 상태와 저장 파이프라인을 AI 없이 테스트하기 위
 
 ---
 
-## 11. 테스트로 확인되는 계약
+## 12. 테스트로 확인되는 계약
 
 | 테스트 | 확인하는 내용 |
 | --- | --- |
+| `ExtractSessionCandidatesUseCaseTest` | RT-003 `SessionTurn` 입력을 Correction 후보 입력으로 변환하고 `sourceTurnId`를 보존하는지 확인 |
+| `BuildSessionCompressionPayloadUseCaseTest` | 교정 결과와 분석 대상 turn으로 RT-003 compression payload를 만들고, 빈 payload 호출을 막는지 확인 |
 | `GenerateSuggestionsUseCaseTest` | 후보 입력이 교정 결과 계약으로 연결되는지 확인 |
 | `PrepareSaveRequestUseCaseTest` | 선택 결과 중복 제거, 언어 검증, 필수 텍스트 검증 |
-| `CompleteCorrectionUseCaseTest` | 저장, 상태 갱신 순서와 실패 시 rollback |
-| `CorrectionRepositoryImplTest` | local-first 저장, Firestore pending sync, 중복 저장 방지, rollback |
+| `CompleteCorrectionUseCaseTest` | 저장, 상태 갱신, compression 호출 순서와 실패 시 rollback/pending 정책 |
+| `CorrectionRepositoryImplTest` | local-first 저장, Firestore pending sync, 중복 저장 방지, rollback, SRS due 조회/스케줄 갱신 통로 |
 | `CorrectionAiResponseMapperTest` | AI JSON 파싱, candidateId 매칭, 필수 필드 검증 |
 | `FakeCorrectionRepositoryTest` | fake 구현도 같은 저장 계약을 사용하는지 확인 |
 
 ---
 
-## 12. 구현자가 주의할 점
+## 13. 구현자가 주의할 점
 
 - `CorrectionCandidate`는 내부 후보이며 화면에 후보 목록으로 노출하지 않는다.
+- RT-003의 `SessionTurn` 저장/조회 구현은 Realtime-infra 책임이며, Correction은 `ExtractSessionCandidatesUseCase`로 후보 입력 변환만 담당한다.
 - `CorrectionSuggestion`은 화면 카드와 저장 선택의 기준 모델이다.
 - 실제 AI 연결은 data 계층에서 처리하고, ViewModel / UseCase가 raw JSON이나 SDK에 직접 의존하지 않는다.
 - AI 응답의 `candidateId`는 반드시 기존 후보와 매칭되어야 한다.
@@ -410,6 +468,6 @@ fake는 화면 상태와 저장 파이프라인을 AI 없이 테스트하기 위
 
 ---
 
-## 13. 한 줄 요약
+## 14. 한 줄 요약
 
-> Correction 코드는 AI 교정 결과를 `CorrectionSuggestion`으로 표준화하고, 사용자가 선택한 결과를 Flashcard로 local-first 저장한 뒤, 완료 파이프라인에서 Session Memory와 학습 상태를 함께 정리하도록 설계되어 있다.
+> Correction 코드는 RT-003 Session Memory read model을 후보 입력으로 변환하고, AI 교정 결과를 `CorrectionSuggestion`으로 표준화한 뒤, 사용자가 선택한 결과를 Flashcard로 local-first 저장하고 학습 상태를 정리하도록 설계되어 있다.
