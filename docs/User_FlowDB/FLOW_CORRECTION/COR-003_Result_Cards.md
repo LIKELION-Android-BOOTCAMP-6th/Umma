@@ -1,4 +1,4 @@
-# [Feature] COR-005 교정 결과 카드 표시
+# [Feature] COR-003 교정 결과 카드 표시
 
 ## User Story
 
@@ -12,16 +12,15 @@
 - [ ] 교정 전 문장과 교정 후 문장을 구분해 보여준다.
 - [ ] 생성된 설명을 화면에 표시한다.
 - [ ] 카드 목록은 Loading / Content / Empty / Error 상태에 맞춰 렌더링된다.
-- [ ] 목업 결과와 실제 API 결과는 같은 화면 모델을 사용한다.
 - [ ] 후보 목록 선택 UI를 만들지 않는다.
 
 ---
 
 # Flow (링크)
 
-- FLOW-CORRECTION
-- COR-004 → 교정 결과 생성
-- COR-005 → 교정 결과 카드 표시
+- [FLOW-CORRECTION](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
+- [COR-002 → 교정 결과 생성](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-002_Suggestion_Generation.md)
+- [COR-003 → 교정 결과 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-003_Result_Cards.md)
 
 ---
 
@@ -39,7 +38,7 @@
 
 - 카드 선택 상태
 - Flashcard 실제 저장
-- Session Memory 압축
+- Session Memory 압축 또는 저장소 구현
 - LangState 수치 계산
 - Dashboard Summary 갱신
 
@@ -76,7 +75,7 @@ Why: 장소 앞에는 보통 전치사 to를 사용합니다.
 
 ## 작업 지시
 
-- 이 이슈에서는 카드의 표시만 완성하고 선택 상태는 `COR-006`에서 다룬다.
+- 이 이슈에서는 카드의 표시만 완성하고 선택 상태는 `COR-004`에서 다룬다.
 - 카드에는 교정 전 문장, 교정 후 문장, 설명이 명확히 구분되어야 한다.
 - 설명은 `CorrectionSuggestion`에 포함된 값을 그대로 렌더링한다.
 - 후보가 없는 Empty와 결과가 있는 Content를 화면에서 구분한다.
@@ -106,7 +105,7 @@ Empty
 Error
 ```
 
-카드 표시는 `CorrectionSuggestion`만 사용하고 `CorrectionCandidate`를 직접 렌더링하지 않는다.
+카드 표시는 최종 교정 결과 상태만 사용하고 내부 후보 목록을 직접 렌더링하지 않는다.
 
 ---
 

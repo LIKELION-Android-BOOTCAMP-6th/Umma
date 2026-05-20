@@ -10,7 +10,7 @@ Flashcard 원본 카드가 어떤 필드를 갖고 각 필드가 어떤 의미�
 ## 완료 기준(AC) (Acceptance Criteria)
 
 - [ ] `Flashcard`가 반복학습 원본 카드 계약으로 정의된다.
-- [ ] Flashcard의 front/back, explanation, hint, pronunciation, schedule 필드 역할이 구분된다.
+- [ ] Flashcard의 front/back, explanation, hint, schedule 필드와 pronunciation 재생 대상의 역할이 구분된다.
 - [ ] 카드 앞면은 모국어 문장, 카드 뒷면은 교정된 외국어 문장과 짧은 설명을 기준으로 한다.
 - [ ] 발음 재생 대상은 카드 뒷면의 교정된 외국어 문장임을 명시한다.
 - [ ] `ReviewDecision`이 SM-2 기반 4단계 복습 평가 결과 계약으로 정의된다.
@@ -28,7 +28,7 @@ Flashcard 원본 카드가 어떤 필드를 갖고 각 필드가 어떤 의미�
 - `Flashcard` 원본 모델
 - `ReviewDecision` 모델
 - `ReviewScheduleResult` 모델
-- front/back/explanation/hint/pronunciation/schedule 필드 의미
+- front/back/explanation/hint/schedule 필드 의미와 pronunciation 재생 대상
 - Flashcard 언어 식별자 필드 의미
 - 기존 `presentation/study` 계열 화면/폴더/파일의 `SrsStudy` 명칭 재정의 기준
 
@@ -91,16 +91,15 @@ Flashcard
 → backText
 → explanation
 → hint
-→ pronunciation
 → schedule
 ```
 
 - `frontText`: 카드 앞면에 표시할 모국어 문장
 - `backText`: 카드 뒷면에 표시할 교정된 외국어 문장
 - `explanation`: 뒷면에 표시할 짧은 교정 설명
-- `hint`: 앞면 또는 학습 중 회상 보조에 사용할 짧은 문구
-- `pronunciation`: 발음 재생을 위한 대상 텍스트 또는 asset 참조 계약
-- `schedule`: `interval`, `ease_factor`, `next_review_at` 등 복습 스케줄 상태
+- `hint`: 앞면 또는 학습 중 회상 보조에 사용할 선택 필드이며, Correction에서 생성한 카드는 생략할 수 있다.
+- pronunciation 재생 대상: MVP에서는 별도 저장 필드를 두지 않고 `backText`를 Android `TextToSpeech`의 입력으로 사용한다.
+- `schedule`: `interval`, `easeFactor`, `nextReviewAt` 등 복습 스케줄 상태
 
 ### 2. ReviewDecision 계약
 
@@ -135,7 +134,7 @@ ReviewScheduleResult
 - Flashcard는 어떤 학습 언어에 속하는지 식별할 수 있어야 한다.
 - Flashcard 원본 목록은 Global Learning State가 아니라 별도 repository에서 읽는다.
 - `FlashcardSummary.dueFlashcards` 계산 기준은 `SRI-002`의 조회 계약에서 다룬다.
-- `next_review_at` 기반 due 판정은 `SRI-002`의 조회 계약에서 다룬다.
+- `nextReviewAt` 기반 due 판정은 `SRI-002`의 조회 계약에서 다룬다.
 - Review session의 현재 위치는 User Flow의 UI state에서 관리한다.
 
 ---
@@ -150,9 +149,9 @@ ReviewScheduleResult
 
 ## 연결 문서
 
-- [SYS_SRS_INFRA.md](../SYS_SRS_INFRA.md)
-- [SRI-002_Repository_Contract.md](./SRI-002_Repository_Contract.md)
-- [SRI-003_Schedule_Policy.md](./SRI-003_Schedule_Policy.md)
-- [FLOW_SRS.md](../../User_FlowDB/FLOW_SRS.md)
-- [SYS_LEARNING_STATE_INFRA.md](../SYS_LEARNING_STATE_INFRA.md)
-- [Umma_Data_Strategy_and_Language_State.md](../../Umma_Data_Strategy_and_Language_State.md)
+- [SYS_SRS_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_SRS_INFRA.md)
+- [SRI-002_Repository_Contract.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_SRS_INFRA/SRI-002_Repository_Contract.md)
+- [SRI-003_Schedule_Policy.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_SRS_INFRA/SRI-003_Schedule_Policy.md)
+- [FLOW_SRS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS.md)
+- [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
+- [Umma_Data_Strategy_and_Language_State.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Umma_Data_Strategy_and_Language_State.md)
