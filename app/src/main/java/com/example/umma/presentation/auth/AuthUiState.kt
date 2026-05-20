@@ -14,6 +14,8 @@ data class AuthUiState(
     /** 첫 사용자 대시보드 진입 시 닉네임, 학습 언어 설정 다이얼로그 */
     val initialSetupDialogStep: InitialSetupDialogStep = InitialSetupDialogStep.NONE,
     val nickname: String = "",
+    val nicknameError: String? = null,
+    val learningLanguageError: String? = null,
     /**
      * 로그아웃 완료 여부
      * 로그아웃 버튼 클릭 -> 로그아웃 완료 기다리지 않고 즉시 화면 이동하는 상황 방지용

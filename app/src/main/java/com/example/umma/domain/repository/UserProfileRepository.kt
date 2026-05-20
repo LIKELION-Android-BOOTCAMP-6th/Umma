@@ -23,4 +23,17 @@ interface UserProfileRepository {
         sessionSummary: SessionSummary,
         flashcardSummary: FlashcardSummary
     ): Result<Unit>
+
+    /**
+     * 사용자 프로필 전체 조회
+     * @param uid 사용자 UID
+     * @return 조회한 유저의 문서, 문서가 없다면 null
+     */
+    suspend fun getUserProfile(uid: String): UserProfile?
+
+    /**
+     * @param uid 사용자 UID
+     * @param topics 문자열 리스트 (예: "Travel", "FOOD")
+     */
+    suspend fun saveInterestTopics(uid: String, topics: List<String>): Result<Unit>
 }

@@ -11,12 +11,16 @@ import com.example.umma.domain.model.audio.AudioInputFrame
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.realtime.AIEvent
 import com.example.umma.domain.model.realtime.AIState
+import com.example.umma.domain.model.user.Topic
+import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.model.realtime.AppendTurnCommand
 import com.example.umma.domain.model.realtime.SessionTurn
 import com.example.umma.domain.usecase.chat.ObserveAIEventUseCase
 import com.example.umma.domain.usecase.chat.SendAudioDataUseCase
 import com.example.umma.domain.usecase.chat.StartSessionUseCase
 import com.example.umma.domain.usecase.chat.StopSessionUseCase
+import com.example.umma.domain.usecase.user.GetUserProfileUseCase
+import com.example.umma.domain.usecase.user.SaveInterestTopicsUseCase
 import com.example.umma.domain.usecase.learningstate.GetSelectedLearningLanguageUseCase
 import com.example.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.example.umma.presentation.util.calculateLevel
@@ -38,6 +42,9 @@ class ChatViewModel @Inject constructor(
     private val observeAIEventUseCase: ObserveAIEventUseCase,
     private val sendAudioDataUseCase: SendAudioDataUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
+    private val getUserProfileUseCase: GetUserProfileUseCase,
+    private val saveInterestTopicsUseCase: SaveInterestTopicsUseCase,
+    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase
     private val appendTurnUseCase: AppendTurnUseCase,
     private val audioRecorder: AudioInput,
     private val audioPlayer: AudioOutput
@@ -409,5 +416,61 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         audioPlayer.release()
+    }
+
+    // ChatScreen 진입 시 호출
+    fun checkInterestTopics() {
+        viewModelScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            val profile = getUserProfileUseCase(uid) ?: return@launch
+
+            if (profile.interestTopics.isEmpty()) {
+                _uiState.update { it.copy(showTopicDialog = true) }
+            }
+        }
+    }
+
+
+    // 관심 주제 다이얼로그에서 선택/해제
+    fun toggleTopic(topic: Topic) {
+        val current = _uiState.value.selectedTopic.toMutableList()
+        if (current.contains(topic)) {
+            current.remove(topic)
+        } else if (current.size < 5) {
+            current.add(topic)
+        }
+        _uiState.update { it.copy(selectedTopic = current) }
+    }
+
+
+    fun saveInterestTopics() {
+        viewModelScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            val topics = _uiState.value.selectedTopic.map { it.name }
+
+            // 5개 미선택 시 저장 X
+            if (topics.size != 5) {
+                _uiState.update { it.copy(topicError = "주제를 정확히 5개 선택해 주세요.") }
+                return@launch
+            }
+            _uiState.update { it.copy(isTopicSaving = true) }
+            val result = saveInterestTopicsUseCase(uid, topics)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isTopicSaving = false,
+                        showTopicDialog = false,
+                        topicError = null
+                    )
+                }
+            }.onFailure {
+                _uiState.update {
+                    it.copy(
+                        isTopicSaving = false,
+                        topicError = "저장에 실패했습니다."
+                    )
+                }
+            }
+        }
     }
 }
