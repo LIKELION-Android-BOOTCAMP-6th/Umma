@@ -55,7 +55,7 @@
 ```text
 Flashcard
 → language
-→ next_review_at
+→ nextReviewAt
 → due deck
 ```
 
@@ -65,7 +65,7 @@ Flashcard
 
 ## 조회 정책
 
-- `next_review_at <= now`인 카드만 due deck에 포함한다.
+- `nextReviewAt <= now`인 카드만 due deck에 포함한다.
 - 현재 선택 언어의 카드만 조회한다.
 - deck은 Room 또는 local cache를 먼저 사용하고, 필요 시 background sync로 보정한다.
 - 조회 계약과 fake/real 교체 기준은 `SRI-002`를 따른다.

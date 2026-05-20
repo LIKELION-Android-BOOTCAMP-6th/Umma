@@ -88,7 +88,7 @@ import com.example.umma.presentation.dashboard.component.StudyCard
 fun DashboardScreen(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
-    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     onNavigateToStudyList: () -> Unit,
     onNavigateToMyPage: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
@@ -193,7 +193,7 @@ fun DashboardScreen(
                     summary = uiState.summary,
                     onNavigateToAnalytics = onNavigateToAnalytics,
                     onNavigateToChat = onNavigateToChat,
-                    onNavigateToFeedbackList = onNavigateToFeedbackList,
+                    onNavigateToCorrection = onNavigateToCorrection,
                     onNavigateToStudyList = onNavigateToStudyList
                 )
             }
@@ -305,7 +305,7 @@ private fun DashboardContent(
     summary: DashSummary?,
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
-    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     onNavigateToStudyList: () -> Unit,
 ) {
     Column(
@@ -327,7 +327,7 @@ private fun DashboardContent(
             summary = summary,
             onNavigateToChat = onNavigateToChat,
             onNavigateToStudyList = onNavigateToStudyList,
-            onNavigateToFeedbackList = onNavigateToFeedbackList,
+            onNavigateToCorrection = onNavigateToCorrection,
             onNavigateToAnalytics = onNavigateToAnalytics
         )
     }
@@ -345,7 +345,7 @@ private fun DashboardCardGrid(
     summary: DashSummary?,
     onNavigateToChat: () -> Unit,
     onNavigateToStudyList: () -> Unit,
-    onNavigateToFeedbackList: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     onNavigateToAnalytics: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -384,7 +384,7 @@ private fun DashboardCardGrid(
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
                 recentConversationMinutes = summary?.recentMinutes,
-                onClick = onNavigateToFeedbackList,
+                onClick = onNavigateToCorrection,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
