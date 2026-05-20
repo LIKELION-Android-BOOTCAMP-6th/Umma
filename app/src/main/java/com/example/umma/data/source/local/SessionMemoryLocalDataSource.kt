@@ -25,13 +25,17 @@ class SessionMemoryLocalDataSource @Inject constructor(
     /**
      * 확정 turn 을 append 하고 메타데이터를 갱신합니다.
      *
+     * - duplicate turnId 는 ignore + success
+     * - recentFullContext 는 최대 [maxRecentTurns] 개만 유지
+     * - user turn 이 하나라도 존재하면 correctionAvailable = true (추후 AI 응답으로 변경)
+     * - append 성공 시 pendingTurnSync 를 true 로 남깁니다.
+     *
      * @param turn 저장할 turn 엔터티
      * @param maxRecentTurns 유지할 최대 recent turn 수
      * @return append 결과
      */
     suspend fun appendTurn(
-        turn: SessionTurnEntity,
-        maxRecentTurns: Int
+        turn: SessionTurnEntity, maxRecentTurns: Int
     ): AppendResult {
         return database.withTransaction {
             val insertResult = turnDao.insertTurn(turn)
@@ -39,9 +43,7 @@ class SessionMemoryLocalDataSource @Inject constructor(
 
             if (inserted) {
                 trimOverflowTurns(
-                    userId = turn.userId,
-                    language = turn.language,
-                    maxRecentTurns = maxRecentTurns
+                    userId = turn.userId, language = turn.language, maxRecentTurns = maxRecentTurns
                 )
 
                 val metaId = "${turn.userId}_${turn.language}"
@@ -55,10 +57,13 @@ class SessionMemoryLocalDataSource @Inject constructor(
                     topicKeySentencesJson = "[]",
                     correctionAvailable = false,
                     lastCompressedAt = null,
-                    updatedAt = turn.createdAt
+                    updatedAt = turn.createdAt,
+                    isPendingTurnSync = false,
+                    isPendingCompressionSync = false
                 )).copy(
                     correctionAvailable = currentMeta?.correctionAvailable == true || turn.role == TurnSpeaker.USER.name,
-                    updatedAt = turn.createdAt
+                    updatedAt = turn.createdAt,
+                    isPendingTurnSync = true // remote sync 대기중
                 )
 
                 metadataDao.insertOrUpdateMetadata(updatedMeta)
@@ -114,6 +119,9 @@ class SessionMemoryLocalDataSource @Inject constructor(
     /**
      * 특정 언어의 turn 목록을 비우고 메타데이터를 갱신합니다.
      *
+     * - local buffer 는 즉시 비움
+     * - compression sync 실패는 pendingCompressionSync 로 남김
+     *
      * @param metadata 저장할 최신 메타데이터
      */
     suspend fun compress(metadata: SessionMetadataEntity) {
@@ -135,6 +143,15 @@ class SessionMemoryLocalDataSource @Inject constructor(
     }
 
     /**
+     * 특정 언어의 메타데이터를 저장합니다.
+     *
+     * @param metadata 저장할 메타데이터
+     */
+    suspend fun saveMetadata(metadata: SessionMetadataEntity) {
+        metadataDao.insertOrUpdateMetadata(metadata)
+    }
+
+    /**
      * 오래된 turn 을 삭제해 recent turn 개수를 제한합니다.
      *
      * @param userId 사용자 UID
@@ -149,9 +166,7 @@ class SessionMemoryLocalDataSource @Inject constructor(
         val turns = turnDao.getTurns(userId, language)
         if (turns.size <= maxRecentTurns) return
 
-        val overflowTurnIds = turns
-            .take(turns.size - maxRecentTurns)
-            .map { it.turnId }
+        val overflowTurnIds = turns.take(turns.size - maxRecentTurns).map { it.turnId }
 
         if (overflowTurnIds.isNotEmpty()) {
             turnDao.deleteTurnsByIds(overflowTurnIds)

@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.umma.data.source.local.AudioPlayer
 import com.example.umma.data.source.local.AudioRecorder
+import com.example.umma.domain.audio.AudioInput
+import com.example.umma.domain.audio.AudioOutput
 import com.example.umma.domain.model.audio.AudioInputFrame
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.realtime.AIEvent
@@ -37,9 +39,8 @@ class ChatViewModel @Inject constructor(
     private val sendAudioDataUseCase: SendAudioDataUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
-    private val getSelectedLearningLanguageUseCase: GetSelectedLearningLanguageUseCase,
-    private val audioRecorder: AudioRecorder,
-    private val audioPlayer: AudioPlayer
+    private val audioRecorder: AudioInput,
+    private val audioPlayer: AudioOutput
 ) : ViewModel() {
 
     /**
@@ -270,38 +271,29 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             beginTurnSave()
 
-            val selectedLanguage = getSelectedLearningLanguageUseCase()
-            if (selectedLanguage == null) {
-                _uiState.update {
-                    it.copy(saveErrorMessage = "선택된 학습 언어를 확인할 수 없습니다.")
-                }
-                endTurnSave()
-                return@launch
-            }
-
-            val result = appendTurnUseCase(
-                AppendTurnCommand(
-                    language = selectedLanguage,
-                    turn = SessionTurn(
-                        turnId = event.turnId,
-                        sessionId = event.sessionId,
-                        text = event.text,
-                        role = event.role,
-                        createdAt = event.createdAt,
-                        durationMs = event.durationMs,
-                        tokenCount = event.tokenCount,
-                        confidence = event.confidence
-                    )
+            val command = AppendTurnCommand(
+                language = event.sessionLang,
+                turn = SessionTurn(
+                    turnId = event.turnId,
+                    sessionId = event.sessionId,
+                    text = event.text,
+                    role = event.role,
+                    createdAt = event.createdAt,
+                    durationMs = event.durationMs,
+                    tokenCount = event.tokenCount,
+                    confidence = event.confidence
                 )
             )
 
-            result
+            appendTurnUseCase(command)
                 .onSuccess {
-                    _uiState.update { it.copy(saveErrorMessage = null) }
+                    _uiState.update {
+                        it.copy(saveErrorMessage = null)
+                    }
                 }
                 .onFailure { error ->
                     _uiState.update {
-                        it.copy(saveErrorMessage = error.message ?: "Turn 저장에 실패했습니다.")
+                        it.copy(saveErrorMessage = error.message ?: "Turn 저장 실패")
                     }
                 }
 
@@ -374,6 +366,7 @@ class ChatViewModel @Inject constructor(
      * 세션 중단 상태를 반영합니다.
      *
      * @param event 세션 중단 이벤트
+     * - RECONNECTING으로 전환
      */
     private fun handleSessionInterrupted(event: AIEvent.SessionInterrupted) {
         recordJob?.cancel()

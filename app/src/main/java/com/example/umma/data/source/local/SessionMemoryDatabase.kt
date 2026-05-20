@@ -11,6 +11,15 @@ import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * 로컬 Room 에 저장되는 확정 turn이 Remote에 Sync가 되었는지 판단합니다.
+ * @property PENDING 아직 싱크 안됨
+ * @property SYNCED 싱크됨
+ */
+object RemoteSyncStatus {
+    const val PENDING = "PENDING"
+    const val SYNCED = "SYNCED"
+}
+/**
  * 로컬 Room 에 저장되는 확정 turn 엔터티입니다.
  */
 @Entity(tableName = "session_turns")
@@ -30,6 +39,9 @@ data class SessionTurnEntity(
 
 /**
  * 언어별 Session Memory 메타데이터 엔터티입니다.
+ *
+ * @property isPendingTurnSync recentFullContext append 이후 원격 sync 필요 여부
+ * @property isPendingCompressionSync compression 이후 원격 sync 필요 여부
  */
 @Entity(tableName = "session_metadata")
 data class SessionMetadataEntity(
@@ -41,7 +53,9 @@ data class SessionMetadataEntity(
     val topicKeySentencesJson: String,
     val correctionAvailable: Boolean,
     val lastCompressedAt: Long?,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val isPendingTurnSync: Boolean,
+    val isPendingCompressionSync: Boolean
 )
 
 /**

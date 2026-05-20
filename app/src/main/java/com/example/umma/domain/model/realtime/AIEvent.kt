@@ -1,5 +1,6 @@
 package com.example.umma.domain.model.realtime
 
+import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 
 /**
@@ -20,13 +21,21 @@ sealed interface AIEvent {
      *  이 데이터를 기반으로 턴 저장 로직이 트리거됩니다.
      *  RT-003 정책에 의하여 turn commit 입력에 사용됨.
      *
-     *  @property turnId 중복 commit 방지를 위한 확정 turn 식별자
-     *  @property sessionId 현재 turn이 속한 앱레벨 session 식별자
+     * @property turnId 중복 저장 방지를 위한 turn 식별자
+     * @property sessionId 현재 turn 이 속한 세션 식별자
+     * @property sessionLang 세션이 시작될 때 고정된 학습 언어
+     * @property text 확정된 발화 텍스트
+     * @property role 발화 주체
+     * @property createdAt turn 확정 시각
+     * @property durationMs 발화 길이
+     * @property tokenCount 토큰 수
+     * @property confidence STT 신뢰도
      *  */
     data class FinalTranscription(
         val turnId: String,
         val sessionId: String,
         val text: String,
+        val sessionLang: LangCode,
         val role: TurnSpeaker,
         val createdAt: Long,
         val durationMs: Long? = null,

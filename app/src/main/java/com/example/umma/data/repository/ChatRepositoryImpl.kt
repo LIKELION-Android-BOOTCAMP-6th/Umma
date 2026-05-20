@@ -220,12 +220,14 @@ class ChatRepositoryImpl @Inject constructor(
      */
     private suspend fun emitFinalTranscripts() {
         val sessionId = activeSessionId ?: return
+        val sessionLang = currentLang ?: return
 
         if (userTranscriptBuffer.isNotBlank()) {
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = userTranscriptBuffer,
-                role = TurnSpeaker.USER
+                role = TurnSpeaker.USER,
+                sessionLang = sessionLang
             )
             userTranscriptBuffer = ""
         }
@@ -234,7 +236,8 @@ class ChatRepositoryImpl @Inject constructor(
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = aiTranscriptionBuffer,
-                role = TurnSpeaker.AI
+                role = TurnSpeaker.AI,
+                sessionLang = sessionLang
             )
             aiTranscriptionBuffer = ""
         }
@@ -250,15 +253,22 @@ class ChatRepositoryImpl @Inject constructor(
     private suspend fun emitFinalTranscript(
         sessionId: String,
         text: String,
-        role: TurnSpeaker
+        role: TurnSpeaker,
+        sessionLang: LangCode
     ) {
+        if (text.isBlank()) return
+
+        val turnId = nextTurnId(sessionId, role)
+        val createdAt = System.currentTimeMillis()
+
         _events.emit(
             AIEvent.FinalTranscription(
-                turnId = nextTurnId(sessionId, role),
+                turnId = turnId,
                 sessionId = sessionId,
+                sessionLang = sessionLang,
                 text = text,
                 role = role,
-                createdAt = System.currentTimeMillis(),
+                createdAt = createdAt,
                 durationMs = null,
                 tokenCount = null,
                 confidence = null

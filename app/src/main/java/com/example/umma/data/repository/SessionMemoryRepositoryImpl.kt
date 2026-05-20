@@ -1,5 +1,6 @@
 package com.example.umma.data.repository
 
+import com.example.umma.data.source.local.RemoteSyncStatus
 import com.example.umma.data.source.local.SessionMemoryLocalDataSource
 import com.example.umma.data.source.local.SessionMetadataEntity
 import com.example.umma.data.source.local.SessionTurnEntity
@@ -84,31 +85,7 @@ class SessionMemoryRepositoryImpl @Inject constructor(
     override suspend fun getSessionMemory(language: LangCode): Result<SessionMemory> {
         return try {
             val userId = requireUserId()
-            val turns = localDataSource.getTurns(userId, language.code).map { it.toDomainModel() }
-            val meta = localDataSource.getMetadata(userId, language.code)
-
-            Result.success(
-                if (meta != null) {
-                    SessionMemory(
-                        userId = userId,
-                        language = language,
-                        recentFullContext = turns,
-                        recentTopics = parseJsonArray(meta.recentTopicsJson),
-                        topicSummaries = parseJsonArray(meta.topicSummariesJson),
-                        topicKeySentences = parseJsonArray(meta.topicKeySentencesJson),
-                        correctionAvailable = meta.correctionAvailable,
-                        lastCompressedAt = meta.lastCompressedAt,
-                        updatedAt = meta.updatedAt
-                    )
-                } else {
-                    SessionMemory(
-                        userId = userId,
-                        language = language,
-                        recentFullContext = turns,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-            )
+            Result.success(buildSessionMemory(userId, language))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -128,29 +105,29 @@ class SessionMemoryRepositoryImpl @Inject constructor(
                 topicKeySentencesJson = "[]",
                 correctionAvailable = false,
                 lastCompressedAt = null,
-                updatedAt = command.compressedAt
+                updatedAt = command.compressedAt,
+                isPendingTurnSync = false,
+                isPendingCompressionSync = false
             )).copy(
                 recentTopicsJson = JSONArray(command.recentTopics).toString(),
                 topicSummariesJson = JSONArray(command.topicSummaries).toString(),
                 topicKeySentencesJson = JSONArray(command.topicKeySentences).toString(),
                 correctionAvailable = false,
                 lastCompressedAt = command.compressedAt,
-                updatedAt = command.compressedAt
+                updatedAt = command.compressedAt,
+                isPendingCompressionSync = true
             )
 
             localDataSource.compress(updatedMeta)
 
-            CoroutineScope(Dispatchers.IO).launch {
-                remoteDataSource.compressSessionInFirestore(
-                    userId = userId,
-                    language = command.language,
-                    recentTopics = command.recentTopics,
-                    topicSummaries = command.topicSummaries,
-                    topicKeySentences = command.topicKeySentences,
-                    lastCompressedAt = command.compressedAt
-                )
+            val localSnapshot = buildSessionMemory(userId, command.language)
+            val syncResult = remoteDataSource.syncSessionMemorySnapshot(localSnapshot)
+
+            if (syncResult.isSuccess) {
+                localDataSource.saveMetadata(updatedMeta.copy(isPendingCompressionSync = false))
             }
 
+            syncResult.getOrNull()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -170,20 +147,26 @@ class SessionMemoryRepositoryImpl @Inject constructor(
     override suspend fun syncPendingTurns(language: LangCode): Result<Unit> {
         return try {
             val userId = requireUserId()
-            val pendingEntities = localDataSource.getPendingTurns(userId, language.code)
-            if (pendingEntities.isEmpty()) return Result.success(Unit)
-
-            val pendingTurns = pendingEntities.map { it.toDomainModel() }
-            val syncResult = remoteDataSource.syncTurnsToFirestore(
-                userId = userId,
-                language = language,
-                pendingTurns = pendingTurns
-            )
+            val snapshot = buildSessionMemory(userId, language)
+            val syncResult = remoteDataSource.syncSessionMemorySnapshot(snapshot)
 
             if (syncResult.isSuccess) {
-                localDataSource.updateSyncStatus(
-                    turnIds = pendingEntities.map { it.turnId },
-                    status = "SYNCED"
+                val pendingEntities = localDataSource.getPendingTurns(userId, language.code)
+                if (pendingEntities.isNotEmpty()) {
+                    localDataSource.updateSyncStatus(
+                        turnIds = pendingEntities.map { it.turnId },
+                        status = RemoteSyncStatus.SYNCED
+                    )
+                }
+            }
+
+            val currentMeta = localDataSource.getMetadata(userId, language.code)
+            if (currentMeta != null) {
+                localDataSource.saveMetadata(
+                    currentMeta.copy(
+                        isPendingTurnSync = false,
+                        isPendingCompressionSync = false
+                    )
                 )
             }
 
@@ -281,7 +264,7 @@ class SessionMemoryRepositoryImpl @Inject constructor(
             durationMs = durationMs,
             tokenCount = tokenCount,
             confidence = confidence,
-            syncStatus = "PENDING"
+            syncStatus = RemoteSyncStatus.PENDING
         )
     }
 
@@ -302,4 +285,43 @@ class SessionMemoryRepositoryImpl @Inject constructor(
             confidence = confidence
         )
     }
+
+    /**
+     * 특정 언어의 현재 Session Memory 스냅샷을 조립합니다.
+     *
+     * @param userId 사용자 UID
+     * @param language 학습 언어
+     * @return 현재 Session Memory
+     */
+    private suspend fun buildSessionMemory(
+        userId: String,
+        language: LangCode
+    ): SessionMemory {
+        val turns = localDataSource.getTurns(userId, language.code).map { it.toDomainModel() }
+        val meta = localDataSource.getMetadata(userId, language.code)
+
+        return if (meta != null) {
+            SessionMemory(
+                userId = userId,
+                language = language,
+                recentFullContext = turns,
+                recentTopics = parseJsonArray(meta.recentTopicsJson),
+                topicSummaries = parseJsonArray(meta.topicSummariesJson),
+                topicKeySentences = parseJsonArray(meta.topicKeySentencesJson),
+                correctionAvailable = meta.correctionAvailable,
+                lastCompressedAt = meta.lastCompressedAt,
+                updatedAt = meta.updatedAt,
+                isPendingTurnSync = meta.isPendingTurnSync,
+                isPendingCompressionSync = meta.isPendingCompressionSync
+            )
+        } else {
+            SessionMemory(
+                userId = userId,
+                language = language,
+                recentFullContext = turns,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
 }
