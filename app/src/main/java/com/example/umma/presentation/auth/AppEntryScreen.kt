@@ -2,8 +2,12 @@ package com.example.umma.presentation.auth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.Text
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -16,11 +20,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.example.umma.R
 import com.example.umma.core.theme.BackgroundPrimary
+import com.example.umma.core.theme.SpacingXXL
 import com.example.umma.core.theme.ThemePrimary
 
-/**
- * 임시로 텍스트 넣어둔 상태
- */
 @Composable
 fun AppEntryScreen(
     onNavigateToOnBoarding: () -> Unit,
@@ -33,7 +35,12 @@ fun AppEntryScreen(
         viewModel.checkSession()
     }
 
-    LaunchedEffect(uiState.googleState) {
+
+    LaunchedEffect(uiState.googleState, uiState.isSessionChecking) {
+        // 조건 3개 (세션 확인 끝, 에러 없음, FAILED 아닐 때) 모두 만족 시 이동
+        if (uiState.isSessionChecking) return@LaunchedEffect
+        // 에러 있다면 이동 X
+        if (uiState.sessionError != null) return@LaunchedEffect
         if (uiState.googleState == GoogleAuthState.FAILED) return@LaunchedEffect
         when (uiState.googleState) {
             GoogleAuthState.SUCCESS -> onNavigateToDashboard()
@@ -47,11 +54,29 @@ fun AppEntryScreen(
             .background(BackgroundPrimary),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = stringResource(id = R.string.app_name),
-            fontSize = 52.sp,
-            fontWeight = FontWeight.Bold,
-            color = ThemePrimary
-        )
+        when {
+            // 에러: 상태 메세지, 재시도 버튼
+            uiState.sessionError != null -> {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = uiState.sessionError ?: "",
+                    )
+                    Spacer(modifier = Modifier.height(SpacingXXL))
+                    Button(onClick = { viewModel.retryCheckSession() }) {
+                        Text(text = "다시 시도")
+                    }
+                }
+            }
+
+            // 로그인 중 or 일반 상태 : Splash 글씨 or 로고 표시
+            else -> {
+                Text(
+                    text = stringResource(id = R.string.app_name),
+                    fontSize = 52.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ThemePrimary
+                )
+            }
+        }
     }
 }

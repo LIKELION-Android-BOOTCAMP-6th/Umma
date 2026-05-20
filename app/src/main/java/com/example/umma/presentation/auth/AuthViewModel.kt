@@ -1,15 +1,18 @@
 package com.example.umma.presentation.auth
 
 import android.util.Log
+import android.util.Log.e
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.umma.domain.model.learningstate.LangCode
+import com.example.umma.domain.repository.AuthRepository
 import com.example.umma.domain.usecase.auth.CheckInitialSetupUseCase
 import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.usecase.auth.LogoutUseCase
 import com.example.umma.domain.usecase.auth.SignInWithGoogleUseCase
 import com.example.umma.domain.usecase.user.InitializeUserDataUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +36,7 @@ class AuthViewModel @Inject constructor(
     private val initializeUserDataUseCase: InitializeUserDataUseCase,
     private val checkInitialSetupUseCase: CheckInitialSetupUseCase,
     private val logoutUseCase: LogoutUseCase,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
@@ -120,6 +124,7 @@ class AuthViewModel @Inject constructor(
             )
         }
     }
+
     fun updateLearningLanguageErrorMessage(message: String?) {
         _uiState.update {
             it.copy(
@@ -226,33 +231,70 @@ class AuthViewModel @Inject constructor(
 
     /**
      * 로컬 Firebase 세션 확인하여 로그인 여부 판단
-     * 초기 설정 : 닉네임, 학습 언어 선택
-     * 미인증 (uid == null) : GoogleAuthState.IDLE -> 온보딩 이동
-     * 가입, 초기 설정 필요(isNewUser) -> 대시보드 이동, 다이얼로그 표시
-     * 가입, 초기 설정 완료(!isNewUser) -> 대시보드 이동
+     * 비로그인 -> OnBoarding 이동
+     * 로그인 O -> Firebase 서버에 세션 유효성 확인
+     *      - 있다 -> DashBoard 이동
+     *      - 없다 -> 로그아웃 후 OnBoarding
+     *      - 서버 오류 -> 에러메시지 + 재시도 버튼 표시
      */
     fun checkSession() {
         viewModelScope.launch {
-            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
-            // 미로그인 -> OnBoarding 이동
-            if (uid == null) {
-                _uiState.update { it.copy(googleState = GoogleAuthState.IDLE) }
-                return@launch
-            }
-            // 로그인 O
-            val isNewUser = checkInitialSetupUseCase(uid)
 
             _uiState.update {
                 it.copy(
-                    googleState = GoogleAuthState.SUCCESS,
-                    initialSetupDialogStep = if (isNewUser) {
-                        InitialSetupDialogStep.NICKNAME
-                    } else {
-                        InitialSetupDialogStep.NONE
-                    }
+                    isSessionChecking = true,
+                    sessionError = null
                 )
             }
+            // 스플래시 화면 0.1초 만에 사라져서 지연 추가
+            delay(1000L)
+
+            // 로컬 uid 확인
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+            // 비로그인 -> OnBoarding 이동
+            if (uid == null) {
+                _uiState.update {
+                    it.copy(
+                        isSessionChecking = false,
+                        googleState = GoogleAuthState.IDLE
+                    )
+                }
+                return@launch
+            }
+
+            // 로그인 O -> 재확인: Firebase 서버에서 세션 유효성
+            val result = authRepository.hasValidSession()
+            result.onSuccess { isValid ->
+                val mGoogleState =
+                    if (isValid) {
+                        GoogleAuthState.SUCCESS
+                    } else {
+                        GoogleAuthState.IDLE
+                    }
+                _uiState.update {
+                    it.copy(
+                        isSessionChecking = false,
+                        googleState = mGoogleState
+                    )
+                }
+            }.onFailure { e ->
+                _uiState.update {
+                    it.copy(
+                        isSessionChecking = false,
+                        sessionError = "네트워크 오류가 발생했습니다 재시도 바랍니다"
+                    )
+                }
+                Log.e("Auth", "checkSession 실패", e)
+            }
         }
+    }
+
+    /**
+     * 세션 확인 실패 시 재시도 버튼에 넣을 함수
+     * AppEntryScreen 에서 재시도 버튼 클릭 시 호출
+     */
+    fun retryCheckSession() {
+        checkSession()
     }
 
     /**
