@@ -53,6 +53,7 @@ import com.example.umma.core.theme.TextAnalysisR
 import com.example.umma.core.theme.TextExplanationR
 import com.example.umma.core.theme.TextLogout
 import com.example.umma.core.theme.TextPrimary
+import com.example.umma.core.theme.TextWrong
 import com.example.umma.core.theme.ThemePrimary
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.core.ui.component.UmmaDialog
@@ -62,7 +63,6 @@ import com.example.umma.presentation.auth.AuthViewModel
 import com.example.umma.presentation.auth.InitialSetupDialogStep
 import com.example.umma.presentation.dashboard.component.AnalyticsCard
 import com.example.umma.presentation.dashboard.component.ConversationCard
-import com.example.umma.presentation.dashboard.component.DashboardEmpty
 import com.example.umma.presentation.dashboard.component.DashboardError
 import com.example.umma.presentation.dashboard.component.DashboardSkeleton
 import com.example.umma.presentation.dashboard.component.FeedbackCard
@@ -149,23 +149,26 @@ fun DashboardScreen(
                 title = "Umma",
                 isCenterTitle = false,
                 actions = {
-                    // DASH-006 Phase 1: 학습 언어 selector.
-                    //   learningLanguages 가 비어있거나 selectedLang 가 null 인 동안에는
-                    //   렌더하지 않는다. 초기 preload 중(isLoading=true) 자연스럽게 hidden.
-                    //   selectedLang null 케이스 fallback 처리는 Phase 3 범위.
-
-                    // selector 렌더 가드용 로컬 스냅샷. null 체크 결과를 한 번만 잡아두기 위함.
-                    val selected = uiState.selectedLearningLanguage
-                    if (selected != null && uiState.learningLanguages.isNotEmpty()) {
-                        LearningLanguageSelector(
-                            selectedLang = selected,
-                            learningLangs = uiState.learningLanguages,
-                            isLoading = uiState.isLoading || uiState.isChangingLanguage,
-                            onLanguageSelected = { lang ->
-                                viewModel.onChangeLearningLanguage(lang.code)
-                            }
-                        )
+                    // DASH-006: 학습 언어 selector.
+                    //   신규 사용자(userPref 가 아직 emit 되지 않아 selectedLearningLanguage
+                    //   = null, learningLanguages = []) 시점에도 AppBar 우측에 동일 위치로
+                    //   selector 가 노출되도록 fallback 값을 사용한다. 정상 케이스 (userPref
+                    //   준비 완료) 에는 fallback 이 사용되지 않아 동작 무변경.
+                    //
+                    //   - selectedLang fallback: LangCode.KO
+                    //   - learningLangs fallback: 학습 가능 언어 4 종 (KO/EN/JA/ES)
+                    val displaySelected = uiState.selectedLearningLanguage ?: LangCode.KO
+                    val displayLangs = uiState.learningLanguages.ifEmpty {
+                        listOf(LangCode.KO, LangCode.EN, LangCode.JA, LangCode.ES)
                     }
+                    LearningLanguageSelector(
+                        selectedLang = displaySelected,
+                        learningLangs = displayLangs,
+                        isLoading = uiState.isLoading || uiState.isChangingLanguage,
+                        onLanguageSelected = { lang ->
+                            viewModel.onChangeLearningLanguage(lang.code)
+                        }
+                    )
                     // 와이어프레임 정합: AppBar 우측 끝에 마이페이지 진입 IconButton.
                     Spacer(modifier = Modifier.width(SpacingXS))
                     IconButton(onClick = onNavigateToMyPage) {
@@ -188,7 +191,6 @@ fun DashboardScreen(
             when {
                 uiState.isLoading -> DashboardSkeleton()
                 uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
-                uiState.isEmpty -> DashboardEmpty(onStartConversation = onNavigateToChat)
                 else -> DashboardContent(
                     summary = uiState.summary,
                     onNavigateToAnalytics = onNavigateToAnalytics,
@@ -339,6 +341,11 @@ private fun DashboardContent(
  * 모든 카드는 [summary] 의 필드를 받아 표시 — null 인 경우 합리적 기본값으로 매핑.
  *  - non-null 필드(Int/Boolean): ?: 0 / ?: false 로 fallback
  *  - nullable 필드(topic): 그대로 null 전달 — 카드 내부에서 표시 분기.
+ *
+ * Empty 정책 (별도 Empty 화면을 두지 않고 카드 단위로 표현):
+ *  - 대화 카드: 항상 ThemePrimary 유지. 데이터 없으면 우측 상단에 점(isEmpty=true) 만 표시.
+ *  - 학습/교정/통계 카드: 데이터 없으면 회색(TextWrong) + 안내 토스트 후 본 화면으로 이동.
+ *    각 본 화면의 자체 Empty UI 가 후속 안내를 담당한다.
  */
 @Composable
 private fun DashboardCardGrid(
@@ -348,6 +355,17 @@ private fun DashboardCardGrid(
     onNavigateToCorrection: () -> Unit,
     onNavigateToAnalytics: () -> Unit
 ) {
+    val context = LocalContext.current
+
+    // 각 카드별 데이터 유무 판정 — 카드 내부 칩/배지 hide 조건과 동일 기준.
+    val isConversationEmpty = summary?.recentTopic == null && (summary?.recentMinutes ?: 0) == 0
+    val isStudyEmpty = (summary?.dueFlashcards ?: 0) == 0 && (summary?.savedFlashcards ?: 0) == 0
+    val isFeedbackEmpty = summary?.correctionAvailable != true
+    val isAnalyticsEmpty = (summary?.grammarDelta ?: 0) == 0 &&
+            (summary?.vocabDelta ?: 0) == 0 &&
+            (summary?.fluencyDelta ?: 0) == 0 &&
+            (summary?.naturalnessDelta ?: 0) == 0
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -358,6 +376,7 @@ private fun DashboardCardGrid(
             ConversationCard(
                 recentConversationTopic = summary?.recentTopic,
                 recentConversationMinutes = summary?.recentMinutes,
+                isEmpty = isConversationEmpty,
                 onClick = onNavigateToChat,
                 modifier = Modifier
                     .weight(1f)
@@ -366,7 +385,13 @@ private fun DashboardCardGrid(
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
                 savedFlashcards = summary?.savedFlashcards ?: 0,
-                onClick = onNavigateToStudyList,
+                accentColor = if (isStudyEmpty) TextWrong else null,
+                onClick = {
+                    if (isStudyEmpty) {
+                        Toast.makeText(context, "저장된 카드 없음", Toast.LENGTH_SHORT).show()
+                    }
+                    onNavigateToStudyList()
+                },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -384,7 +409,13 @@ private fun DashboardCardGrid(
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
                 recentConversationMinutes = summary?.recentMinutes,
-                onClick = onNavigateToCorrection,
+                accentColor = if (isFeedbackEmpty) TextWrong else null,
+                onClick = {
+                    if (isFeedbackEmpty) {
+                        Toast.makeText(context, "교정 가능 데이터 없음", Toast.LENGTH_SHORT).show()
+                    }
+                    onNavigateToCorrection()
+                },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -394,7 +425,13 @@ private fun DashboardCardGrid(
                 vocabularyScoreDelta = summary?.vocabDelta ?: 0,
                 fluencyScoreDelta = summary?.fluencyDelta ?: 0,
                 naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
-                onClick = onNavigateToAnalytics,
+                accentColor = if (isAnalyticsEmpty) TextWrong else null,
+                onClick = {
+                    if (isAnalyticsEmpty) {
+                        Toast.makeText(context, "데이터 부족", Toast.LENGTH_SHORT).show()
+                    }
+                    onNavigateToAnalytics()
+                },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()

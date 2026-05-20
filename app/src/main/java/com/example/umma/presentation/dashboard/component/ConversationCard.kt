@@ -2,6 +2,7 @@ package com.example.umma.presentation.dashboard.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -12,12 +13,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.umma.R
 import com.example.umma.core.theme.BackgroundSecondary
+import com.example.umma.core.theme.BadgeDotSize
 import com.example.umma.core.theme.CardCornerRadius
 import com.example.umma.core.theme.CardElevation
 import com.example.umma.core.theme.ChipCornerRadius
 import com.example.umma.core.theme.ChipPaddingHorizontal
 import com.example.umma.core.theme.ChipPaddingVertical
 import com.example.umma.core.theme.IconSizeLarge
+import com.example.umma.core.theme.SpacingL
 import com.example.umma.core.theme.SpacingM
 import com.example.umma.core.theme.SpacingS
 import com.example.umma.core.theme.SpacingXL
@@ -58,7 +61,8 @@ fun ConversationCard(
     recentConversationTopic: String?,
     recentConversationMinutes: Int?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isEmpty: Boolean = false
 ) {
     val accent = ThemePrimary
     // AC 8: 카드 onClick 을 throttle 로 감싸 연타 → 중복 navigate 차단.
@@ -71,68 +75,83 @@ fun ConversationCard(
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
         elevation = CardDefaults.cardElevation(defaultElevation = CardElevation)
     ) {
-        Column(
-            // 좌우 padding 을 작게 가져가 칩 컨테이너의 가용 폭을 최대한 확보.
-            //   카드 폭(184dp 추정) 안에서 시간 칩 + 주제 칩 가로 배치가 가능하려면
-            //   가용 폭이 ~160dp 이상 필요. 좌우 SpacingS(8dp) 로 ~168dp 확보.
-            //   상하는 기존 그대로 유지해 아이콘/타이틀/본문 시각 위치 보존.
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = SpacingS, vertical = SpacingXL),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(SpacingM))
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                // 좌우 padding 을 작게 가져가 칩 컨테이너의 가용 폭을 최대한 확보.
+                //   카드 폭(184dp 추정) 안에서 시간 칩 + 주제 칩 가로 배치가 가능하려면
+                //   가용 폭이 ~160dp 이상 필요. 좌우 SpacingS(8dp) 로 ~168dp 확보.
+                //   상하는 기존 그대로 유지해 아이콘/타이틀/본문 시각 위치 보존.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = SpacingS, vertical = SpacingXL),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(SpacingM))
 
-            Icon(
-                painter = painterResource(id = R.drawable.record_voice_over_24),
-                contentDescription = "대화",
-                tint = accent,
-                modifier = Modifier.size(IconSizeLarge)
-            )
+                Icon(
+                    painter = painterResource(id = R.drawable.record_voice_over_24),
+                    contentDescription = "대화",
+                    tint = accent,
+                    modifier = Modifier.size(IconSizeLarge)
+                )
 
-            Spacer(modifier = Modifier.height(SpacingXXL))
-            Text(text = "대화", color = accent, style = TitleCardR)
+                Spacer(modifier = Modifier.height(SpacingXXL))
+                Text(text = "대화", color = accent, style = TitleCardR)
 
-            Spacer(modifier = Modifier.height(SpacingXXL))
+                Spacer(modifier = Modifier.height(SpacingXXL))
 
-            Text(
-                text = "대화를 시작해 볼까요?",
-                style = TextExplanationR,
-                color = accent
-            )
+                Text(
+                    text = "대화를 시작해 볼까요?",
+                    style = TextExplanationR,
+                    color = accent
+                )
 
-            Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(1f))
 
-            if (recentConversationMinutes != null || recentConversationTopic != null) {
-                // 두 칩을 FlowRow 로 배치 — 가용 폭이 충분하면 한 줄에 가로 정렬,
-                // 부족하면 주제 칩이 자동으로 다음 줄로 떨어진다. 짧은 주제(Travel /
-                // 일상 등) 는 시간 칩과 한 줄에 나란히, 긴 주제는 자연스럽게 줄바꿈.
-                //
-                // verticalArrangement 는 줄바꿈이 발생했을 때 두 줄 사이 간격.
-                FlowRow(
-                    // padding 이 SpacingS 로 줄어 칩이 카드 좌측에 적절히 붙으므로
-                    // 이전의 -SpacingM offset 보정은 불필요.
-                    modifier = Modifier.align(Alignment.Start),
-                    horizontalArrangement = Arrangement.spacedBy(SpacingXS),
-                    verticalArrangement = Arrangement.spacedBy(SpacingXS)
-                ) {
-                    if (recentConversationMinutes != null) {
-                        CardInfoChip(
-                            text = "대화 기록: ${recentConversationMinutes}분",
-                            accent = accent
-                        )
-                    }
-                    if (recentConversationTopic != null) {
-                        // 다음 줄로 떨어진 뒤에도 자기 폭이 카드 폭을 초과하는 극단 케이스
-                        // 안전망 — 2줄까지 wrap, 초과분은 ellipsis.
-                        CardInfoChip(
-                            text = "주제: $recentConversationTopic",
-                            accent = accent,
-                            maxLines = 2,
-                            softWrap = true
-                        )
+                if (recentConversationMinutes != null || recentConversationTopic != null) {
+                    // 두 칩을 FlowRow 로 배치 — 가용 폭이 충분하면 한 줄에 가로 정렬,
+                    // 부족하면 주제 칩이 자동으로 다음 줄로 떨어진다. 짧은 주제(Travel /
+                    // 일상 등) 는 시간 칩과 한 줄에 나란히, 긴 주제는 자연스럽게 줄바꿈.
+                    //
+                    // verticalArrangement 는 줄바꿈이 발생했을 때 두 줄 사이 간격.
+                    FlowRow(
+                        // padding 이 SpacingS 로 줄어 칩이 카드 좌측에 적절히 붙으므로
+                        // 이전의 -SpacingM offset 보정은 불필요.
+                        modifier = Modifier.align(Alignment.Start),
+                        horizontalArrangement = Arrangement.spacedBy(SpacingXS),
+                        verticalArrangement = Arrangement.spacedBy(SpacingXS)
+                    ) {
+                        if (recentConversationMinutes != null) {
+                            CardInfoChip(
+                                text = "대화 기록: ${recentConversationMinutes}분",
+                                accent = accent
+                            )
+                        }
+                        if (recentConversationTopic != null) {
+                            // 다음 줄로 떨어진 뒤에도 자기 폭이 카드 폭을 초과하는 극단 케이스
+                            // 안전망 — 2줄까지 wrap, 초과분은 ellipsis.
+                            CardInfoChip(
+                                text = "주제: $recentConversationTopic",
+                                accent = accent,
+                                maxLines = 2,
+                                softWrap = true
+                            )
+                        }
                     }
                 }
+            }
+
+            // Empty 상태 시각 표시: FeedbackCard 의 빨간 점 패턴과 동일한 위치/크기.
+            //   대화 카드는 색까지 회색 처리하지 않고 ThemePrimary 를 유지해 CTA 성격을
+            //   살린다. 점만 우측 상단에 부착해 "이전 대화 없음" 을 가볍게 표시.
+            if (isEmpty) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(SpacingL)
+                        .size(BadgeDotSize)
+                        .background(color = accent, shape = CircleShape)
+                )
             }
         }
     }
