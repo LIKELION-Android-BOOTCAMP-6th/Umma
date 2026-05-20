@@ -44,7 +44,7 @@ class ChatViewModel @Inject constructor(
     private val stopSessionUseCase: StopSessionUseCase,
     private val getUserProfileUseCase: GetUserProfileUseCase,
     private val saveInterestTopicsUseCase: SaveInterestTopicsUseCase,
-    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase
+    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
     private val audioRecorder: AudioInput,
     private val audioPlayer: AudioOutput
@@ -474,3 +474,4 @@ class ChatViewModel @Inject constructor(
         }
     }
 }
+// 재시도 commit
