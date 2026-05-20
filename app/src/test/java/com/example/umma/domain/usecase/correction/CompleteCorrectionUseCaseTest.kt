@@ -134,6 +134,30 @@ class CompleteCorrectionUseCaseTest {
     }
 
     @Test
+    fun `does not rollback previously saved duplicate flashcards when state update fails`() =
+        kotlinx.coroutines.runBlocking {
+            val suggestion = baseSuggestion()
+            learningStateRepo.failUpdate = true
+            correctionRepository.nextSaveResult = CorrectionSaveResult(
+                localSavedFlashcardIds = emptyList(),
+                pendingSyncFlashcardIds = emptyList(),
+                savedAt = 1_000L
+            )
+
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(suggestion),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isFailure)
+            // 중복 저장으로 새로 생성된 카드가 없으면 이번 완료 흐름이 만든 local 변경도 없다.
+            // 이때 rollback을 호출하면 이미 존재하던 Flashcard를 지울 수 있으므로 호출하지 않는다.
+            assertEquals(listOf("save", "update"), events)
+        }
+
+    @Test
     fun `does not rollback saved state when compression fails`() = kotlinx.coroutines.runBlocking {
         val suggestion = baseSuggestion()
         sessionMemoryRepository.failCompression = true
@@ -192,6 +216,10 @@ class CompleteCorrectionUseCaseTest {
     private class RecordingCorrectionRepository(
         private val events: MutableList<String>
     ) : CorrectionRepository {
+        // 특정 테스트에서 repository 결과를 주입해 중복 저장, pending sync 없음 같은 경계 상황을 만든다.
+        // null이면 일반적인 "local 저장 성공 + remote sync 대기" 결과를 반환한다.
+        var nextSaveResult: CorrectionSaveResult? = null
+
         override suspend fun generateSuggestions(
             input: com.example.umma.domain.model.correction.GenerateSuggestionsInput
         ): Result<List<CorrectionSuggestion>> {
@@ -202,6 +230,11 @@ class CompleteCorrectionUseCaseTest {
             request: CorrectionSaveRequest
         ): Result<CorrectionSaveResult> {
             events += "save"
+            nextSaveResult?.let { result ->
+                nextSaveResult = null
+                return Result.success(result)
+            }
+
             // remote sync 가 아직 남아있는 일반적인 local-first 결과를 흉내 낸다.
             return Result.success(
                 CorrectionSaveResult(

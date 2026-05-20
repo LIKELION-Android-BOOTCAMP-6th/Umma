@@ -11,10 +11,17 @@ import javax.inject.Inject
 class PrepareSaveRequestUseCase @Inject constructor() {
 
     operator fun invoke(
+        uid: String,
         selectedSuggestions: List<CorrectionSuggestion>,
         requestedAt: Long = System.currentTimeMillis()
     ): Result<CorrectionSaveRequest> {
         return runCatching {
+            // Flashcard Room 엔터티는 userId + cardId 복합 키로 중복을 막는다.
+            // 따라서 화면에서 uid를 빠뜨리면 계정별 저장 경계를 만들 수 없어 여기서 먼저 차단한다.
+            require(uid.isNotBlank()) {
+                "uid must not be blank"
+            }
+
             // 선택 상태에서 중복 클릭/중복 선택이 들어와도 저장 요청은 카드당 하나만 만든다.
             val normalizedSuggestions = selectedSuggestions.distinctBy { it.id }
             require(normalizedSuggestions.isNotEmpty()) {
@@ -45,6 +52,7 @@ class PrepareSaveRequestUseCase @Inject constructor() {
             }
 
             CorrectionSaveRequest(
+                uid = uid,
                 lang = lang,
                 flashcards = flashcards,
                 requestedAt = requestedAt

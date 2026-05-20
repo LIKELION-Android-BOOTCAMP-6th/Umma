@@ -2,7 +2,7 @@ package com.example.umma.domain.usecase.correction
 
 import com.example.umma.data.repository.CorrectionRepositoryImpl
 import com.example.umma.data.repository.correction.CorrectionFlashcardStore
-import com.example.umma.data.source.local.InMemoryCorrectionFlashcardLocalDataSource
+import com.example.umma.data.source.local.TestCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.example.umma.data.model.correction.CorrectionFlashcardDto
 import com.example.umma.domain.model.correction.CorrectionCandidate
@@ -19,7 +19,7 @@ class GenerateSuggestionsUseCaseTest {
     private val useCase = GenerateSuggestionsUseCase(
         CorrectionRepositoryImpl(
             CorrectionFlashcardStore(
-                localDataSource = InMemoryCorrectionFlashcardLocalDataSource(),
+                localDataSource = TestCorrectionFlashcardLocalDataSource(),
                 remoteDataSource = NoopCorrectionFlashcardRemoteDataSource()
             )
         )

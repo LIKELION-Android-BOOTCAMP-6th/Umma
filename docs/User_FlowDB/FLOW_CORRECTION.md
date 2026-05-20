@@ -46,7 +46,7 @@
 | 결과 카드 표시 | 교정 결과 카드 확인 | 교정 전/후 문장과 설명을 표시 | 저장 가능한 카드 출력 | 렌더링 실패 | Content / Error | COR-003 |
 | 저장 카드 선택 | 저장할 카드 선택/해제 | 선택 상태를 화면 상태로 관리 | 저장 대상 준비 | 선택 항목 없음 | Content / Disabled | COR-004 |
 | Flashcard 저장 요청 준비 | 저장 버튼 클릭 | 선택 항목을 저장 요청 모델로 변환 | 완료 파이프라인 호출 가능 | 저장 요청 변환 실패 | Preparing / Error | COR-005 |
-| 완료 결과 연결 | 저장 요청 후 완료 처리 | `CompleteCorrectionUseCase` 호출, 새 Flashcard local first 저장 결과 반영 | 로컬 완료 성공 | 로컬 완료 실패 | Completing / Retry | COR-006 |
+| 완료 결과 연결 | 저장 요청 후 완료 처리 | `CompleteCorrectionUseCase` 호출, 저장 완료 결과 반영 | 로컬 완료 성공 | 로컬 완료 실패 | Completing / Retry | COR-006 |
 | 복귀 및 후처리 | 완료 후 Dashboard 복귀 | Dashboard 복귀 이벤트 처리, sync pending 상태 유지 | Dashboard 복귀 완료 | 복귀 실패 / sync pending | Done / PendingSync | COR-007 |
 
 ---
@@ -63,16 +63,8 @@
 - [COR-006 교정 완료 결과 연결](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md)
 - [COR-007 Dashboard 복귀 및 후처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-007_Return_and_Sync.md)
 
-`COR-001 ~ COR-007`는 팀원이 완료 여부를 빠르게 확인할 수 있도록 작은 단위로 분리한다.
 각 이슈는 담당 범위를 넘는 구현을 끌어오지 않고, 필요한 선행 결과는 이전 이슈의 완료 결과를 사용한다.
-
-### 이슈 분할 기준
-
-- 하나의 이슈는 화면, 상태, domain 처리, 저장, 후처리 중 하나의 책임만 중심으로 잡는다.
-- 팀원이 PR을 올렸을 때 1차 리뷰에서 완료 여부를 판단할 수 있을 정도로 작업 단위를 작게 유지한다.
-- 뒤 이슈의 구현을 앞 이슈에서 미리 완성하지 않는다.
-- mock 데이터로 확인 가능한 화면/상태 이슈는 실제 API 연결을 기다리지 않고 먼저 검증할 수 있다.
-- 단, `COR-002` 완료 기준에는 실제 AI API 호출, 응답 파싱, `CorrectionSuggestion` 변환, 실패/Error/Retry 검증이 포함된다.
+`COR-002` 완료 기준에는 실제 AI API 호출, 응답 파싱, `CorrectionSuggestion` 변환, 실패/Error/Retry 검증이 포함된다.
 
 ---
 
@@ -159,6 +151,8 @@ Correction 화면은 RT-003 correction context를 읽어 후보 추출 입력으
 Correction 완료 흐름은 선택된 교정 결과와 분석 대상 turn으로 최소 압축 payload를 만든 뒤 RT-003 compression 계약을 호출한다.
 압축 payload가 비어 있으면 원문 buffer만 비우지 않도록 compression을 호출하지 않는다.
 로컬 완료 파이프라인 내부 순서, rollback, pending sync 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
+새 Flashcard 최초 저장의 Room Entity / DAO / local source는 `SYS-CORRECTION-INFRA`에서 선행 제공한다.
+SRS는 저장된 원본을 조회해 복습 결과를 갱신한다.
 Firestore sync 실패만 발생한 경우에는 로컬 저장 성공을 유지하고 pending sync 상태로 다룬다.
 compression 실패는 저장 완료 자체를 되돌리지 않고 후속 재시도 대상으로 남긴다.
 

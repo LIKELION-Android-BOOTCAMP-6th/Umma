@@ -2,6 +2,8 @@ package com.example.umma.di
 
 import android.content.Context
 import androidx.room.Room
+import com.example.umma.data.source.local.CorrectionFlashcardDao
+import com.example.umma.data.source.local.CorrectionFlashcardDatabase
 import com.example.umma.data.source.local.SessionMemoryDatabase
 import com.example.umma.data.source.local.SessionMetadataDao
 import com.example.umma.data.source.local.SessionTurnDao
@@ -36,5 +38,24 @@ object DatabaseModule {
     @Provides
     fun provideSessionMetadataDao(database: SessionMemoryDatabase): SessionMetadataDao {
         return database.sessionMetadataDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCorrectionFlashcardDatabase(
+        @ApplicationContext context: Context
+    ): CorrectionFlashcardDatabase {
+        return Room.databaseBuilder(
+            context,
+            CorrectionFlashcardDatabase::class.java,
+            "umma_correction_flashcard_db"
+        ).fallbackToDestructiveMigration(false).build()
+    }
+
+    @Provides
+    fun provideCorrectionFlashcardDao(
+        database: CorrectionFlashcardDatabase
+    ): CorrectionFlashcardDao {
+        return database.correctionFlashcardDao()
     }
 }

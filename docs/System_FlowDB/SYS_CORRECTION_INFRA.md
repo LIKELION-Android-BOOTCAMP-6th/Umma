@@ -52,7 +52,8 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 - `CorrectionCandidate`, `CorrectionSuggestion` 등 필요한 domain 계약
 - `CorrectionRepository` 안에서 교정 결과 생성과 선택 결과 저장 요청을 함께 다루는 통합 repository 계약
 - 실제 AI API 호출을 붙일 수 있는 data 계층 adapter / mapper 경계
-- 교정 결과에서 파생된 Flashcard를 local first로 저장하고 Firestore sync 대상으로 넘기는 저장 경계
+- 교정 결과에서 파생된 Flashcard를 Room DAO에 local first로 저장하고 Firestore sync 대상으로 넘기는 저장 경계
+- SRS가 같은 Room 원본을 조회/갱신할 수 있도록 due 조회와 review schedule 갱신 통로 제공
 - `CompleteCorrectionUseCase` 완료 usecase의 책임
 - fake/real 구현체를 Hilt binding으로 교체할 수 있는 DI 기준
 - 기존 `feedback` 명칭을 `correction`으로 정리하는 기준
@@ -78,7 +79,7 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 | --- | --- |
 | `presentation` | `CorrectionScreen`, `CorrectionViewModel`, UI 상태, 사용자 선택, 로딩/에러/저장 이벤트 처리 |
 | `domain` | 후보 추출 규칙, 교정 결과 모델, UseCase, Repository interface |
-| `data` | AI 교정 요청 구현, AI 응답 파싱/mapper, Flashcard local first 저장, 보상 rollback 저장소 계약, DTO/Entity 변환 |
+| `data` | AI 교정 요청 구현, AI 응답 파싱/mapper, Flashcard Room DAO local first 저장, SRS due 조회/review schedule 갱신 통로, 보상 rollback 저장소 계약, DTO/Entity 변환 |
 | `di` | fake/real 구현체 바인딩, 테스트용 repository 교체 |
 
 Composable은 `recentFullContext`를 직접 파싱하지 않는다.
@@ -104,7 +105,7 @@ Correction 화면 진입
 → CorrectionSuggestion 생성
 → 사용자가 저장할 교정 결과 카드 선택
 → CompleteCorrectionUseCase 호출
-→ Flashcard local first 저장
+→ Flashcard Room DAO local first 저장
 → LangState 업데이트 입력 생성 및 적용
 → SessionSummary.correctionAvailable false 갱신
 → DashSummary.correctionAvailable 동시 반영
@@ -143,7 +144,7 @@ RT-003이 교정용 read model을 제공하더라도, 어떤 user turn을 `Corre
 ## 8. Flashcard 저장 책임
 
 Correction에서 사용자가 선택한 `CorrectionSuggestion`을 새 Flashcard로 최초 생성하고 저장하는 책임은 `SYS-CORRECTION-INFRA`의 저장 계약에 둔다.
-이 저장은 local first로 수행하며, Firestore 동기화는 로컬 완료 이후 background sync / pending sync로 관리한다.
+이 저장은 Room DAO 기반 local first로 수행하며, Firestore 동기화는 로컬 완료 이후 background sync / pending sync로 관리한다.
 
 SRS는 Correction에서 이미 저장된 Flashcard 원본을 조회하고 복습 결과에 따라 schedule/review 상태를 갱신한다.
 따라서 새 Flashcard 생성 저장을 `SYS-SRS-INFRA`나 SRS User Flow로 넘기지 않는다.
@@ -152,14 +153,16 @@ SRS는 Correction에서 이미 저장된 Flashcard 원본을 조회하고 복습
 CorrectionSuggestion 선택
 → CorrectionSaveRequest 생성
 → CorrectionRepository.saveFlashcards(...)
-→ Flashcard local first 최초 저장
+→ Flashcard Room DAO local first 최초 저장
 → Firestore background sync 예약
 → 이후 SRS에서 due deck 조회 대상으로 사용
 ```
 
-Flashcard 문서/Entity는 SRS에서 읽을 수 있는 원본 카드 계약과 호환되어야 한다.
+Flashcard Room Entity와 Firestore 문서는 SRS에서 읽을 수 있는 원본 카드 계약과 호환되어야 한다.
 다만 due deck 조회, SM-2 schedule 계산, review 결과 갱신은 `SYS-SRS-INFRA`의 `FlashcardRepository` 책임이다.
-Room DAO가 아직 준비되지 않은 경우에는 in-memory local data source로 local-first 순서와 중복 저장 방지 계약을 먼저 고정한다.
+Correction-infra는 새 Flashcard 최초 저장에 필요한 Room Entity / DAO / local data source를 선행으로 제공한다.
+또한 SRS가 별도 중복 Entity를 만들지 않고 같은 Room 원본을 사용할 수 있도록 `userId`, `language`, `nextReviewAt` 기준 due 조회와 `interval`, `easeFactor`, `nextReviewAt` schedule 갱신 통로를 제공한다.
+SRS는 이 원본 카드를 조회하고 review 결과로 schedule을 갱신하는 별도 repository 계약을 구현한다.
 Firestore sync는 `users/{uid}/flashcards/{flashcardId}` 문서 저장으로 연결하고, 실패 시 pending sync로 남긴다.
 MVP 발음 재생은 뒷면의 `backText`를 그대로 읽는 방식이므로 별도 `pronunciationText` 저장 필드는 두지 않는다.
 

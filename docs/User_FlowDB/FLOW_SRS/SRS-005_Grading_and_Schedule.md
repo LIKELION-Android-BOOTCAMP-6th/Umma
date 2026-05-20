@@ -15,7 +15,7 @@
 - [ ] 평가 결과에 따라 `interval`, `easeFactor`, `nextReviewAt`이 갱신된다.
 - [ ] 현재 카드의 review 결과가 local first로 저장된다.
 - [ ] 평가 중 중복 입력이 방지된다.
-- [ ] 저장 실패 시 재시도 가능한 상태가 된다.
+- [ ] review 결과 저장 실패 시 재시도 가능한 상태가 된다.
 
 ---
 
@@ -71,8 +71,8 @@ MVP에서는 SM-2를 기반으로 하되, Anki식 `Again / Hard / Good / Easy` 4
 - `easeFactor`는 반복 성과에 맞게 갱신한다.
 - 신규 카드처럼 현재 interval이 없거나 0인 경우에는 기본 interval을 `1일`로 보고 `Hard / Good / Easy` 계산을 시작한다.
 - `Again`은 당일 재노출을 위해 저장 후에도 due 상태로 남을 수 있다.
-- 계산 결과는 현재 카드의 local first 저장으로 이어진다.
-- local 저장과 sync pending 응답 계약은 `SRI-002`를 따르고, 스케줄 계산 정책은 `SRI-003`을 따른다.
+- 계산 결과는 현재 카드 review 결과의 local first 갱신으로 이어진다.
+- review 결과 local 갱신과 sync pending 응답 계약은 `SRI-002`를 따르고, 스케줄 계산 정책은 `SRI-003`을 따른다.
 - 저장 성공 이후 다음 카드 이동과 덱 완료 상태는 `SRS-006`에서 처리한다.
 
 ---

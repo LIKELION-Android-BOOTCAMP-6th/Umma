@@ -35,8 +35,8 @@ Correction 완료 시에는 교정 결과와 분석 대상 turn으로 최소 압
 | `domain/usecase/correction` | `ExtractCandidatesUseCase`, `ExtractSessionCandidatesUseCase`, `GenerateSuggestionsUseCase`, `PrepareSaveRequestUseCase`, `CompleteCorrectionUseCase` | RT-003 turn을 후보 입력으로 변환하고, 후보를 교정 결과/저장/완료 파이프라인으로 연결 |
 | `data/repository` | `CorrectionRepositoryImpl`, `FakeCorrectionRepository` | repository 계약의 실제 data 구현과 fake 교체 지점 |
 | `data/repository/correction` | `CorrectionAiResponseMapper`, `CorrectionFlashcardStore` | AI 응답 파싱과 local-first 저장 순서 |
-| `data/model/correction` | `CorrectionFlashcardDto` | Firestore / local cache가 공유하는 저장 DTO |
-| `data/source/local` | `CorrectionFlashcardLocalDataSource` | Room DAO 준비 전까지 local-first 저장 계약을 고정하는 임시 local source |
+| `data/model/correction` | `CorrectionFlashcardDto` | Firestore / Room local source가 공유하는 저장 DTO |
+| `data/source/local` | `CorrectionFlashcardLocalDataSource`, `CorrectionFlashcardDao`, `CorrectionFlashcardEntity`, `CorrectionFlashcardDatabase` | Correction에서 최초 생성한 Flashcard를 Room에 local first 저장하는 source |
 | `data/source/remote` | `CorrectionFlashcardRemoteDataSource` | Firestore `users/{uid}/flashcards/{flashcardId}` sync |
 | `di` | `RepositoryModule` | fake/real repository와 local/remote source 바인딩 |
 
@@ -209,6 +209,7 @@ CorrectionSuggestion
 ```text
 selectedSuggestions
 → distinctBy(id)로 중복 제거
+→ uid 필수값 검증
 → 언어가 모두 같은지 검증
 → nativeText / afterText 필수값 검증
 → CorrectionFlashcardSaveItem 생성
@@ -219,6 +220,7 @@ selectedSuggestions
 
 | Flashcard 저장 항목 | 값 |
 | --- | --- |
+| `uid` | `LangStateUpdateInput.uid` |
 | `suggestionId` | `CorrectionSuggestion.id` |
 | `frontText` | `CorrectionSuggestion.nativeText` |
 | `backText` | `CorrectionSuggestion.afterText` |
@@ -238,8 +240,9 @@ CorrectionSaveRequest
 → CorrectionRepositoryImpl.saveFlashcards()
 → CorrectionFlashcardStore.save()
 → CorrectionFlashcardDto 변환
-→ localDataSource.saveFlashcards()
+→ localDataSource.saveFlashcards(uid, flashcards)
 → remoteDataSource.syncFlashcards()
+→ sync 성공 ID는 local dirty=false 갱신
 → CorrectionSaveResult
 ```
 
@@ -281,20 +284,40 @@ Firestore 필드명은 DTO의 camelCase 이름을 그대로 사용한다.
 
 `sourceSuggestionId`도 현재는 `id`와 같지만, 나중에 카드 ID 정책이 바뀌어도 어떤 교정 결과에서 만들어진 카드인지 추적하기 위해 별도 필드로 유지한다.
 
-### 8.2 local-first 저장
+### 8.2 Room local-first 저장
 
-현재는 Flashcard Room DAO가 준비되기 전이므로 `InMemoryCorrectionFlashcardLocalDataSource`가 local 저장 계약을 임시로 담당한다.
+Correction은 새 Flashcard 최초 저장 책임을 가지므로 Room DAO 기반 local 저장소를 선행으로 제공한다.
+Room Entity는 SRS가 이후 같은 원본 카드를 조회할 수 있도록 `frontText`, `backText`, `explanation`, `nextReviewAt`, `interval`, `easeFactor`, `dirty` 필드를 유지한다.
 
 ```text
-flashcardsById
-→ flashcard.id 기준 중복 확인
+CorrectionFlashcardLocalDataSource
+→ CorrectionFlashcardDao.insertFlashcards(...)
+→ userId + flashcard.id 기준 중복 확인
 → 새 카드만 저장
 → 저장된 card id 목록 반환
 ```
 
-이 구현은 영구 저장소가 아니라 계약 고정용이다.
-SRS 인프라에서 Room Entity / DAO가 준비되면 `CorrectionFlashcardLocalDataSource`의 구현만 Room 기반으로 교체한다.
-domain UseCase와 `CorrectionRepository` 계약은 바뀌지 않아야 한다.
+`userId + id`를 복합 키로 두어 같은 기기에서 계정이 바뀌어도 카드가 섞이지 않게 한다.
+같은 `suggestionId`에서 파생된 카드는 같은 Flashcard로 취급해 중복 저장을 막는다.
+domain UseCase와 `CorrectionRepository`는 Room 세부 구현을 직접 알지 않는다.
+
+SRS는 같은 Room 원본을 사용하되, 새 Flashcard 최초 저장을 다시 구현하지 않는다.
+이를 위해 `CorrectionFlashcardLocalDataSource`는 SRS Repository가 재사용할 수 있는 낮은 레벨의 조회/갱신 통로를 함께 제공한다.
+
+```text
+SRS due deck 조회
+→ getDueFlashcards(uid, language, now, limit)
+→ userId + language + nextReviewAt <= now 기준 조회
+→ nextReviewAt / createdAt / id 기준 정렬
+
+SRS review 결과 반영
+→ updateReviewSchedule(uid, flashcardId, nextReviewAt, interval, easeFactor, updatedAt)
+→ 같은 Room 원본 row 갱신
+→ dirty = true 로 후속 sync 대상 표시
+```
+
+due deck 구성, SM-2 계산, review 완료 파이프라인 조립은 `SYS-SRS-INFRA`의 `FlashcardRepository`와 SRS UseCase 책임이다.
+Correction-infra는 SRS가 같은 원본을 읽고 갱신할 수 있는 저장소 통로만 선행 제공한다.
 
 ### 8.3 Firestore sync
 
@@ -308,7 +331,7 @@ newlySavedFlashcards
 ```
 
 Firestore에는 `dirty = false`로 저장한다.
-local 원본은 sync 결과를 보고 pending 여부를 판단한다.
+local 원본은 sync 성공 ID만 `dirty = false`로 갱신하고, 실패한 카드는 `dirty = true`로 남겨 pending 여부를 판단한다.
 
 Firestore sync가 실패해도 local 저장 성공을 사용자 저장 실패로 바꾸지 않는다.
 대신 `CorrectionSaveResult.pendingSyncFlashcardIds`에 남겨 후속 sync 대상으로 다룬다.
@@ -396,7 +419,8 @@ CorrectionRepository
 → CorrectionRepositoryImpl
 
 CorrectionFlashcardLocalDataSource
-→ InMemoryCorrectionFlashcardLocalDataSource
+→ RoomCorrectionFlashcardLocalDataSource
+→ CorrectionFlashcardDao
 
 CorrectionFlashcardRemoteDataSource
 → FirestoreCorrectionFlashcardRemoteDataSource
@@ -420,7 +444,7 @@ fake는 화면 상태와 저장 파이프라인을 AI 없이 테스트하기 위
 | `GenerateSuggestionsUseCaseTest` | 후보 입력이 교정 결과 계약으로 연결되는지 확인 |
 | `PrepareSaveRequestUseCaseTest` | 선택 결과 중복 제거, 언어 검증, 필수 텍스트 검증 |
 | `CompleteCorrectionUseCaseTest` | 저장, 상태 갱신, compression 호출 순서와 실패 시 rollback/pending 정책 |
-| `CorrectionRepositoryImplTest` | local-first 저장, Firestore pending sync, 중복 저장 방지, rollback |
+| `CorrectionRepositoryImplTest` | local-first 저장, Firestore pending sync, 중복 저장 방지, rollback, SRS due 조회/스케줄 갱신 통로 |
 | `CorrectionAiResponseMapperTest` | AI JSON 파싱, candidateId 매칭, 필수 필드 검증 |
 | `FakeCorrectionRepositoryTest` | fake 구현도 같은 저장 계약을 사용하는지 확인 |
 

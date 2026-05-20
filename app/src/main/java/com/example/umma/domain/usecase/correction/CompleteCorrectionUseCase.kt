@@ -42,6 +42,7 @@ class CompleteCorrectionUseCase @Inject constructor(
         // 화면은 CorrectionSuggestion 만 넘기고, Flashcard 앞/뒷면 계약은 domain 에서 만든다.
         // 이렇게 해야 COR-005 저장 요청 형식이 화면 구현에 흩어지지 않는다.
         val saveRequest = prepareSaveRequestUseCase(
+            uid = input.langStateUpdateInput.uid,
             selectedSuggestions = input.selectedSuggestions,
             requestedAt = input.requestedAt
         ).getOrElse { error ->
@@ -150,8 +151,16 @@ class CompleteCorrectionUseCase @Inject constructor(
         // 현재 Correction-infra가 직접 수행한 local 저장만 되돌린다.
         // Session Memory는 RT-003 소유 저장소이므로 이 UseCase에서 rollback하지 않는다.
         // compression 실패는 완료 실패로 키우지 않고 pending 결과로 남기는 정책을 따른다.
-        if (saveResult != null) {
-            correctionRepository.rollbackFlashcards(saveRequest)
+        if (saveResult != null && saveResult.localSavedFlashcardIds.isNotEmpty()) {
+            // saveResult.localSavedFlashcardIds는 DB insert가 실제로 성공한 카드만 담는다.
+            // 이 값을 기준으로 좁히면 중복 저장 요청 중 이미 존재하던 카드를 잘못 삭제하지 않는다.
+            val newlySavedIds = saveResult.localSavedFlashcardIds.toSet()
+            val rollbackRequest = saveRequest.copy(
+                // 중복 요청으로 이미 존재하던 카드는 이번 완료 흐름이 만든 카드가 아니다.
+                // rollback은 이번 요청에서 새로 저장된 카드만 대상으로 삼아 기존 카드를 지우지 않는다.
+                flashcards = saveRequest.flashcards.filter { it.suggestionId in newlySavedIds }
+            )
+            correctionRepository.rollbackFlashcards(rollbackRequest)
         }
     }
 

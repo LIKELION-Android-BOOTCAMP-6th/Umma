@@ -10,7 +10,7 @@
 
 - [ ] 저장할 Flashcard 항목이 준비된 이후에만 완료 처리를 시작한다.
 - [ ] `SYS-CORRECTION-INFRA`에서 준비한 `CompleteCorrectionUseCase`를 호출한다.
-- [ ] 선택된 교정 결과가 새 Flashcard로 local first 저장된다.
+- [ ] `CompleteCorrectionUseCase` 성공 결과에 저장된 Flashcard ID가 포함된다.
 - [ ] 로컬 완료 성공 결과를 받으면 Done 상태로 전환한다.
 - [ ] 로컬 완료 실패 결과를 받으면 Retry 상태로 남긴다.
 - [ ] 완료 처리 중 중복 완료 요청이 방지된다.
@@ -32,7 +32,7 @@
 ## 포함 범위
 
 - `CompleteCorrectionUseCase` 호출
-- 새 Flashcard 최초 local first 저장 결과 연결
+- 새 Flashcard 최초 저장 결과 연결
 - Completing / Done / Retry 상태 연결
 - 완료 요청 in-flight 상태 관리
 
@@ -57,6 +57,7 @@
 그 결과를 Correction 화면 상태로 연결하는 단계다.
 `CompleteCorrectionUseCase` 내부에서 선택된 교정 결과는 새 Flashcard로 최초 local first 저장된다.
 이 저장은 SRS가 대신 수행하지 않는다.
+Room Entity / DAO / local data source는 `SYS-CORRECTION-INFRA`의 저장 계약을 따르며, SRS는 이후 저장된 원본을 조회한다.
 파이프라인 내부 순서와 rollback 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
 Session Memory 저장/압축 실행은 RT-003 실제 저장소 계약을 따른다.
 Correction 완료 흐름은 교정 결과와 분석 대상 turn으로 최소 압축 payload를 만들고, RT-003 compression 계약을 호출한다.
