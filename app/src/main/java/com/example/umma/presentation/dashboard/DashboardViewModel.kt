@@ -179,6 +179,14 @@ class DashboardViewModel @Inject constructor(
                 // "보여줄 게 없는" 상태 — Empty 분기 판정용.
                 val empty = summary == null || summary.isEffectivelyEmpty
 
+                // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false.
+                //   selector 다이얼로그의 "이전에 학습 중이던 언어" 체크 아이콘 기준으로 쓰인다.
+                //   userPref.learningLangs 는 selector 단순 선택만으로도 자동 확장되지만,
+                //   여기는 실제 대화/카드/통계 데이터가 쌓인 언어만 포함 → 시각적 구분.
+                val activeLangs = global.dashSummaries
+                    .filterValues { !it.isEffectivelyEmpty }
+                    .keys
+
                 if (!skeletonGateApplied) {
                     skeletonGateApplied = true
                     val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
@@ -191,6 +199,7 @@ class DashboardViewModel @Inject constructor(
                         summary = summary,
                         isEmpty = empty,
                         learningLanguages = learningLangs,
+                        activeLearningLanguages = activeLangs,
                         hasFatalError = false
                     )
                 }
@@ -307,10 +316,14 @@ class DashboardViewModel @Inject constructor(
 
             changeSelectedLang(lang)
                 .onSuccess {
-                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리, sync 트리거")
-                    triggerSync()
-                    fetchJob?.join()
-                    Log.d(TAG, "onChangeLearningLanguage complete — sync joined")
+                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리")
+                    // DASH-006 race 회피: 여기서 triggerSync() 를 호출하면 Repo.sync() 가
+                    //   Firebase 에서 fetch 한 이전 selectedLang 값으로 _state 를 통째로
+                    //   덮어써(LearningStateRepoImpl.sync L367-368) 방금 한 local 변경이
+                    //   즉시 원래대로 복구되는 버그가 발생한다 (사용자 입장: "안 바뀜").
+                    //   sync 는 onEnter() 진입 시 이미 한 번 트리거되므로 여기서 다시 부르지
+                    //   않아도 다음 진입 / 재진입 때 자연 수렴. selectedLang 의 즉시 반영은
+                    //   observe collect 의 새 emit 으로 이미 완료된 상태.
                 }
                 .onFailure { e ->
                     Log.w(TAG, "changeSelectedLang failed — AC 8 auto-rollback via observe", e)

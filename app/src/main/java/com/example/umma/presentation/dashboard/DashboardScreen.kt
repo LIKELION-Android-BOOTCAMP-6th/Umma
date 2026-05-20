@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +52,7 @@ import com.example.umma.core.theme.SpacingM
 import com.example.umma.core.theme.SpacingS
 import com.example.umma.core.theme.SpacingXS
 import com.example.umma.core.theme.TextAnalysisR
+import com.example.umma.core.theme.TextCorrect
 import com.example.umma.core.theme.TextExplanationR
 import com.example.umma.core.theme.TextLogout
 import com.example.umma.core.theme.TextPrimary
@@ -117,6 +120,11 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var nicknameInput by remember { mutableStateOf("") }
     var selectedLearningLanguage by remember { mutableStateOf<LangCode?>(null) }
+    // AppBar 우측 selector(알약 버튼) 클릭 시 열리는 학습 언어 선택 다이얼로그 표시 여부.
+    var isLanguageDialogOpen by remember { mutableStateOf(false) }
+    // 다이얼로그 안에서의 임시 선택 lang. 다이얼로그 진입 시 selectedLearningLanguage 로
+    //   초기화, 사용자가 다른 항목을 누르면 갱신, "선택" 확인 시 실제 ViewModel 에 반영.
+    var dialogSelectedLang by remember { mutableStateOf<LangCode?>(null) }
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
@@ -150,24 +158,19 @@ fun DashboardScreen(
                 isCenterTitle = false,
                 actions = {
                     // DASH-006: 학습 언어 selector.
-                    //   신규 사용자(userPref 가 아직 emit 되지 않아 selectedLearningLanguage
-                    //   = null, learningLanguages = []) 시점에도 AppBar 우측에 동일 위치로
-                    //   selector 가 노출되도록 fallback 값을 사용한다. 정상 케이스 (userPref
-                    //   준비 완료) 에는 fallback 이 사용되지 않아 동작 무변경.
-                    //
-                    //   - selectedLang fallback: LangCode.KO
-                    //   - learningLangs fallback: 학습 가능 언어 4 종 (KO/EN/JA/ES)
-                    val displaySelected = uiState.selectedLearningLanguage ?: LangCode.KO
-                    val displayLangs = uiState.learningLanguages.ifEmpty {
-                        listOf(LangCode.KO, LangCode.EN, LangCode.JA, LangCode.ES)
-                    }
+                    //   와이어프레임 정합: ThemePrimary 알약 버튼. 클릭 시 dropdown 이 아닌
+                    //   학습 언어 선택 다이얼로그가 열린다 (다이얼로그 본체는 Scaffold 하단에
+                    //   isLanguageDialogOpen 으로 토글). userPref 가 아직 준비되지 않은 시점에도
+                    //   selector 자체가 사라지지 않도록 selectedLang 은 LangCode.KO 로 fallback.
+                    val selected = uiState.selectedLearningLanguage ?: LangCode.KO
                     LearningLanguageSelector(
-                        selectedLang = displaySelected,
-                        learningLangs = displayLangs,
-                        isLoading = uiState.isLoading || uiState.isChangingLanguage,
-                        onLanguageSelected = { lang ->
-                            viewModel.onChangeLearningLanguage(lang.code)
-                        }
+                        selectedLang = selected,
+                        onClick = {
+                            // 다이얼로그 진입 시 현재 selectedLang 으로 임시 선택을 초기화.
+                            dialogSelectedLang = selected
+                            isLanguageDialogOpen = true
+                        },
+                        isLoading = uiState.isLoading || uiState.isChangingLanguage
                     )
                     // 와이어프레임 정합: AppBar 우측 끝에 마이페이지 진입 IconButton.
                     Spacer(modifier = Modifier.width(SpacingXS))
@@ -282,6 +285,52 @@ fun DashboardScreen(
                                 fontSize = TextAnalysisR.fontSize,
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // DASH-006: AppBar selector 알약 버튼 → 학습 언어 선택 다이얼로그.
+        //   와이어프레임 정합:
+        //     - title "학습 언어 선택"
+        //     - 4 개 LangCode 항목 (한국어 라벨)
+        //     - 학습 중인 언어(uiState.learningLanguages 포함) 는 우측에 체크 아이콘
+        //     - 사용자가 항목 탭 → dialogSelectedLang 갱신 (테두리로 시각 강조)
+        //     - "선택" 버튼 → 임시 선택 lang 을 ViewModel 에 반영
+        //   학습 안 하던 언어 선택도 동일 흐름. Repo.changeSelectedLang 가 learningLangs 를
+        //   자동 확장하므로 별도 confirm 단계 불필요.
+        if (isLanguageDialogOpen) {
+            // docs LS-003/DASH-006 정합: "학습 중인 언어" 의 체크 표시는 실제 학습 데이터가
+            //   쌓인 언어만 대상으로 한다. userPref.learningLangs (selector 클릭만으로도
+            //   자동 확장됨) 대신 activeLearningLanguages (DashSummary 가 isEffectivelyEmpty=
+            //   false 인 언어 집합) 를 기준으로 함 → "선택만 한 언어" 와 "정말 학습 중인 언어"
+            //   를 시각적으로 분리.
+            val activeLangs = uiState.activeLearningLanguages
+            UmmaDialog(
+                title = "학습 언어 선택",
+                modifier = Modifier.padding(horizontal = SpacingL),
+                onCancel = { isLanguageDialogOpen = false },
+                onConfirm = {
+                    dialogSelectedLang?.let { lang ->
+                        // 동일 lang 재선택은 ViewModel 단에서 no-op 처리되므로 그대로 호출.
+                        viewModel.onChangeLearningLanguage(lang.code)
+                    }
+                    isLanguageDialogOpen = false
+                },
+                confirmText = "선택"
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                ) {
+                    dashboardLanguageOptions.forEach { (code, label) ->
+                        DashboardLanguageButton(
+                            text = label,
+                            isSelected = dialogSelectedLang == code,
+                            isLearning = code in activeLangs,
+                            onClick = { dialogSelectedLang = code }
+                        )
                     }
                 }
             }
@@ -408,7 +457,6 @@ private fun DashboardCardGrid(
         ) {
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
-                recentConversationMinutes = summary?.recentMinutes,
                 accentColor = if (isFeedbackEmpty) TextWrong else null,
                 onClick = {
                     if (isFeedbackEmpty) {
@@ -478,3 +526,68 @@ private val learningLanguageOptions = listOf(
     LangCode.JA to "日本語",
     LangCode.ES to "Español"
 )
+
+/**
+ * DASH-006 학습 언어 선택 다이얼로그의 항목 라벨.
+ *
+ * 와이어프레임 정합으로 한국어 라벨 (영어 / 한국어 / 일본어 / 스페인어) 사용.
+ * 닉네임/언어 설정 다이얼로그의 [learningLanguageOptions] (native script) 는
+ * 다른 컨텍스트(초기 설정) 이므로 별도 매핑으로 분리.
+ */
+private val dashboardLanguageOptions = listOf(
+    LangCode.KO to "한국어",
+    LangCode.EN to "영어",
+    LangCode.JA to "일본어",
+    LangCode.ES to "스페인어"
+)
+
+/**
+ * DASH-006 다이얼로그용 언어 버튼.
+ *
+ * 와이어프레임 정합:
+ *  - 흰 배경 + 알약(pill) 형태 + 중앙 텍스트
+ *  - 임시 선택된 항목([isSelected]) 은 ThemePrimary 보더 + 텍스트 색으로 강조
+ *  - 학습 중인 항목([isLearning]) 은 텍스트 우측에 TextCorrect 색 체크 아이콘
+ *  - selectedLang 이면서 학습 중인 경우 두 표시(보더 + 체크) 가 함께 노출됨 — 의도된 동작
+ */
+@Composable
+private fun DashboardLanguageButton(
+    text: String,
+    isSelected: Boolean,
+    isLearning: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = BackgroundSecondary
+        ),
+        shape = RoundedCornerShape(percent = 50),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = text,
+                fontSize = 16.sp,
+                color = if (isSelected) ThemePrimary else TextPrimary
+            )
+            if (isLearning) {
+                Spacer(modifier = Modifier.width(SpacingS))
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = "학습 중",
+                    tint = TextCorrect,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}

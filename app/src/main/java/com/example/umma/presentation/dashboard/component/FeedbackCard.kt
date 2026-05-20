@@ -62,7 +62,6 @@ import com.example.umma.core.theme.TitleCardR
 @Composable
 fun FeedbackCard(
     correctionAvailable: Boolean = false,
-    recentConversationMinutes: Int?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     accentColor: Color? = null
@@ -110,17 +109,8 @@ fun FeedbackCard(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                if (recentConversationMinutes != null && recentConversationMinutes > 0) {
-                    Row(
-                        // 좌우 padding 축소 후 offset 보정 불필요.
-                        modifier = Modifier.align(Alignment.Start)
-                    ) {
-                        CardInfoChip(
-                            text = "대화 기록: ${recentConversationMinutes}분",
-                            accent = accent
-                        )
-                    }
-                }
+                // 교정 가능 여부는 우측 상단 빨간 점(correctionAvailable) 이 이미 표현하므로,
+                // 하단 "대화 기록: ##분" 칩은 중복 시그널 — 제거.
             }
 
             if (correctionAvailable) {

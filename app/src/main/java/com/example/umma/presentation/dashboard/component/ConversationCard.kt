@@ -108,7 +108,14 @@ fun ConversationCard(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                if (recentConversationMinutes != null || recentConversationTopic != null) {
+                // 칩 가시성 판정 — FeedbackCard 와 동일하게 "값이 의미있을 때만" 노출.
+                //   minutes 는 0 이 fallback DashSummary(ensureDashSummary) 의 기본값이라
+                //   != null 만으로는 "기록 없음" 케이스(=selector 로 처음 진입한 새 lang)에도
+                //   "대화 기록: 0 분" 칩이 떠 버린다 → > 0 가드 추가로 일관성 확보.
+                //   topic 은 빈 문자열 fallback 도 가시 노이즈이므로 isNullOrBlank 로 막는다.
+                val hasMinutes = recentConversationMinutes != null && recentConversationMinutes > 0
+                val hasTopic = !recentConversationTopic.isNullOrBlank()
+                if (hasMinutes || hasTopic) {
                     // 두 칩을 FlowRow 로 배치 — 가용 폭이 충분하면 한 줄에 가로 정렬,
                     // 부족하면 주제 칩이 자동으로 다음 줄로 떨어진다. 짧은 주제(Travel /
                     // 일상 등) 는 시간 칩과 한 줄에 나란히, 긴 주제는 자연스럽게 줄바꿈.
@@ -121,13 +128,16 @@ fun ConversationCard(
                         horizontalArrangement = Arrangement.spacedBy(SpacingXS),
                         verticalArrangement = Arrangement.spacedBy(SpacingXS)
                     ) {
-                        if (recentConversationMinutes != null) {
+                        if (hasMinutes) {
+                            // LearningSummaryModels.DashSummary.recentMinutes 의 정확한 의미가
+                            // "최근 대화 길이" 이므로 라벨도 그에 맞춤. (누적 총 대화 시간이
+                            // 모델에 추가되면 별도 칩으로 분리.)
                             CardInfoChip(
-                                text = "대화 기록: ${recentConversationMinutes}분",
+                                text = "최근 대화 시간: ${recentConversationMinutes}분",
                                 accent = accent
                             )
                         }
-                        if (recentConversationTopic != null) {
+                        if (hasTopic) {
                             // 다음 줄로 떨어진 뒤에도 자기 폭이 카드 폭을 초과하는 극단 케이스
                             // 안전망 — 2줄까지 wrap, 초과분은 ellipsis.
                             CardInfoChip(

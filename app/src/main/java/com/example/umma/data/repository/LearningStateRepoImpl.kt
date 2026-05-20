@@ -86,11 +86,20 @@ class LearningStateRepoImpl @Inject constructor(
     override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> {
         return persistStateSafely { current ->
             // 현재 선택 언어만 바꾸고, 언어별 요약은 없으면 기본값으로 채운다.
-            val userPref = current.userPref ?: return@persistStateSafely current
-            val normalizedPref = userPref.copy(
-                selectedLang = lang,
-                learningLangs = userPref.learningLangs.toMutableSet().apply { add(lang) }.toList()
-            )
+            //   기존 userPref 가 있으면 selectedLang 갱신 + learningLangs 자동 확장.
+            //   userPref 가 아직 없는 신규 사용자/mock 진입 케이스(=Dashboard 진입 시
+            //   닉네임/언어 다이얼로그를 거치지 않은 상태) 에서도 selector 로 첫 언어 설정이
+            //   동작하도록 UserLangPref.initial 로 최소 정보 userPref 를 생성한다. nativeLang
+            //   기본값은 KO. 이후 sync / Initial Setup 흐름에서 더 정확한 값으로 덮어쓰임.
+            val existingPref = current.userPref
+            val normalizedPref = if (existingPref != null) {
+                existingPref.copy(
+                    selectedLang = lang,
+                    learningLangs = existingPref.learningLangs.toMutableSet().apply { add(lang) }.toList()
+                )
+            } else {
+                UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = lang)
+            }
 
             current.copy(
                 userPref = normalizedPref,
