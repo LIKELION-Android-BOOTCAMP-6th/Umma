@@ -3,8 +3,6 @@ package com.example.umma.presentation.chat
 import android.annotation.SuppressLint
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.umma.data.source.local.AudioPlayer
-import com.example.umma.data.source.local.AudioRecorder
 import com.example.umma.domain.audio.AudioInput
 import com.example.umma.domain.audio.AudioOutput
 import com.example.umma.domain.model.audio.AudioInputFrame
@@ -21,7 +19,6 @@ import com.example.umma.domain.usecase.chat.StartSessionUseCase
 import com.example.umma.domain.usecase.chat.StopSessionUseCase
 import com.example.umma.domain.usecase.user.GetUserProfileUseCase
 import com.example.umma.domain.usecase.user.SaveInterestTopicsUseCase
-import com.example.umma.domain.usecase.learningstate.GetSelectedLearningLanguageUseCase
 import com.example.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.example.umma.presentation.util.calculateLevel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -44,7 +41,7 @@ class ChatViewModel @Inject constructor(
     private val stopSessionUseCase: StopSessionUseCase,
     private val getUserProfileUseCase: GetUserProfileUseCase,
     private val saveInterestTopicsUseCase: SaveInterestTopicsUseCase,
-    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase
+    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
     private val audioRecorder: AudioInput,
     private val audioPlayer: AudioOutput

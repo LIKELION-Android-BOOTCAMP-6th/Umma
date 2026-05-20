@@ -43,10 +43,9 @@ data class ChatUiState(
     val showTopicDialog: Boolean = false,
     // 저장 중 중복 클릭 방지용 true 일 때 버튼 비활성화
     val isTopicSaving: Boolean = false,
-    val topicError: String? = null
+    val topicError: String? = null,
     val isSavingTurn: Boolean = false,
     val saveErrorMessage: String? = null,
-    val errorMessage: String? = null
 )
 
 /**
