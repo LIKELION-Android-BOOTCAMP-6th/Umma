@@ -1,6 +1,11 @@
 package com.example.umma.presentation.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,10 +22,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.example.umma.domain.model.realtime.AIState
 import com.example.umma.core.theme.BackgroundSecondary
 import com.example.umma.core.theme.SpacingL
 import com.example.umma.core.theme.SpacingS
@@ -46,9 +55,25 @@ fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            viewModel.startUserTurn(hasRecordAudioPermission = false)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.checkInterestTopics()
+        viewModel.startChat()
+    }
+
+    fun hasRecordAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
 
@@ -62,18 +87,72 @@ fun ChatScreen(
         }
     ) { paddingValues ->
         Column(
-            modifier = Modifier.padding(paddingValues)
+            modifier = Modifier
+                .padding(paddingValues)
+                .padding(horizontal = SpacingL)
         ) {
             Text(
-                text = "챗 Pretendard",
+                text = "대화 상태: ${uiState.sessionState.name}",
                 textAlign = TextAlign.Center,
                 style = TitleB
             )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "그냥",
+                text = buildStatusText(uiState),
                 textAlign = TextAlign.Center,
             )
+            Spacer(modifier = Modifier.height(SpacingL))
+            Text(
+                text = "나: ${uiState.lastFinalUserTranscript.ifBlank { "-" }}",
+                style = TextAnalysisR
+            )
+            Spacer(modifier = Modifier.height(SpacingS))
+            Text(
+                text = "AI: ${uiState.lastFinalAITranscript.ifBlank { "-" }}",
+                style = TextAnalysisR
+            )
+            Spacer(modifier = Modifier.height(SpacingL))
+            Button(
+                onClick = {},
+                enabled = uiState.sessionState == SessionState.READY,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(uiState.sessionState) {
+                        detectTapGestures(
+                            onPress = {
+                                if (hasRecordAudioPermission()) {
+                                    viewModel.startUserTurn(hasRecordAudioPermission = true)
+                                    tryAwaitRelease()
+                                    viewModel.endUserTurn()
+                                } else {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        )
+                    }
+            ) {
+                Text(
+                    text = if (uiState.isRecording) "말하는 중" else "누르고 말하기",
+                    fontSize = 16.sp
+                )
+            }
+            if (uiState.isRecoverableError) {
+                Spacer(modifier = Modifier.height(SpacingS))
+                Button(
+                    onClick = { viewModel.retryConnection() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "다시 연결")
+                }
+            }
+            if (uiState.microphonePermissionDenied) {
+                Spacer(modifier = Modifier.height(SpacingS))
+                Text(
+                    text = "마이크 권한이 필요합니다.",
+                    color = TextLogout,
+                    style = TextAnalysisR
+                )
+            }
         }
     }
     if (uiState.showTopicDialog) {
@@ -107,6 +186,33 @@ fun ChatScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * 채팅 화면 상단 상태 문구를 생성합니다.
+ *
+ * @param uiState 현재 채팅 UI 상태
+ * @return 사용자에게 표시할 상태 문구
+ */
+private fun buildStatusText(uiState: ChatUiState): String {
+    uiState.errorMessage?.let { return it }
+
+    return when {
+        uiState.sessionState == SessionState.RECONNECTING ->
+            "재연결 중 ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
+
+        uiState.aiState == AIState.RECONNECTING ->
+            "응답이 중단되었습니다."
+
+        uiState.aiState == AIState.SPEAKING ->
+            "AI가 답변 중입니다."
+
+        uiState.isRecording ->
+            "듣고 있습니다."
+
+        else ->
+            "준비되었습니다."
     }
 }
 

@@ -64,11 +64,38 @@ sealed interface AIEvent {
 
     /** AI가 시스템 또는 외부 오류로 인해 응답이 방해 받았음을 알리는 이벤트입니다. */
     data class SessionInterrupted(
+        val reason: SessionInterruptedReason = SessionInterruptedReason.UNKNOWN,
+        val attempt: Int = 0,
+        val maxAttempts: Int = 0,
+        val recoverable: Boolean = true,
         val message: String = "Live session interrupted"
+    ) : AIEvent
+
+    /** 동일한 앱 세션으로 Live transport 복구가 완료되었음을 알리는 이벤트입니다. */
+    data class Reconnected(val sessionId: String) : AIEvent
+
+    /** 자동 복구 실패 후 사용자 조치가 필요한 상태를 알리는 이벤트입니다. */
+    data class ReconnectFailed(
+        val message: String,
+        val recoverable: Boolean = true
     ) : AIEvent
 
     /** 세션 또는 스트리밍 중 발생한 오류를 알리는 이벤트입니다. */
     data class Error(val message: String) : AIEvent
+}
+
+/**
+ * Live session 중단 원인입니다.
+ */
+enum class SessionInterruptedReason {
+    /** 서버가 정상적인 종료 신호를 전달한 경우 */
+    SERVER_GO_AWAY,
+    /** receive stream 수집 중 오류가 발생한 경우 */
+    STREAM_ERROR,
+    /** 네트워크 계층 오류로 판단되는 경우 */
+    NETWORK_ERROR,
+    /** 분류할 수 없는 오류 */
+    UNKNOWN
 }
 
 /**

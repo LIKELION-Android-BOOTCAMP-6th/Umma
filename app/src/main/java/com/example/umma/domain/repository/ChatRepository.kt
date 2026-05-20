@@ -32,6 +32,17 @@ interface ChatRepository {
     suspend fun startSession(langCode: LangCode, systemInstruction: String): Result<String>
 
     /**
+     * 기존 앱 레벨 세션 ID를 유지한 채 Live transport만 다시 연결합니다.
+     *
+     * 자동 재연결 실패 후 사용자가 명시적으로 재시도할 때 사용하며,
+     * 호출자는 최신 context를 반영한 [systemInstruction]을 전달해야 합니다.
+     *
+     * @param systemInstruction 새 Live session에 주입할 최신 system prompt
+     * @return 성공 시 유지된 활성 세션 ID를 담은 [Result], 실패 시 예외를 담은 [Result]
+     */
+    suspend fun reconnectSession(systemInstruction: String): Result<String>
+
+    /**
      * 현재 활성화된 앱 레벨 세션 ID를 반환합니다.
      *
      * 이 값은 Live API 세션 객체 자체의 식별자가 아니라,

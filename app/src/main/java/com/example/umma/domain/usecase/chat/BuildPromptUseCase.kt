@@ -2,6 +2,7 @@ package com.example.umma.domain.usecase.chat
 
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
+import com.example.umma.domain.model.realtime.SessionTurn
 import javax.inject.Inject
 
 /**
@@ -16,9 +17,14 @@ class BuildPromptUseCase @Inject constructor() {
      *
      * @param langCode 현재 학습 중인 언어
      * @param langState 해당 언어의 장기 학습 데이터 (어휘 수준 포함)
+     * @param recentFullContext 저장 완료된 최근 대화 context
      * @return Gemini Live API에 전달할 시스템 지침 문자열
      */
-    operator fun invoke(langCode: LangCode, langState: LangState?): String {
+    operator fun invoke(
+        langCode: LangCode,
+        langState: LangState?,
+        recentFullContext: List<SessionTurn> = emptyList()
+    ): String {
         val languageName = when(langCode) {
             LangCode.EN -> "English"
             LangCode.JA -> "Japanese"
@@ -26,10 +32,25 @@ class BuildPromptUseCase @Inject constructor() {
             LangCode.ES -> "Spanish"
         }
         val level = langState?.external?.vocabularyLevel?.name ?: "Beginner"
+        val recentContext = recentFullContext
+            .takeLast(12)
+            .joinToString(separator = "\n") { turn ->
+                "${turn.role.name}: ${turn.text}"
+            }
+
+        val contextInstruction = if (recentContext.isBlank()) {
+            "There is no confirmed conversation context yet."
+        } else {
+            """
+            Use this confirmed recent conversation context when continuing:
+            $recentContext
+            """.trimIndent()
+        }
 
         return """
             You are Umma, a friendly $languageName tutor. 
             The student's level is $level. 
+            $contextInstruction
             Lead a natural conversation, and adapt your complexity to the student.
             Keep responses conversational and concise.
         """.trimIndent()

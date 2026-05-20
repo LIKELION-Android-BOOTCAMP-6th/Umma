@@ -14,6 +14,7 @@ import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.model.realtime.AppendTurnCommand
 import com.example.umma.domain.model.realtime.SessionTurn
 import com.example.umma.domain.usecase.chat.ObserveAIEventUseCase
+import com.example.umma.domain.usecase.chat.RetryConnectionUseCase
 import com.example.umma.domain.usecase.chat.SendAudioDataUseCase
 import com.example.umma.domain.usecase.chat.StartSessionUseCase
 import com.example.umma.domain.usecase.chat.StopSessionUseCase
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val startSessionUseCase: StartSessionUseCase,
+    private val retryConnectionUseCase: RetryConnectionUseCase,
     private val observeAIEventUseCase: ObserveAIEventUseCase,
     private val sendAudioDataUseCase: SendAudioDataUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
@@ -106,6 +108,27 @@ class ChatViewModel @Inject constructor(
     /**
      * 사용자 발화 turn 녹음을 시작합니다.
      */
+    fun startUserTurn(hasRecordAudioPermission: Boolean) {
+        if (!hasRecordAudioPermission) {
+            _uiState.update {
+                it.copy(
+                    microphonePermissionDenied = true,
+                    errorMessage = "마이크 권한이 필요합니다."
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(microphonePermissionDenied = false)
+        }
+
+        beginUserTurn()
+    }
+
+    /**
+     * 사용자 발화 turn 녹음을 시작합니다.
+     */
     @SuppressLint("MissingPermission")
     private fun beginUserTurn() {
         val currentState = _uiState.value
@@ -134,10 +157,52 @@ class ChatViewModel @Inject constructor(
                         inputLevel = 0f,
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
+                        isRecoverableError = false,
                         errorMessage = error.message ?: "Failed to record audio"
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * 같은 앱 세션으로 Live transport 재연결을 수동 재시도합니다.
+     */
+    fun retryConnection() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    sessionState = SessionState.RECONNECTING,
+                    aiState = AIState.RECONNECTING,
+                    isRecoverableError = false,
+                    errorMessage = null
+                )
+            }
+
+            retryConnectionUseCase()
+                .onSuccess { sessionId ->
+                    _uiState.update {
+                        it.copy(
+                            sessionState = SessionState.READY,
+                            aiState = AIState.IDLE,
+                            activeSessionId = sessionId,
+                            reconnectAttempt = 0,
+                            maxReconnectAttempts = 0,
+                            isRecoverableError = false,
+                            errorMessage = null
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            sessionState = SessionState.ERROR,
+                            aiState = AIState.ERROR,
+                            isRecoverableError = true,
+                            errorMessage = error.message ?: "다시 연결할 수 없습니다."
+                        )
+                    }
+                }
         }
     }
 
@@ -191,6 +256,8 @@ class ChatViewModel @Inject constructor(
                     is AIEvent.AudioResponse -> handleAudioResponse(event)
                     is AIEvent.StateChanged -> handleStateChanged(event)
                     is AIEvent.SessionInterrupted -> handleSessionInterrupted(event)
+                    is AIEvent.Reconnected -> handleReconnected(event)
+                    is AIEvent.ReconnectFailed -> handleReconnectFailed(event)
                     is AIEvent.Error -> handleError(event)
                 }
             }
@@ -220,6 +287,10 @@ class ChatViewModel @Inject constructor(
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
+                reconnectAttempt = 0,
+                maxReconnectAttempts = 0,
+                isRecoverableError = false,
+                microphonePermissionDenied = false,
                 errorMessage = null
             )
         }
@@ -378,9 +449,59 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
+                sessionState = SessionState.RECONNECTING,
                 isRecording = false,
                 inputLevel = 0f,
+                outputLevel = 0f,
+                userPartialTranscript = "",
+                aiPartialTranscript = "",
                 aiState = AIState.RECONNECTING,
+                reconnectAttempt = event.attempt,
+                maxReconnectAttempts = event.maxAttempts,
+                isRecoverableError = false,
+                errorMessage = event.message
+            )
+        }
+    }
+
+    /**
+     * Live transport 재연결 완료 상태를 반영합니다.
+     *
+     * @param event 재연결 완료 이벤트
+     */
+    private fun handleReconnected(event: AIEvent.Reconnected) {
+        _uiState.update {
+            it.copy(
+                sessionState = SessionState.READY,
+                aiState = AIState.IDLE,
+                activeSessionId = event.sessionId,
+                reconnectAttempt = 0,
+                maxReconnectAttempts = 0,
+                isRecoverableError = false,
+                errorMessage = null
+            )
+        }
+    }
+
+    /**
+     * 자동 재연결 실패 상태를 반영합니다.
+     *
+     * @param event 재연결 실패 이벤트
+     */
+    private fun handleReconnectFailed(event: AIEvent.ReconnectFailed) {
+        recordJob?.cancel()
+        recordJob = null
+
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                inputLevel = 0f,
+                outputLevel = 0f,
+                userPartialTranscript = "",
+                aiPartialTranscript = "",
+                sessionState = SessionState.ERROR,
+                aiState = AIState.ERROR,
+                isRecoverableError = event.recoverable,
                 errorMessage = event.message
             )
         }
@@ -402,6 +523,7 @@ class ChatViewModel @Inject constructor(
                 outputLevel = 0f,
                 sessionState = SessionState.ERROR,
                 aiState = AIState.ERROR,
+                isRecoverableError = false,
                 errorMessage = event.message
             )
         }

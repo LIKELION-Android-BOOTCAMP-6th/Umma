@@ -18,6 +18,10 @@ import com.example.umma.domain.model.user.Topic
  * @property outputLevel 출력 오디오 레벨
  * @property isSavingTurn 현재 확정 turn 저장 중 여부
  * @property saveErrorMessage turn 저장 오류 메시지
+ * @property reconnectAttempt 현재 자동 재연결 시도 횟수
+ * @property maxReconnectAttempts 최대 자동 재연결 시도 횟수
+ * @property isRecoverableError 사용자 재시도 가능 오류 여부
+ * @property microphonePermissionDenied 마이크 권한 거부 여부
  * @property errorMessage 세션 오류 메시지
  */
 data class ChatUiState(
@@ -32,6 +36,10 @@ data class ChatUiState(
     val inputLevel: Float = 0f,
     val outputLevel: Float = 0f,
     val errorMessage: String? = null,
+    val reconnectAttempt: Int = 0,
+    val maxReconnectAttempts: Int = 0,
+    val isRecoverableError: Boolean = false,
+    val microphonePermissionDenied: Boolean = false,
 
     // 사용자가 선택한 관심 주제 목록, 5개여야 저장 가능
     val selectedTopic: List<Topic> = emptyList(),
@@ -66,6 +74,11 @@ enum class SessionState {
      * 세션 준비 완료 상태입니다.
      */
     READY,
+
+    /**
+     * Live transport 재연결 중 상태입니다.
+     */
+    RECONNECTING,
 
     /**
      * 세션 오류 상태입니다.
