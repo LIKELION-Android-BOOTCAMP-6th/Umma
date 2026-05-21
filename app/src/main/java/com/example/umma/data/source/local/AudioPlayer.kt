@@ -14,7 +14,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
     // 오디오 플레이어 규격 정의
     companion object {
         // 샘플링 레이트
-        private const val SAMPLE_RATE = 16000
+        private const val SAMPLE_RATE = 24000
         // 재생 오디오 채널
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO
         // 오디오 포맷 (샘플링 레이트와 동일한 규격 포맷)
@@ -40,7 +40,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
             .setAudioAttributes(
                 AudioAttributes
                     .Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
