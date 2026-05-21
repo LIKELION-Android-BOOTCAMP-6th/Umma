@@ -9,11 +9,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
 import com.example.umma.presentation.analytics.AnalyticsScreen
+import com.example.umma.presentation.auth.AppEntryScreen
+import com.example.umma.presentation.auth.OnBoardingScreen
 import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
-import com.example.umma.presentation.feedback.FeedbackListScreen
-import com.example.umma.presentation.onboarding.OnBoardingScreen
+import com.example.umma.presentation.correction.CorrectionScreen
 import com.example.umma.presentation.study.StudyListScreen
 
 @Composable
@@ -35,8 +36,22 @@ fun UmmaNavHost(
 
         // 인증 그래프 (온보딩 화면 포함)
         navigation<Route.AuthGraph>(
-            startDestination = Route.OnBoarding
+            startDestination = Route.AppEntry
         ) {
+            composable<Route.AppEntry> {
+                AppEntryScreen(
+                    onNavigateToOnBoarding = {
+                        navController.navigate(Route.OnBoarding) {
+                            popUpTo(Route.AppEntry) { inclusive = true }
+                        }
+                    },
+                    onNavigateToDashboard = {
+                        navController.navigate(Route.Dashboard) {
+                            popUpTo(Route.AuthGraph) { inclusive = true }
+                        }
+                    }
+                )
+            }
             composable<Route.OnBoarding> {
                 OnBoardingScreen(
                     onNavigateToHome = {
@@ -55,13 +70,23 @@ fun UmmaNavHost(
                     onNavigateToChat = { navController.navigate(Route.Chat) },
                     onNavigateToAnalytics = { navController.navigate(Route.Analytics) },
                     onNavigateToStudyList = { navController.navigate(Route.StudyList) },
-                    onNavigateToFeedbackList = { navController.navigate(Route.FeedbackList) },
+                    onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
                     onNavigateToMyPage = { navController.navigate(Route.MyPage) }
                 )
 
             }
 
-            composable<Route.MyPage> { MyPageScreen() }
+            composable<Route.MyPage> {
+                MyPageScreen(
+                    onNavigateToOnBoarding = {
+                        navController.navigate(Route.OnBoarding) {
+                            // 로그아웃 후 BackStack 전체 초기화
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
         }
 
         // 통계 그래프
@@ -80,8 +105,8 @@ fun UmmaNavHost(
         }
 
         // 교정 그래프
-        navigation<Route.FeedbackGraph>(startDestination = Route.FeedbackList) {
-            composable<Route.FeedbackList> { FeedbackListScreen() }
+        navigation<Route.CorrectionGraph>(startDestination = Route.CorrectionList) {
+            composable<Route.CorrectionList> { CorrectionScreen() }
         }
     }
 }

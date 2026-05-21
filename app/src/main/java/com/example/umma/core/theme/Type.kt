@@ -63,6 +63,12 @@ val TextCorrectionSB = TextStyle(
     fontWeight = FontWeight.SemiBold
 )
 
+val TextCardR = TextStyle(
+    fontFamily = Pretendard,
+    fontSize = 10.sp,
+    fontWeight = FontWeight.SemiBold
+)
+
 val TitleCardR = TextStyle(
     fontFamily = Pretendard,
     fontSize = 24.sp,
@@ -90,12 +96,6 @@ val TextExplanationR = TextStyle(
 val TextAnalysisR = TextStyle(
     fontFamily = Pretendard,
     fontSize = 12.sp,
-    fontWeight = FontWeight.Normal
-)
-
-val TextCardR = TextStyle(
-    fontFamily = Pretendard,
-    fontSize = 10.sp,
     fontWeight = FontWeight.Normal
 )
 

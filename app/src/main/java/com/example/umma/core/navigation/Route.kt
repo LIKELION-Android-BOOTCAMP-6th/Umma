@@ -11,11 +11,14 @@ sealed interface Route {
 
     @Serializable data object StudyGraph: Route
 
-    @Serializable data object FeedbackGraph: Route
+    @Serializable data object CorrectionGraph: Route
 
     @Serializable data object ChatGraph: Route
 
     @Serializable data object AnalyticsGraph: Route
+    // 스플래시 (앱 진입)
+    @Serializable
+    data object AppEntry:Route
     // 1. 온보딩
     @Serializable
     data object OnBoarding : Route
@@ -38,7 +41,7 @@ sealed interface Route {
 
     // 7. 교정
     @Serializable
-    data object FeedbackList : Route
+    data object CorrectionList : Route
 
     // 8. 학습
     @Serializable

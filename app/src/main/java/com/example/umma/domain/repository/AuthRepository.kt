@@ -20,7 +20,23 @@ interface AuthRepository {
     suspend fun signInWithGoogle(idToken: String): Result<String>
 
     /**
+     * 동기, 즉시 조회
+     */
+    fun getCurrentUserUid(): String?
+
+    /**
+     * 동기, 즉시 조회
+     */
+    fun getCurrentUserEmail(): String?
+
+    /**
      * 로그아웃을 수행
      */
     suspend fun signOut(): Result<Unit>
+
+    /**
+     * Firebase 서버에 현재 세션 유효 재확인
+     * AUTH-002
+     */
+    suspend fun hasValidSession(): Result<Boolean>
 }

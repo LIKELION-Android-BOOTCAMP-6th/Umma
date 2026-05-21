@@ -12,10 +12,10 @@
 - [ ] SM-2 기반 4단계 평가 버튼이 제공된다.
 - [ ] 버튼 의미가 `Again / Hard / Good / Easy`로 고정된다.
 - [ ] 사용자는 한 번에 하나의 평가만 선택할 수 있다.
-- [ ] 평가 결과에 따라 `interval`, `ease_factor`, `next_review_at`이 갱신된다.
+- [ ] 평가 결과에 따라 `interval`, `easeFactor`, `nextReviewAt`이 갱신된다.
 - [ ] 현재 카드의 review 결과가 local first로 저장된다.
 - [ ] 평가 중 중복 입력이 방지된다.
-- [ ] 저장 실패 시 재시도 가능한 상태가 된다.
+- [ ] review 결과 저장 실패 시 재시도 가능한 상태가 된다.
 
 ---
 
@@ -55,12 +55,12 @@
 MVP에서는 SM-2를 기반으로 하되, Anki식 `Again / Hard / Good / Easy` 4단계 버튼으로 단순화한다.
 이 이슈는 별도의 스케줄 공식을 새로 만들지 않고 `SRI-003`의 `ReviewSchedulePolicy`를 적용한다.
 
-| 버튼 | 의미 | interval / ease_factor 갱신 | 다음 노출 |
+| 버튼 | 의미 | interval / easeFactor 갱신 | 다음 노출 |
 | --- | --- | --- | --- |
-| Again | 기억하지 못함 | interval = 0, ease_factor -0.20 | 당일 재노출 |
-| Hard | 힘겹게 기억함 | max(1일, 현재 interval x 1.2), ease_factor -0.15 | 짧은 간격 후 재노출 |
-| Good | 적절히 기억함 | max(1일, 현재 interval x ease_factor), ease_factor 유지 | 표준 간격 후 재노출 |
-| Easy | 쉽게 기억함 | max(4일, 현재 interval x ease_factor x 1.3), ease_factor +0.15 | 더 긴 간격 후 재노출 |
+| Again | 기억하지 못함 | interval = 0, easeFactor -0.20 | 당일 재노출 |
+| Hard | 힘겹게 기억함 | max(1일, 현재 interval x 1.2), easeFactor -0.15 | 짧은 간격 후 재노출 |
+| Good | 적절히 기억함 | max(1일, 현재 interval x easeFactor), easeFactor 유지 | 표준 간격 후 재노출 |
+| Easy | 쉽게 기억함 | max(4일, 현재 interval x easeFactor x 1.3), easeFactor +0.15 | 더 긴 간격 후 재노출 |
 
 ---
 
@@ -68,11 +68,11 @@ MVP에서는 SM-2를 기반으로 하되, Anki식 `Again / Hard / Good / Easy` 4
 
 - `ReviewDecision`은 현재 카드와 버튼 선택을 연결한다.
 - `ReviewSchedulePolicy`는 SM-2 기반으로 interval과 next review time을 계산한다.
-- `ease_factor`는 반복 성과에 맞게 갱신한다.
+- `easeFactor`는 반복 성과에 맞게 갱신한다.
 - 신규 카드처럼 현재 interval이 없거나 0인 경우에는 기본 interval을 `1일`로 보고 `Hard / Good / Easy` 계산을 시작한다.
 - `Again`은 당일 재노출을 위해 저장 후에도 due 상태로 남을 수 있다.
-- 계산 결과는 현재 카드의 local first 저장으로 이어진다.
-- local 저장과 sync pending 응답 계약은 `SRI-002`를 따르고, 스케줄 계산 정책은 `SRI-003`을 따른다.
+- 계산 결과는 현재 카드 review 결과의 local first 갱신으로 이어진다.
+- review 결과 local 갱신과 sync pending 응답 계약은 `SRI-002`를 따르고, 스케줄 계산 정책은 `SRI-003`을 따른다.
 - 저장 성공 이후 다음 카드 이동과 덱 완료 상태는 `SRS-006`에서 처리한다.
 
 ---

@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material)
+    implementation(libs.androidx.ui)
     implementation(libs.compose.icons.extended)
     implementation(libs.compose.icons)
 
