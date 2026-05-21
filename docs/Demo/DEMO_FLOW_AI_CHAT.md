@@ -1,115 +1,143 @@
 # Demo Scenario — FLOW-AI-CHAT
 
-> 2차 스프린트 종료 시점에 시연 가능해야 할 흐름의 TODO 시나리오.
-> 기본은 Real 바인딩 (Firebase Live API + 실제 마이크). 권한/네트워크 실패 분기는 Mock 또는 OS 토글로 시연.
+> 2차 스프린트 종료 시점에 시연 가능해야 할 흐름. 사용자 여정 관점으로 묶어 애자일 스프린트 작업 배정 단위로도 사용.
+> 이슈 단위(CHAT-001~008) AC 체크리스트는 `docs/User_FlowDB/FLOW_AI_CHAT/` 의 이슈 문서를 참조한다.
+>
+> 각 시나리오 = 한 명(또는 한 페어)이 스프린트 안에 완결할 수 있는 유저 가치 한 덩어리.
+> 시나리오는 의존성 순서로 배열되어 있어 위에서 아래로 차곡차곡 쌓아 올릴 수 있다.
 >
 > **사전 준비 사항 (스프린트 작업 항목)**
-> - Real 계정: AI Chat 카드까지 진입 가능한 시드 계정 (Initial Setup 완료 + `selectedLearningLanguage` 존재).
-> - Mock 토글: `ChatRepository` / `RealtimeRepository` fake 구현 — fixture가 partial/final transcript와 `AIEvent.StateChanged`를 시뮬레이션할 수 있어야 함. (현재 미존재 — DASH 스타일 `RepositoryModule` 토글 추가 필요)
-> - Mock fixture가 필요한 시나리오: 3·5·9·10. 그 외는 Real로 시연.
-> - 발표 후 Real 바인딩으로 원복.
+> - Real 계정: AI Chat 카드까지 진입 가능한 시드 계정 (Initial Setup 완료 + `selectedLearningLanguage` 존재)
+> - Mock 토글: `ChatRepository` / `RealtimeRepository` fake 구현 — fixture 가 partial / final transcript 와 `AIEvent.StateChanged` 를 시뮬레이션 (현재 미존재, DASH 스타일 `RepositoryModule` 토글 추가 필요)
+> - Mock fixture 가 필요한 분기: 시나리오 5(견고화) 의 모든 분기, 시나리오 1·3·4 의 실패 분기. happy path 는 Real 로 시연
+> - 발표 후 Real 바인딩으로 원복
 
 ---
 
-## 시나리오 1 — AI Chat 진입 (CHAT-001)
+## 시나리오 1 — 한 번 말하고 한 번 듣기 (단일 턴 MVP)
 
-1. Dashboard에서 "최근 AI 대화" 카드 클릭
-2. AI Chat 화면 진입 → Loading 노출 (세션 준비 / 앱 상태 복원 시도)
-3. `selectedLearningLanguage` + `LangState` snapshot 로드 완료 → Ready 상태
-4. 자막은 Off, 중앙 비주얼은 Idle, PTT 버튼은 마이크 권한 확인 대기 상태로 표시 (Success)
-5. 진입 직후 자동 녹음이 시작되지 않는 것 확인
+> **무엇을 하는가** — AI Chat 화면에 들어가서 마이크 버튼을 한 번 눌러 말하면, AI가 음성으로 한 번 답해준다.
+> **유저 가치** — "이 앱이랑 진짜 말이 된다"를 사용자가 처음 체감하는 가장 작은 단위. 이게 동작하지 않으면 뒤 시나리오는 의미가 없다.
 
----
+**포함 이슈**
+- `CHAT-001` — AI Chat 진입 + 초기 상태 구성 (selectedLearningLanguage / LangState 로드, 자막 Off 기본값)
+- `CHAT-002` — 마이크 권한 확인 + PTT 버튼 활성화
+- `CHAT-003` — Push-to-Talk 음성 입력 (press / release)
+- `CHAT-004` — 중앙 비주얼 피드백 (Idle / Recording / Speaking)
+- `CHAT-005` — AI 응답 음성 출력 (Thinking → Speaking → Ready)
 
-## 시나리오 2 — 마이크 권한 허용 (CHAT-002)
+**의존성**: 없음. FLOW-AI-CHAT에서 가장 먼저 만들 수 있는 단위.
+**예상 규모**: L — 마이크 캡처 / Firebase Live API 연결 / AI 응답 재생이 한 사이클로 돌아야 하므로 RT-001 · RT-002 인프라까지 함께 붙어야 한다.
 
-1. AI Chat 진입 → PTT 버튼 첫 탭
-2. OS 마이크 권한 다이얼로그 노출 (Loading)
-3. "허용" 선택 → PTT 버튼 활성화 (Success)
-4. 권한 상태 변경 후 화면 재진입 시 권한 재요청 없이 곧바로 활성화 확인
+**데모 흐름**
+1. Dashboard에서 AI 대화 카드 클릭 → AI Chat 화면 진입 (Loading)
+2. 진입 직후 자막 Off / 중앙 비주얼 Idle / PTT 버튼 대기 상태 확인
+3. PTT 버튼 첫 탭 → OS 마이크 권한 다이얼로그 → "허용" 선택
+4. PTT press → 중앙 비주얼이 Recording 으로 전환되고, 음성 입력 강도(0.0~1.0)가 비주얼에 반영됨
+5. PTT release → AI 응답 대기 (Thinking) → AI 음성 출력 (Speaking) → Idle 복귀
 
----
-
-## 시나리오 3 — PTT 음성 입력 + AI 응답 (CHAT-003 / CHAT-004 / CHAT-005)
-
-> Real Firebase Live API 기반. 음성/응답 흐름이 흔들리면 Mock fixture로 partial → final 이벤트 재현.
-
-1. PTT 버튼 press → 중앙 비주얼이 `Recording` 상태로 전환 (Recording)
-2. 발화하면서 입력 강도(0.0~1.0)가 비주얼에 반영되는지 확인
-3. PTT release → `Recording` 종료, AI 응답 대기 (`Thinking`)
-4. AI 음성 출력 시작 → 중앙 비주얼이 `Speaking` 상태로 전환 (Speaking)
-5. AI 음성 출력 종료 → `Ready` 복귀 (Success)
-6. 같은 흐름을 2~3 턴 반복하며 turn 중첩 없이 깔끔하게 처리되는지 확인
-7. 빠른 연속 press → 중복 녹음 시작되지 않음 (logcat에서 중복 차단 확인)
+**핵심 분기**
+- **성공**: 진입 → 권한 허용 → PTT → AI 응답 → Idle 의 한 사이클이 깨끗하게 닫힌다.
+- **권한 거부 (`CHAT-002` Error)**: PTT 버튼이 비활성화되고, 권한 안내 UI + 시스템 설정 진입 경로가 제공된다. 앱은 크래시하지 않는다.
+- **응답 실패 (`CHAT-005` Error)**: Error 상태 + Retry 버튼. 재시도 시 같은 turn 기준으로 다시 요청.
 
 ---
 
-## 시나리오 4 — 자막 On/Off (CHAT-006)
+## 시나리오 2 — 여러 턴 이어가며 자막 보기
 
-1. 시나리오 3 종료 직후 자막 토글 Off 상태 → 자막 영역 비어있음 확인
-2. 토글 On → 마지막 확정 턴 (user 또는 assistant) 1개만 표시 (Success)
-3. 한 턴 더 진행 후 자막이 새로운 마지막 턴으로 교체되는지 확인 (과거 턴 누적되지 않음)
-4. 토글 Off → 자막 숨김, 다시 On → 직전 마지막 자막 복원
+> **무엇을 하는가** — 한 세션 안에서 사용자가 여러 턴 대화를 이어가고, 필요할 때 자막을 켜서 마지막 확정 턴 한 줄을 본다.
+> **유저 가치** — 1회성 데모를 넘어 "실제 대화가 흘러간다"는 체감을 만든다. 자막은 보조 도구이지 누적 로그가 아니다.
 
----
+**포함 이슈**
+- `CHAT-005` — AI 응답 출력 반복 (turn 누적)
+- `CHAT-006` — 자막 토글 + 마지막 확정 턴만 표시 (partial transcript 누적 금지)
 
-## 시나리오 5 — 확정 turn 저장 (CHAT-007)
+**의존성**: 시나리오 1
+**예상 규모**: S~M — 단일 턴 사이클이 안정적이라면 자막 표시 정책과 토글 UI 추가 정도.
 
-> Mock 토글 필요: `AppendTurnUseCase` 호출 여부를 logcat로 노출하거나, fake repo에서 `recentFullContext` snapshot을 화면 디버그 영역에 띄울 수 있어야 시연 가능.
+**데모 흐름**
+1. 시나리오 1 종료 후 자막이 Off 인 기본 상태 확인
+2. PTT 로 추가 2~3 턴 대화. 매 턴마다 Recording → Speaking → Idle 사이클이 흔들림 없이 동작
+3. 자막 토글 On → 마지막 확정 턴(user 또는 assistant) 한 줄만 표시
+4. 다음 턴 진행 → 자막이 새 마지막 턴으로 교체 (직전 턴은 사라짐, 누적되지 않음)
+5. 자막 Off → 자막 영역 숨김. 다시 On → 직전 마지막 자막 복원
 
-1. PTT 입력으로 user turn 한 번 종료 → partial transcript는 저장되지 않고 final user turn만 append (logcat `append user`)
-2. AI 응답 final transcript 도착 → assistant turn append (logcat `append assistant`)
-3. 같은 세션 내 partial 이벤트가 turn 저장으로 흘러가지 않는 것 확인
-4. 시나리오 종료 후 Correction 카드에서 `recentFullContext` 참조 가능한 상태인지 한 번 더 확인
-
----
-
-## 시나리오 6 — 종료 및 재진입 복구 (CHAT-008)
-
-1. AI Chat 화면에서 뒤로가기 → 녹음/AI 재생 즉시 중지 (logcat `cleanup`)
-2. Dashboard로 복귀 후 다시 AI Chat 카드 클릭
-3. 같은 선택 언어 기준으로 앱 상태 복원 시도 → 성공 시 직전 자막/turn 컨텍스트 유지 (Success)
-4. 복원 실패 시뮬레이션 (네트워크 끊고 진입) → 새 LiveSession으로 자연스럽게 전환 (Fallback)
+**핵심 분기**
+- **성공**: 자막은 항상 직전 확정 턴 1개만 노출. partial transcript 가 화면에 누적되지 않는다.
+- **자막 지연 (`CHAT-006` Edge)**: final transcript 가 늦게 와도 화면이 깜빡이지 않고, 도착 전까지 이전 마지막 자막을 유지한다.
+- **빠른 토글 반복 (`CHAT-006` Edge)**: 토글을 빠르게 켰다/껐다 해도 화면이 흔들리거나 재구성되지 않는다.
 
 ---
 
-## 시나리오 7 — 마이크 권한 거부 (CHAT-002 Error)
+## 시나리오 3 — 대화 내용이 다음 학습으로 이어지도록 저장
 
-1. AI Chat 진입 → PTT 버튼 첫 탭
-2. OS 권한 다이얼로그에서 "거부" 선택
-3. PTT 버튼 비활성화 + 권한 안내 UI 노출 (PermissionRequired)
-4. 안내에서 재요청 경로 클릭 → 권한 팝업 또는 시스템 설정으로 이동 가능 확인
-5. 권한 거부 상태에서도 앱이 크래시하지 않고 화면 자체는 유지됨
+> **무엇을 하는가** — 확정된 user / assistant turn 을 Session Memory 에 저장해서, AI Chat 을 떠난 뒤에도 Correction 흐름에서 같은 대화 맥락을 다시 쓸 수 있게 한다.
+> **유저 가치** — AI Chat → Correction 으로 이어지는 핵심 다리. 이게 없으면 교정 입력 자체가 없다.
 
----
+**포함 이슈**
+- `CHAT-007` — 확정 turn 저장 연동 (final user / final assistant turn 만 저장, partial transcript 필터링)
 
-## 시나리오 8 — selectedLearningLanguage 없음 (CHAT-001 Edge)
+**의존성**: 시나리오 2. 동시에 RT-003 (Session Memory append) 과 SYS-LEARNING-STATE-INFRA 의 계약이 준비되어 있어야 함.
+**예상 규모**: M — UI 작업보다 인프라 계약과의 정확한 연결이 핵심.
 
-> Mock 토글 필요: `FakeFixtures.noSelectedLang` (DASH와 동일한 명명 규칙으로 추가)
+**데모 흐름**
+1. 시나리오 2 흐름으로 user / assistant 확정 턴 2~3개 누적
+2. logcat 또는 디버그 영역에서 턴이 끝날 때마다 `append user` / `append assistant` 로그가 1회씩 찍히는지 확인
+3. partial transcript 이벤트는 저장 호출 흐름에 흘러들지 않는 것 확인
+4. AI Chat 종료 후 Correction 진입 시 동일 turn 맥락이 후보 추출 입력으로 보이는지 후속 시나리오에서 확인
 
-1. Dashboard에서 AI Chat 진입 시도
-2. 선택 언어 없음 → Error 또는 안내 상태 표시 (Error)
-3. 재시도 액션 노출 + Dashboard 복귀 경로 확인
-
----
-
-## 시나리오 9 — AI 응답 실패 (CHAT-005 Error)
-
-> Mock 토글 필요: fake realtime repo에서 `AIEvent.Error` 또는 timeout 강제 발화.
-
-1. PTT 입력 → user turn 종료
-2. AI 응답 대기 중 네트워크 끊김 또는 강제 실패 이벤트
-3. `Error` 상태 표시 + 재시도 액션 노출 (Error + Retry)
-4. 재시도 클릭 → 같은 turn 기준으로 응답 재요청, 정상 응답으로 복구
+**핵심 분기**
+- **성공**: final user / final assistant turn 만 정확히 저장되고, Correction 의 `recentFullContext` 가 채워진다.
+- **저장 실패 (`CHAT-007` PendingSync)**: 화면은 크래시 없이 정상 동작하고, 해당 turn 은 local pending 상태로 남는다.
+- **같은 turn 중복 도착 (`CHAT-007` Edge)**: assistant final turn 이 중복으로 와도 두 번 저장되지 않는다.
 
 ---
 
-## 시나리오 10 — turn 저장 실패 (CHAT-007 Pending)
+## 시나리오 4 — 잠시 끊고 돌아와도 이어 쓰기
 
-> Mock 토글 필요: `AppendTurnUseCase` 실패 모드.
+> **무엇을 하는가** — 사용자가 AI Chat 을 떠났다가 다시 들어오거나, 백그라운드에 갔다가 돌아왔을 때 안전하게 정리되고 자연스럽게 재개된다.
+> **유저 가치** — 일상에서는 알람·전화·다른 앱으로 화면을 떠나는 일이 흔하다. 이걸 못 견디면 실제 사용에서 신뢰가 깨진다.
 
-1. PTT 입력 + AI 응답 정상 진행
-2. final assistant turn 도착 시점에 저장 실패 발생
-3. 화면은 크래시 없이 유지되고 turn은 local pending 상태로 남음 (logcat `pending`)
-4. 자막과 중앙 비주얼은 정상 동작 유지
-5. 화면 재진입 시 pending turn 재시도 또는 유지 확인 (CHAT-008과 연결)
+**포함 이슈**
+- `CHAT-008` — 종료 시 녹음/재생 정리, 재진입 시 앱 상태 복원 또는 새 LiveSession 전환, 저장 중 상태 보호
+
+**의존성**: 시나리오 3 (저장 흐름이 있어야 "저장 중 이탈" 보호가 의미를 가짐)
+**예상 규모**: M — 종료 cleanup 과 복원 로직, 새 LiveSession 전환을 분리해서 다뤄야 한다.
+
+**데모 흐름**
+1. 시나리오 2~3 흐름을 진행 중 뒤로가기로 화면 이탈 → 녹음과 AI 음성 재생이 즉시 중지되는지 확인 (`cleanup` 로그)
+2. Dashboard 경유 후 다시 AI Chat 진입
+3. 같은 선택 언어 기준으로 앱 상태 복원 시도 → 직전 자막 / turn 컨텍스트가 자연스럽게 이어지는지 확인 (Success)
+4. 네트워크 변동 등으로 복원이 어려운 상황 시뮬레이션 → 새 LiveSession 으로 자연스럽게 전환 (Fallback)
+5. 진행 중이던 final turn 저장 요청이 누락되거나 화면을 깨뜨리지 않는지 확인
+
+**핵심 분기**
+- **성공**: 복원 OK 또는 새 세션 OK — 사용자 입장에선 어느 쪽이든 자연스러운 재개로 보인다.
+- **복구 실패 반복 (`CHAT-008` Edge)**: 재연결 실패가 반복되더라도 앱이 멈추지 않고 안전한 fallback 안내가 유지된다.
+- **저장 중 이탈 (`CHAT-007` × `CHAT-008`)**: 저장이 끝나거나 pending 으로 보호된 뒤에야 화면이 정리된다.
+
+---
+
+## 시나리오 5 — 외부 조건이 망가져도 앱이 안 깨짐 (견고화 패스)
+
+> **무엇을 하는가** — 권한 영구 거부 / 네트워크 끊김 / 언어 컨텍스트 누락 / 응답 실패 / 저장 실패 같은 외부 문제 상황 전반을 견고하게 처리한다.
+> **유저 가치** — happy path 만 있는 데모를 넘어 "실패해도 안 깨지는 앱" 이라는 기본 신뢰를 만든다. 분기별로 작게 나눠 분산 작업 가능.
+
+**포함 이슈**
+- `CHAT-001` Error — selectedLearningLanguage 가 없을 때 안전한 Error 화면
+- `CHAT-002` Error — 마이크 권한 영구 거부 시 안내 + 시스템 설정 진입 경로
+- `CHAT-005` Error / Retry — AI 응답 실패 시 Error 상태와 같은 turn 기준 재시도
+- `CHAT-007` PendingSync — 저장 실패 시 local pending 보호와 화면 크래시 방지
+
+**의존성**: 시나리오 1~4 의 happy path 가 먼저 깔려 있어야 의미를 가진다.
+**예상 규모**: S~M — 이슈별로 분산해서 작업 가능. 페어 한 명이 한두 분기를 잡는 식으로 쪼개기 좋다.
+
+**데모 흐름**
+1. selectedLearningLanguage 가 없는 상태로 진입 → Error 안내 + Dashboard 복귀 경로 표시
+2. 마이크 권한이 영구 거부된 상태에서 PTT 시도 → 권한 안내 UI + 시스템 설정 진입 경로 노출
+3. AI 응답 진행 도중 네트워크를 끊음 → Error 상태 + 재시도 액션, 재시도 성공 시 정상 복구
+4. final turn 저장이 실패하는 상태로 진입 → 화면은 정상 동작하고, turn 은 local pending 으로 남음
+
+**핵심 분기**
+- **1차 합격선**: 모든 외부 실패가 앱 크래시로 이어지지 않는다.
+- **2차 합격선**: 각 실패 상황에서 사용자가 다음에 무엇을 할 수 있는지(Retry / 설정 이동 / 새 세션 / 닫기)가 화면에서 명확히 보인다.
