@@ -2,10 +2,13 @@ package com.example.umma.data.repository.fake
 
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.FlashcardSummary
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.example.umma.domain.model.learningstate.GlobalLangState
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
+import com.example.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
 import com.example.umma.domain.repository.LearningStateRepo
@@ -138,8 +141,55 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
         return Result.success(Unit)
     }
 
-    override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<Unit> =
-        Result.success(Unit)
+    override suspend fun updateLanguageState(
+        input: LangStateUpdateInput
+    ): Result<LearningStateUpdateResult> {
+        val preparedState = input.preparedState ?: input.currentState
+        _state.value = _state.value.copy(
+            langStates = _state.value.langStates + (input.lang to preparedState)
+        )
+        return Result.success(
+            LearningStateUpdateResult(
+                lang = input.lang,
+                savedState = preparedState,
+                sourceEventId = input.analysisEventId ?: "${input.lang.code}:${input.analyzedAt}",
+                applied = true,
+                updatedAt = input.analyzedAt
+            )
+        )
+    }
+
+    override suspend fun updateFlashcardSummary(
+        input: FlashcardSummaryUpdateInput
+    ): Result<FlashcardSummaryUpdateResult> {
+        val current = _state.value
+        val previousFlashcard = current.flashcardSummaries[input.lang] ?: FlashcardSummary.initial(input.lang)
+        val previousDash = current.dashSummaries[input.lang] ?: DashSummary.initial(input.lang)
+        val nextFlashcard = previousFlashcard.copy(
+            dueFlashcards = input.dueFlashcards,
+            savedFlashcards = input.savedFlashcards,
+            updatedAt = input.updatedAt
+        )
+        val nextDash = previousDash.copy(
+            dueFlashcards = input.dueFlashcards,
+            savedFlashcards = input.savedFlashcards,
+            updatedAt = input.updatedAt
+        )
+        _state.value = current.copy(
+            flashcardSummaries = current.flashcardSummaries + (input.lang to nextFlashcard),
+            dashSummaries = current.dashSummaries + (input.lang to nextDash)
+        )
+        return Result.success(
+            FlashcardSummaryUpdateResult(
+                lang = input.lang,
+                flashcardSummary = nextFlashcard,
+                dashSummary = nextDash,
+                applied = true,
+                sourceEventId = input.sourceEventId,
+                updatedAt = input.updatedAt
+            )
+        )
+    }
 
     override suspend fun createInitial(
         userUid: String,

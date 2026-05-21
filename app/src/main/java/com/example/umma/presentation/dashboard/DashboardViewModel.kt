@@ -73,6 +73,9 @@ class DashboardViewModel @Inject constructor(
     // active 면 새 sync 호출 skip — AC 11 dedup 의 근거.
     private var fetchJob: Job? = null
 
+    // sync 중 새 local-first 변경이 들어오면 현재 sync 종료 후 한 번 더 실행하기 위한 예약 플래그.
+    private var pendingSyncAfterCurrent: Boolean = false
+
     /**
      * 화면 진입 시 호출. (DASH-001)
      *
@@ -221,27 +224,38 @@ class DashboardViewModel @Inject constructor(
     // DASH-001: Firebase background sync.
     private fun triggerSync() {
         if (fetchJob?.isActive == true) {
+            pendingSyncAfterCurrent = true
             Log.d(TAG, "triggerSync() skipped — AC 11 dedup, in-flight job exists")
             return
         }
         fetchJob = viewModelScope.launch {
-            Log.d(TAG, "triggerSync() — Firebase background sync start")
-            // 재진입 시 이전 에러 클리어. 새 시도니까.
-            _uiState.update { it.copy(errorMessage = null) }
+            try {
+                Log.d(TAG, "triggerSync() — Firebase background sync start")
+                // 재진입 시 이전 에러 클리어. 새 시도니까.
+                _uiState.update { it.copy(errorMessage = null) }
 
-            syncLearningState()
-                .onSuccess {
-                    Log.d(TAG, "sync success — observe collect 가 새 emit 처리")
-                    // _state 갱신은 repo 가 하고, observe collect 가 받아서 UI 반영.
-                    // 여기선 별도 작업 없음.
-                }
-                .onFailure { e ->
-                    // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
-                    Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
-                    _uiState.update {
-                        it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
+                syncLearningState()
+                    .onSuccess {
+                        Log.d(TAG, "sync success — observe collect 가 새 emit 처리")
+                        // _state 갱신은 repo 가 하고, observe collect 가 받아서 UI 반영.
+                        // 여기선 별도 작업 없음.
                     }
+                    .onFailure { e ->
+                        // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
+                        Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
+                        _uiState.update {
+                            it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
+                        }
+                    }
+            } finally {
+                val shouldRunQueuedSync = pendingSyncAfterCurrent
+                pendingSyncAfterCurrent = false
+                fetchJob = null
+                if (shouldRunQueuedSync) {
+                    // 진행 중이던 fetch가 local 변경보다 먼저 시작됐을 수 있으므로 한 번 더 수렴시킨다.
+                    triggerSync()
                 }
+            }
         }
     }
 
@@ -317,13 +331,9 @@ class DashboardViewModel @Inject constructor(
             changeSelectedLang(lang)
                 .onSuccess {
                     Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리")
-                    // DASH-006 race 회피: 여기서 triggerSync() 를 호출하면 Repo.sync() 가
-                    //   Firebase 에서 fetch 한 이전 selectedLang 값으로 _state 를 통째로
-                    //   덮어써(LearningStateRepoImpl.sync L367-368) 방금 한 local 변경이
-                    //   즉시 원래대로 복구되는 버그가 발생한다 (사용자 입장: "안 바뀜").
-                    //   sync 는 onEnter() 진입 시 이미 한 번 트리거되므로 여기서 다시 부르지
-                    //   않아도 다음 진입 / 재진입 때 자연 수렴. selectedLang 의 즉시 반영은
-                    //   observe collect 의 새 emit 으로 이미 완료된 상태.
+                    // Repo.sync() 가 pending write를 먼저 처리하므로 언어 변경 직후에도 안전하게 원격 반영을 예약할 수 있다.
+                    // 이미 sync 중이면 triggerSync() 가 pendingSyncAfterCurrent 로 한 번 더 실행을 예약한다.
+                    triggerSync()
                 }
                 .onFailure { e ->
                     Log.w(TAG, "changeSelectedLang failed — AC 8 auto-rollback via observe", e)

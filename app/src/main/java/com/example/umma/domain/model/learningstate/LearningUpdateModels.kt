@@ -90,3 +90,61 @@ data class LangStateUpdateInput(
     // 강제로 재분석해야 하는지 여부.
     val forceReanalysis: Boolean = false
 )
+
+/**
+ * Language State 저장이 끝난 뒤 후속 Flow가 참조할 수 있는 완료 결과.
+ *
+ * StatisticsHistory 기록처럼 "저장된 LangState의 최종 값"이 필요한 흐름은
+ * Repository 내부 상태를 다시 파고들지 않고 이 결과만 이어받는다.
+ */
+data class LearningStateUpdateResult(
+    // 업데이트 대상 언어.
+    val lang: LangCode,
+    // 저장 또는 중복 처리 후 최종 기준이 되는 Language State.
+    val savedState: LangState,
+    // StatisticsHistory 중복 방지에 사용할 source event.
+    val sourceEventId: String,
+    // 실제로 새 값이 반영됐는지, 중복 이벤트라 skip 됐는지 구분한다.
+    val applied: Boolean,
+    // 결과가 확정된 시각.
+    val updatedAt: Long
+)
+
+/**
+ * SRS 복습 완료 후 Summary만 갱신할 때 사용하는 입력.
+ *
+ * Due 카드 수 계산은 Flashcard/SRS 책임이고, LearningState는 계산된 숫자를
+ * 전역 요약 스냅샷에 local-first로 반영하는 경계만 담당한다.
+ */
+data class FlashcardSummaryUpdateInput(
+    // 사용자 식별자. 현재 DataStore 구현은 uid별 파일 분리를 하지 않지만 원격 sync 계약을 위해 보존한다.
+    val uid: String,
+    // 갱신 대상 학습 언어.
+    val lang: LangCode,
+    // SRS가 계산한 오늘 복습 대상 카드 수.
+    val dueFlashcards: Int,
+    // 저장된 전체 카드 수.
+    val savedFlashcards: Int,
+    // 갱신 이벤트 식별자. 같은 이벤트가 반복 반영되는 것을 막는 데 사용한다.
+    val sourceEventId: String?,
+    // 갱신 시각.
+    val updatedAt: Long
+)
+
+/**
+ * FlashcardSummary와 DashSummary가 함께 갱신된 결과.
+ */
+data class FlashcardSummaryUpdateResult(
+    // 갱신 대상 언어.
+    val lang: LangCode,
+    // SRS 카드가 직접 참조하는 요약.
+    val flashcardSummary: FlashcardSummary,
+    // Dashboard 카드가 빠르게 읽는 요약.
+    val dashSummary: DashSummary,
+    // 실제 반영 여부.
+    val applied: Boolean,
+    // 중복 방지용 이벤트 식별자.
+    val sourceEventId: String?,
+    // 갱신 시각.
+    val updatedAt: Long
+)

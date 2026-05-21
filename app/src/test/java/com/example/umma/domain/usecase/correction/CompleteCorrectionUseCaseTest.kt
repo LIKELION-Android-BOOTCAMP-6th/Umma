@@ -8,6 +8,9 @@ import com.example.umma.domain.model.learningstate.ConversationTurn
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
+import com.example.umma.domain.model.learningstate.LearningStateUpdateResult
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.realtime.AppendTurnCommand
 import com.example.umma.domain.model.realtime.CompressSessionMemoryCommand
@@ -281,14 +284,53 @@ class CompleteCorrectionUseCaseTest {
 
         override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> = Result.success(Unit)
 
-        override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<Unit> {
+        override suspend fun updateLanguageState(
+            input: LangStateUpdateInput
+        ): Result<LearningStateUpdateResult> {
             events += "update"
             // state update 실패를 주입해 CompleteCorrectionUseCase 의 rollback 경로를 확인한다.
             if (failUpdate) {
                 return Result.failure(IllegalStateException("update failed"))
             }
             lastUpdateInput = input
-            return Result.success(Unit)
+            val savedState = input.preparedState ?: input.currentState
+            return Result.success(
+                LearningStateUpdateResult(
+                    lang = input.lang,
+                    savedState = savedState,
+                    sourceEventId = input.analysisEventId ?: "${input.lang.code}:${input.analyzedAt}",
+                    applied = true,
+                    updatedAt = input.analyzedAt
+                )
+            )
+        }
+
+        override suspend fun updateFlashcardSummary(
+            input: FlashcardSummaryUpdateInput
+        ): Result<FlashcardSummaryUpdateResult> {
+            val flashcardSummary =
+                com.example.umma.domain.model.learningstate.FlashcardSummary(
+                    lang = input.lang,
+                    dueFlashcards = input.dueFlashcards,
+                    savedFlashcards = input.savedFlashcards,
+                    updatedAt = input.updatedAt
+                )
+            val dashSummary = com.example.umma.domain.model.learningstate.DashSummary.initial(input.lang)
+                .copy(
+                    dueFlashcards = input.dueFlashcards,
+                    savedFlashcards = input.savedFlashcards,
+                    updatedAt = input.updatedAt
+                )
+            return Result.success(
+                FlashcardSummaryUpdateResult(
+                    lang = input.lang,
+                    flashcardSummary = flashcardSummary,
+                    dashSummary = dashSummary,
+                    applied = true,
+                    sourceEventId = input.sourceEventId,
+                    updatedAt = input.updatedAt
+                )
+            )
         }
 
         override suspend fun createInitial(

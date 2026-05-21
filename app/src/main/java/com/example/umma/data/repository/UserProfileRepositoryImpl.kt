@@ -49,7 +49,7 @@ class UserProfileRepositoryImpl @Inject constructor(
         batch.set(prefRef, langPref.toDto())
 
         // 언어 상태 저장
-        val stateRef = userRef.collection("learning_states").document(initialLangState.lang.code)
+        val stateRef = userRef.collection("language_states").document(initialLangState.lang.code)
         batch.set(stateRef, initialLangState.toDto())
 
         // 대시보드 요약 저장
