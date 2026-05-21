@@ -1,3 +1,10 @@
+---
+name: "🛠 Task Template"
+about: "새로운 작업(Task)을 등록할 때 사용합니다."
+title: "[ID-000] 작업 제목"
+labels: "task"
+assignees: ""
+---
 
 ## 1. 적용 AC
 <!-- 설계서(.md)의 AC 중 이번 작업 범위에 해당하는 내용을 복사해서 붙여넣으세요. -->
