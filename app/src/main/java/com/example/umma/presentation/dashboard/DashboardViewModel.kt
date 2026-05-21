@@ -13,6 +13,7 @@ import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.SyncLearningStateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +73,9 @@ class DashboardViewModel @Inject constructor(
     // active 면 새 sync 호출 skip — AC 11 dedup 의 근거.
     private var fetchJob: Job? = null
 
+    // sync 중 새 local-first 변경이 들어오면 현재 sync 종료 후 한 번 더 실행하기 위한 예약 플래그.
+    private var pendingSyncAfterCurrent: Boolean = false
+
     /**
      * 화면 진입 시 호출. (DASH-001)
      *
@@ -98,6 +102,11 @@ class DashboardViewModel @Inject constructor(
         }
         enterJob = viewModelScope.launch {
             Log.d(TAG, "ensureObservation() — DASH-001 preload start")
+            // DASH-001: 의도된 skeleton 최소 표시 지연 (SKELETON_MIN_DISPLAY_MS).
+            //   cache hit 시 skeleton 이 1 프레임만 깜빡이고 사라지는 문제 방지용.
+            //   첫 emit 직전에 한 번만 잔여 시간 delay. 조정 시 SKELETON_MIN_DISPLAY_MS 만 변경.
+            val startedAtMs = System.currentTimeMillis()
+            var skeletonGateApplied = false
             _uiState.update {
                 it.copy(
                     isLoading = true,
@@ -129,6 +138,11 @@ class DashboardViewModel @Inject constructor(
                 // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
                 if (userPref != null && learningLangs.isEmpty()) {
                     Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
+                    if (!skeletonGateApplied) {
+                        skeletonGateApplied = true
+                        val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                        if (remaining > 0) delay(remaining)
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -168,6 +182,19 @@ class DashboardViewModel @Inject constructor(
                 // "보여줄 게 없는" 상태 — Empty 분기 판정용.
                 val empty = summary == null || summary.isEffectivelyEmpty
 
+                // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false.
+                //   selector 다이얼로그의 "이전에 학습 중이던 언어" 체크 아이콘 기준으로 쓰인다.
+                //   userPref.learningLangs 는 selector 단순 선택만으로도 자동 확장되지만,
+                //   여기는 실제 대화/카드/통계 데이터가 쌓인 언어만 포함 → 시각적 구분.
+                val activeLangs = global.dashSummaries
+                    .filterValues { !it.isEffectivelyEmpty }
+                    .keys
+
+                if (!skeletonGateApplied) {
+                    skeletonGateApplied = true
+                    val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                    if (remaining > 0) delay(remaining)
+                }
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -175,6 +202,7 @@ class DashboardViewModel @Inject constructor(
                         summary = summary,
                         isEmpty = empty,
                         learningLanguages = learningLangs,
+                        activeLearningLanguages = activeLangs,
                         hasFatalError = false
                     )
                 }
@@ -196,27 +224,38 @@ class DashboardViewModel @Inject constructor(
     // DASH-001: Firebase background sync.
     private fun triggerSync() {
         if (fetchJob?.isActive == true) {
+            pendingSyncAfterCurrent = true
             Log.d(TAG, "triggerSync() skipped — AC 11 dedup, in-flight job exists")
             return
         }
         fetchJob = viewModelScope.launch {
-            Log.d(TAG, "triggerSync() — Firebase background sync start")
-            // 재진입 시 이전 에러 클리어. 새 시도니까.
-            _uiState.update { it.copy(errorMessage = null) }
+            try {
+                Log.d(TAG, "triggerSync() — Firebase background sync start")
+                // 재진입 시 이전 에러 클리어. 새 시도니까.
+                _uiState.update { it.copy(errorMessage = null) }
 
-            syncLearningState()
-                .onSuccess {
-                    Log.d(TAG, "sync success — observe collect 가 새 emit 처리")
-                    // _state 갱신은 repo 가 하고, observe collect 가 받아서 UI 반영.
-                    // 여기선 별도 작업 없음.
-                }
-                .onFailure { e ->
-                    // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
-                    Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
-                    _uiState.update {
-                        it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
+                syncLearningState()
+                    .onSuccess {
+                        Log.d(TAG, "sync success — observe collect 가 새 emit 처리")
+                        // _state 갱신은 repo 가 하고, observe collect 가 받아서 UI 반영.
+                        // 여기선 별도 작업 없음.
                     }
+                    .onFailure { e ->
+                        // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
+                        Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
+                        _uiState.update {
+                            it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
+                        }
+                    }
+            } finally {
+                val shouldRunQueuedSync = pendingSyncAfterCurrent
+                pendingSyncAfterCurrent = false
+                fetchJob = null
+                if (shouldRunQueuedSync) {
+                    // 진행 중이던 fetch가 local 변경보다 먼저 시작됐을 수 있으므로 한 번 더 수렴시킨다.
+                    triggerSync()
                 }
+            }
         }
     }
 
@@ -291,10 +330,10 @@ class DashboardViewModel @Inject constructor(
 
             changeSelectedLang(lang)
                 .onSuccess {
-                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리, sync 트리거")
+                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리")
+                    // Repo.sync() 가 pending write를 먼저 처리하므로 언어 변경 직후에도 안전하게 원격 반영을 예약할 수 있다.
+                    // 이미 sync 중이면 triggerSync() 가 pendingSyncAfterCurrent 로 한 번 더 실행을 예약한다.
                     triggerSync()
-                    fetchJob?.join()
-                    Log.d(TAG, "onChangeLearningLanguage complete — sync joined")
                 }
                 .onFailure { e ->
                     Log.w(TAG, "changeSelectedLang failed — AC 8 auto-rollback via observe", e)
@@ -309,5 +348,15 @@ class DashboardViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "DashboardViewModel"
+
+        /**
+         * DASH-001: skeleton 최소 표시 시간(ms).
+         *
+         * Local Cache hit 시 observeLearningState() 첫 emit 이 거의 즉시 도착해
+         * skeleton 이 한 프레임만 깜빡이는 문제를 막기 위한 의도된 지연.
+         * 이 값만 조정하면 전체 skeleton 노출 시간이 바뀐다 — 검색 키워드:
+         * "의도된 skeleton 최소 표시 지연".
+         */
+        const val SKELETON_MIN_DISPLAY_MS = 600L
     }
 }

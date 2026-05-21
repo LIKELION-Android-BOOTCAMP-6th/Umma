@@ -3,9 +3,12 @@ package com.example.umma.domain.repository
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.FlashcardSummary
 import com.example.umma.domain.model.learningstate.GlobalLangState
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
+import com.example.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
 import kotlinx.coroutines.flow.Flow
@@ -40,8 +43,13 @@ interface LearningStateRepo {
     // 현재 선택 언어를 바꾼다.
     suspend fun changeSelectedLang(lang: LangCode): Result<Unit>
 
-    // UseCase가 계산한 preparedState를 저장한다.
-    suspend fun updateLanguageState(input: LangStateUpdateInput): Result<Unit>
+    // UseCase가 계산한 preparedState를 저장하고, 후속 기록 흐름이 사용할 완료 결과를 돌려준다.
+    suspend fun updateLanguageState(input: LangStateUpdateInput): Result<LearningStateUpdateResult>
+
+    // SRS가 계산한 복습 요약 수치를 전역 Summary에 반영한다.
+    suspend fun updateFlashcardSummary(
+        input: FlashcardSummaryUpdateInput
+    ): Result<FlashcardSummaryUpdateResult>
 
     // 신규 사용자 첫 상태를 만든다.
     suspend fun createInitial(

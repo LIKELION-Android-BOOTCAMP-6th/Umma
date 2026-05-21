@@ -19,6 +19,7 @@ import com.example.umma.domain.repository.ChatRepository
 import com.example.umma.domain.repository.LearningStateRepo
 import com.example.umma.data.repository.SessionMemoryRepositoryImpl
 import com.example.umma.data.repository.FlashcardRepositoryImpl
+import com.example.umma.data.repository.fake.FakeLearningStateRepo
 import com.example.umma.domain.repository.SessionMemoryRepository
 import com.example.umma.domain.repository.FlashcardRepository
 import com.example.umma.domain.repository.UserProfileRepository

@@ -2,10 +2,13 @@ package com.example.umma.data.repository.fake
 
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.FlashcardSummary
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.example.umma.domain.model.learningstate.GlobalLangState
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
+import com.example.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
 import com.example.umma.domain.repository.LearningStateRepo
@@ -46,9 +49,7 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 //    private val _state = MutableStateFlow(FakeFixtures.emptyDataStore)
 //    private val _state = MutableStateFlow(FakeFixtures.onboardingDone)
     private val _state = MutableStateFlow(FakeFixtures.activeUser)
-    // DASH-006 AC 9 검증
 //    private val _state = MutableStateFlow(FakeFixtures.corruptedSelectedLang)
-    // DASH-006 AC 10 검증
 //    private val _state = MutableStateFlow(FakeFixtures.emptyLearningLangs)
 
     /**
@@ -66,6 +67,7 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
      *  - SUCCESS_NOOP: 성공 반환만 하고 _state 미변경 (sync 호출은 됐지만 데이터 변동 없는 케이스)
      */
     private val syncBehavior: SyncBehavior = SyncBehavior.SUCCESS
+//    private val syncBehavior: SyncBehavior = SyncBehavior.FAILURE
 
     /**
      * changeSelectedLang() 가 어떻게 끝나는지. (DASH-006 AC 8 검증용)
@@ -77,6 +79,7 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
      * (AC 8: 언어 변경 실패 시 이전 selectedLearningLanguage가 유지된다.)
      */
     private val changeBehavior: ChangeBehavior = ChangeBehavior.SUCCESS
+//    private val changeBehavior: ChangeBehavior = ChangeBehavior.FAILURE
 
     override fun observeLearningState(): Flow<GlobalLangState> = _state.asStateFlow()
     override fun observeUserPref() = _state.map { it.userPref }
@@ -120,6 +123,7 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
     override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> {
         // DASH-006 AC 8 검증용: FAILURE 모드면 _state 안 건드리고 실패 반환.
         // (AC 8: 언어 변경 실패 시 이전 selectedLearningLanguage가 유지된다.)
+        delay(CHANGE_DELAY_MS)// DASHBOARD SPRINT TEST 용
         if (changeBehavior == ChangeBehavior.FAILURE) {
             return Result.failure(
                 IOException("simulated changeSelectedLang failure (FakeLearningStateRepo)")
@@ -137,8 +141,55 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
         return Result.success(Unit)
     }
 
-    override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<Unit> =
-        Result.success(Unit)
+    override suspend fun updateLanguageState(
+        input: LangStateUpdateInput
+    ): Result<LearningStateUpdateResult> {
+        val preparedState = input.preparedState ?: input.currentState
+        _state.value = _state.value.copy(
+            langStates = _state.value.langStates + (input.lang to preparedState)
+        )
+        return Result.success(
+            LearningStateUpdateResult(
+                lang = input.lang,
+                savedState = preparedState,
+                sourceEventId = input.analysisEventId ?: "${input.lang.code}:${input.analyzedAt}",
+                applied = true,
+                updatedAt = input.analyzedAt
+            )
+        )
+    }
+
+    override suspend fun updateFlashcardSummary(
+        input: FlashcardSummaryUpdateInput
+    ): Result<FlashcardSummaryUpdateResult> {
+        val current = _state.value
+        val previousFlashcard = current.flashcardSummaries[input.lang] ?: FlashcardSummary.initial(input.lang)
+        val previousDash = current.dashSummaries[input.lang] ?: DashSummary.initial(input.lang)
+        val nextFlashcard = previousFlashcard.copy(
+            dueFlashcards = input.dueFlashcards,
+            savedFlashcards = input.savedFlashcards,
+            updatedAt = input.updatedAt
+        )
+        val nextDash = previousDash.copy(
+            dueFlashcards = input.dueFlashcards,
+            savedFlashcards = input.savedFlashcards,
+            updatedAt = input.updatedAt
+        )
+        _state.value = current.copy(
+            flashcardSummaries = current.flashcardSummaries + (input.lang to nextFlashcard),
+            dashSummaries = current.dashSummaries + (input.lang to nextDash)
+        )
+        return Result.success(
+            FlashcardSummaryUpdateResult(
+                lang = input.lang,
+                flashcardSummary = nextFlashcard,
+                dashSummary = nextDash,
+                applied = true,
+                sourceEventId = input.sourceEventId,
+                updatedAt = input.updatedAt
+            )
+        )
+    }
 
     override suspend fun createInitial(
         userUid: String,
@@ -176,7 +227,9 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 
     private companion object {
         // 네트워크 지연 흉내. 너무 짧으면 logcat 의 두 emit 이 같은 frame 에 묻혀서 안 보임.
-        const val SYNC_DELAY_MS = 800L
+//        const val SYNC_DELAY_MS = 800L
+        const val SYNC_DELAY_MS = 4000L // DASHBOARD SPRINT TEST 용
+        const val CHANGE_DELAY_MS = 3000L  // DASHBOARD SPRINT TEST 용
     }
 }
 
@@ -289,10 +342,14 @@ private object FakeFixtures {
     // DASH-006 AC 9 검증: selectedLang ∉ learningLangs 인 데이터 오염 상태.
     //   primaryLang(EN) 으로 fallback 되어야 함 + changeSelectedLang(EN) 복구 저장 발화.
     // (AC 9: selectedLearningLanguage가 없는 경우 primaryLearningLanguage로 fallback된다.)
+    //
+    //   selectedLang = UNKNOWN: 지원 언어(KO/EN/JA/ES) 어디에도 속하지 않는 미지원 코드.
+    //   앱 다운그레이드 / DB 마이그레이션 실패 / 외부 소스 오염 시 발생 가능한 진짜 오염 상태를 표현.
+    //   learningLangs 는 현재 지원 언어 전체를 채워 "사용자는 모두 등록했지만 selectedLang 만 stale" 구조.
     val corruptedSelectedLang: GlobalLangState = activeUser.copy(
         userPref = activeUser.userPref!!.copy(
-            selectedLang = LangCode.KO,   // learningLangs 에 없는 값 (nativeLang 이지만 학습 언어로는 없음)
-            learningLangs = listOf(LangCode.EN, LangCode.JA),
+            selectedLang = LangCode.UNKNOWN,
+            learningLangs = listOf(LangCode.KO, LangCode.EN, LangCode.JA, LangCode.ES),
             primaryLang = LangCode.EN
         )
     )

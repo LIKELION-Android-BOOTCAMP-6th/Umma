@@ -14,7 +14,7 @@ Statistics User Flow 작업자는 학습 통계 화면을 구현하기 전에,
 - [ ] 지표 식별자를 `StatisticsMetricType`으로 정의한다.
 - [ ] MVP 지표는 `vocabularyLevel`, `grammarAccuracy`, `expressionRange`, `fluencyScore`, `naturalnessScore`로 고정한다.
 - [ ] `StatisticsHistory`는 `selectedLearningLanguage`가 아니라 데이터 소속 필드인 `language`를 가진다.
-- [ ] `StatisticsRepository`가 현재 선택 언어의 history 조회 계약을 제공한다.
+- [ ] `StatisticsRepository`가 전달받은 `language` 기준의 history 조회 계약을 제공한다.
 - [ ] `StatisticsRepository`가 local cache 우선 조회 결과를 반환한다.
 - [ ] fake repository가 history 있음, history 부족, fetch 실패, pending sync 상태를 재현할 수 있다.
 
@@ -29,6 +29,7 @@ Statistics User Flow 작업자는 학습 통계 화면을 구현하기 전에,
 - `StatisticsMetricType` enum 계약
 - `StatisticsRepository` interface
 - history 조회 UseCase 계약
+- 선택 지표별 chart point 변환 UseCase 계약
 - fake/real repository 교체 기준
 - line chart용 값 정규화 기준
 
@@ -126,15 +127,15 @@ Internal Metrics 전체를 화면 지표로 노출하지 않는다.
 ### 4. Repository 조회 계약
 
 ```text
-selectedLearningLanguage
+language input
 → StatisticsRepository.observeHistory(language)
 → StatisticsHistory list
 → MetricHistoryPoint list
 ```
 
 - Repository는 local cache를 먼저 반환한다.
-- Firestore fetch는 background sync 기반 stale cache 보정 용도로 수행한다.
-- history가 부족하면 Empty chart 상태를 반환할 수 있어야 한다.
+- remote refresh는 background sync 기반 stale cache 보정 용도로 수행한다.
+- Repository는 history 원본 목록과 sync 상태를 반환하고, Empty chart 판정은 `GetMetricHistoryPointsUseCase` 또는 ViewModel에서 수행한다.
 
 ---
 
@@ -152,30 +153,30 @@ DataStore는 current summary 저장에는 적합하지만 line chart용 다건 h
 
 ## 검증 기준
 
-- 현재 선택 언어의 history만 조회된다.
+- 전달받은 `language`의 history만 조회된다.
 - 다른 언어의 history가 섞이지 않는다.
 - local cache만 있어도 line chart point를 만들 수 있다.
-- history가 0개이거나 1개이면 Empty chart 상태로 분기할 수 있다.
+- history가 0개이거나 1개일 때 Empty chart로 분기할 수 있도록 UseCase가 point 개수를 판단한다.
 - `vocabularyLevel`은 chart value와 display value가 분리된다.
 
 ---
 
 ## Edge Cases
 
-- `selectedLearningLanguage`가 없음
-- 현재 선택 언어의 history가 없음
+- `language` 입력이 없음
+- 현재 화면 언어의 history가 없음
 - history가 1개뿐이라 변화 그래프를 그리기 부족함
 - 일부 metric 값이 null이거나 비정상 범위임
 - `sourceEventId`가 중복됨
-- local cache는 있으나 Firestore fetch가 실패함
+- local cache는 있으나 remote refresh가 실패함
 - 다른 언어의 history가 잘못 섞임
 
 ---
 
 ## 연결 문서
 
-- [SYS_STATISTICS_INFRA.md](../SYS_STATISTICS_INFRA.md)
-- [STI-002_History_Record_Policy.md](./STI-002_History_Record_Policy.md)
-- [FLOW_STATISTICS.md](../../User_FlowDB/FLOW_STATISTICS.md)
-- [LS-001_Language_State_Model_Structure.md](../SYS_LEARNING_STATE_INFRA/LS-001_Language_State_Model_Structure.md)
-- [LS-005_Local_Cache_and_Sync_Policy.md](../SYS_LEARNING_STATE_INFRA/LS-005_Local_Cache_and_Sync_Policy.md)
+- [SYS_STATISTICS_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA.md)
+- [STI-002_History_Record_Policy.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA/STI-002_History_Record_Policy.md)
+- [FLOW_STATISTICS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS.md)
+- [LS-001_Language_State_Model_Structure.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-001_Language_State_Model_Structure.md)
+- [LS-005_Local_Cache_and_Sync_Policy.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-005_Local_Cache_and_Sync_Policy.md)

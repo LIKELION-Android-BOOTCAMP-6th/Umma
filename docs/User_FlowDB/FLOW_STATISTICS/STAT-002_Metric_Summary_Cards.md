@@ -24,9 +24,9 @@
 
 ## Flow (링크)
 
-- FLOW-STATISTICS
-- STAT-001 → Statistics 화면 진입 및 언어 컨텍스트
-- STAT-002 → 학습 지표 요약 카드 표시
+- [FLOW-STATISTICS](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS.md)
+- [STAT-001 → Statistics 화면 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-001_Entry_Context.md)
+- [STAT-002 → 학습 지표 요약 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-002_Metric_Summary_Cards.md)
 
 ---
 

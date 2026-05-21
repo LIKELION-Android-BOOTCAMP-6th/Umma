@@ -1,5 +1,6 @@
 package com.example.umma.presentation.dashboard.component
 
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,8 @@ internal fun rememberDashboardCardClick(onClick: () -> Unit): () -> Unit {
             }
             // throttle 윈도우 안의 호출은 silently drop — 사용자에겐 첫 클릭이
             // 이미 받아들여진 것으로 보임.
+            else
+                Log.d("DashCardThrottle", "drop — throttle window")
         }
     }
 }
