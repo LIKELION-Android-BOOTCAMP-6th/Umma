@@ -10,7 +10,7 @@
 ## 완료 기준(AC) (Acceptance Criteria)
 
 - [ ] Statistics 화면 재진입 시 local cache history를 먼저 렌더링한다.
-- [ ] Firestore fetch는 background sync 기반 stale cache 보정으로 수행된다.
+- [ ] repository가 제공하는 background refresh 결과를 관찰해 stale cache 보정 상태를 화면에 반영한다.
 - [ ] Firestore sync 실패는 화면 실패로 처리하지 않는다.
 - [ ] sync pending 상태가 있어도 local history는 표시된다.
 - [ ] background sync로 새 history가 들어오면 현재 선택 언어 기준으로 chart가 갱신된다.
@@ -22,11 +22,11 @@
 
 ## Flow (링크)
 
-- FLOW-STATISTICS
-- STAT-003 → 지표 카드 클릭 및 line chart 표시
-- STAT-004 → 통계 데이터 동기화 및 재진입 처리
-- STI-001 → StatisticsHistory 모델 및 Repository 계약
-- STI-002 → Language State 업데이트 후 history 기록 계약
+- [FLOW-STATISTICS](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS.md)
+- [STAT-003 → 지표 카드 클릭 및 line chart 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
+- [STAT-004 → 통계 데이터 동기화 및 재진입 처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-004_Sync_and_Reentry.md)
+- [STI-001 → StatisticsHistory 모델 및 Repository 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA/STI-001_StatisticsHistory_Model.md)
+- [STI-002 → Correction 완료 후 history 기록 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA/STI-002_History_Record_Policy.md)
 
 ---
 
@@ -35,8 +35,8 @@
 ### 포함 범위
 
 - local cache 우선 렌더링
-- background sync 결과 반영
-- pending sync 내부 상태 관리
+- background sync 결과 observe 및 화면 반영
+- pending sync 상태 표시
 - 재진입 시 최신 local state 관찰
 - sync 실패 시 non-blocking 상태 처리
 
@@ -58,8 +58,8 @@
 Statistics 화면 진입 또는 재진입
 → StatisticsHistory local cache 조회
 → 즉시 Content 또는 Empty 렌더링
-→ Firestore background fetch
-→ 변경사항 local 반영
+→ Repository background refresh 결과 observe
+→ 변경사항 local 반영 결과 observe
 → 현재 선택 언어 화면 갱신
 ```
 
@@ -70,7 +70,7 @@ Statistics는 Dashboard보다 preload 우선순위가 낮으므로 화면 진입
 
 ## pending sync 정책
 
-- history local 저장 후 Firestore sync가 실패하면 pending sync로 남긴다.
+- history local 저장 후 Firestore sync가 실패하면 repository/local sync metadata에 pending sync로 남는다.
 - pending sync는 사용자에게 chart 실패로 표시하지 않는다.
 - 사용자에게 노출해야 할 때는 작은 sync 상태 표시로만 알린다.
 - pending 상태인 history도 local에 있으면 chart source로 사용할 수 있다.
@@ -89,10 +89,10 @@ Statistics는 Dashboard보다 preload 우선순위가 낮으므로 화면 진입
 ## 작업 지시
 
 - local cache 결과를 먼저 화면에 올린다.
-- Firestore fetch 실패를 Fatal Error로 올리지 않는다.
+- repository background refresh 실패를 Fatal Error로 올리지 않는다.
 - 현재 선택 언어와 fetch 결과의 `language`가 다르면 반영하지 않는다.
 - background sync 결과가 들어오면 선택 지표 chart를 다시 계산한다.
-- sync 재시도 정책은 repository/local sync metadata 기준으로 관리한다.
+- sync 재시도 정책은 repository/local sync metadata 기준으로 관리하며, 이 이슈는 해당 상태를 관찰해 화면에 반영한다.
 
 ---
 
@@ -127,7 +127,7 @@ FatalError는 local cache도 없고 기본 화면을 구성할 수 없을 때만
 ## 검증 기준
 
 - offline 상태에서도 local history가 있으면 chart를 볼 수 있다.
-- Firestore fetch 실패 시 기존 chart가 사라지지 않는다.
+- repository background refresh 실패 시 기존 chart가 사라지지 않는다.
 - background sync로 새 point가 추가되면 chart가 갱신된다.
 - 언어 변경 후 이전 언어의 chart point가 남지 않는다.
 - pending sync 상태인 history도 chart에 반영된다.
@@ -148,8 +148,8 @@ FatalError는 local cache도 없고 기본 화면을 구성할 수 없을 때만
 
 ## 연결 문서
 
-- [FLOW_STATISTICS.md](../FLOW_STATISTICS.md)
-- [STAT-003_Metric_Line_Chart.md](./STAT-003_Metric_Line_Chart.md)
-- [SYS_STATISTICS_INFRA.md](../../System_FlowDB/SYS_STATISTICS_INFRA.md)
-- [STI-001_StatisticsHistory_Model.md](../../System_FlowDB/SYS_STATISTICS_INFRA/STI-001_StatisticsHistory_Model.md)
-- [STI-002_History_Record_Policy.md](../../System_FlowDB/SYS_STATISTICS_INFRA/STI-002_History_Record_Policy.md)
+- [FLOW_STATISTICS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS.md)
+- [STAT-003_Metric_Line_Chart.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
+- [SYS_STATISTICS_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA.md)
+- [STI-001_StatisticsHistory_Model.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA/STI-001_StatisticsHistory_Model.md)
+- [STI-002_History_Record_Policy.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA/STI-002_History_Record_Policy.md)

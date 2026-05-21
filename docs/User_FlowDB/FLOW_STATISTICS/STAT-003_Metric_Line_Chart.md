@@ -22,10 +22,10 @@
 
 ## Flow (링크)
 
-- FLOW-STATISTICS
-- STAT-002 → 학습 지표 요약 카드 표시
-- STAT-003 → 지표 카드 클릭 및 line chart 표시
-- STI-001 → StatisticsHistory 모델 및 Repository 계약
+- [FLOW-STATISTICS](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS.md)
+- [STAT-002 → 학습 지표 요약 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-002_Metric_Summary_Cards.md)
+- [STAT-003 → 지표 카드 클릭 및 line chart 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
+- [STI-001 → StatisticsHistory 모델 및 Repository 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA/STI-001_StatisticsHistory_Model.md)
 
 ---
 
@@ -57,12 +57,12 @@
 ```text
 MetricSummaryCard 클릭
 → selectedMetric 변경
-→ StatisticsRepository.observeHistory(language)
+→ GetMetricHistoryPointsUseCase(language, selectedMetric)
 → selectedMetric 기준 MetricHistoryPoint list 변환
 → line chart 렌더링
 ```
 
-Repository는 history 원본을 제공하고, 선택 지표별 chart 변환은 UseCase에서 수행한다.
+Repository는 System Flow 계약에 따라 history 원본을 제공하고, 화면은 UseCase를 통해 선택 지표별 chart point를 받는다.
 Composable은 `StatisticsHistory` 원본을 직접 파싱하지 않는다.
 
 ---

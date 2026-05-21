@@ -47,10 +47,10 @@
 
 ### User Flow Issues
 
-- [STAT-001 Statistics 화면 진입 및 언어 컨텍스트](./FLOW_STATISTICS/STAT-001_Entry_Context.md)
-- [STAT-002 학습 지표 요약 카드 표시](./FLOW_STATISTICS/STAT-002_Metric_Summary_Cards.md)
-- [STAT-003 지표 카드 클릭 및 line chart 표시](./FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
-- [STAT-004 통계 데이터 동기화 및 재진입 처리](./FLOW_STATISTICS/STAT-004_Sync_and_Reentry.md)
+- [STAT-001 Statistics 화면 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-001_Entry_Context.md)
+- [STAT-002 학습 지표 요약 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-002_Metric_Summary_Cards.md)
+- [STAT-003 지표 카드 클릭 및 line chart 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
+- [STAT-004 통계 데이터 동기화 및 재진입 처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-004_Sync_and_Reentry.md)
 
 ---
 
@@ -64,8 +64,8 @@ Statistics 화면 작업자는 아래 계약이 준비되어 있다고 보고 �
 | `GlobalLangState` | 현재 선택 언어를 observe할 수 있다. | `SYS-LEARNING-STATE-INFRA`, LS-004 |
 | `LangState.external` | 현재 선택 언어의 MVP 5개 지표 현재값을 읽을 수 있다. | LS-001, LS-006 |
 | `StatisticsRepository` | 현재 선택 언어의 `StatisticsHistory`를 local cache 우선으로 조회할 수 있다. | SYS-STATISTICS-INFRA, STI-001 |
-| `RecordStatisticsHistoryUseCase` | Language State 업데이트 이후 history snapshot이 누적된다. | STI-002 |
-| `GetStatisticsOverviewUseCase` | 화면 초기 상태에 필요한 current metrics와 history 준비 상태를 제공한다. | STAT-001, STAT-002 |
+| `RecordStatisticsHistoryUseCase` | Correction 완료 파이프라인에서 Flashcard 저장과 Language State 업데이트가 모두 성공한 뒤 history snapshot이 누적된다. | STI-002 |
+| `GetStatisticsOverviewUseCase` | 선행 계약을 조합해 화면 초기 상태에 필요한 current metrics와 history 준비 상태를 제공한다. | STAT-001, STAT-002 |
 | `GetMetricHistoryPointsUseCase` | 선택 지표의 chart point 목록을 제공한다. | STAT-003 |
 | Dashboard 언어 성취율 카드 | Statistics 화면 진입점만 제공한다. | FLOW-DASHBOARD, DASH-005 |
 
@@ -132,7 +132,8 @@ StatisticsHistory
 ### 8.4 저장 정책
 
 Statistics 화면은 history를 생성하지 않는다.
-History 생성은 `SYS-STATISTICS-INFRA`의 `STI-002` 계약에 따라 `LS-006` Language State 업데이트 이후 수행된다.
+History 생성은 `SYS-STATISTICS-INFRA`의 `STI-002` 계약에 따라 교정 결과 Flashcard 저장과 `LS-006` Language State 업데이트가 모두 성공한 이후 호출되는 기록 UseCase에서 수행된다.
+화면 진입, Dashboard 진입, Flashcard 복습 결과 저장만으로는 MVP Statistics history를 생성하지 않는다.
 Firestore sync 실패는 사용자 화면 실패로 보지 않는다.
 
 ---
@@ -150,11 +151,11 @@ Firestore sync 실패는 사용자 화면 실패로 보지 않는다.
 
 ## 10. 연결 문서
 
-- [SYS_STATISTICS_INFRA.md](../System_FlowDB/SYS_STATISTICS_INFRA.md)
-- [SYS_LEARNING_STATE_INFRA.md](../System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
-- [LS-001 Language State Model Structure](../System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-001_Language_State_Model_Structure.md)
-- [LS-004 Global Learning State Store](../System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-004_Global_Learning_State_Store.md)
-- [LS-005 Local Cache & Sync Policy](../System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-005_Local_Cache_and_Sync_Policy.md)
-- [LS-006 Language State Update Policy](../System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-006_Language_State_Update_Policy.md)
-- [FLOW_DASHBOARD.md](./FLOW_DASHBOARD.md)
-- [DASH-005 Language Progress Card](./FLOW_DASHBOARD/DASH-005_Language_Progress_Card.md)
+- [SYS_STATISTICS_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_STATISTICS_INFRA.md)
+- [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
+- [LS-001 Language State Model Structure](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-001_Language_State_Model_Structure.md)
+- [LS-004 Global Learning State Store](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-004_Global_Learning_State_Store.md)
+- [LS-005 Local Cache & Sync Policy](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-005_Local_Cache_and_Sync_Policy.md)
+- [LS-006 Language State Update Policy](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-006_Language_State_Update_Policy.md)
+- [FLOW_DASHBOARD.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_DASHBOARD.md)
+- [DASH-005 Language Progress Card](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_DASHBOARD/DASH-005_Language_Progress_Card.md)
