@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import com.example.umma.R
 import com.example.umma.core.theme.BackgroundSecondary
@@ -61,11 +62,11 @@ import com.example.umma.core.theme.TitleCardR
 @Composable
 fun FeedbackCard(
     correctionAvailable: Boolean = false,
-    recentConversationMinutes: Int?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accentColor: Color? = null
 ) {
-    val accent = TextLogout
+    val accent = accentColor ?: TextLogout
     // AC 9: 카드 onClick 을 throttle 로 감싸 연타 → 중복 navigate 차단.
     //   DASH-002 ConversationCard 와 동일 헬퍼 (DashboardCardCommon.rememberDashboardCardClick)
     //   재사용. 500ms 윈도우 안의 추가 클릭은 silently drop.
@@ -108,17 +109,8 @@ fun FeedbackCard(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                if (recentConversationMinutes != null && recentConversationMinutes > 0) {
-                    Row(
-                        // 좌우 padding 축소 후 offset 보정 불필요.
-                        modifier = Modifier.align(Alignment.Start)
-                    ) {
-                        CardInfoChip(
-                            text = "대화 기록: ${recentConversationMinutes}분",
-                            accent = accent
-                        )
-                    }
-                }
+                // 교정 가능 여부는 우측 상단 빨간 점(correctionAvailable) 이 이미 표현하므로,
+                // 하단 "대화 기록: ##분" 칩은 중복 시그널 — 제거.
             }
 
             if (correctionAvailable) {

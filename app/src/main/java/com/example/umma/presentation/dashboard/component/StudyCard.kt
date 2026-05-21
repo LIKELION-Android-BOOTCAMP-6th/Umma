@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import com.example.umma.R
 import com.example.umma.core.theme.BackgroundSecondary
@@ -59,9 +60,10 @@ fun StudyCard(
     dueFlashcards: Int,
     savedFlashcards: Int,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accentColor: Color? = null
 ) {
-    val accent = TextCorrect
+    val accent = accentColor ?: TextCorrect
     // AC 7: 카드 onClick 을 throttle 로 감싸 연타 → 중복 navigate 차단.
     //   DASH-002 / DASH-003 카드와 동일 헬퍼 (DashboardCardCommon.rememberDashboardCardClick)
     //   재사용. 500ms 윈도우 안의 추가 클릭은 silently drop.

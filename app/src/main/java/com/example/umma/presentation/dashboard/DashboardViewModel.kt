@@ -13,6 +13,7 @@ import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.SyncLearningStateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,6 +99,11 @@ class DashboardViewModel @Inject constructor(
         }
         enterJob = viewModelScope.launch {
             Log.d(TAG, "ensureObservation() — DASH-001 preload start")
+            // DASH-001: 의도된 skeleton 최소 표시 지연 (SKELETON_MIN_DISPLAY_MS).
+            //   cache hit 시 skeleton 이 1 프레임만 깜빡이고 사라지는 문제 방지용.
+            //   첫 emit 직전에 한 번만 잔여 시간 delay. 조정 시 SKELETON_MIN_DISPLAY_MS 만 변경.
+            val startedAtMs = System.currentTimeMillis()
+            var skeletonGateApplied = false
             _uiState.update {
                 it.copy(
                     isLoading = true,
@@ -129,6 +135,11 @@ class DashboardViewModel @Inject constructor(
                 // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
                 if (userPref != null && learningLangs.isEmpty()) {
                     Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
+                    if (!skeletonGateApplied) {
+                        skeletonGateApplied = true
+                        val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                        if (remaining > 0) delay(remaining)
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -168,6 +179,19 @@ class DashboardViewModel @Inject constructor(
                 // "보여줄 게 없는" 상태 — Empty 분기 판정용.
                 val empty = summary == null || summary.isEffectivelyEmpty
 
+                // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false.
+                //   selector 다이얼로그의 "이전에 학습 중이던 언어" 체크 아이콘 기준으로 쓰인다.
+                //   userPref.learningLangs 는 selector 단순 선택만으로도 자동 확장되지만,
+                //   여기는 실제 대화/카드/통계 데이터가 쌓인 언어만 포함 → 시각적 구분.
+                val activeLangs = global.dashSummaries
+                    .filterValues { !it.isEffectivelyEmpty }
+                    .keys
+
+                if (!skeletonGateApplied) {
+                    skeletonGateApplied = true
+                    val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                    if (remaining > 0) delay(remaining)
+                }
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -175,6 +199,7 @@ class DashboardViewModel @Inject constructor(
                         summary = summary,
                         isEmpty = empty,
                         learningLanguages = learningLangs,
+                        activeLearningLanguages = activeLangs,
                         hasFatalError = false
                     )
                 }
@@ -291,10 +316,14 @@ class DashboardViewModel @Inject constructor(
 
             changeSelectedLang(lang)
                 .onSuccess {
-                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리, sync 트리거")
-                    triggerSync()
-                    fetchJob?.join()
-                    Log.d(TAG, "onChangeLearningLanguage complete — sync joined")
+                    Log.d(TAG, "changeSelectedLang success — observe collect 가 새 emit 처리")
+                    // DASH-006 race 회피: 여기서 triggerSync() 를 호출하면 Repo.sync() 가
+                    //   Firebase 에서 fetch 한 이전 selectedLang 값으로 _state 를 통째로
+                    //   덮어써(LearningStateRepoImpl.sync L367-368) 방금 한 local 변경이
+                    //   즉시 원래대로 복구되는 버그가 발생한다 (사용자 입장: "안 바뀜").
+                    //   sync 는 onEnter() 진입 시 이미 한 번 트리거되므로 여기서 다시 부르지
+                    //   않아도 다음 진입 / 재진입 때 자연 수렴. selectedLang 의 즉시 반영은
+                    //   observe collect 의 새 emit 으로 이미 완료된 상태.
                 }
                 .onFailure { e ->
                     Log.w(TAG, "changeSelectedLang failed — AC 8 auto-rollback via observe", e)
@@ -309,5 +338,15 @@ class DashboardViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "DashboardViewModel"
+
+        /**
+         * DASH-001: skeleton 최소 표시 시간(ms).
+         *
+         * Local Cache hit 시 observeLearningState() 첫 emit 이 거의 즉시 도착해
+         * skeleton 이 한 프레임만 깜빡이는 문제를 막기 위한 의도된 지연.
+         * 이 값만 조정하면 전체 skeleton 노출 시간이 바뀐다 — 검색 키워드:
+         * "의도된 skeleton 최소 표시 지연".
+         */
+        const val SKELETON_MIN_DISPLAY_MS = 600L
     }
 }
