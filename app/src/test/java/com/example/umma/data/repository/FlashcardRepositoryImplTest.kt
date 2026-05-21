@@ -66,9 +66,31 @@ class FlashcardRepositoryImplTest {
         assertEquals("card-1", result.getOrThrow().cardId)
     }
 
+    @Test
+    fun `getReviewSummary counts due and saved cards from local source`() = runBlocking {
+        // Summary count는 Dashboard 숫자의 원천이 되므로 due deck 조회와 같은 local source에서 계산해야 한다.
+        val repository = FlashcardRepositoryImpl(
+            FakeLocalDataSource(
+                savedCount = { 5 },
+                dueCount = { 2 }
+            )
+        )
+
+        val summary = repository.getReviewSummary(
+            userId = "uid-1",
+            language = LangCode.EN,
+            now = 10_000L
+        ).getOrThrow()
+
+        assertEquals(2, summary.dueFlashcards)
+        assertEquals(5, summary.savedFlashcards)
+    }
+
     private class FakeLocalDataSource(
         private val dueFlashcards: suspend () -> List<CorrectionFlashcardDto> = { emptyList() },
-        private val updateSchedule: suspend () -> Boolean = { true }
+        private val updateSchedule: suspend () -> Boolean = { true },
+        private val savedCount: suspend () -> Int = { 0 },
+        private val dueCount: suspend () -> Int = { 0 }
     ) : CorrectionFlashcardLocalDataSource {
         override suspend fun saveFlashcards(
             uid: String,
@@ -100,6 +122,23 @@ class FlashcardRepositoryImplTest {
         ): Boolean {
             // schedule 저장 성공/실패를 이 함수 하나로 제어한다.
             return updateSchedule()
+        }
+
+        override suspend fun countFlashcards(
+            uid: String,
+            language: String
+        ): Int {
+            // repository가 local source에서 saved count를 그대로 읽는지 확인하기 위한 테스트 hook이다.
+            return savedCount()
+        }
+
+        override suspend fun countDueFlashcards(
+            uid: String,
+            language: String,
+            now: Long
+        ): Int {
+            // repository가 local source에서 due count를 그대로 읽는지 확인하기 위한 테스트 hook이다.
+            return dueCount()
         }
 
         override suspend fun rollbackFlashcards(

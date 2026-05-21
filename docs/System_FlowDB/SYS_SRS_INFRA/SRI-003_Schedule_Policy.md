@@ -9,12 +9,12 @@ SRS User Flow 작업자는 사용자가 SM-2 기반 4단계 평가 버튼을 눌
 
 ## 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] SM-2 기반 4단계 복습 평가 정책이 `Again / Hard / Good / Easy`로 문서화된다.
-- [ ] MVP에서는 SM-2 전체 알고리즘을 1:1로 복제하지 않고, `interval`, `easeFactor`, `nextReviewAt` 중심의 단순화 정책을 사용한다.
-- [ ] `ReviewSchedulePolicy`가 `ReviewDecision`을 받아 `ReviewScheduleResult`를 계산한다.
-- [ ] `interval`, `easeFactor`, `nextReviewAt` 갱신 기준이 확정된다.
-- [ ] Flashcard review schedule local 갱신과 Summary 연동 지점은 분리해서 다룬다.
-- [ ] `FlashcardSummary.dueFlashcards`와 `DashSummary.dueFlashcards`는 후속 LearningState 연동에서 함께 반영한다.
+- [x] SM-2 기반 4단계 복습 평가 정책이 `Again / Hard / Good / Easy`로 문서화된다.
+- [x] MVP에서는 SM-2 전체 알고리즘을 1:1로 복제하지 않고, `interval`, `easeFactor`, `nextReviewAt` 중심의 단순화 정책을 사용한다.
+- [x] `ReviewSchedulePolicy`가 `ReviewDecision`을 받아 `ReviewScheduleResult`를 계산한다.
+- [x] `interval`, `easeFactor`, `nextReviewAt` 갱신 기준이 확정된다.
+- [x] Flashcard review schedule local 갱신과 Summary 연동 지점은 분리해서 다룬다.
+- [x] `FlashcardSummary.dueFlashcards`와 `DashSummary.dueFlashcards`는 LearningState 연동에서 함께 반영한다.
 
 ---
 
@@ -26,7 +26,7 @@ SRS User Flow 작업자는 사용자가 SM-2 기반 4단계 평가 버튼을 눌
 - SM-2 기반 4단계 평가 정책
 - `interval`, `easeFactor`, `nextReviewAt` 계산 기준
 - local first review schedule 갱신
-- `FlashcardSummary` / `DashSummary` 후속 연동 경계
+- `FlashcardSummary` / `DashSummary` 연동 경계
 
 ### 제외 범위
 
@@ -49,7 +49,7 @@ domain/usecase/flashcardreview
 ```
 
 `SRI-003`의 UseCase는 `SRI-002`에서 정의한 Repository review schedule 갱신 계약을 호출해 review 단계만 완결한다.
-summary 반영은 `SYS-LEARNING-STATE-INFRA`의 후속 연동으로 분리한다.
+summary 반영은 `SYS-LEARNING-STATE-INFRA`의 `ApplyFlashcardSummaryUpdateUseCase` 계약을 호출해 완료 흐름 안에서 함께 조율한다.
 
 ---
 
@@ -79,12 +79,14 @@ ReviewDecision
 → ReviewSchedulePolicy로 ReviewScheduleResult 계산
 → [ApplyReviewDecisionUseCase] 호출
   1. FlashcardRepository.updateFlashcardSchedule 호출 (카드 원본 갱신)
-  2. summary 반영은 후속 LearningState 연동 지점으로 분리
+  2. FlashcardRepository.getReviewSummary 호출 (due/saved count 재계산)
+  3. ApplyFlashcardSummaryUpdateUseCase 호출 (FlashcardSummary / DashSummary 반영)
 ```
 
-- **책임 경계**: `FlashcardRepository`는 카드 원본 데이터의 정합성만 책임지며, 요약 정보(Summary) 갱신은 후속 `LearningState` 연동에서 처리한다.
-- review schedule local 갱신이 성공해야 사용자가 완료된 것으로 본다.
+- **책임 경계**: `FlashcardRepository`는 카드 원본의 schedule과 count 계산을 책임지고, 요약 정보(Summary) 저장은 `LearningState` 계약이 처리한다.
+- review schedule local 갱신과 summary 반영이 모두 성공해야 현재 카드 저장이 완료된 것으로 본다.
 - review schedule local 갱신 실패는 `ApplyReviewDecisionUseCase`가 실패 결과로 반환하고, Retry 화면 상태는 User Flow의 UI/ViewModel에서 처리한다.
+- summary 반영이 실패하면 `ApplyReviewDecisionUseCase`는 이전 schedule 값으로 보상 갱신한 뒤 실패를 반환한다.
 
 ---
 
@@ -94,15 +96,16 @@ ReviewDecision
 - 사용자가 직접 버튼을 눌러 기억 정도를 선택한다.
 - 평가 결과가 반영된 카드는 다음 카드 진행 기준이 되며, `Again`은 당일 재노출을 위해 due 상태로 남을 수 있다.
 - `nextReviewAt`이 지나지 않은 카드는 due deck에 포함하지 않는다.
-- 현재 카드 review 결과 저장 후 Dashboard의 due count는 이후 summary 연동 결과를 기준으로 갱신된다.
+- 현재 카드 review 결과 저장 후 Dashboard의 due count는 같은 완료 흐름에서 갱신된 summary를 기준으로 관찰된다.
 
 ---
 
 ## 예외 처리
 
 - 중복 평가 요청은 하나의 card update로 합친다.
+- 현재 카드 id와 `ReviewDecision.flashcardId`가 다르면 review 저장을 시작하지 않고 실패로 반환한다.
 - review schedule local 갱신 실패는 완료로 보지 않고 실패 결과로 반환한다.
-- summary 연동 실패는 `SYS-LEARNING-STATE-INFRA`의 후속 처리에서 별도 상태로 다룬다.
+- summary 연동 실패는 현재 카드 저장 실패로 반환하고, 이전 schedule 값으로 보상 갱신한다.
 - 앱 종료 중 평가가 진행 중이면 commit marker 기준으로 완료/미완료를 복구한다.
 - 삭제되었거나 동기화 충돌이 있는 카드는 최신 저장값을 우선한다.
 

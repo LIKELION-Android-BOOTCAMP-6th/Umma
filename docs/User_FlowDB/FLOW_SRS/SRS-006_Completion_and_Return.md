@@ -59,7 +59,8 @@
 
 `dueFlashcards`는 현재 카드가 저장될 때마다 최신 상태로 다시 관찰 가능해야 한다.
 Firestore background sync는 덱 종료를 기다리지 않고 review 결과 저장 완료 시점마다 후속 처리된다.
-현재 카드의 평가 저장은 `SRS-005`가, summary 반영은 `SYS-LEARNING-STATE-INFRA`의 후속 연동이 책임지며, 이 문서는 저장 성공 이후의 진행/완료/복귀 상태를 다룬다.
+현재 카드의 평가 저장은 `SRS-005`가 `SYS-SRS-INFRA`의 `ApplyReviewDecisionUseCase`를 호출해 처리한다.
+summary 반영 자체는 `SYS-LEARNING-STATE-INFRA`의 저장 계약을 사용하지만, SRS 화면은 저장 성공 이후의 진행/완료/복귀 상태만 다룬다.
 
 ---
 

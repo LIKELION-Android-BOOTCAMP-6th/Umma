@@ -4,6 +4,7 @@ import com.example.umma.data.model.correction.CorrectionFlashcardDto
 import com.example.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.example.umma.domain.model.flashcard.Flashcard
 import com.example.umma.domain.model.flashcard.FlashcardSchedule
+import com.example.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.example.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.example.umma.domain.model.flashcard.ReviewDeckState
 import com.example.umma.domain.model.flashcard.ReviewScheduleResult
@@ -70,6 +71,34 @@ class FlashcardRepositoryImpl @Inject constructor(
             } else {
                 Result.failure(NoSuchElementException("Flashcard $cardId not found for user $userId"))
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getReviewSummary(
+        userId: String,
+        language: LangCode,
+        now: Long
+    ): Result<FlashcardReviewSummary> {
+        return try {
+            // schedule update 이후 같은 local 원본에서 다시 count를 계산해야 Summary와 deck이 엇갈리지 않는다.
+            val dueCount = localDataSource.countDueFlashcards(
+                uid = userId,
+                language = language.code,
+                now = now
+            )
+            val savedCount = localDataSource.countFlashcards(
+                uid = userId,
+                language = language.code
+            )
+
+            Result.success(
+                FlashcardReviewSummary(
+                    dueFlashcards = dueCount,
+                    savedFlashcards = savedCount
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }

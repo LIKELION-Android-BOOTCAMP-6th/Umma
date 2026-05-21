@@ -9,14 +9,14 @@ Flashcard 원본 카드가 어떤 필드를 갖고 각 필드가 어떤 의미�
 
 ## 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `Flashcard`가 반복학습 원본 카드 계약으로 정의된다.
-- [ ] Flashcard의 front/back, explanation, hint, schedule 필드와 pronunciation 재생 대상의 역할이 구분된다.
-- [ ] 카드 앞면은 모국어 문장, 카드 뒷면은 교정된 외국어 문장과 짧은 설명을 기준으로 한다.
-- [ ] 발음 재생 대상은 카드 뒷면의 교정된 외국어 문장이며, `SpeechPlayer` 인터페이스를 통해 처리됨을 명시한다.
-- [ ] `ReviewDecision`이 SM-2 기반 4단계 복습 평가 결과 계약으로 정의된다.
-- [ ] `ReviewScheduleResult` 또는 동등한 스케줄 계산 결과 모델이 정의된다.
-- [ ] Flashcard가 언어 식별자를 가져 언어별 deck 분리가 가능하도록 정의된다.
-- [ ] 기존 공통 작업으로 생성된 `study` 화면/폴더/파일 명칭을 `SrsStudy` 기준으로 재정의한다.
+- [x] `Flashcard`가 반복학습 원본 카드 계약으로 정의된다.
+- [x] Flashcard의 front/back, explanation, hint, schedule 필드와 pronunciation 재생 대상의 역할이 구분된다.
+- [x] 카드 앞면은 모국어 문장, 카드 뒷면은 교정된 외국어 문장과 짧은 설명을 기준으로 한다.
+- [x] 발음 재생 대상은 카드 뒷면의 교정된 외국어 문장이며, `SpeechPlayer` 인터페이스를 통해 처리됨을 명시한다.
+- [x] `ReviewDecision`이 SM-2 기반 4단계 복습 평가 결과 계약으로 정의된다.
+- [x] `ReviewScheduleResult` 또는 동등한 스케줄 계산 결과 모델이 정의된다.
+- [x] Flashcard가 언어 식별자를 가져 언어별 deck 분리가 가능하도록 정의된다.
+- [x] 기존 공통 작업으로 생성된 `study` 화면/폴더/파일 명칭을 `SrsStudy` 기준으로 재정의한다.
 
 ---
 

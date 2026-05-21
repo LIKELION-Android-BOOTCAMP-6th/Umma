@@ -37,7 +37,7 @@ class FakeFlashcardRepositoryTest {
 
         val result = repository.updateFlashcardSchedule(
             userId = "uid-1",
-            cardId = "card-1",
+            cardId = "f1",
             result = ReviewScheduleResult(
                 interval = 1_440,
                 easeFactor = 2.5,
@@ -47,6 +47,31 @@ class FakeFlashcardRepositoryTest {
 
         assertTrue(result.isSuccess)
         assertTrue(result.getOrThrow().isSyncPending)
-        assertEquals("card-1", result.getOrThrow().cardId)
+        assertEquals("f1", result.getOrThrow().cardId)
+    }
+
+    @Test
+    fun `updates fake schedule before review summary count`() = runBlocking {
+        // fake repository도 review update 후 due count가 바뀌어야 UI 개발 중 production과 같은 흐름을 볼 수 있다.
+        val repository = FakeFlashcardRepository()
+
+        repository.updateFlashcardSchedule(
+            userId = "uid-1",
+            cardId = "f1",
+            result = ReviewScheduleResult(
+                interval = 1_440,
+                easeFactor = 2.5,
+                nextReviewAt = System.currentTimeMillis() + 60_000L
+            )
+        ).getOrThrow()
+
+        val summary = repository.getReviewSummary(
+            userId = "uid-1",
+            language = LangCode.EN,
+            now = System.currentTimeMillis()
+        ).getOrThrow()
+
+        assertEquals(1, summary.dueFlashcards)
+        assertEquals(2, summary.savedFlashcards)
     }
 }

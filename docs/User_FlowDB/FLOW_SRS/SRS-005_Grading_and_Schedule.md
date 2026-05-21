@@ -73,7 +73,7 @@ MVP에서는 SM-2를 기반으로 하되, Anki식 `Again / Hard / Good / Easy` 4
 - **Again 처리**: `Again` 선택 시 해당 카드는 즉시 다시 봐야 하는 카드로 취급한다. 세션 내 재등장 순서는 UI/ViewModel이 관리한다.
 - 신규 카드처럼 현재 interval이 없거나 0인 경우에는 기본 interval을 `1440분`으로 보고 `Hard / Good / Easy` 계산을 시작한다.
 - 계산 결과는 `ApplyReviewDecisionUseCase`를 통해 카드 원본에 반영된다.
-- summary 반영은 `SYS-LEARNING-STATE-INFRA`의 후속 연동 지점에서 처리한다.
+- summary 반영은 `ApplyReviewDecisionUseCase`가 LS의 `ApplyFlashcardSummaryUpdateUseCase`를 호출해 함께 조율한다.
 - review 결과 local 갱신과 sync pending 응답 계약은 `SRI-002`를 따르고, 스케줄 계산 정책은 `SRI-003`을 따른다.
 - 저장 성공 이후 다음 카드 이동과 덱 완료 상태는 `SRS-006`에서 처리한다.
 
@@ -115,6 +115,7 @@ com.example.umma
 
 - 사용자가 카드 뒤를 보기 전에 평가 버튼을 누르려는 경우
 - 같은 버튼을 연속으로 누르는 경우
+- 현재 카드와 다른 `flashcardId`의 평가 요청이 들어오는 경우
 - 현재 interval 값이 아직 없는 새 카드인 경우
 - 저장 도중 화면이 사라지는 경우
 - 네트워크 실패로 remote sync가 지연되는 경우

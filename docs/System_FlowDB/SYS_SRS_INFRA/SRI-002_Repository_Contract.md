@@ -12,14 +12,14 @@ SRI-002에서는 같은 Flashcard 원본을 조회하고 review schedule을 갱�
 
 ## 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `FlashcardRepository`가 due card 조회 결과를 `ReviewDeckState`로 노출하고 review 결과 schedule 갱신 요청을 함께 다루는 계약으로 준비된다.
-- [ ] Correction이 저장한 Flashcard Room 원본을 조회/갱신하는 repository 계약이 준비된다.
-- [ ] 복습 대상 카드의 source of truth가 `nextReviewAt` 기반 Flashcard 원본임을 확정한다.
-- [ ] `FlashcardSummary.dueFlashcards`는 Dashboard 표시용 요약값임을 확정한다.
-- [ ] 현재 선택 언어의 Flashcard deck만 조회한다.
-- [ ] Repository 갱신 응답은 local 갱신 성공과 background sync pending 상태를 구분할 수 있어야 한다.
-- [ ] mock/real 교체가 Hilt binding 기준으로 가능해야 한다.
-- [ ] fake repository는 due deck, empty, retry, sync pending 시나리오를 재현할 수 있어야 한다.
+- [x] `FlashcardRepository`가 due card 조회 결과를 `ReviewDeckState`로 노출하고 review 결과 schedule 갱신 요청을 함께 다루는 계약으로 준비된다.
+- [x] Correction이 저장한 Flashcard Room 원본을 조회/갱신하는 repository 계약이 준비된다.
+- [x] 복습 대상 카드의 source of truth가 `nextReviewAt` 기반 Flashcard 원본임을 확정한다.
+- [x] `FlashcardSummary.dueFlashcards`는 Dashboard 표시용 요약값임을 확정한다.
+- [x] 현재 선택 언어의 Flashcard deck만 조회한다.
+- [x] Repository 갱신 응답은 local 갱신 성공과 background sync pending 상태를 구분할 수 있어야 한다.
+- [x] mock/real 교체가 Hilt binding 기준으로 가능해야 한다.
+- [x] fake repository는 due deck, empty, retry, sync pending 시나리오를 재현할 수 있어야 한다.
 
 ---
 
@@ -116,6 +116,7 @@ ReviewDecision
 - Repository는 local 갱신 결과와 sync pending 여부만 반환하고, Retry 화면 상태나 세션 진행 제어는 User Flow의 UI/ViewModel에서 처리한다.
 - Repository 응답은 local 갱신 성공 여부와 sync pending 여부를 분리해서 표현한다.
 - SRS가 schedule을 갱신한 카드는 Firestore sync 전까지 dirty 상태로 남겨 후속 sync 대상임을 표시한다.
+- schedule 갱신 이후 Summary 갱신에 필요한 `dueFlashcards` / `savedFlashcards` count는 같은 Flashcard local source에서 다시 계산한다.
 
 ### 3. mock/real 계약
 
@@ -134,7 +135,7 @@ ReviewDecision
 - 조회 실패는 `ReviewDeckState.Retry` 또는 `ReviewDeckState.Error`로 반환한다.
 - 갱신 실패는 Retry 가능한 상태로 반환한다.
 - Firestore sync 실패는 Repository 응답에서 sync pending 상태로 표현한다.
-- `FlashcardSummary`와 `DashSummary` 반영은 `SRI-003`의 후속 연동 기준을 따른다.
+- `FlashcardSummary`와 `DashSummary` 반영은 `SRI-003`의 완료 파이프라인 기준을 따른다.
 
 ---
 

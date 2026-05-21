@@ -1,6 +1,7 @@
 package com.example.umma.data.repository.fake
 
 import com.example.umma.domain.model.flashcard.Flashcard
+import com.example.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.example.umma.domain.model.flashcard.FlashcardSchedule
 import com.example.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.example.umma.domain.model.flashcard.ReviewDeckState
@@ -16,7 +17,7 @@ import javax.inject.Singleton
 @Singleton
 class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
 
-    private val fakeCards = listOf(
+    private val fakeCards = mutableListOf(
         Flashcard(
             id = "f1",
             language = LangCode.EN,
@@ -64,7 +65,39 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
     ): Result<FlashcardUpdateResult> {
         // syncPending / failure 를 바꿔 저장 성공, pending sync, retry 화면을 검증한다.
         // fake 는 저장 payload 자체보다 화면 분기 재현이 더 중요하다.
-        return updateFailure?.let { Result.failure(it) }
-            ?: Result.success(FlashcardUpdateResult(cardId, updateSyncPending))
+        updateFailure?.let { return Result.failure(it) }
+
+        val index = fakeCards.indexOfFirst { it.id == cardId }
+        if (index == -1) {
+            return Result.failure(NoSuchElementException("Flashcard $cardId not found"))
+        }
+
+        // fake도 schedule을 실제로 바꿔 getReviewSummary가 production과 같은 의미의 count를 돌려주게 한다.
+        val current = fakeCards[index]
+        fakeCards[index] = current.copy(
+            schedule = current.schedule.copy(
+                interval = result.interval,
+                easeFactor = result.easeFactor,
+                nextReviewAt = result.nextReviewAt
+            ),
+            updatedAt = System.currentTimeMillis()
+        )
+
+        return Result.success(FlashcardUpdateResult(cardId, updateSyncPending))
+    }
+
+    override suspend fun getReviewSummary(
+        userId: String,
+        language: LangCode,
+        now: Long
+    ): Result<FlashcardReviewSummary> {
+        val languageCards = fakeCards.filter { it.language == language }
+        // fake도 production과 같은 의미의 due/saved count를 제공해 SRS 화면 개발이 Summary 연동을 미리 볼 수 있게 한다.
+        return Result.success(
+            FlashcardReviewSummary(
+                dueFlashcards = languageCards.count { it.schedule.nextReviewAt <= now },
+                savedFlashcards = languageCards.size
+            )
+        )
     }
 }

@@ -1,6 +1,7 @@
 package com.example.umma.domain.repository
 
 import com.example.umma.domain.model.flashcard.FlashcardUpdateResult
+import com.example.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.example.umma.domain.model.flashcard.ReviewDeckState
 import com.example.umma.domain.model.flashcard.ReviewScheduleResult
 import com.example.umma.domain.model.learningstate.LangCode
@@ -21,4 +22,13 @@ interface FlashcardRepository {
         cardId: String,
         result: ReviewScheduleResult
     ): Result<FlashcardUpdateResult>
+
+    /**
+     * review schedule 갱신 직후 Summary에 반영할 카드 수를 같은 원본에서 다시 계산합니다.
+     */
+    suspend fun getReviewSummary(
+        userId: String,
+        language: LangCode,
+        now: Long
+    ): Result<FlashcardReviewSummary>
 }
