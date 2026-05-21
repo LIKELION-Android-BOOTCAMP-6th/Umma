@@ -23,13 +23,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.example.umma.domain.model.realtime.AIState
 import com.example.umma.core.theme.BackgroundSecondary
 import com.example.umma.core.theme.SpacingL
 import com.example.umma.core.theme.SpacingS
@@ -40,14 +39,13 @@ import com.example.umma.core.theme.ThemePrimary
 import com.example.umma.core.theme.TitleB
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.core.ui.component.UmmaDialog
+import com.example.umma.domain.model.realtime.AIState
 import com.example.umma.domain.model.user.Topic
 
 /**
- * 챗(대화) 화면을 구성하는 컴포저블입니다.
+ * 채팅 화면을 구성하는 컴포저블입니다.
  *
- * AI 또는 다른 사용자와의 대화 인터페이스를 제공합니다.
- *
- * @param viewModel 채팅 관련 비즈니스 로직을 처리하는 [ChatViewModel].
+ * @param viewModel 채팅 비즈니스 로직을 처리하는 [ChatViewModel]
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +57,9 @@ fun ChatScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (!granted) {
+        if (granted) {
+            viewModel.startUserTurn(hasRecordAudioPermission = true)
+        } else {
             viewModel.startUserTurn(hasRecordAudioPermission = false)
         }
     }
@@ -75,8 +75,6 @@ fun ChatScreen(
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
     }
-
-
 
     Scaffold(
         topBar = {
@@ -113,26 +111,20 @@ fun ChatScreen(
             )
             Spacer(modifier = Modifier.height(SpacingL))
             Button(
-                onClick = {},
-                enabled = uiState.sessionState == SessionState.READY,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .pointerInput(uiState.sessionState) {
-                        detectTapGestures(
-                            onPress = {
-                                if (hasRecordAudioPermission()) {
-                                    viewModel.startUserTurn(hasRecordAudioPermission = true)
-                                    tryAwaitRelease()
-                                    viewModel.endUserTurn()
-                                } else {
-                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            }
-                        )
+                onClick = {
+                    if (uiState.isRecording) {
+                        viewModel.endUserTurn()
+                    } else if (hasRecordAudioPermission()) {
+                        viewModel.startUserTurn(hasRecordAudioPermission = true)
+                    } else {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
+                },
+                enabled = uiState.sessionState == SessionState.READY,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = if (uiState.isRecording) "말하는 중" else "누르고 말하기",
+                    text = if (uiState.isRecording) "내 말하기 끝내기" else "내 말하기 시작",
                     fontSize = 16.sp
                 )
             }
@@ -150,6 +142,15 @@ fun ChatScreen(
                 Text(
                     text = "마이크 권한이 필요합니다.",
                     color = TextLogout,
+                    style = TextAnalysisR
+                )
+            }
+            // fallbackMessage != null이면
+            uiState.fallbackMessage?.let { message ->
+                Spacer(modifier = Modifier.height(SpacingS))
+                Text(
+                    text = message,
+                    textAlign = TextAlign.Center,
                     style = TextAnalysisR
                 )
             }
@@ -195,10 +196,13 @@ fun ChatScreen(
  * @param uiState 현재 채팅 UI 상태
  * @return 사용자에게 표시할 상태 문구
  */
-private fun buildStatusText(uiState: ChatUiState): String {
+internal fun buildStatusText(uiState: ChatUiState): String {
     uiState.errorMessage?.let { return it }
 
     return when {
+        uiState.sessionState == SessionState.LOADING ->
+            "세션 준비 중입니다."
+
         uiState.sessionState == SessionState.RECONNECTING ->
             "재연결 중 ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
 
@@ -206,16 +210,18 @@ private fun buildStatusText(uiState: ChatUiState): String {
             "응답이 중단되었습니다."
 
         uiState.aiState == AIState.SPEAKING ->
-            "AI가 답변 중입니다."
+            "AI가 응답 중입니다."
 
         uiState.isRecording ->
             "듣고 있습니다."
 
-        else ->
+        uiState.sessionState == SessionState.READY ->
             "준비되었습니다."
+
+        else ->
+            ""
     }
 }
-
 
 @Composable
 private fun TopicButton(

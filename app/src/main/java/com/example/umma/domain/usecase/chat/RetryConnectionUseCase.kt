@@ -20,28 +20,57 @@ class RetryConnectionUseCase @Inject constructor(
      *
      * @return 성공 시 유지된 세션 ID
      */
-    suspend operator fun invoke(): Result<String> {
+    suspend operator fun invoke(): RetryConnectionResult {
+        val activeSessionID = repository.getActiveSessionId()
+            ?: return RetryConnectionResult.RequireNewSession(
+                reason = "활성 대화 세션이 없어 새 대화 세션이 필요합니다."
+            )
+
         learningStateRepo.preload()
 
         val userPref = learningStateRepo.observeUserPref().firstOrNull()
             ?: learningStateRepo.sync()
                 .getOrNull()
                 .let { learningStateRepo.observeUserPref().firstOrNull() }
-            ?: return Result.failure(Exception("User preferences not found"))
+            ?: return RetryConnectionResult.RequireNewSession(
+                reason = "학습 언어 설정을 복구할 수 없습니다."
+            )
 
         val langState = learningStateRepo.observeLangState(userPref.selectedLang).firstOrNull()
+
         val recentFullContext = sessionMemoryRepository
             .getSessionMemory(userPref.selectedLang)
-            .getOrNull()
-            ?.recentFullContext
-            .orEmpty()
+            .fold(
+                onSuccess = { memory ->
+                    memory.recentFullContext
+                },
+                onFailure = {
+                    return RetryConnectionResult.RequireNewSession(
+                        reason = "대화 문맥을 복구할 수 없어 새 대화 세션이 필요합니다."
+                    )
+                }
+            )
 
-        val prompt = buildPromptUseCase(
-            langCode = userPref.selectedLang,
-            langState = langState,
-            recentFullContext = recentFullContext
-        )
+        val prompt = runCatching {
+            buildPromptUseCase(
+                langCode = userPref.selectedLang,
+                langState = langState,
+                recentFullContext = recentFullContext
+            )
+        }.getOrElse {
+            return RetryConnectionResult.RequireNewSession(
+                reason = "복구용 프롬프트를 만들 수 없어 새 대화 세션이 필요합니다."
+            )
+        }
 
         return repository.reconnectSession(prompt)
+            .fold(
+                onSuccess = { RetryConnectionResult.Reconnected(activeSessionID) },
+                onFailure = {
+                    RetryConnectionResult.Failed(
+                        message = it.message ?: "다시 연결할 수 없습니다."
+                    )
+                }
+            )
     }
 }

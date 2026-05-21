@@ -1,5 +1,6 @@
 package com.example.umma.data.repository
 
+import android.util.Log
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.realtime.AIEvent
@@ -220,7 +221,10 @@ class ChatRepositoryImpl @Inject constructor(
         message.inputTranscription?.text
             ?.takeIf { it.isNotBlank() }
             ?.let { text ->
-                userTranscriptBuffer = text
+                Log.d("ChatRepository", "USER partial text=$text")
+                Log.d("ChatRepository", "USER partial previousBuffer=$userTranscriptBuffer")
+                userTranscriptBuffer += text
+                Log.d("ChatRepository", "USER partial updatedBuffer=$userTranscriptBuffer")
                 _events.emit(
                     AIEvent.PartialTranscription(
                         text = text,
@@ -233,7 +237,12 @@ class ChatRepositoryImpl @Inject constructor(
         message.outputTranscription?.text
             ?.takeIf { it.isNotBlank() }
             ?.let { text ->
-                aiTranscriptionBuffer = text
+                Log.d("ChatRepository", "AI partial incoming=$text")
+                Log.d("ChatRepository", "AI partial previousBuffer=$aiTranscriptionBuffer")
+
+                aiTranscriptionBuffer += text
+
+                Log.d("ChatRepository", "AI partial updatedBuffer=$aiTranscriptionBuffer")
                 _events.emit(
                     AIEvent.PartialTranscription(
                         text = text,
@@ -268,6 +277,10 @@ class ChatRepositoryImpl @Inject constructor(
         val sessionLang = currentLang ?: return
 
         if (userTranscriptBuffer.isNotBlank()) {
+            Log.d(
+                "ChatRepository",
+                "turnComplete userBuffer=$userTranscriptBuffer aiBuffer=$aiTranscriptionBuffer"
+            )
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = userTranscriptBuffer,
@@ -278,6 +291,10 @@ class ChatRepositoryImpl @Inject constructor(
         }
 
         if (aiTranscriptionBuffer.isNotBlank()) {
+            Log.d(
+                "ChatRepository",
+                "turnComplete userBuffer=$userTranscriptBuffer aiBuffer=$aiTranscriptionBuffer"
+            )
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = aiTranscriptionBuffer,
