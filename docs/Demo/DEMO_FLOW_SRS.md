@@ -1,105 +1,120 @@
 # Demo Scenario — FLOW-SRS
 
-> 2차 스프린트 종료 시점에 시연 가능해야 할 흐름의 TODO 시나리오.
-> 기본은 Real 바인딩 (Correction에서 저장된 Flashcard 또는 시드 deck + Android `TextToSpeech`).
-> due 없음 / deck 로드 실패 / 저장 실패 / TTS 실패 분기는 Mock fixture로 시연.
+> 2차 스프린트 종료 시점에 시연 가능해야 할 흐름. 사용자 여정 관점으로 묶어 애자일 스프린트 작업 배정 단위로도 사용.
+> 이슈 단위(SRS-001~006) AC 체크리스트는 `docs/User_FlowDB/FLOW_SRS/` 의 이슈 문서를 참조한다.
+>
+> 각 시나리오 = 한 명(또는 한 페어)이 스프린트 안에 완결할 수 있는 유저 가치 한 덩어리.
+> 시나리오는 의존성 순서로 배열되어 있어 위에서 아래로 차곡차곡 쌓아 올릴 수 있다.
 >
 > **사전 준비 사항 (스프린트 작업 항목)**
-> - Real 계정: 현재 선택 언어의 due Flashcard 3개 이상 시드된 상태 (Correction 데모 직후 자연스럽게 충족 가능).
-> - Mock 토글: `FlashcardRepository` fake 구현 + `FakeFixtures` (Empty / Error / SaveFailure / PendingSync) — 현재 미존재, DASH 스타일 `RepositoryModule` 토글 추가 필요.
-> - TTS: 실기기에 한국어/영어/일본어 등 데모 언어 TTS 엔진 설치 사전 확인. 미설치 시 시나리오 8 분기로 시연.
-> - Mock fixture가 필요한 시나리오: 5·6·7. 그 외는 Real로 시연.
-> - 발표 후 Real 바인딩으로 원복.
+> - Real 계정: 현재 선택 언어의 due Flashcard 3개 이상 시드된 상태 (Correction 데모 직후 자연스럽게 충족 가능)
+> - Mock 토글: `FlashcardRepository` fake 구현 + `FakeFixtures` (Empty / Error / SaveFailure / PendingSync) — 현재 미존재, DASH 스타일 `RepositoryModule` 토글 추가 필요
+> - TTS: 실기기에 한국어 / 영어 / 일본어 등 데모 언어 TTS 엔진 설치 사전 확인. 미설치 시 시나리오 2 의 실패 분기로 자연스럽게 시연 가능
+> - Mock fixture 가 필요한 분기: 시나리오 1·2·3 의 실패 분기. happy path 와 시나리오 4 는 Real 로 시연
+> - 발표 후 Real 바인딩으로 원복
 
 ---
 
-## 시나리오 1 — SrsStudy 진입 + 카드 학습 (SRS-001 / SRS-002 / SRS-003)
+## 시나리오 1 — 카드 한 장 보고 평가해서 다음 카드로 넘어가기 (단일 사이클)
 
-1. Dashboard에서 "Flashcard 학습" 카드 클릭 (due 수치 표시 확인)
-2. SrsStudy 화면 진입 → Loading 노출
-3. 현재 선택 언어의 due deck 로드 완료 → 첫 카드 앞면 표시 (Content)
-4. 앞면: 모국어 문장 표시 확인
-5. 카드 탭하여 뒤집기 → 뒷면: 교정된 외국어 문장 + 짧은 설명 + (있으면) hint 표시
-6. 뒷면 → 앞면 다시 뒤집기 동작 확인
-7. 빠른 연속 탭으로 중복 Navigation/flip이 발생하지 않는지 확인
+> **무엇을 하는가** — SrsStudy 에 들어가 due Flashcard 덱을 받고, 첫 카드 앞면 → 뒷면 → 4단계 평가 → 다음 카드까지 한 사이클이 완결된다.
+> **유저 가치** — 반복학습 흐름이 "한 번 돌아간다"는 가장 작은 단위. 이게 동작하지 않으면 덱 완주 / 복귀 같은 뒤 시나리오는 의미가 없다.
+
+**포함 이슈**
+- `SRS-001` — 반복학습 진입 + 언어 컨텍스트 (현재 선택 언어 기준 초기화, 중복 Navigation 방지)
+- `SRS-002` — 복습 카드 덱 로드 (현재 언어의 due Flashcard 만 정렬된 상태로 조회)
+- `SRS-003` — 카드 앞/뒤 표시 + 뒤집기 (앞면 모국어 / 뒷면 외국어 + 설명 + hint, flip state 카드별 분리)
+- `SRS-005` — 복습 평가 + 스케줄 반영 (SM-2 기반 4단계 평가 + interval / easeFactor / nextReviewAt 갱신 + local first 저장)
+
+**의존성**: FLOW-CORRECTION 시나리오 2 (새 Flashcard 최초 저장). 학습할 카드가 한 장도 없으면 시연 자체가 불가능.
+**예상 규모**: L — UI 사이클 + SM-2 기반 `ReviewSchedulePolicy` + local 저장이 한 사이클로 묶이는 단위.
+
+**데모 흐름**
+1. Dashboard "Flashcard 학습" 카드 클릭 → SrsStudy 화면 진입 (Loading)
+2. 현재 선택 언어의 due deck 로드 완료 → 첫 카드 앞면(모국어 문장) 표시
+3. 카드를 탭하여 뒤집기 → 뒷면(교정된 외국어 문장 + 짧은 설명, 있으면 hint) 표시
+4. `Good` 평가 → interval / easeFactor / nextReviewAt 갱신, local first 저장 (Saving)
+5. 저장 성공 → 다음 카드로 자동 이동, flip state 초기화
+6. 두 번째 카드는 `Again` 선택 → 당일 재노출 큐로 남는지 확인 (interval = 0)
+7. 세 번째 카드는 `Easy` 선택 → 더 긴 interval 로 갱신되는지 logcat 으로 확인
+
+**핵심 분기**
+- **성공**: 단일 사이클이 깨끗하게 닫히고, 4단계 평가가 의도대로 interval / easeFactor 에 반영된다.
+- **due 0개 (`SRS-002` Empty)**: Empty 상태와 Dashboard 복귀 CTA 가 표시된다.
+- **deck 로드 실패 (`SRS-002` Error)**: Error + Retry. 정상으로 토글 후 재시도 시 deck 정상 로드.
+- **평가 저장 실패 (`SRS-005` Retry)**: Retry 상태로 남고 다음 카드로 넘어가지 않는다. 현재 카드 유지.
 
 ---
 
-## 시나리오 2 — 발음 재생 (SRS-004)
+## 시나리오 2 — 발음 들으며 학습
 
-1. 시나리오 1에서 카드 뒷면 표시 상태
-2. speaker 버튼 탭 → 외국어 문장 TTS 재생 (Speaking)
-3. 재생 중 speaker 버튼 연속 탭 → 중복 재생 없이 안전 처리
-4. 재생 완료 후 버튼 상태 원복 (Ready)
+> **무엇을 하는가** — 카드 뒷면에서 speaker 버튼을 누르면 외국어 문장이 TTS 로 재생되어 표기와 발음을 함께 학습한다.
+> **유저 가치** — 글로만 보는 학습이 아니라 청각이 더해진 다감각 학습. MVP 에서는 Android 기본 `TextToSpeech` 만 사용.
+
+**포함 이슈**
+- `SRS-004` — 발음 재생 (Android `TextToSpeech` 호출, 재생 상태 피드백, 카드 저장/평가와 독립적 동작)
+
+**의존성**: 시나리오 1 — 카드 뒷면이 먼저 떠 있어야 speaker 버튼이 의미를 가진다.
+**예상 규모**: S — TTS 호출 + 재생 상태 관리 + 중복 탭 처리 정도.
+
+**데모 흐름**
+1. 시나리오 1 에서 카드 뒷면이 표시된 상태
+2. speaker 버튼 탭 → 외국어 문장 TTS 재생 시작 (Speaking)
+3. 재생 중 버튼을 연속으로 탭해도 중복 재생 없이 안전 처리되는지 확인
+4. 재생 완료 후 버튼 상태가 원복되고, 카드 학습 / 평가 흐름은 별개로 정상 진행 가능
 5. 다음 카드로 넘어가도 이전 카드의 재생 상태가 누수되지 않는지 확인
 
----
-
-## 시나리오 3 — 4단계 평가 + 다음 카드 (SRS-005 / SRS-006)
-
-1. 카드 뒷면에서 `Good` 버튼 탭 (Grading)
-2. `ReviewSchedulePolicy`로 interval / easeFactor / nextReviewAt 갱신 → local first 저장 (Saving)
-3. 저장 성공 → 다음 카드로 자동 이동, 새 카드는 앞면 + flip state 초기화 상태 (Success)
-4. 같은 버튼을 빠르게 두 번 눌렀을 때 1회만 적용 확인 (logcat `duplicate blocked`)
-5. 두 번째 카드는 `Again` 탭 → 당일 재노출 큐로 남는지 확인 (interval = 0)
-6. 세 번째 카드는 `Easy` 탭 → 더 긴 interval로 갱신되는지 확인 (logcat에서 갱신 값 출력)
+**핵심 분기**
+- **성공**: 발음 재생이 카드 데이터 저장 / 평가 로직과 독립적으로 동작한다.
+- **TTS 엔진 미설치 / 언어 미지원 (`SRS-004` Edge)**: 재생 실패가 학습 전체를 막지 않는다. 화면이 깨지지 않고 카드 학습은 그대로 진행 가능.
+- **카드 전환 중 재생 시작 (`SRS-004` Edge)**: 다음 카드로 자연스럽게 이어지거나 안전하게 중단된다.
 
 ---
 
-## 시나리오 4 — 덱 완료 + Dashboard 복귀 (SRS-006)
+## 시나리오 3 — 덱 끝까지 학습하고 Dashboard 복귀
 
-1. 마지막 카드 평가 후 저장 완료 → 완료 상태 화면 표시 (Done)
-2. Dashboard 복귀 CTA 클릭 → Dashboard로 이동
-3. Flashcard 학습 카드의 due 수치가 평가 결과에 따라 최신 상태로 갱신됨 확인
-4. 학습 카드 색상/Empty 상태 갱신도 함께 반영
+> **무엇을 하는가** — 마지막 카드까지 평가를 끝낸 사용자가 완료 상태를 보고 Dashboard 로 자연스럽게 복귀하며, Summary 수치 갱신을 눈으로 확인한다.
+> **유저 가치** — "한 세션을 끝냈다"는 만족감과 함께, 다음 학습 사이클로 돌아가는 출발점을 다시 만들어 준다.
 
----
+**포함 이슈**
+- `SRS-006` — 완료 / 복귀 / 동기화 (마지막 카드 저장 → 완료 상태 → FlashcardSummary · DashSummary 갱신 관찰 → Firestore background sync pending 비차단)
 
-## 시나리오 5 — due 카드 없음 → Empty (SRS-002 Empty)
+**의존성**: 시나리오 1
+**예상 규모**: S~M — 완료 상태 화면 + Dashboard 복귀 CTA + Summary 관찰 연결.
 
-> Mock 토글 필요: `FakeFixtures.emptyDeck`
+**데모 흐름**
+1. 시나리오 1 흐름으로 마지막 카드까지 평가 완료
+2. 저장 성공 → 완료 상태 화면 표시 (Done)
+3. Dashboard 복귀 CTA 클릭 → Dashboard 로 이동
+4. Flashcard 학습 카드의 due 수치가 평가 결과에 따라 최신화되었는지 확인
+5. 카드 색상 / Empty 상태가 함께 반영되는지 확인
 
-1. Dashboard에서 SrsStudy 진입 시도
-2. due Flashcard 0개 → Empty 상태 표시 (Empty)
-3. Dashboard 복귀 CTA 또는 자연스러운 안내 노출
-
----
-
-## 시나리오 6 — 평가 저장 실패 → Retry (SRS-005 Retry)
-
-> Mock 토글 필요: `FakeFixtures.saveReviewFailure`
-
-1. 시나리오 3 흐름 + 평가 버튼 클릭
-2. 저장 실패 응답 수신 (Saving → Retry)
-3. 화면은 현재 카드 그대로 유지, 다음 카드로 넘어가지 않음
-4. 재시도 액션 노출 → 클릭 시 동일 입력으로 재저장, 성공 시 다음 카드 이동
+**핵심 분기**
+- **성공**: Done → Dashboard, Summary 즉시 갱신.
+- **Firestore sync 실패 (`SRS-006` PendingSync)**: 로컬 완료는 성공으로 유지되고, 사용자에게 차단되지 않는다.
+- **마지막 카드 저장 직후 앱 종료 (`SRS-006` Edge)**: 다음 진입 시 진행 상태가 깨지지 않는다.
 
 ---
 
-## 시나리오 7 — deck 로드 실패 → Retry (SRS-002 Error)
+## 시나리오 4 — 중간에 멈췄다가 다시 와도 이어 학습
 
-> Mock 토글 필요: `FakeFixtures.deckLoadFailure`
+> **무엇을 하는가** — 학습 도중 화면을 떠나거나 앱을 잠시 닫아도, 다시 들어왔을 때 현재 선택 언어와 진행 상태가 안전하게 복원되어 자연스럽게 이어 학습 가능.
+> **유저 가치** — 실제 사용에서는 학습 도중 다른 일이 끼어드는 게 흔하다. 끊겼다 돌아왔을 때 처음부터 다시 해야 하면 학습 흐름이 깨진다.
 
-1. SrsStudy 진입 → deck 조회 실패 (Loading → Error)
-2. 재시도 액션 노출 (Error + Retry)
-3. fixture를 정상으로 토글한 뒤 재시도 → 정상 deck 로드 (Success)
+**포함 이슈**
+- `SRS-006` 재진입 복원 정책 — 현재 선택 언어 / 진행 중이던 세션 상태 복원
+- `SRS-001` 중복 진입 / 초기화 방지 — 빠른 연속 진입 시 중복 Navigation 차단
 
----
+**의존성**: 시나리오 3
+**예상 규모**: S — 복원 정책과 중복 방지 위주.
 
-## 시나리오 8 — TTS 미지원/실패 (SRS-004 Edge)
+**데모 흐름**
+1. 시나리오 1 진행 중 일부 카드 평가 완료 상태에서 뒤로가기로 화면 이탈
+2. Dashboard 에서 Flashcard 학습 카드 다시 클릭 → SrsStudy 재진입
+3. 현재 선택 언어 기준 deck 을 다시 로드 → 이미 평가한 카드는 제외된 상태로 시작
+4. 진입 중 중복 Navigation 이 발생하지 않는지 확인
 
-> Real 환경: TTS 엔진이 설치되지 않은 디바이스 또는 현재 언어 미지원 상태로 재현. (실기기 준비가 어려우면 Mock에서 TTS 실패 fixture로 대체)
-
-1. 카드 뒷면 표시 → speaker 버튼 탭
-2. TTS 호출 실패 → 화면은 깨지지 않고 안전 처리 (Error)
-3. 카드 학습/평가 흐름은 정상 진행 가능 (재생 실패가 학습 전체를 막지 않음)
-
----
-
-## 시나리오 9 — 학습 중 이탈 + 재진입 (SRS-006 복원)
-
-1. 시나리오 3 진행 중 (3번째 카드까지 평가 완료) 뒤로가기로 화면 이탈
-2. Dashboard에서 다시 Flashcard 학습 카드 클릭
-3. 진입 시 현재 선택 언어 기준 deck 다시 로드 → 이미 평가한 카드는 제외된 상태로 시작 (Success)
-4. 직전 진행이 그대로 이어지는지 (또는 정책상 재정렬되어도 모순 없는지) 확인
-5. 진입 중 중복 Navigation 발생하지 않음
+**핵심 분기**
+- **성공**: 진행 상태 깨짐 없이 자연스럽게 이어 학습 가능.
+- **진행 인덱스 누락 (`SRS-006` Edge)**: 정책상 재정렬되더라도 모순 없는 상태로 복원된다.
+- **언어 변경 후 재진입 (`SRS-001` × DASH-006)**: 이전 언어의 deck 이 새 언어 화면에 남지 않는다.
