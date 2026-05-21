@@ -1,9 +1,11 @@
 package com.example.umma.data.repository
 
+import android.util.Log
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.realtime.AIEvent
 import com.example.umma.domain.model.realtime.AIState
+import com.example.umma.domain.model.realtime.SessionInterruptedReason
 import com.example.umma.domain.repository.ChatRepository
 import com.google.firebase.ai.FirebaseAI
 import com.google.firebase.ai.type.AudioTranscriptionConfig
@@ -18,12 +20,16 @@ import com.google.firebase.ai.type.PublicPreviewAPI
 import com.google.firebase.ai.type.ResponseModality
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.liveGenerationConfig
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -38,6 +44,18 @@ import kotlinx.coroutines.sync.withLock
 class ChatRepositoryImpl @Inject constructor(
     private val firebaseAI: FirebaseAI
 ) : ChatRepository {
+
+    constructor(
+        firebaseAI: FirebaseAI,
+        reconnectPolicy: ReconnectPolicy
+    ) : this(firebaseAI) {
+        this.reconnectPolicy = reconnectPolicy
+    }
+
+    /**
+     * 자동 재연결 시도 정책입니다.
+     */
+    private var reconnectPolicy: ReconnectPolicy = ReconnectPolicy()
 
     /**
      * 세션 동시 접근을 직렬화하기 위한 mutex 입니다.
@@ -63,7 +81,17 @@ class ChatRepositoryImpl @Inject constructor(
     /**
      * 실시간 서버 이벤트 수신용 스코프입니다.
      */
-    private var scope: CoroutineScope? = null
+    private var receiveScope: CoroutineScope? = null
+
+    /**
+     * 자동 재연결 job 입니다.
+     */
+    private var reconnectJob: Job? = null
+
+    /**
+     * 자동 재연결 job 이 사용할 repository 생명주기 스코프입니다.
+     */
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * 외부에 전파할 AI 이벤트 스트림입니다.
@@ -105,40 +133,60 @@ class ChatRepositoryImpl @Inject constructor(
             }
 
             try {
-                stopInternal()
+                stopInternal(clearAppSession = true)
                 _events.emit(AIEvent.Initializing)
 
-                val liveModel = firebaseAI.liveModel(
-                    modelName = "gemini-3.1-flash-live-preview",
-                    systemInstruction = content { text(systemInstruction) },
-                    generationConfig = liveGenerationConfig {
-                        responseModality = ResponseModality.AUDIO
-                        inputAudioTranscription = AudioTranscriptionConfig()
-                        outputAudioTranscription = AudioTranscriptionConfig()
-                    }
-                )
-
-                val newSession = liveModel.connect()
                 val newSessionId = UUID.randomUUID().toString()
 
-                session = newSession
-                activeSessionId = newSessionId
-                currentSystemInstruction = systemInstruction
-                currentLang = langCode
-                turnSequence = 0L
-
-                scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-                scope?.launch {
-                    newSession.receive().collect { message ->
-                        handleServerMessage(message)
-                    }
-                }
-
+                connectLiveTransport(
+                    langCode = langCode,
+                    systemInstruction = systemInstruction,
+                    sessionId = newSessionId,
+                    resetTurnSequence = true
+                )
                 _events.emit(AIEvent.Initialized(newSessionId))
                 Result.success(newSessionId)
             } catch (error: Exception) {
-                stopInternal()
+                stopInternal(clearAppSession = true)
                 _events.emit(AIEvent.Error(error.message ?: "Connection Failed"))
+                Result.failure(error)
+            }
+        }
+    }
+
+    override suspend fun reconnectSession(systemInstruction: String): Result<String> {
+        return sessionMutex.withLock {
+            val sessionId = activeSessionId
+                ?: return Result.failure(IllegalStateException("Active session not found"))
+            val langCode = currentLang
+                ?: return Result.failure(IllegalStateException("Session language not found"))
+
+            try {
+                reconnectJob?.cancel()
+                reconnectJob = null
+
+                clearTranscriptBuffers()
+                closeLiveTransport()
+                _events.emit(AIEvent.StateChanged(AIState.RECONNECTING))
+
+                connectLiveTransport(
+                    langCode = langCode,
+                    systemInstruction = systemInstruction,
+                    sessionId = sessionId,
+                    resetTurnSequence = false
+                )
+
+                _events.emit(AIEvent.Reconnected(sessionId))
+                _events.emit(AIEvent.StateChanged(AIState.IDLE))
+                Result.success(sessionId)
+            } catch (error: Exception) {
+                closeLiveTransport()
+                _events.emit(
+                    AIEvent.ReconnectFailed(
+                        message = error.message ?: "재연결에 실패했습니다.",
+                        recoverable = true
+                    )
+                )
                 Result.failure(error)
             }
         }
@@ -155,11 +203,9 @@ class ChatRepositoryImpl @Inject constructor(
             is LiveServerContent -> handleServerContent(message)
             is LiveServerSetupComplete -> _events.emit(AIEvent.StateChanged(AIState.IDLE))
             is LiveServerGoAway -> {
-                _events.emit(AIEvent.StateChanged(AIState.RECONNECTING))
-                _events.emit(
-                    AIEvent.SessionInterrupted(
-                        message = "Live Session interrupted by server"
-                    )
+                beginAutomaticReconnect(
+                    reason = SessionInterruptedReason.SERVER_GO_AWAY,
+                    message = "Live Session interrupted by server"
                 )
             }
         }
@@ -175,7 +221,10 @@ class ChatRepositoryImpl @Inject constructor(
         message.inputTranscription?.text
             ?.takeIf { it.isNotBlank() }
             ?.let { text ->
-                userTranscriptBuffer = text
+                Log.d("ChatRepository", "USER partial text=$text")
+                Log.d("ChatRepository", "USER partial previousBuffer=$userTranscriptBuffer")
+                userTranscriptBuffer += text
+                Log.d("ChatRepository", "USER partial updatedBuffer=$userTranscriptBuffer")
                 _events.emit(
                     AIEvent.PartialTranscription(
                         text = text,
@@ -188,7 +237,12 @@ class ChatRepositoryImpl @Inject constructor(
         message.outputTranscription?.text
             ?.takeIf { it.isNotBlank() }
             ?.let { text ->
-                aiTranscriptionBuffer = text
+                Log.d("ChatRepository", "AI partial incoming=$text")
+                Log.d("ChatRepository", "AI partial previousBuffer=$aiTranscriptionBuffer")
+
+                aiTranscriptionBuffer += text
+
+                Log.d("ChatRepository", "AI partial updatedBuffer=$aiTranscriptionBuffer")
                 _events.emit(
                     AIEvent.PartialTranscription(
                         text = text,
@@ -223,6 +277,10 @@ class ChatRepositoryImpl @Inject constructor(
         val sessionLang = currentLang ?: return
 
         if (userTranscriptBuffer.isNotBlank()) {
+            Log.d(
+                "ChatRepository",
+                "turnComplete userBuffer=$userTranscriptBuffer aiBuffer=$aiTranscriptionBuffer"
+            )
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = userTranscriptBuffer,
@@ -233,6 +291,10 @@ class ChatRepositoryImpl @Inject constructor(
         }
 
         if (aiTranscriptionBuffer.isNotBlank()) {
+            Log.d(
+                "ChatRepository",
+                "turnComplete userBuffer=$userTranscriptBuffer aiBuffer=$aiTranscriptionBuffer"
+            )
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = aiTranscriptionBuffer,
@@ -289,12 +351,177 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     /**
-     * 내부 세션 상태를 정리합니다.
+     * Live transport 를 연결하고 receive collector 를 시작합니다.
+     *
+     * @param langCode 현재 대화 학습 언어
+     * @param systemInstruction Live session 에 전달할 system prompt
+     * @param sessionId 유지할 앱 레벨 세션 ID
+     * @param resetTurnSequence 새 대화 시작 여부
      */
     @OptIn(PublicPreviewAPI::class)
-    private suspend fun stopInternal() {
-        scope?.cancel()
-        scope = null
+    private suspend fun connectLiveTransport(
+        langCode: LangCode,
+        systemInstruction: String,
+        sessionId: String,
+        resetTurnSequence: Boolean
+    ) {
+        val liveModel = firebaseAI.liveModel(
+            modelName = "gemini-3.1-flash-live-preview",
+            systemInstruction = content { text(systemInstruction) },
+            generationConfig = liveGenerationConfig {
+                responseModality = ResponseModality.AUDIO
+                inputAudioTranscription = AudioTranscriptionConfig()
+                outputAudioTranscription = AudioTranscriptionConfig()
+            }
+        )
+
+        val newSession = liveModel.connect()
+
+        session = newSession
+        activeSessionId = sessionId
+        currentSystemInstruction = systemInstruction
+        currentLang = langCode
+        if (resetTurnSequence) {
+            turnSequence = 0L
+        }
+
+        startReceiveLoop(newSession)
+    }
+
+    /**
+     * Live server message 수신 loop 를 시작합니다.
+     *
+     * @param liveSession 수신 대상 Live session
+     */
+    @OptIn(PublicPreviewAPI::class)
+    private fun startReceiveLoop(liveSession: LiveSession) {
+        receiveScope?.cancel()
+        receiveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        receiveScope?.launch {
+            try {
+                liveSession.receive().collect { message ->
+                    handleServerMessage(message)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                beginAutomaticReconnect(
+                    reason = classifyReceiveException(error),
+                    message = error.message ?: "Live stream interrupted"
+                )
+            }
+        }
+    }
+
+    /**
+     * 자동 재연결을 시작합니다.
+     *
+     * @param reason 중단 원인
+     * @param message 사용자에게 전달할 메시지
+     */
+    private suspend fun beginAutomaticReconnect(
+        reason: SessionInterruptedReason,
+        message: String
+    ) {
+        if (reconnectJob?.isActive == true) return
+
+        val sessionId = activeSessionId
+        val langCode = currentLang
+        val systemInstruction = currentSystemInstruction
+
+        if (sessionId == null || langCode == null || systemInstruction == null) {
+            _events.emit(
+                AIEvent.ReconnectFailed(
+                    message = "복구할 세션 정보가 없습니다.",
+                    recoverable = false
+                )
+            )
+            return
+        }
+
+        clearTranscriptBuffers()
+        _events.emit(AIEvent.StateChanged(AIState.RECONNECTING))
+
+        reconnectJob = repositoryScope.launch {
+            var lastError: Throwable? = null
+
+            for (attempt in 1..reconnectPolicy.maxAttempts) {
+                _events.emit(
+                    AIEvent.SessionInterrupted(
+                        reason = reason,
+                        attempt = attempt,
+                        maxAttempts = reconnectPolicy.maxAttempts,
+                        recoverable = true,
+                        message = message
+                    )
+                )
+
+                delay(reconnectPolicy.delayMillisFor(attempt))
+
+                val result = sessionMutex.withLock {
+                    runCatching {
+                        closeLiveTransport()
+                        connectLiveTransport(
+                            langCode = langCode,
+                            systemInstruction = systemInstruction,
+                            sessionId = sessionId,
+                            resetTurnSequence = false
+                        )
+                    }
+                }
+
+                if (result.isSuccess) {
+                    _events.emit(AIEvent.Reconnected(sessionId))
+                    _events.emit(AIEvent.StateChanged(AIState.IDLE))
+                    reconnectJob = null
+                    return@launch
+                }
+
+                lastError = result.exceptionOrNull()
+                sessionMutex.withLock {
+                    closeLiveTransport()
+                }
+            }
+
+            _events.emit(
+                AIEvent.ReconnectFailed(
+                    message = lastError?.message ?: "자동 재연결에 실패했습니다.",
+                    recoverable = true
+                )
+            )
+            reconnectJob = null
+        }
+    }
+
+    /**
+     * receive exception 을 중단 원인으로 분류합니다.
+     *
+     * @param error 수신 중 발생한 예외
+     * @return 세션 중단 원인
+     */
+    private fun classifyReceiveException(error: Exception): SessionInterruptedReason {
+        return if (error is IOException) {
+            SessionInterruptedReason.NETWORK_ERROR
+        } else {
+            SessionInterruptedReason.STREAM_ERROR
+        }
+    }
+
+    /**
+     * partial transcript buffer 를 정리합니다.
+     */
+    private fun clearTranscriptBuffers() {
+        userTranscriptBuffer = ""
+        aiTranscriptionBuffer = ""
+    }
+
+    /**
+     * Live transport 만 정리합니다.
+     */
+    @OptIn(PublicPreviewAPI::class)
+    private suspend fun closeLiveTransport() {
+        receiveScope?.cancel()
+        receiveScope = null
 
         session?.let { currentSession ->
             if (!currentSession.isClosed()) {
@@ -303,11 +530,25 @@ class ChatRepositoryImpl @Inject constructor(
         }
 
         session = null
+        clearTranscriptBuffers()
+    }
+
+    /**
+     * 내부 세션 상태를 정리합니다.
+     *
+     * @param clearAppSession 앱 레벨 세션 정보까지 정리할지 여부
+     */
+    private suspend fun stopInternal(clearAppSession: Boolean) {
+        reconnectJob?.cancel()
+        reconnectJob = null
+
+        closeLiveTransport()
+
+        if (!clearAppSession) return
+
         activeSessionId = null
         currentSystemInstruction = null
         currentLang = null
-        userTranscriptBuffer = ""
-        aiTranscriptionBuffer = ""
         turnSequence = 0L
     }
 
@@ -329,6 +570,23 @@ class ChatRepositoryImpl @Inject constructor(
     override fun getActiveSessionId(): String? = activeSessionId
 
     override suspend fun stopSession() = sessionMutex.withLock {
-        stopInternal()
+        stopInternal(clearAppSession = true)
+    }
+}
+
+/**
+ * RT-004 자동 재연결 정책입니다.
+ */
+data class ReconnectPolicy(
+    val maxAttempts: Int = 3,
+    val delaysMillis: List<Long> = listOf(500L, 1_500L, 3_000L)
+) {
+    /**
+     * [attempt]에 해당하는 delay 를 반환합니다.
+     */
+    fun delayMillisFor(attempt: Int): Long {
+        return delaysMillis.getOrElse((attempt - 1).coerceAtLeast(0)) {
+            delaysMillis.lastOrNull() ?: 0L
+        }
     }
 }

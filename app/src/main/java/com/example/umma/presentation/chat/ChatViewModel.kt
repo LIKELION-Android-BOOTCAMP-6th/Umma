@@ -9,26 +9,28 @@ import com.example.umma.domain.model.audio.AudioInputFrame
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.realtime.AIEvent
 import com.example.umma.domain.model.realtime.AIState
-import com.example.umma.domain.model.user.Topic
-import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.model.realtime.AppendTurnCommand
 import com.example.umma.domain.model.realtime.SessionTurn
+import com.example.umma.domain.model.user.Topic
+import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.usecase.chat.ObserveAIEventUseCase
+import com.example.umma.domain.usecase.chat.RetryConnectionResult
+import com.example.umma.domain.usecase.chat.RetryConnectionUseCase
 import com.example.umma.domain.usecase.chat.SendAudioDataUseCase
 import com.example.umma.domain.usecase.chat.StartSessionUseCase
 import com.example.umma.domain.usecase.chat.StopSessionUseCase
+import com.example.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.example.umma.domain.usecase.user.GetUserProfileUseCase
 import com.example.umma.domain.usecase.user.SaveInterestTopicsUseCase
-import com.example.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.example.umma.presentation.util.calculateLevel
 import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 /**
  * AI Chat 실시간 대화 상태를 관리하는 ViewModel 입니다.
@@ -36,6 +38,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val startSessionUseCase: StartSessionUseCase,
+    private val retryConnectionUseCase: RetryConnectionUseCase,
     private val observeAIEventUseCase: ObserveAIEventUseCase,
     private val sendAudioDataUseCase: SendAudioDataUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
@@ -79,6 +82,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             if (_uiState.value.sessionState == SessionState.LOADING) return@launch
 
+            startObservingAIEvents()
+
             _uiState.update {
                 it.copy(
                     sessionState = SessionState.LOADING,
@@ -87,8 +92,8 @@ class ChatViewModel @Inject constructor(
             }
 
             startSessionUseCase()
-                .onSuccess {
-                    startObservingAIEvents()
+                .onSuccess { sessionId ->
+                    handleSessionStarted(sessionId)
                     audioPlayer.startPlaying()
                 }
                 .onFailure { error ->
@@ -101,6 +106,49 @@ class ChatViewModel @Inject constructor(
                     }
                 }
         }
+    }
+
+    /**
+     * startSession 성공 반환값만으로도 READY 상태를 확정합니다.
+     *
+     * Initialized 이벤트를 늦게 받거나 놓쳐도 UI가 LOADING에 남지 않도록 합니다.
+     */
+    private fun handleSessionStarted(sessionId: String) {
+        _uiState.update {
+            it.copy(
+                sessionState = SessionState.READY,
+                aiState = AIState.IDLE,
+                activeSessionId = sessionId,
+                didFallbackToNewSession = false,
+                fallbackMessage = null,
+                reconnectAttempt = 0,
+                maxReconnectAttempts = 0,
+                isRecoverableError = false,
+                microphonePermissionDenied = false,
+                errorMessage = null
+            )
+        }
+    }
+
+    /**
+     * 사용자 발화 turn 녹음을 시작합니다.
+     */
+    fun startUserTurn(hasRecordAudioPermission: Boolean) {
+        if (!hasRecordAudioPermission) {
+            _uiState.update {
+                it.copy(
+                    microphonePermissionDenied = true,
+                    errorMessage = "마이크 권한이 필요합니다."
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(microphonePermissionDenied = false)
+        }
+
+        beginUserTurn()
     }
 
     /**
@@ -134,11 +182,114 @@ class ChatViewModel @Inject constructor(
                         inputLevel = 0f,
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
+                        isRecoverableError = false,
                         errorMessage = error.message ?: "Failed to record audio"
                     )
                 }
             }
         }
+    }
+
+    /**
+     * 같은 앱 세션으로 Live transport 재연결을 수동 재시도합니다.
+     */
+    fun retryConnection() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    sessionState = SessionState.RECONNECTING,
+                    aiState = AIState.RECONNECTING,
+                    isRecoverableError = false,
+                    didFallbackToNewSession = false,
+                    fallbackMessage = null,
+                    errorMessage = null
+                )
+            }
+
+            when (val result = retryConnectionUseCase()) {
+                is RetryConnectionResult.Reconnected -> {
+                    _uiState.update {
+                        it.copy(
+                            sessionState = SessionState.READY,
+                            aiState = AIState.IDLE,
+                            activeSessionId = result.sessionId,
+                            reconnectAttempt = 0,
+                            maxReconnectAttempts = 0,
+                            isRecoverableError = false,
+                            didFallbackToNewSession = false,
+                            fallbackMessage = null,
+                            errorMessage = null
+                        )
+                    }
+                }
+
+                is RetryConnectionResult.Failed -> {
+                    _uiState.update {
+                        it.copy(
+                            sessionState = SessionState.ERROR,
+                            aiState = AIState.ERROR,
+                            isRecoverableError = true,
+                            didFallbackToNewSession = false,
+                            fallbackMessage = null,
+                            errorMessage = result.message
+                        )
+                    }
+                }
+
+                is RetryConnectionResult.RequireNewSession -> {
+                    fallbackToNewSession(result.reason)
+                }
+            }
+        }
+    }
+
+
+    /**
+     * 같은 앱 세션 복구가 불가능할 때 새 세션으로 전환합니다.
+     * */
+    private suspend fun fallbackToNewSession(reason: String) {
+        stopSessionUseCase()
+
+        _uiState.update {
+            it.copy(
+                sessionState = SessionState.LOADING,
+                aiState = AIState.IDLE,
+                isRecoverableError = false,
+                didFallbackToNewSession = false,
+                fallbackMessage = null,
+                errorMessage = null
+            )
+        }
+
+        startSessionUseCase()
+            .onSuccess { sessionId ->
+                audioPlayer.startPlaying()
+                _uiState.update {
+                    it.copy(
+                        sessionState = SessionState.READY,
+                        aiState = AIState.IDLE,
+                        activeSessionId = sessionId,
+                        reconnectAttempt = 0,
+                        maxReconnectAttempts = 0,
+                        isRecoverableError = false,
+                        didFallbackToNewSession = true,
+                        fallbackMessage = "이전 연결 복구에 실패하여 새 대화 세션으로 전환되었습니다.",
+                        errorMessage = null
+                    )
+                }
+            }
+            .onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        sessionState = SessionState.ERROR,
+                        aiState = AIState.ERROR,
+                        isRecoverableError = false,
+                        didFallbackToNewSession = false,
+                        fallbackMessage = null,
+                        errorMessage = error.message ?: reason
+                    )
+                }
+            }
     }
 
     /**
@@ -191,6 +342,8 @@ class ChatViewModel @Inject constructor(
                     is AIEvent.AudioResponse -> handleAudioResponse(event)
                     is AIEvent.StateChanged -> handleStateChanged(event)
                     is AIEvent.SessionInterrupted -> handleSessionInterrupted(event)
+                    is AIEvent.Reconnected -> handleReconnected(event)
+                    is AIEvent.ReconnectFailed -> handleReconnectFailed(event)
                     is AIEvent.Error -> handleError(event)
                 }
             }
@@ -220,6 +373,12 @@ class ChatViewModel @Inject constructor(
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
+                reconnectAttempt = 0,
+                maxReconnectAttempts = 0,
+                isRecoverableError = false,
+                didFallbackToNewSession = false,
+                fallbackMessage = null,
+                microphonePermissionDenied = false,
                 errorMessage = null
             )
         }
@@ -378,9 +537,63 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
+                sessionState = SessionState.RECONNECTING,
                 isRecording = false,
                 inputLevel = 0f,
+                outputLevel = 0f,
+                userPartialTranscript = "",
+                aiPartialTranscript = "",
                 aiState = AIState.RECONNECTING,
+                reconnectAttempt = event.attempt,
+                maxReconnectAttempts = event.maxAttempts,
+                isRecoverableError = false,
+                fallbackMessage = null,
+                errorMessage = event.message
+            )
+        }
+    }
+
+    /**
+     * Live transport 재연결 완료 상태를 반영합니다.
+     *
+     * @param event 재연결 완료 이벤트
+     */
+    private fun handleReconnected(event: AIEvent.Reconnected) {
+        _uiState.update {
+            it.copy(
+                sessionState = SessionState.READY,
+                aiState = AIState.IDLE,
+                activeSessionId = event.sessionId,
+                reconnectAttempt = 0,
+                didFallbackToNewSession = false,
+                fallbackMessage = null,
+                maxReconnectAttempts = 0,
+                isRecoverableError = false,
+                errorMessage = null
+            )
+        }
+    }
+
+    /**
+     * 자동 재연결 실패 상태를 반영합니다.
+     *
+     * @param event 재연결 실패 이벤트
+     */
+    private fun handleReconnectFailed(event: AIEvent.ReconnectFailed) {
+        recordJob?.cancel()
+        recordJob = null
+
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                inputLevel = 0f,
+                outputLevel = 0f,
+                userPartialTranscript = "",
+                aiPartialTranscript = "",
+                sessionState = SessionState.ERROR,
+                aiState = AIState.ERROR,
+                isRecoverableError = event.recoverable,
+                fallbackMessage = null,
                 errorMessage = event.message
             )
         }
@@ -402,6 +615,8 @@ class ChatViewModel @Inject constructor(
                 outputLevel = 0f,
                 sessionState = SessionState.ERROR,
                 aiState = AIState.ERROR,
+                isRecoverableError = false,
+                fallbackMessage = null,
                 errorMessage = event.message
             )
         }

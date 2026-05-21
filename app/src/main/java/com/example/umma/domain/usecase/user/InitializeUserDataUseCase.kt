@@ -7,14 +7,16 @@ import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
 import com.example.umma.domain.model.user.UserProfile
+import com.example.umma.domain.repository.LearningStateRepo
 import com.example.umma.domain.repository.UserProfileRepository
 import javax.inject.Inject
 
 /**
- * AUTH-004 : 구글 로그인 직후, 닉네임/언어 등 초기 설정
+ * AUTH-004 : 구글 로그인 직후, local/remote 닉네임/언어 등 초기 설정 저장
  */
 class InitializeUserDataUseCase @Inject constructor(
-    private val repository: UserProfileRepository
+    private val repository: UserProfileRepository,
+    private val learningStateRepo: LearningStateRepo
 ) {
     suspend operator fun invoke(
         uid: String,
@@ -35,10 +37,24 @@ class InitializeUserDataUseCase @Inject constructor(
         val sessionSummary = SessionSummary.initial(primaryLang)
         val flashcardSummary = FlashcardSummary.initial(primaryLang)
         // Repository 에 전달하여 Firestore 에 Batch 저장 실행
-        return repository.saveInitialSetup(
+        val remoteResult = repository.saveInitialSetup(
             profile = profile,
             langPref = langPref,
             initialLangState = langState,
+            dashSummary = dashSummary,
+            sessionSummary = sessionSummary,
+            flashcardSummary = flashcardSummary
+        )
+
+        remoteResult.getOrElse { error ->
+            return Result.failure(error)
+        }
+
+        // Local 저장
+        return learningStateRepo.createInitial(
+            userUid = uid,
+            userPref = langPref,
+            langState = langState,
             dashSummary = dashSummary,
             sessionSummary = sessionSummary,
             flashcardSummary = flashcardSummary
