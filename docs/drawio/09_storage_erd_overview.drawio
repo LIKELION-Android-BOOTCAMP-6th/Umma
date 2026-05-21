@@ -1,0 +1,207 @@
+<mxfile host="app.diagrams.net" pages="3">
+  <diagram name="저장 단위 계층 맵" id="storage-unit-hierarchy">
+    <mxGraphModel dx="1131" dy="937" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=28;fontStyle=1;fontColor=#111827;" value="저장 데이터 계층과 저장 단위" vertex="1">
+          <mxGeometry height="42" width="700" x="60" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontColor=#4B5563;" value="앱에는 크게 DataStore 파일, Room DB 파일, Firestore 사용자 문서 트리가 있다. 각 박스는 실제 저장 단위 또는 그 안의 key/table/document 단위를 의미한다." vertex="1">
+          <mxGeometry height="28" width="1350" x="62" y="74" as="geometry" />
+        </mxCell>
+        <mxCell id="app" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#EEF2FF;strokeColor=#4F46E5;fontColor=#111827;fontSize=16;fontStyle=1;" value="Umma App&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;로그인 uid + 현재 선택 language 기준으로 데이터 분리&lt;/span&gt;" vertex="1">
+          <mxGeometry height="80" width="400" x="650" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="ds_file" parent="1" style="swimlane;html=1;rounded=0;startSize=40;fillColor=#EFF6FF;strokeColor=#2563EB;fontColor=#0F172A;fontSize=15;fontStyle=1;" value="Local 파일 1: Preferences DataStore" vertex="1">
+          <mxGeometry height="520" width="490" x="60" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="room_file" parent="1" style="swimlane;html=1;rounded=0;startSize=40;fillColor=#ECFDF5;strokeColor=#16A34A;fontColor=#0F172A;fontSize=15;fontStyle=1;" value="Local 파일 2: Room Database" vertex="1">
+          <mxGeometry height="520" width="490" x="605" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_tree" parent="1" style="swimlane;html=1;rounded=0;startSize=40;fillColor=#F5F3FF;strokeColor=#9333EA;fontColor=#0F172A;fontSize=15;fontStyle=1;" value="Remote: Firestore 사용자 문서 트리" vertex="1">
+          <mxGeometry height="520" width="490" x="1150" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="ds_filename" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;fontStyle=1;" value="파일 단위&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;learning_state.preferences_pb&lt;br&gt;앱 로컬에 저장되는 key-value 파일&lt;/span&gt;" vertex="1">
+          <mxGeometry height="82" width="420" x="95" y="365" as="geometry" />
+        </mxCell>
+        <mxCell id="ds_keys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="key 단위&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;learning_user_pref → UserLangPrefDto JSON&lt;br&gt;learning_lang_state_{language} → LangStateDto JSON&lt;br&gt;learning_dash_summary_{language} → DashSummaryDto JSON&lt;br&gt;learning_session_summary_{language} → SessionSummaryDto JSON&lt;br&gt;learning_flashcard_summary_{language} → FlashcardSummaryDto JSON&lt;/span&gt;" vertex="1">
+          <mxGeometry height="170" width="420" x="95" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="ds_role" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#93C5FD;fontColor=#1E3A8A;fontSize=12;align=left;spacing=10;" value="역할&lt;br&gt;• 화면 진입 시 빠르게 읽는 현재 상태 snapshot&lt;br&gt;• Dashboard / Flow 진입 판단용 요약&lt;br&gt;• 다건 원본 저장에는 사용하지 않음" vertex="1">
+          <mxGeometry height="95" width="420" x="95" y="675" as="geometry" />
+        </mxCell>
+        <mxCell id="room_dbunit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;fontStyle=1;" value="DB 파일 단위&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Room database 안에 여러 table 저장&lt;br&gt;고빈도 append / 다건 원본 / local-first 데이터 담당&lt;/span&gt;" vertex="1">
+          <mxGeometry height="86" width="420" x="640" y="365" as="geometry" />
+        </mxCell>
+        <mxCell id="room_tables" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="table 단위&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;session_turns → 대화 turn 원문 목록&lt;br&gt;session_metadata → 압축/요약/교정 가능 메타&lt;br&gt;correction_flashcards → 교정으로 만든 카드 원본&lt;br&gt;statistics_history → 통계 변화 history planned&lt;/span&gt;" vertex="1">
+          <mxGeometry height="145" width="420" x="640" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="room_status" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#86EFAC;fontColor=#166534;fontSize=12;align=left;spacing=10;" value="상태 구분&lt;br&gt;• 현재 브랜치에서 Room Entity/DAO가 모두 보이는 것은 아님&lt;br&gt;• 문서 기준으로 RT / Correction / SRS / Statistics가 나누어 구현&lt;br&gt;• userId / language 컬럼으로 계정과 언어를 논리 분리" vertex="1">
+          <mxGeometry height="115" width="420" x="640" y="655" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_root" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3E8FF;strokeColor=#9333EA;fontColor=#111827;fontSize=13;fontStyle=1;" value="root document&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;users/{uid}&lt;br&gt;UserProfileDto / setup / topics&lt;/span&gt;" vertex="1">
+          <mxGeometry height="82" width="420" x="1185" y="365" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_children" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3E8FF;strokeColor=#9333EA;fontColor=#111827;fontSize=13;align=left;spacing=12;" value="sub-collection / document 단위&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;user_learning_preference/current&lt;br&gt;language_states/{language}&lt;br&gt;dashboard_summaries/{language}&lt;br&gt;session_summaries/{language}&lt;br&gt;flashcard_summaries/{language}&lt;br&gt;sessions/{language}&lt;br&gt;flashcards/{flashcardId}&lt;br&gt;statistics_history/{historyId} planned&lt;/span&gt;" vertex="1">
+          <mxGeometry height="210" width="420" x="1185" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_role" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#C4B5FD;fontColor=#6B21A8;fontSize=12;align=left;spacing=10;" value="역할&lt;br&gt;• 로컬 저장의 remote mirror / sync 대상&lt;br&gt;• 화면은 가능하면 local cache를 먼저 사용&lt;br&gt;• Firestore fetch 실패는 대부분 local 사용 불가와 구분" vertex="1">
+          <mxGeometry height="85" width="420" x="1185" y="715" as="geometry" />
+        </mxCell>
+        <mxCell id="e_app_ds" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2563EB;endArrow=block;endFill=1;" target="ds_file" value="current snapshot">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_app_room" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#16A34A;endArrow=block;endFill=1;" target="room_file" value="source records">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_app_fs" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9333EA;endArrow=block;endFill=1;" target="fs_tree" value="remote mirror">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="guide" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#CBD5E1;fontColor=#334155;fontSize=12;align=left;verticalAlign=top;spacing=12;" value="읽는 법&lt;br&gt;• DataStore의 저장 파일은 1개이고, 그 안에 여러 key가 있다. 각 key의 value는 DTO를 JSON 문자열로 바꾼 값이다.&lt;br&gt;• Room의 저장 파일은 DB이고, 그 안에 여러 table이 있다. table row 하나가 실제 원본 데이터 한 건이다.&lt;br&gt;• Firestore는 `users/{uid}` 문서 아래에 여러 sub-collection/document가 붙는 트리 구조다.&lt;br&gt;• 파랑=DataStore snapshot, 초록=Room local-first 원본, 보라=Firestore remote, 회색=문서상 planned 또는 구현 확인 필요." vertex="1">
+          <mxGeometry height="130" width="1580" x="60" y="875" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Firestore 저장 계층 ERD" id="firestore-hierarchy-erd">
+    <mxGraphModel dx="1382" dy="1146" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1250" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="fs_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=28;fontStyle=1;fontColor=#111827;" value="Firestore 저장 계층 ERD" vertex="1">
+          <mxGeometry height="42" width="650" x="60" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontColor=#4B5563;" value="Firestore에 저장되는 데이터는 users/{uid} 아래의 프로필 문서 + 여러 하위 컬렉션으로 나뉜다." vertex="1">
+          <mxGeometry height="28" width="1250" x="62" y="74" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_user" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3E8FF;strokeColor=#9333EA;fontColor=#111827;fontSize=15;fontStyle=1;" value="users/{uid}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;사용자 root document&lt;br&gt;uid / email / displayName / nickname&lt;br&gt;interestTopics / isSetupCompleted&lt;br&gt;createdAt&lt;/span&gt;" vertex="1">
+          <mxGeometry height="100" width="460" x="620" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_pref" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="user_learning_preference/current&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;UserLangPrefDto&lt;br&gt;nativeLanguage&lt;br&gt;primaryLearningLanguage&lt;br&gt;selectedLearningLanguage&lt;br&gt;learningLanguages&lt;br&gt;schemaVersion / updatedAt&lt;/span&gt;" vertex="1">
+          <mxGeometry height="145" width="330" x="60" y="315" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_lang" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="language_states/{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;LangStateDto&lt;br&gt;language&lt;br&gt;internalMetrics{grammarAccuracy, vocabularyAppropriateness, lexicalDiversity, vocabularyLevel, sentenceComplexity, speechRate, pauseFrequency, avgUtteranceLength, spokenNaturalness, naturalExpressionUsage, errorRecurrence, reviewRetention}&lt;br&gt;externalMetrics{vocabularyLevel, grammarAccuracy, expressionRange, fluencyScore, naturalnessScore}&lt;br&gt;schemaVersion / createdAt / updatedAt&lt;br&gt;lastAnalyzedAt / lastAnalysisEventId&lt;/span&gt;" vertex="1">
+          <mxGeometry height="230" width="430" x="410" y="315" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_dash" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="dashboard_summaries/{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;DashSummaryDto&lt;br&gt;language&lt;br&gt;recentConversationMinutes&lt;br&gt;recentConversationTopic&lt;br&gt;correctionAvailable&lt;br&gt;dueFlashcards / recentSavedFlashcards&lt;br&gt;grammarScoreDelta / fluencyScoreDelta&lt;br&gt;vocabularyScoreDelta / naturalnessScoreDelta&lt;br&gt;schemaVersion / updatedAt&lt;/span&gt;" vertex="1">
+          <mxGeometry height="195" width="330" x="870" y="315" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_session_summary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="session_summaries/{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;SessionSummaryDto&lt;br&gt;language&lt;br&gt;correctionAvailable&lt;br&gt;recentConversationMinutes&lt;br&gt;recentConversationTopic&lt;br&gt;updatedAt&lt;br&gt;Session Memory 원문 아님&lt;/span&gt;" vertex="1">
+          <mxGeometry height="155" width="330" x="1230" y="315" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_card_summary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;" value="flashcard_summaries/{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;FlashcardSummaryDto&lt;br&gt;language&lt;br&gt;dueFlashcards&lt;br&gt;recentSavedFlashcards&lt;br&gt;updatedAt&lt;br&gt;Flashcard 원본 아님&lt;/span&gt;" vertex="1">
+          <mxGeometry height="140" width="330" x="170" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_sessions" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="sessions/{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;Session Memory remote mirror&lt;br&gt;language&lt;br&gt;recentFullContext[]&lt;br&gt;recentTopics&lt;br&gt;topicSummaries&lt;br&gt;topicKeySentences&lt;br&gt;correctionAvailable&lt;br&gt;lastCompressedAt / updatedAt&lt;/span&gt;" vertex="1">
+          <mxGeometry height="175" width="330" x="530" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_flashcards" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;" value="flashcards/{flashcardId}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;CorrectionFlashcardDto&lt;br&gt;id / userId / language&lt;br&gt;sourceSuggestionId&lt;br&gt;frontText / backText / explanation&lt;br&gt;hint / pronunciation&lt;br&gt;source&lt;br&gt;createdAt / updatedAt&lt;br&gt;nextReviewAt / interval / easeFactor&lt;br&gt;syncStatus 또는 dirty&lt;/span&gt;" vertex="1">
+          <mxGeometry height="220" width="330" x="890" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_stats" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3F4F6;strokeColor=#9CA3AF;fontColor=#374151;fontSize=13;" value="statistics_history/{historyId}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;StatisticsHistory planned&lt;br&gt;id / userId / language&lt;br&gt;recordedAt&lt;br&gt;vocabularyLevel&lt;br&gt;grammarAccuracy&lt;br&gt;expressionRange&lt;br&gt;fluencyScore / naturalnessScore&lt;br&gt;sourceEventId&lt;br&gt;syncStatus&lt;/span&gt;" vertex="1">
+          <mxGeometry height="195" width="330" x="1250" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_e1" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9333EA;endArrow=block;endFill=1;fontSize=12;fontColor=#6B21A8;" target="fs_pref" value="1:1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_e2" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9333EA;endArrow=block;endFill=1;fontSize=12;fontColor=#6B21A8;" target="fs_lang" value="1:N by language">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_e3" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9333EA;endArrow=block;endFill=1;fontSize=12;fontColor=#6B21A8;" target="fs_dash" value="1:N by language">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_e4" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9333EA;endArrow=block;endFill=1;fontSize=12;fontColor=#6B21A8;" target="fs_session_summary" value="1:N by language">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fs_e5" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9333EA;endArrow=block;endFill=1;fontSize=12;fontColor=#6B21A8;" target="fs_card_summary" value="1:N by language">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="185" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fs_e6" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#16A34A;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="fs_sessions" value="1:N by language">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="850" y="580" />
+              <mxPoint x="695" y="580" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fs_e7" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#16A34A;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;" target="fs_flashcards" value="1:N by cardId">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="260" />
+              <mxPoint x="1220" y="260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fs_e8" edge="1" parent="1" source="fs_user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9CA3AF;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#6B7280;" target="fs_stats" value="planned 1:N">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1610" y="185" />
+              <mxPoint x="1610" y="722" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fs_guide" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#CBD5E1;fontColor=#334155;fontSize=12;align=left;verticalAlign=top;spacing=12;" value="정리&lt;br&gt;• Firestore 저장 단위는 `users/{uid}` 프로필 문서 1개 + 하위 문서/컬렉션 8개 축으로 보는 것이 맞다.&lt;br&gt;• 파랑 박스는 DataStore에도 local cache가 있는 current snapshot / summary 계열이다.&lt;br&gt;• 초록 박스는 Room local-first 원본의 remote mirror다. 화면 계산의 원본이 될 수 있다.&lt;br&gt;• 회색 박스는 Statistics 문서 기준 planned 상태이며 구현 브랜치에서 별도 확인이 필요하다.&lt;br&gt;• `{language}` 문서 id와 문서 필드 `language`는 같은 언어를 가리켜야 한다." vertex="1">
+          <mxGeometry height="130" width="1580" x="60" y="910" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Local 저장 계층 ERD" id="local-storage-hierarchy-erd">
+    <mxGraphModel dx="1382" dy="1146" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1120" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="local_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=28;fontStyle=1;fontColor=#111827;" value="Local 저장 계층 ERD" vertex="1">
+          <mxGeometry height="42" width="650" x="60" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="local_subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontColor=#4B5563;" value="DataStore는 key-value snapshot 저장소이고, Room은 여러 row를 가진 원본 테이블 저장소다. 두 저장소는 같은 데이터를 중복 저장하는 것이 아니라 용도가 다르다." vertex="1">
+          <mxGeometry height="28" width="1420" x="62" y="74" as="geometry" />
+        </mxCell>
+        <mxCell id="ds_lane" parent="1" style="swimlane;html=1;rounded=0;startSize=40;fillColor=#EFF6FF;strokeColor=#2563EB;fontColor=#0F172A;fontSize=15;fontStyle=1;" value="Preferences DataStore: learning_state.preferences_pb" vertex="1">
+          <mxGeometry height="770" width="720" x="60" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="room_lane" parent="1" style="swimlane;html=1;rounded=0;startSize=40;fillColor=#ECFDF5;strokeColor=#16A34A;fontColor=#0F172A;fontSize=15;fontStyle=1;" value="Room Database: 다건 원본 / local-first 테이블" vertex="1">
+          <mxGeometry height="770" width="790" x="850" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="key_pref" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="learning_user_pref&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;value: UserLangPrefDto JSON string&lt;br&gt;nativeLanguage&lt;br&gt;primaryLearningLanguage&lt;br&gt;selectedLearningLanguage&lt;br&gt;learningLanguages&lt;br&gt;schemaVersion / updatedAt&lt;/span&gt;" vertex="1">
+          <mxGeometry height="155" width="300" x="95" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="key_lang" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="learning_lang_state_{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;value: LangStateDto JSON string&lt;br&gt;language&lt;br&gt;internalMetrics / externalMetrics&lt;br&gt;schemaVersion&lt;br&gt;createdAt / updatedAt&lt;br&gt;lastAnalyzedAt / lastAnalysisEventId&lt;/span&gt;" vertex="1">
+          <mxGeometry height="155" width="300" x="440" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="key_dash" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="learning_dash_summary_{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;value: DashSummaryDto JSON string&lt;br&gt;language&lt;br&gt;recentConversationMinutes / recentConversationTopic&lt;br&gt;correctionAvailable&lt;br&gt;dueFlashcards / recentSavedFlashcards&lt;br&gt;grammarScoreDelta / fluencyScoreDelta&lt;br&gt;vocabularyScoreDelta / naturalnessScoreDelta&lt;br&gt;schemaVersion / updatedAt&lt;/span&gt;" vertex="1">
+          <mxGeometry height="190" width="300" x="95" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="key_session" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="learning_session_summary_{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;value: SessionSummaryDto JSON string&lt;br&gt;language&lt;br&gt;correctionAvailable&lt;br&gt;recentConversationMinutes&lt;br&gt;recentConversationTopic&lt;br&gt;updatedAt&lt;br&gt;Session Memory 원문 아님&lt;/span&gt;" vertex="1">
+          <mxGeometry height="170" width="300" x="440" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="key_flash" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="learning_flashcard_summary_{language}&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;value: FlashcardSummaryDto JSON string&lt;br&gt;language&lt;br&gt;dueFlashcards&lt;br&gt;recentSavedFlashcards&lt;br&gt;updatedAt&lt;br&gt;Flashcard 원본 목록 아님&lt;/span&gt;" vertex="1">
+          <mxGeometry height="150" width="300" x="265" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl_turns" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="session_turns&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;PK: turnId&lt;br&gt;row: 대화 turn 1개&lt;br&gt;sessionId / userId / language&lt;br&gt;text / role / createdAt&lt;br&gt;durationMs / tokenCount / confidence&lt;br&gt;syncStatus&lt;/span&gt;" vertex="1">
+          <mxGeometry height="180" width="330" x="890" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl_meta" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="session_metadata&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;PK: id&lt;br&gt;row: userId + language의 Session Memory 메타&lt;br&gt;recentTopicsJson&lt;br&gt;topicSummariesJson&lt;br&gt;topicKeySentencesJson&lt;br&gt;correctionAvailable&lt;br&gt;lastCompressedAt / updatedAt&lt;br&gt;isPendingTurnSync / isPendingCompressionSync&lt;/span&gt;" vertex="1">
+          <mxGeometry height="210" width="330" x="1265" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl_cards" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#0F172A;fontSize=13;align=left;spacing=12;" value="correction_flashcards&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;PK: userId + id&lt;br&gt;row: 저장된 flashcard 1개&lt;br&gt;id / userId / language&lt;br&gt;sourceSuggestionId&lt;br&gt;frontText / backText / explanation&lt;br&gt;hint / pronunciation&lt;br&gt;source&lt;br&gt;createdAt / updatedAt&lt;br&gt;nextReviewAt / interval / easeFactor&lt;br&gt;dirty 또는 syncStatus&lt;/span&gt;" vertex="1">
+          <mxGeometry height="245" width="330" x="890" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl_stats" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F3F4F6;strokeColor=#9CA3AF;fontColor=#374151;fontSize=13;align=left;spacing=12;" value="statistics_history planned&lt;br&gt;&lt;span style=&quot;font-size:11px&quot;&gt;PK: historyId&lt;br&gt;row: metric history snapshot 1개&lt;br&gt;id / userId / language&lt;br&gt;recordedAt&lt;br&gt;vocabularyLevel&lt;br&gt;grammarAccuracy&lt;br&gt;expressionRange&lt;br&gt;fluencyScore / naturalnessScore&lt;br&gt;sourceEventId&lt;br&gt;syncStatus&lt;/span&gt;" vertex="1">
+          <mxGeometry height="225" width="330" x="1265" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="room_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#86EFAC;fontColor=#166534;fontSize=12;align=left;verticalAlign=top;spacing=10;" value="Room 관계 읽는 법&lt;br&gt;• 현재 도식의 Room 항목은 문서상 저장 계약을 기준으로 정리했다. 현재 브랜치에 모든 Entity/DAO가 존재한다는 뜻은 아니다.&lt;br&gt;• 직접 FK constraint가 없다는 말은 DB가 users table과 강제 연결하지 않는다는 뜻이다.&lt;br&gt;• 대신 모든 row에 userId / language를 저장해 앱 로직에서 사용자와 언어를 분리한다." vertex="1">
+          <mxGeometry height="90" width="705" x="890" y="755" as="geometry" />
+        </mxCell>
+        <mxCell id="local_guide" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#CBD5E1;fontColor=#334155;fontSize=12;align=left;verticalAlign=top;spacing=12;" value="용어 가이드&lt;br&gt;• PK = Primary Key. table row를 고유하게 찾는 식별자다.&lt;br&gt;• DTO = 저장소/네트워크에 맞춘 데이터 형태다. Domain 모델과 필드명이 다를 수 있다.&lt;br&gt;• DAO = Room table을 조회/저장/수정하는 인터페이스다.&lt;br&gt;• DataStore key는 table row가 아니다. 하나의 key에 DTO JSON 문자열 하나가 들어간다.&lt;br&gt;• Summary는 표시/진입 판단용 요약이고, SessionTurn / Flashcard / StatisticsHistory는 여러 건이 쌓이는 원본 데이터다." vertex="1">
+          <mxGeometry height="135" width="1580" x="60" y="955" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
