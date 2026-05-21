@@ -22,12 +22,18 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - [x] MVP 후보 추출 범위가 최근 100턴으로 제한된다.
 - [x] 필요한 assistant turn은 짧은 문맥으로만 첨부한다.
 - [x] AI 교정 요청과 선택 결과 저장 요청을 함께 다루는 `CorrectionRepository` domain repository interface가 준비된다.
-- [x] Flashcard 저장은 `CorrectionRepository`의 저장 계약 안에서 local first로 처리한다.
+- [x] Flashcard 저장은 `CorrectionRepository`의 저장 계약 안에서 Room DAO local first로 처리한다.
+- [x] Correction이 최초 저장한 Flashcard Room 원본은 사용자 ID와 Flashcard ID 기준으로 중복 저장을 방지한다.
+- [x] SRS가 같은 Flashcard Room 원본을 조회할 수 있도록 사용자 ID, 언어, `nextReviewAt` 기준 due 조회 통로가 준비된다.
+- [x] SRS review 결과를 같은 Flashcard Room 원본에 반영할 수 있도록 schedule 갱신 통로가 준비된다.
+- [x] Firestore sync 성공 시 local Room 원본의 dirty 상태를 해제하고, 실패 시 pending sync로 남기는 계약이 준비된다.
 - [x] Flashcard 저장 결과가 Firestore sync pending 상태를 표현할 수 있도록 준비된다.
 - [x] 완료 정리를 위한 `CompleteCorrectionUseCase` usecase 경계가 준비된다.
 - [x] Flashcard 저장, LangState 업데이트, Summary 갱신이 하나의 로컬 완료 파이프라인으로 묶인다.
-- [x] Session Memory 압축은 RT-003 머지 후 실제 저장소 계약으로 연결할 후속 지점으로 명시된다.
-- [x] 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
+- [x] RT-003 `SessionTurn` read model을 Correction 후보 입력으로 변환하는 연결 경계가 준비된다.
+- [x] Correction 완료 흐름에서 RT-003 compression에 넘길 최소 압축 payload 생성 책임이 정의된다.
+- [x] 압축 저장/초기화 실행은 RT-003 `CompressSessionMemoryUseCase` 계약을 사용하도록 명시된다.
+- [x] Flashcard 저장 또는 LangState/Summary 갱신 실패 시 Correction-infra가 직접 수행한 로컬 변경을 rollback하고 Retry 상태로 남긴다.
 - [x] mock/real 교체가 Hilt binding 기준으로 가능해야 한다.
 
 ---
@@ -43,7 +49,8 @@ Correction User Flow 작업자는 화면 구현을 시작하기 전에,
 - 교정 결과 생성 UseCase 계약
 - AI 응답 DTO / mapper 계약
 - CorrectionRepository 기반 교정 결과 파생 Flashcard 저장 계약
-- Flashcard local 저장과 Firestore sync로 이어질 수 있는 data 저장 경계
+- Flashcard Room DAO local 저장과 Firestore sync로 이어지는 data 저장 경계
+- SRS가 재사용할 수 있는 Flashcard Room 원본 due 조회와 review schedule 갱신 통로
 - 완료 정리 UseCase 계약
 - fake repository / real repository 교체 기준
 - User Flow `COR-001 ~ COR-007`이 사용할 공통 인터페이스 정리
@@ -73,8 +80,8 @@ domain/repository
 → CorrectionRepository
 
 domain/usecase/correction
-→ PrepareCorrectionUseCase
 → ExtractCandidatesUseCase
+→ ExtractSessionCandidatesUseCase
 → GenerateSuggestionsUseCase
 → PrepareSaveRequestUseCase
 → CompleteCorrectionUseCase
@@ -85,6 +92,7 @@ data/repository
 → CorrectionAiResponseMapper
 → CorrectionFlashcardStore
 → CorrectionFlashcardLocalDataSource
+→ CorrectionFlashcardDao / CorrectionFlashcardEntity / CorrectionFlashcardDatabase
 → CorrectionFlashcardRemoteDataSource
 
 presentation/correction
@@ -115,7 +123,9 @@ GlobalLangState.selectedLang
 ### 2. 후보 추출 계약
 
 ```text
-recentFullContext
+RT-003 correction context
+→ SessionTurn read model
+→ Correction 후보 입력 변환
 → 최근 100턴 제한
 → user turn 중심 후보 추출
 → 필요한 assistant turn만 짧은 문맥으로 첨부
@@ -126,6 +136,7 @@ recentFullContext
 - Composable은 `recentFullContext`를 직접 파싱하지 않는다.
 - 후보가 없으면 AI 요청 없이 Empty 상태로 이어진다.
 - RT-003이 교정용 read model을 제공하더라도 후보 확정 규칙은 Correction domain UseCase가 담당한다.
+- `ExtractSessionCandidatesUseCase`는 `SessionTurn`을 `ConversationTurn` 형태의 후보 추출 입력으로 변환하고, 원본 `turnId`를 `CorrectionCandidate.sourceTurnId`로 보존한다.
 - `recentFullContext`는 오래된 turn부터 최신 turn 순서로 전달되는 것을 전제로 한다.
 
 ### 3. 교정 결과 계약
@@ -140,7 +151,8 @@ CorrectionCandidate + LangState snapshot
 
 - `CorrectionSuggestion`은 화면 카드와 Flashcard 저장 선택의 기준 모델이다.
 - MVP User Flow에서는 실제 AI 교정 API를 호출하고, 응답을 파싱해 `CorrectionSuggestion` 목록으로 변환하는 동작까지 구현한다.
-- 교정 품질 향상을 위한 prompt tuning, JSON schema 정교화, retry/fallback 고도화는 후속 개선 범위로 둔다.
+- MVP 최소 프롬프트 계약은 실제 AI 연동에 포함하며, `LangState` snapshot과 후보 문맥을 바탕으로 교정 수준, 의미 보존, 필수 응답 필드, `candidateId` 유지를 요청해야 한다.
+- 교정 품질 향상을 위한 세부 prompt tuning, JSON schema 정교화, retry/fallback 고도화는 후속 개선 범위로 둔다.
 - 이번 선행 이슈에서는 mock/real이 같은 결과 계약을 사용하도록 경계를 잡고, 실제 AI 응답도 data 계층 mapper를 거쳐 같은 `CorrectionSuggestion` 계약으로 변환되도록 준비한다.
 - 실제 AI API client 주입과 호출 구현은 `CorrectionRepository` data 구현체 안에서 처리하며, ViewModel / UseCase는 raw JSON이나 API SDK를 직접 알지 않는다.
 - `CorrectionRepository`는 교정 결과 생성과 선택된 교정 결과의 Flashcard 저장 요청만 담당한다.
@@ -153,7 +165,7 @@ CorrectionCandidate + LangState snapshot
 선택된 CorrectionSuggestion
 → Flashcard 저장 요청 모델 변환
 → CorrectionRepository.saveFlashcards(...)
-→ local first 저장(Room DAO 준비 전까지 in-memory local data source)
+→ Room DAO local first 저장
 → Firestore background sync
 ```
 
@@ -167,7 +179,10 @@ CorrectionCandidate + LangState snapshot
 - 교정 흐름의 저장 계약은 `CorrectionRepository` 안에 두고, 학습/복습용 Flashcard 흐름은 별도 화면 계약에서 다룬다.
 - Firestore에 저장되는 Flashcard 문서 구조는 SRS에서 읽을 수 있는 원본 카드 계약과 충돌하지 않아야 한다.
 - 반복학습 조회, due deck 계산, review schedule update는 `SYS-SRS-INFRA`의 `FlashcardRepository` 책임으로 분리한다.
-- 현재 단계의 local data source는 Room DAO가 준비되기 전까지 in-memory 구현으로 local-first 순서를 고정한다.
+- 현재 단계의 local data source는 Room DAO 기반으로 구현해 Correction이 만든 새 Flashcard 원본을 영속 저장한다.
+- Room local 저장은 사용자 ID와 Flashcard ID를 기준으로 중복을 방지해 계정 간 카드가 섞이지 않도록 한다.
+- Room local source는 SRS가 같은 원본을 재사용할 수 있도록 사용자 ID, 언어, `nextReviewAt` 기준 due 조회를 제공한다.
+- Room local source는 SRS가 계산한 `interval`, `easeFactor`, `nextReviewAt`을 같은 원본에 갱신할 수 있는 통로를 제공하며, 갱신된 카드는 다시 dirty 상태로 남긴다.
 - Firestore remote data source는 `users/{uid}/flashcards/{flashcardId}` 경로에 sync할 수 있어야 하며, 실패 시 저장 결과의 pending sync 목록으로 남긴다.
 - MVP 발음 재생은 뒷면의 `backText`를 사용하므로 별도 `pronunciationText` 저장 계약은 필요하지 않다.
 
@@ -176,23 +191,27 @@ CorrectionCandidate + LangState snapshot
 ```text
 사용자가 저장할 CorrectionSuggestion 선택
 → CompleteCorrectionUseCase 호출
-→ Flashcard local first 저장
+→ Flashcard Room DAO local first 저장
 → LangState 업데이트 입력 생성 및 적용
 → SessionSummary.correctionAvailable false
 → DashSummary.correctionAvailable 동시 반영
 → Firestore background sync 예약
 ```
 
-Session Memory 원문 buffer 압축과 정리는 `SYS-REALTIME-INFRA`의 `RT-003`이 제공하는 실제 `SessionMemory` 저장소 계약을 따른다.
-Correction-infra는 `SessionMemoryRepository` / `SessionMemoryRepositoryImpl`을 직접 만들지 않고,
-후속 연결 작업에서 RT-003의 compression 계약을 `CompleteCorrectionUseCase` 완료 흐름에 붙일 지점만 남긴다.
+Session Memory 저장/조회/압축 구현은 `SYS-REALTIME-INFRA`의 `RT-003`이 제공하는 실제 `SessionMemory` 저장소 계약을 따른다.
+Correction-infra는 `SessionMemoryRepository` / `SessionMemoryRepositoryImpl`을 직접 만들지 않는다.
+Correction-infra는 RT-003의 correction context를 읽은 뒤 `SessionTurn`을 후보 추출 입력으로 변환하는 경계까지만 담당한다.
+Correction-infra는 선택된 `CorrectionSuggestion`과 `LangStateUpdateInput.recentUserTurns`를 바탕으로 RT-003에 넘길 최소 압축 payload를 생성한다.
+압축 payload는 `recentTopics`, `topicSummaries`, `topicKeySentences`로 구성한다.
+RT-003은 전달받은 `CompressSessionMemoryCommand`를 저장하고 `recentFullContext`를 정리하는 실행 책임을 가진다.
+압축 payload가 비어 있으면 빈 요약으로 Session Memory를 정리하지 않도록 RT-003 compression을 호출하지 않는다.
 
 - 교정 화면을 단순히 이탈했다고 완료 처리하지 않는다.
 - `SessionSummary`와 `DashSummary` 중 하나만 갱신하는 구현은 허용하지 않는다.
 - LangState 업데이트가 필요한 경우 `LS-006` 정책과 `CorrectionResult` 입력을 따른다.
 - Flashcard 저장, LangState 업데이트, Summary 갱신은 하나의 로컬 완료 파이프라인으로 묶는다.
-- Session Memory 압축이 연결된 이후에는 RT-003의 rollback 또는 commit marker 정책을 따른다.
-- 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
+- compression 실패는 Flashcard 저장과 LangState/Summary 갱신을 롤백하지 않고 후속 재시도 대상으로 남긴다.
+- Flashcard 저장 또는 LangState/Summary 갱신이 실패하면 Correction-infra가 직접 수행한 로컬 변경을 rollback하고 Retry 상태로 남긴다.
 - 저장소가 하나의 transaction으로 묶이지 않는 경우 보상 rollback 또는 commit marker 방식으로 부분 완료 상태를 남기지 않는다.
 - Firestore background sync는 로컬 완료 이후 비동기로 수행하며, sync 실패는 pending sync / dirty flag로 관리한다.
 

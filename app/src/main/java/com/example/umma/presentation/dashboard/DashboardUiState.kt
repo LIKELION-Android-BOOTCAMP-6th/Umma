@@ -26,6 +26,14 @@ data class DashboardUiState(
     // 사용자가 학습 중인 모든 언어. selector 의 dropdown 목록 출처.
     val learningLanguages: List<LangCode> = emptyList(),
 
+    // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false 인 것.
+    //   selector 다이얼로그에서 "이전에 학습 중이던 언어" 체크 아이콘 표시 기준.
+    //   docs LS-003 의 learningLanguages (=userPref 의 학습 가능 목록) 와는 의미가 다르다:
+    //   여기는 "실제로 대화/카드/통계 데이터가 쌓인 언어" 만 포함한다. selector 클릭만으로는
+    //   learningLanguages 에는 자동 추가되지만 activeLearningLanguages 에는 안 들어간다 →
+    //   "선택만 한 언어" 와 "정말 학습 중인 언어" 를 시각적으로 분리.
+    val activeLearningLanguages: Set<LangCode> = emptySet(),
+
     // DASH-006 AC 7: 언어 변경 저장 중 중복 요청이 방지된다.
     //   true 인 동안 selector 비활성화 + onChangeLearningLanguage 진입 가드.
     //   isLoading(preload 중) 과 의미 분리 — 사용자 선택 후 persist 진행 중.

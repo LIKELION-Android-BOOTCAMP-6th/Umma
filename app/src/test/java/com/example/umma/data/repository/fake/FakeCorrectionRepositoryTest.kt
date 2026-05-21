@@ -2,7 +2,7 @@ package com.example.umma.data.repository.fake
 
 import com.example.umma.data.model.correction.CorrectionFlashcardDto
 import com.example.umma.data.repository.correction.CorrectionFlashcardStore
-import com.example.umma.data.source.local.InMemoryCorrectionFlashcardLocalDataSource
+import com.example.umma.data.source.local.TestCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.example.umma.domain.model.correction.CorrectionCandidate
 import com.example.umma.domain.model.correction.GenerateSuggestionsInput
@@ -18,7 +18,7 @@ class FakeCorrectionRepositoryTest {
 
     private val repository: CorrectionRepository = FakeCorrectionRepository(
         CorrectionFlashcardStore(
-            localDataSource = InMemoryCorrectionFlashcardLocalDataSource(),
+            localDataSource = TestCorrectionFlashcardLocalDataSource(),
             remoteDataSource = NoopCorrectionFlashcardRemoteDataSource()
         )
     )

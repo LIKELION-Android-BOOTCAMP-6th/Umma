@@ -17,6 +17,8 @@ data class GenerateSuggestionsInput(
  * 선택된 교정 결과를 Flashcard 저장 계약으로 넘기기 위한 입력 모델입니다.
  */
 data class CorrectionSaveRequest(
+    // 저장 대상 사용자. Room local 저장은 사용자별로 분리되어야 계정 전환 시 카드가 섞이지 않는다.
+    val uid: String,
     // 저장 대상 언어.
     val lang: LangCode,
     // 선택된 교정 결과에서 파생된 실제 Flashcard 저장 항목.

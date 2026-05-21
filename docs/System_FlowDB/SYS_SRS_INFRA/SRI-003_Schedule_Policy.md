@@ -13,7 +13,7 @@ SRS User Flow 작업자는 사용자가 SM-2 기반 4단계 평가 버튼을 눌
 - [ ] MVP에서는 SM-2 전체 알고리즘을 1:1로 복제하지 않고, `interval`, `easeFactor`, `nextReviewAt` 중심의 단순화 정책을 사용한다.
 - [ ] `ReviewSchedulePolicy`가 `ReviewDecision`을 받아 `ReviewScheduleResult`를 계산한다.
 - [ ] `interval`, `easeFactor`, `nextReviewAt` 갱신 기준이 확정된다.
-- [ ] Flashcard local 저장과 스케줄 업데이트는 하나의 로컬 완료 파이프라인으로 묶는다.
+- [ ] Flashcard review schedule local 갱신과 Summary 업데이트는 하나의 로컬 완료 파이프라인으로 묶는다.
 - [ ] `FlashcardSummary.dueFlashcards`와 `DashSummary.dueFlashcards`는 같은 완료 흐름 안에서 함께 갱신한다.
 - [ ] 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
 - [ ] Firestore background sync 실패는 로컬 완료 실패로 보지 않고 pending sync로 관리한다.
@@ -51,7 +51,7 @@ domain/usecase/flashcardreview
 → CompleteReviewSessionUseCase
 ```
 
-`SRI-003`의 UseCase는 `SRI-002`에서 정의한 Repository 저장 계약을 호출해 완료 파이프라인을 조립한다.
+`SRI-003`의 UseCase는 `SRI-002`에서 정의한 Repository review schedule 갱신 계약을 호출해 완료 파이프라인을 조립한다.
 
 ---
 
@@ -85,7 +85,7 @@ ReviewDecision
 → Firestore background sync 예약
 ```
 
-- 로컬 저장이 성공해야 사용자가 완료된 것으로 본다.
+- review schedule local 갱신이 성공해야 사용자가 완료된 것으로 본다.
 - Flashcard schedule update와 summary 갱신은 하나의 로컬 완료 단위로 묶는다.
 - 로컬 완료 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
 - Firestore background sync 실패는 로컬 완료 실패로 보지 않는다.
@@ -99,15 +99,15 @@ ReviewDecision
 - 사용자가 직접 버튼을 눌러 기억 정도를 선택한다.
 - 평가 결과가 반영된 카드는 다음 카드 진행 기준이 되며, `Again`은 당일 재노출을 위해 due 상태로 남을 수 있다.
 - `nextReviewAt`이 지나지 않은 카드는 due deck에 포함하지 않는다.
-- 현재 카드 저장 후 Dashboard의 due count는 로컬 완료 결과를 기준으로 갱신된다.
+- 현재 카드 review 결과 저장 후 Dashboard의 due count는 로컬 완료 결과를 기준으로 갱신된다.
 
 ---
 
 ## 예외 처리
 
 - 중복 평가 요청은 하나의 card update로 합친다.
-- 저장 중 네트워크 실패가 나도 로컬 완료를 먼저 보존한다.
-- 로컬 저장 실패 또는 summary 갱신 실패는 완료로 보지 않고 Retry 상태로 남긴다.
+- 갱신 중 네트워크 실패가 나도 로컬 완료를 먼저 보존한다.
+- review schedule local 갱신 실패 또는 summary 갱신 실패는 완료로 보지 않고 Retry 상태로 남긴다.
 - 앱 종료 중 평가가 진행 중이면 commit marker 기준으로 완료/미완료를 복구한다.
 - 삭제되었거나 동기화 충돌이 있는 카드는 최신 저장값을 우선한다.
 

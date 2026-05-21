@@ -10,7 +10,7 @@
 
 - [ ] 저장할 Flashcard 항목이 준비된 이후에만 완료 처리를 시작한다.
 - [ ] `SYS-CORRECTION-INFRA`에서 준비한 `CompleteCorrectionUseCase`를 호출한다.
-- [ ] 선택된 교정 결과가 새 Flashcard로 local first 저장된다.
+- [ ] `CompleteCorrectionUseCase` 성공 결과에 저장된 Flashcard ID가 포함된다.
 - [ ] 로컬 완료 성공 결과를 받으면 Done 상태로 전환한다.
 - [ ] 로컬 완료 실패 결과를 받으면 Retry 상태로 남긴다.
 - [ ] 완료 처리 중 중복 완료 요청이 방지된다.
@@ -32,7 +32,7 @@
 ## 포함 범위
 
 - `CompleteCorrectionUseCase` 호출
-- 새 Flashcard 최초 local first 저장 결과 연결
+- 새 Flashcard 최초 저장 결과 연결
 - Completing / Done / Retry 상태 연결
 - 완료 요청 in-flight 상태 관리
 
@@ -40,7 +40,7 @@
 
 - 로컬 완료 파이프라인 내부 순서 구현
 - LangState 업데이트 입력 생성 및 적용
-- Session Memory 압축 실행 또는 저장소 구현
+- Session Memory compression 내부 payload 생성 또는 저장소 구현
 - `SessionSummary` / `DashSummary` 갱신 내부 처리
 - Session Memory append
 - LangState 수치 계산 공식
@@ -57,8 +57,12 @@
 그 결과를 Correction 화면 상태로 연결하는 단계다.
 `CompleteCorrectionUseCase` 내부에서 선택된 교정 결과는 새 Flashcard로 최초 local first 저장된다.
 이 저장은 SRS가 대신 수행하지 않는다.
+Room Entity / DAO / local data source는 `SYS-CORRECTION-INFRA`의 저장 계약을 따르며, SRS는 이후 저장된 원본을 조회한다.
 파이프라인 내부 순서와 rollback 정책은 `SYS-CORRECTION-INFRA` 계약을 따른다.
-Session Memory compression은 RT-003 실제 저장소 계약이 머지된 뒤 후속 작업에서 연결한다.
+Session Memory 저장/압축 실행은 RT-003 실제 저장소 계약을 따른다.
+Correction 완료 흐름은 교정 결과와 분석 대상 turn으로 최소 압축 payload를 만들고, RT-003 compression 계약을 호출한다.
+압축 payload가 비어 있으면 원문 buffer만 비우지 않도록 compression을 호출하지 않는다.
+compression 실패는 저장 완료 자체를 롤백하지 않고 후속 재시도 대상으로 남긴다.
 이 이슈에서는 `CompleteCorrectionUseCase` 결과를 화면 상태로 연결하는 데 집중한다.
 
 ## 실패 정책
@@ -66,6 +70,7 @@ Session Memory compression은 RT-003 실제 저장소 계약이 머지된 뒤 �
 - `CompleteCorrectionUseCase`가 실패 결과를 반환하면 Retry 상태로 남긴다.
 - 파이프라인 내부의 rollback / commit marker 정책은 이 이슈에서 재정의하지 않는다.
 - Firestore sync 실패는 `CompleteCorrectionUseCase`의 로컬 완료 실패와 분리된 결과로 다룬다.
+- Session Memory compression 실패는 Done 결과에 pending 상태로 포함하고 후속 재시도 대상으로 다룬다.
 
 ## 완료 순서
 

@@ -20,7 +20,9 @@ data class AuthUiState(
      * 로그아웃 완료 여부
      * 로그아웃 버튼 클릭 -> 로그아웃 완료 기다리지 않고 즉시 화면 이동하는 상황 방지용
      * */
-    val isLogoutCompleted: Boolean = false
+    val isLogoutCompleted: Boolean = false,
+    val isSessionChecking: Boolean = false,
+    val sessionError: String? = null
 )
 
 /**

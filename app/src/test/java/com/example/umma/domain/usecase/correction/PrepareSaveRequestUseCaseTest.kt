@@ -35,10 +35,14 @@ class PrepareSaveRequestUseCaseTest {
             )
         )
 
-        val result = useCase(suggestions)
+        val result = useCase(
+            uid = "uid-1",
+            selectedSuggestions = suggestions
+        )
 
         assertTrue(result.isSuccess)
         val request = result.getOrThrow()
+        assertEquals("uid-1", request.uid)
         assertEquals(LangCode.EN, request.lang)
         assertEquals(1, request.flashcards.size)
         assertEquals("s-1", request.flashcards.first().suggestionId)
@@ -48,7 +52,10 @@ class PrepareSaveRequestUseCaseTest {
 
     @Test
     fun `fails when selected suggestions are empty`() {
-        val result = useCase(emptyList())
+        val result = useCase(
+            uid = "uid-1",
+            selectedSuggestions = emptyList()
+        )
 
         assertTrue(result.isFailure)
     }
