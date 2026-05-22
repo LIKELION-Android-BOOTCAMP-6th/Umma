@@ -52,8 +52,11 @@ abstract class RepositoryModule {
         chatRepositoryImpl: ChatRepositoryImpl
     ): ChatRepository
 
-    // Correction 저장소는 화면 검증 시 Fake 로 토글할 수 있다.
-    // 필요하면 아래 파라미터를 CorrectionRepositoryImpl → FakeCorrectionRepository 로 바꾼다.
+    // Correction 저장소 Real ↔ Fake 토글
+    // 아래 두 파라미터 중 한 줄만 활성화한다.
+    // 동시에 활성화하거나 같은 interface 에 @Binds 메서드를 추가하면 Dagger duplicate binding 으로 컴파일이 실패한다.
+    //   - Real:  correctionRepositoryImpl: CorrectionRepositoryImpl
+    //   - Fake:  fakeCorrectionRepository: FakeCorrectionRepository (화면/ViewModel 분기 검증용 토글 필드 제공)
     @Binds
     @Singleton
     abstract fun bindCorrectionRepository(
@@ -62,7 +65,7 @@ abstract class RepositoryModule {
     ): CorrectionRepository
 
     // 학습 상태 저장소는 DataStore 기반 구현체를 domain 계약 뒤에 숨긴다.
-    // 화면 검증 시 Fake 로 토글: USER_FLOW_MOCK_REAL_DATA_GUIDE.md §5.2 참조.
+    // 화면 검증 시 Fake 로 토글
     @Binds
     @Singleton
     abstract fun bindLearningStateRepo(
