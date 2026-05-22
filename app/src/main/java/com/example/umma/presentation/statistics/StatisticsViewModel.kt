@@ -7,7 +7,9 @@ import com.example.umma.domain.model.learningstate.currentLangState
 import com.example.umma.domain.model.learningstate.selectedLang
 import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
+import com.example.umma.domain.model.statistics.StatisticsMetricType
 import com.example.umma.domain.usecase.statistics.GetStatisticsOverviewUseCase
+import com.example.umma.presentation.statistics.model.toMetricSummaryItems
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -48,7 +50,17 @@ class StatisticsViewModel @Inject constructor(
     }
 
     fun retry() {
+        // 사용자가 다시 시도 버튼을 누르면, 현재 컨텍스트를 새로 조립한다.
+        // 화면 재진입과 동일한 경로를 타게 해서 분기 수를 줄인다.
         loadOverview()
+    }
+
+    fun onMetricClick(metricType: StatisticsMetricType) {
+        // STAT-003에서 chart 입력으로 이어질 선택 지표를 여기서만 보관한다.
+        // 지금 단계에서는 카드 강조 상태만 바뀌고, 데이터 재계산은 하지 않는다.
+        _uiState.update {
+            it.copy(selectedMetricType = metricType)
+        }
     }
 
     private fun observeContext() {
@@ -89,7 +101,8 @@ class StatisticsViewModel @Inject constructor(
                     isLoading = true,
                     errorMessage = null,
                     isRetryable = false,
-                    overview = null
+                    overview = null,
+                    metricSummaryCards = emptyList()
                 )
             }
 
@@ -103,10 +116,14 @@ class StatisticsViewModel @Inject constructor(
             // 후속 카드와 차트가 받을 초기 입력 스냅샷을 만든다.
             getStatisticsOverviewUseCase()
                 .onSuccess { overview ->
+                    // overview 자체는 화면 진입의 핵심 입력이므로,
+                    // 카드 데이터 변환은 여기서 한 번만 수행해 uiState에 넣는다.
+                    val metricCards = overview.toMetricSummaryItems()
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             overview = overview,
+                            metricSummaryCards = metricCards,
                             errorMessage = null,
                             isRetryable = false
                         )
@@ -118,6 +135,7 @@ class StatisticsViewModel @Inject constructor(
                         it.copy(
                             isLoading = false,
                             overview = null,
+                            metricSummaryCards = emptyList(),
                             errorMessage = error.message ?: "Statistics 초기 상태를 불러오지 못했습니다.",
                             isRetryable = true
                         )

@@ -4,22 +4,34 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.umma.core.theme.BackgroundPrimary
+import com.example.umma.core.theme.BackgroundSecondary
+import com.example.umma.core.theme.SpacingL
+import com.example.umma.core.theme.SpacingM
+import com.example.umma.core.theme.TextPrimary
+import com.example.umma.core.theme.TextSecondaryR
+import com.example.umma.core.theme.ThemePrimary
+import com.example.umma.core.theme.TitleB
+import com.example.umma.core.theme.TitleColor
 import com.example.umma.core.ui.component.UmmaAppBar
-import com.example.umma.domain.model.learningstate.ExternalMetrics
-import com.example.umma.domain.model.statistics.StatisticsHistoryQueryState
+import com.example.umma.domain.model.statistics.StatisticsMetricType
+import com.example.umma.presentation.statistics.component.StatisticsMetricSummaryGrid
+import com.example.umma.presentation.statistics.component.StatisticsSkeleton
+import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryItem
 
 /**
  * Statistics 화면의 첫 진입 화면이다.
@@ -33,10 +45,9 @@ fun StatisticsScreen(
     viewModel: StatisticsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val errorMessage = uiState.errorMessage
-    val overview = uiState.overview
 
     Scaffold(
+        containerColor = BackgroundPrimary,
         topBar = {
             UmmaAppBar(
                 title = "통계",
@@ -44,51 +55,58 @@ fun StatisticsScreen(
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            when {
-                // 진입 직후에는 아직 current language context가 준비되지 않았을 수 있으므로
-                // 카드/차트 대신 loading panel 을 먼저 보여준다.
-                uiState.isLoading -> LoadingPanel()
-                // 컨텍스트를 만들 수 없는 경우에는 retry 가능한 error panel 로 빠진다.
-                errorMessage != null -> ErrorPanel(
-                    message = errorMessage,
-                    isRetryable = uiState.isRetryable,
-                    onRetry = viewModel::retry
-                )
-                // overview 가 준비되면 STAT-002/003이 사용할 최소 컨텍스트를 보여준다.
-                overview != null -> OverviewPanel(
-                    selectedLanguage = uiState.selectedLearningLanguage?.code?.uppercase().orEmpty(),
-                    currentExternalMetrics = uiState.currentExternalMetrics,
-                    historyQueryState = uiState.historyQueryState,
-                    availableMetricLabels = overview.availableMetricTypes.joinToString(
-                        separator = " · "
-                    ) { it.displayName }
-                )
-                else -> ErrorPanel(
-                    message = "Statistics 초기 상태를 만들 수 없습니다.",
-                    isRetryable = true,
-                    onRetry = viewModel::retry
-                )
-            }
-        }
+        StatisticsContent(
+            uiState = uiState,
+            modifier = Modifier.padding(paddingValues),
+            onRetry = viewModel::retry,
+            onMetricClick = viewModel::onMetricClick
+        )
     }
 }
 
 @Composable
-private fun LoadingPanel() {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // 아직 컨텍스트 조립 중임을 짧게 알려주는 최소 피드백이다.
-            CircularProgressIndicator()
-            Text(text = "현재 선택 언어와 통계 컨텍스트를 불러오는 중입니다.")
+internal fun StatisticsContent(
+    uiState: StatisticsUiState,
+    modifier: Modifier = Modifier,
+    onRetry: () -> Unit,
+    onMetricClick: (StatisticsMetricType) -> Unit
+) {
+    // Preview와 실제 화면이 같은 분기/레이아웃을 공유하도록,
+    // Scaffold 바깥의 순수 UI 조립 로직을 따로 분리해 둔다.
+    Column(
+        modifier = modifier
+            .padding(horizontal = SpacingL, vertical = SpacingL)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(SpacingL)
+    ) {
+        when {
+            // 진입 직후에는 아직 current language context가 준비되지 않았을 수 있으므로
+            // 카드/차트 대신 loading panel을 먼저 보여준다.
+            uiState.isLoading -> StatisticsSkeleton(
+                modifier = Modifier.padding(top = SpacingM)
+            )
+
+            // 컨텍스트를 만들 수 없는 경우에는 retry 가능한 error panel 로 빠진다.
+            uiState.errorMessage != null -> ErrorPanel(
+                message = uiState.errorMessage,
+                isRetryable = uiState.isRetryable,
+                onRetry = onRetry
+            )
+
+            // overview 가 준비되면 STAT-002/003이 사용할 최소 컨텍스트를 보여준다.
+            // 현재 화면은 차트 그리기보다는 "준비된 상태를 눈으로 확인"하는 역할에 가깝다.
+            uiState.overview != null -> OverviewPanel(
+                selectedLanguage = uiState.selectedLearningLanguage?.code?.uppercase().orEmpty(),
+                metricSummaryCards = uiState.metricSummaryCards,
+                selectedMetricType = uiState.selectedMetricType,
+                onMetricClick = onMetricClick
+            )
+
+            else -> ErrorPanel(
+                message = "Statistics 초기 상태를 만들 수 없습니다.",
+                isRetryable = true,
+                onRetry = onRetry
+            )
         }
     }
 }
@@ -99,7 +117,10 @@ private fun ErrorPanel(
     isRetryable: Boolean,
     onRetry: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+    ) {
         Column(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -118,42 +139,40 @@ private fun ErrorPanel(
 @Composable
 private fun OverviewPanel(
     selectedLanguage: String,
-    currentExternalMetrics: ExternalMetrics?,
-    historyQueryState: StatisticsHistoryQueryState?,
-    availableMetricLabels: String
+    metricSummaryCards: List<StatisticsMetricSummaryItem>,
+    selectedMetricType: StatisticsMetricType?,
+    onMetricClick: (StatisticsMetricType) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // STAT-001에서 준비한 현재 언어 컨텍스트를 사람이 읽을 수 있는 형태로만 보여준다.
-            Text(text = "현재 선택 언어: $selectedLanguage")
-            Text(text = "history 조회 준비: ${historyQueryState.toStatusText()}")
-            Text(text = "준비된 지표: $availableMetricLabels")
-            currentExternalMetrics?.let { metrics ->
-                // 실제 카드 렌더링은 STAT-002지만, 001에서는 원본 snapshot 이 준비되었는지 확인한다.
-                Text(text = "LangState.external")
-                Text(text = "어휘 레벨: ${metrics.vocabularyLevel.name}")
-                Text(text = "문법 정확도: ${(metrics.grammarAccuracy * 100).toInt()}%")
-                Text(text = "표현 폭: ${metrics.expressionRange}")
-                Text(text = "유창성: ${(metrics.fluencyScore * 100).toInt()}%")
-                Text(text = "자연스러움: ${(metrics.naturalnessScore * 100).toInt()}%")
-            }
-            // 이 화면은 요약 카드/차트의 기반이 되는 컨텍스트만 준비하고 끝난다.
-            Text(
-                text = "이 화면은 2~4단계에서 사용할 current language context를 준비하는 역할만 담당합니다.",
-                textAlign = TextAlign.Start
-            )
-        }
-    }
-}
-
-private fun StatisticsHistoryQueryState?.toStatusText(): String {
-    return when (this) {
-        is StatisticsHistoryQueryState.Ready ->
-            "Ready(userId=${userId}, language=${language.code})"
-        is StatisticsHistoryQueryState.Unavailable -> "Unavailable($reason)"
-        null -> "Unavailable"
+    Column(
+        verticalArrangement = Arrangement.spacedBy(SpacingM)
+    ) {
+        // 현재 화면이 어떤 언어 기준인지 먼저 보여준다.
+        Text(
+            text = if (selectedLanguage.isBlank()) {
+                "현재 선택 언어"
+            } else {
+                "현재 선택 언어 · ${selectedLanguage.uppercase()}"
+            },
+            style = TextSecondaryR,
+            color = ThemePrimary
+        )
+        // 카드 그리드의 시선을 받쳐주는 큰 문구. 상태가 비어 있어도 화면 구조는 유지된다.
+        Text(
+            text = "꾸준한 학습으로 실력이 쑥쑥 늘고 있어요!",
+            style = TitleB,
+            color = TitleColor
+        )
+        // 카드가 보여주는 값이 "현재 대비 얼마나 나아졌는지"를 한 줄로 설명한다.
+        Text(
+            text = "첫 학습 대비 실력 증진율",
+            style = TextSecondaryR,
+            color = TextPrimary.copy(alpha = 0.82f)
+        )
+        StatisticsMetricSummaryGrid(
+            items = metricSummaryCards,
+            selectedMetricType = selectedMetricType,
+            onMetricClick = onMetricClick,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }

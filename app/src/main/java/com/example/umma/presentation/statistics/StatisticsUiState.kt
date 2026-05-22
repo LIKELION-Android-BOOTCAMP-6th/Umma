@@ -1,7 +1,9 @@
 package com.example.umma.presentation.statistics
 
 import com.example.umma.domain.model.statistics.StatisticsHistoryQueryState
+import com.example.umma.domain.model.statistics.StatisticsMetricType
 import com.example.umma.domain.model.statistics.StatisticsOverview
+import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryItem
 
 /**
  * Statistics 화면이 바로 렌더링할 수 있는 상태다.
@@ -14,6 +16,10 @@ data class StatisticsUiState(
     val isLoading: Boolean = true,
     // 초기 컨텍스트 조립 결과. 성공 시 화면은 이 스냅샷을 기준으로 표시한다.
     val overview: StatisticsOverview? = null,
+    // STAT-002에서 사용할 5개 요약 카드 state.
+    val metricSummaryCards: List<StatisticsMetricSummaryItem> = emptyList(),
+    // 지금 선택된 metric. STAT-003에서 chart 입력으로 이어받을 값이다.
+    val selectedMetricType: StatisticsMetricType? = null,
     // 실패 시 사용자에게 보여줄 메시지.
     val errorMessage: String? = null,
     // 실패나 네트워크 문제 등으로 다시 시도할 수 있는지 여부.
