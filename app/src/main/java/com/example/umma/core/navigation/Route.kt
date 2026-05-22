@@ -9,7 +9,7 @@ sealed interface Route {
     // Main Graph (구성 요소: 통계, 교정, 챗, 피드백)
     @Serializable data object HomeGraph: Route
 
-    @Serializable data object StudyGraph: Route
+    @Serializable data object SrsStudyGraph: Route
 
     @Serializable data object CorrectionGraph: Route
 
@@ -43,8 +43,8 @@ sealed interface Route {
     @Serializable
     data object CorrectionList : Route
 
-    // 8. 학습
+    // 8. SRS 반복학습
     @Serializable
-    data object StudyList : Route
+    data object SrsStudy : Route
 
 }

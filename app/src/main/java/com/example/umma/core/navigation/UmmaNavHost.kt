@@ -15,7 +15,7 @@ import com.example.umma.presentation.chat.ChatScreen
 import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
 import com.example.umma.presentation.correction.CorrectionScreen
-import com.example.umma.presentation.study.StudyListScreen
+import com.example.umma.presentation.srsstudy.SrsStudyScreen
 
 @Composable
 fun UmmaNavHost(
@@ -69,7 +69,7 @@ fun UmmaNavHost(
                 DashboardScreen(
                     onNavigateToChat = { navController.navigate(Route.Chat) },
                     onNavigateToAnalytics = { navController.navigate(Route.Analytics) },
-                    onNavigateToStudyList = { navController.navigate(Route.StudyList) },
+                    onNavigateToSrsStudy = { navController.navigate(Route.SrsStudy) },
                     onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
                     onNavigateToMyPage = { navController.navigate(Route.MyPage) }
                 )
@@ -94,9 +94,9 @@ fun UmmaNavHost(
             composable<Route.Analytics> { AnalyticsScreen() }
         }
 
-        // 학습 그래프
-        navigation<Route.StudyGraph>(startDestination = Route.StudyList) {
-            composable<Route.StudyList> { StudyListScreen() }
+        // SRS 반복학습 그래프
+        navigation<Route.SrsStudyGraph>(startDestination = Route.SrsStudy) {
+            composable<Route.SrsStudy> { SrsStudyScreen() }
         }
 
         // 챗(대화) 그래프

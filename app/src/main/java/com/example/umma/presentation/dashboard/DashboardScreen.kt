@@ -92,7 +92,7 @@ fun DashboardScreen(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToStudyList: () -> Unit,
+    onNavigateToSrsStudy: () -> Unit,
     onNavigateToMyPage: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
@@ -199,7 +199,7 @@ fun DashboardScreen(
                     onNavigateToAnalytics = onNavigateToAnalytics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
-                    onNavigateToStudyList = onNavigateToStudyList
+                    onNavigateToSrsStudy = onNavigateToSrsStudy
                 )
             }
         }
@@ -357,7 +357,7 @@ private fun DashboardContent(
     onNavigateToAnalytics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToStudyList: () -> Unit,
+    onNavigateToSrsStudy: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -377,7 +377,7 @@ private fun DashboardContent(
         DashboardCardGrid(
             summary = summary,
             onNavigateToChat = onNavigateToChat,
-            onNavigateToStudyList = onNavigateToStudyList,
+            onNavigateToSrsStudy = onNavigateToSrsStudy,
             onNavigateToCorrection = onNavigateToCorrection,
             onNavigateToAnalytics = onNavigateToAnalytics
         )
@@ -400,7 +400,7 @@ private fun DashboardContent(
 private fun DashboardCardGrid(
     summary: DashSummary?,
     onNavigateToChat: () -> Unit,
-    onNavigateToStudyList: () -> Unit,
+    onNavigateToSrsStudy: () -> Unit,
     onNavigateToCorrection: () -> Unit,
     onNavigateToAnalytics: () -> Unit
 ) {
@@ -439,7 +439,7 @@ private fun DashboardCardGrid(
                     if (isStudyEmpty) {
                         Toast.makeText(context, "저장된 카드 없음", Toast.LENGTH_SHORT).show()
                     }
-                    onNavigateToStudyList()
+                    onNavigateToSrsStudy()
                 },
                 modifier = Modifier
                     .weight(1f)

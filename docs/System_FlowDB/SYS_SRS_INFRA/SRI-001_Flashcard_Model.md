@@ -9,14 +9,14 @@ Flashcard 원본 카드가 어떤 필드를 갖고 각 필드가 어떤 의미�
 
 ## 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] `Flashcard`가 반복학습 원본 카드 계약으로 정의된다.
-- [ ] Flashcard의 front/back, explanation, hint, schedule 필드와 pronunciation 재생 대상의 역할이 구분된다.
-- [ ] 카드 앞면은 모국어 문장, 카드 뒷면은 교정된 외국어 문장과 짧은 설명을 기준으로 한다.
-- [ ] 발음 재생 대상은 카드 뒷면의 교정된 외국어 문장임을 명시한다.
-- [ ] `ReviewDecision`이 SM-2 기반 4단계 복습 평가 결과 계약으로 정의된다.
-- [ ] `ReviewScheduleResult` 또는 동등한 스케줄 계산 결과 모델이 정의된다.
-- [ ] Flashcard가 언어 식별자를 가져 언어별 deck 분리가 가능하도록 정의된다.
-- [ ] 기존 공통 작업으로 생성된 `study` 화면/폴더/파일 명칭을 `SrsStudy` 기준으로 재정의한다.
+- [x] `Flashcard`가 반복학습 원본 카드 계약으로 정의된다.
+- [x] Flashcard의 front/back, explanation, hint, schedule 필드와 pronunciation 재생 대상의 역할이 구분된다.
+- [x] 카드 앞면은 모국어 문장, 카드 뒷면은 교정된 외국어 문장과 짧은 설명을 기준으로 한다.
+- [x] 발음 재생 대상은 카드 뒷면의 교정된 외국어 문장이며, `SpeechPlayer` 인터페이스를 통해 처리됨을 명시한다.
+- [x] `ReviewDecision`이 SM-2 기반 4단계 복습 평가 결과 계약으로 정의된다.
+- [x] `ReviewScheduleResult` 또는 동등한 스케줄 계산 결과 모델이 정의된다.
+- [x] Flashcard가 언어 식별자를 가져 언어별 deck 분리가 가능하도록 정의된다.
+- [x] 기존 공통 작업으로 생성된 `study` 화면/폴더/파일 명칭을 `SrsStudy` 기준으로 재정의한다.
 
 ---
 
@@ -97,9 +97,9 @@ Flashcard
 - `frontText`: 카드 앞면에 표시할 모국어 문장
 - `backText`: 카드 뒷면에 표시할 교정된 외국어 문장
 - `explanation`: 뒷면에 표시할 짧은 교정 설명
-- `hint`: 앞면 또는 학습 중 회상 보조에 사용할 선택 필드이며, Correction에서 생성한 카드는 생략할 수 있다.
-- pronunciation 재생 대상: MVP에서는 별도 저장 필드를 두지 않고 `backText`를 Android `TextToSpeech`의 입력으로 사용한다.
-- `schedule`: `interval`, `easeFactor`, `nextReviewAt` 등 복습 스케줄 상태
+- `hint`: 앞면 또는 학습 중 회상 보조에 사용할 선택 필드
+- pronunciation 재생: `SpeechPlayer` 인터페이스를 통해 `backText`를 재생한다.
+- `schedule`: `interval`(단위: 분), `easeFactor`, `nextReviewAt`(밀리초 타임스탬프) 등 복습 스케줄 상태
 
 ### 2. ReviewDecision 계약
 

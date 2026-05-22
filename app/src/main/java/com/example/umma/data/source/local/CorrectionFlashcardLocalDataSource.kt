@@ -72,6 +72,23 @@ interface CorrectionFlashcardLocalDataSource {
     ): Boolean
 
     /**
+     * SRS review 완료 후 FlashcardSummary.savedFlashcards를 계산하기 위한 전체 카드 수다.
+     */
+    suspend fun countFlashcards(
+        uid: String,
+        language: String
+    ): Int
+
+    /**
+     * SRS review 완료 후 FlashcardSummary.dueFlashcards를 계산하기 위한 due 카드 수다.
+     */
+    suspend fun countDueFlashcards(
+        uid: String,
+        language: String,
+        now: Long
+    ): Int
+
+    /**
      * 완료 파이프라인 실패 시 이번 요청에서 새로 저장한 local 카드만 되돌린다.
      *
      * 중복 요청으로 이미 존재하던 카드는 이 rollback 대상에 포함되면 안 된다.
@@ -187,6 +204,41 @@ interface CorrectionFlashcardDao {
     ): Int
 
     /**
+     * 현재 언어에 저장된 전체 카드 수를 계산한다.
+     * Dashboard/SRS Summary는 이 값을 직접 원본으로 삼지 않고, SRS 완료 시점의 스냅샷으로만 사용한다.
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM correction_flashcards
+        WHERE userId = :userId AND language = :language
+        """
+    )
+    suspend fun countFlashcards(
+        userId: String,
+        language: String
+    ): Int
+
+    /**
+     * nextReviewAt 기준으로 현재 due 상태인 카드 수를 계산한다.
+     * deck 조회와 같은 조건을 써서 화면 요약과 실제 deck 기준이 어긋나지 않게 한다.
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM correction_flashcards
+        WHERE userId = :userId
+          AND language = :language
+          AND nextReviewAt <= :now
+        """
+    )
+    suspend fun countDueFlashcards(
+        userId: String,
+        language: String,
+        now: Long
+    ): Int
+
+    /**
      * 완료 파이프라인 보상 작업에서만 사용한다.
      * userId 조건을 함께 걸어 다른 계정의 같은 card id를 지우지 않도록 한다.
      */
@@ -279,6 +331,30 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
             easeFactor = easeFactor,
             updatedAt = updatedAt
         ) > 0
+    }
+
+    override suspend fun countFlashcards(
+        uid: String,
+        language: String
+    ): Int {
+        // Summary는 별도 테이블을 원본으로 보지 않고 같은 Flashcard Room 원본에서 계산한다.
+        return dao.countFlashcards(
+            userId = uid,
+            language = language
+        )
+    }
+
+    override suspend fun countDueFlashcards(
+        uid: String,
+        language: String,
+        now: Long
+    ): Int {
+        // due deck 조회 조건과 동일하게 nextReviewAt <= now만 센다.
+        return dao.countDueFlashcards(
+            userId = uid,
+            language = language,
+            now = now
+        )
     }
 
     override suspend fun rollbackFlashcards(

@@ -2,10 +2,13 @@ package com.example.umma.domain.usecase.learningstate
 
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.InternalMetrics
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.example.umma.domain.model.learningstate.LangStateUpdateInput
 import com.example.umma.domain.model.learningstate.FlashcardSummary
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
+import com.example.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.example.umma.domain.model.learningstate.TurnSpeaker
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
@@ -25,10 +28,44 @@ class ChangeSelectedLangUseCase @Inject constructor(
 class ApplyLanguageStateUpdateUseCase @Inject constructor(
     private val repo: LearningStateRepo
 ) {
-    suspend operator fun invoke(input: LangStateUpdateInput): Result<Unit> {
+    suspend operator fun invoke(input: LangStateUpdateInput): Result<LearningStateUpdateResult> {
+        // 같은 analysisEventId를 다시 받으면 이동평균을 한 번 더 적용하지 않는다.
+        // 이 early return 덕분에 Correction 완료 재시도나 화면 재진입이 점수를 왜곡하지 않는다.
+        if (!input.forceReanalysis &&
+            input.analysisEventId != null &&
+            input.currentState.lastAnalysisEventId == input.analysisEventId
+        ) {
+            return Result.success(
+                LearningStateUpdateResult(
+                    lang = input.lang,
+                    savedState = input.currentState,
+                    sourceEventId = input.analysisEventId,
+                    applied = false,
+                    updatedAt = input.currentState.updatedAt ?: input.analyzedAt
+                )
+            )
+        }
+
         // UseCase가 다음 상태를 먼저 계산하고 저장소는 그 결과만 저장한다.
         val preparedState = input.preparedState ?: prepareNextState(input)
         return repo.updateLanguageState(input.copy(preparedState = preparedState))
+    }
+}
+
+class ApplyFlashcardSummaryUpdateUseCase @Inject constructor(
+    private val repo: LearningStateRepo
+) {
+    suspend operator fun invoke(
+        input: FlashcardSummaryUpdateInput
+    ): Result<FlashcardSummaryUpdateResult> {
+        // due count 계산은 SRS가 끝낸 상태로 넘어온다.
+        // LS는 음수처럼 화면을 깨는 값만 막고, 전역 Summary 반영을 담당한다.
+        if (input.dueFlashcards < 0 || input.savedFlashcards < 0) {
+            return Result.failure(
+                IllegalArgumentException("flashcard summary counts must not be negative")
+            )
+        }
+        return repo.updateFlashcardSummary(input)
     }
 }
 

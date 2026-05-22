@@ -26,7 +26,7 @@ SRS는 이미 저장된 Flashcard 원본을 조회하고, 복습 평가 이후 s
 | --- | --- | --- | --- | --- |
 | 1. Flashcard 모델 계약 | Flashcard 원본 모델, 카드 앞/뒤, 설명, 힌트, 발음, 스케줄 필드 정의, 기존 `study` 명칭의 `SrsStudy` 재정의 | User Flow 작업자가 동일한 카드 구조와 화면 명칭을 기준으로 구현 가능 | 성공: 카드 표시/저장 모델 및 화면 명칭 기준 확정 / 실패: 카드 필드 또는 화면 명칭 의미 불명확 | SRI-001 |
 | 2. Repository 조회/복습 결과 갱신 계약 | FlashcardRepository, due deck 조회, review 결과 schedule 갱신 요청, fake/real 교체 기준 정의 | 화면과 data 구현이 같은 repository 계약을 바라봄 | 성공: mock/real 전환 가능 / 실패: 조회와 갱신 책임 경계 불명확 | SRI-002 |
-| 3. Review 스케줄 정책 | SM-2 기반 4단계 평가, ReviewSchedulePolicy, local first 완료 파이프라인, summary 갱신 기준 정의 | 평가 결과가 다음 복습 시점과 요약값에 일관되게 반영됨 | 성공: 스케줄/요약 갱신 가능 / 실패: nextReviewAt, pending sync 기준 불명확 | SRI-003 |
+| 3. Review 스케줄 정책 | SM-2 기반 4단계 평가, ReviewSchedulePolicy, local first schedule 갱신, summary 연동 경계 정의 | 평가 결과가 다음 복습 시점과 Dashboard 요약에 일관되게 반영됨 | 성공: 스케줄 및 summary 갱신 가능 / 실패: nextReviewAt 또는 summary 연동 경계 불명확 | SRI-003 |
 
 `SRI-001 ~ SRI-003`은 System Flow의 선행 작업이다.  
 User Flow의 실제 학습 화면 구현은 `FLOW-SRS`에서 진행한다.
@@ -37,9 +37,9 @@ User Flow의 실제 학습 화면 구현은 `FLOW-SRS`에서 진행한다.
 
 ### System Flow 선행 이슈
 
-- [SRI-001 Flashcard 반복학습 모델 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_SRS_INFRA/SRI-001_Flashcard_Model.md)
-- [SRI-002 Flashcard Repository 조회/복습 결과 갱신 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_SRS_INFRA/SRI-002_Repository_Contract.md)
-- [SRI-003 Review 스케줄 정책 및 완료 파이프라인](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_SRS_INFRA/SRI-003_Schedule_Policy.md)
+- [SRI-001 Flashcard 반복학습 모델 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/issues/82)
+- [SRI-002 Flashcard Repository 조회/복습 결과 갱신 계약](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/issues/83)
+- [SRI-003 Review 스케줄 정책 및 Summary 연동 경계](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/issues/84)
 
 ### User Flow 구현 이슈
 
@@ -61,7 +61,7 @@ User Flow의 실제 학습 화면 구현은 `FLOW-SRS`에서 진행한다.
 - `FlashcardRepository` interface와 review query / update 경계
 - `ReviewDecision`과 `ReviewSchedulePolicy`의 역할
 - fake/real 구현체를 Hilt binding으로 교체할 수 있는 DI 기준
-- `FlashcardSummary.dueFlashcards`가 어디서 계산되는지에 대한 observe 기준
+- `FlashcardSummary.dueFlashcards` / `DashSummary.dueFlashcards` 갱신 기준
 
 `SYS-SRS-INFRA`의 갱신 계약은 Flashcard 최초 생성 저장이 아니라, 복습 평가 이후 기존 Flashcard의 schedule/review 상태를 갱신하는 계약이다.
 Correction에서 선택한 교정 결과를 새 Flashcard로 만드는 Room DAO local first 저장은 `SYS-CORRECTION-INFRA`에서 다룬다.
@@ -107,6 +107,7 @@ Dashboard Flashcard 카드
 → 사용자가 평가 버튼 선택
 → ReviewSchedulePolicy로 nextReviewAt 계산
 → Flashcard schedule/review 상태 local first 갱신
+→ 같은 Flashcard 원본에서 due/saved count 재계산
 → FlashcardSummary / DashSummary 갱신
 → Firestore background sync 예약
 ```
@@ -122,9 +123,9 @@ Dashboard Flashcard 카드
 - `DashSummary.dueFlashcards`는 Dashboard 표시용 요약값이다.
 - 복습 덱의 source of truth는 Flashcard 원본 목록이다.
 - `nextReviewAt <= now`인 카드가 복습 대상이다.
-- `FlashcardSummary.dueFlashcards`와 `DashSummary.dueFlashcards`는 같은 완료 흐름 안에서 함께 갱신한다.
-- Flashcard review schedule local 갱신과 Summary 업데이트는 하나의 로컬 완료 파이프라인으로 묶는다.
-- 로컬 완료 파이프라인 중 하나라도 실패하면 전체 로컬 변경을 롤백하고 Retry 상태로 남긴다.
+- `FlashcardSummary.dueFlashcards`와 `DashSummary.dueFlashcards`는 SRS review 완료 흐름에서 LS의 `ApplyFlashcardSummaryUpdateUseCase`를 통해 함께 반영한다.
+- Flashcard review schedule local 갱신과 Summary 업데이트는 서로 다른 저장소 계약을 사용하지만, `ApplyReviewDecisionUseCase`가 같은 local completion 흐름으로 조율한다.
+- Summary 갱신 실패 시 이전 schedule 값으로 보상 갱신하고, 완료 실패로 반환한다.
 - Firestore background sync 실패는 로컬 완료 실패로 보지 않고 pending sync로 관리한다.
 - Flashcard deck은 언어별로 분리되며, 현재 선택 언어 외의 카드는 섞지 않는다.
 

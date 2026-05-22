@@ -94,6 +94,29 @@ class TestCorrectionFlashcardLocalDataSource : CorrectionFlashcardLocalDataSourc
         return true
     }
 
+    override suspend fun countFlashcards(
+        uid: String,
+        language: String
+    ): Int {
+        // Summary의 saved count도 production과 같이 userId/language 조건으로 계산한다.
+        return flashcardsByUserAndId.entries.count { (key, flashcard) ->
+            belongsToUser(key, uid) && flashcard.language == language
+        }
+    }
+
+    override suspend fun countDueFlashcards(
+        uid: String,
+        language: String,
+        now: Long
+    ): Int {
+        // due count는 getDueFlashcards와 같은 조건을 사용하되 limit 없이 전체 수를 센다.
+        return flashcardsByUserAndId.entries.count { (key, flashcard) ->
+            belongsToUser(key, uid) &&
+                flashcard.language == language &&
+                flashcard.nextReviewAt <= now
+        }
+    }
+
     override suspend fun rollbackFlashcards(
         uid: String,
         flashcardIds: List<String>
