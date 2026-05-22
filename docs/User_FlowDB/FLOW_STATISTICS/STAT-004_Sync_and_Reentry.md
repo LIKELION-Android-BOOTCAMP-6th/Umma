@@ -82,6 +82,7 @@ Statistics는 Dashboard보다 preload 우선순위가 낮으므로 화면 진입
 - 화면 재진입 시 `selectedLearningLanguage`를 다시 확인한다.
 - 이전 언어의 selected metric이나 chart point가 현재 언어 화면에 남지 않게 한다.
 - 현재 선택 언어가 바뀌면 history observe 대상도 바뀐다.
+- 현재 사용자 또는 현재 언어와 다른 background sync 결과는 화면 state에 반영하지 않는다.
 - 화면 이탈 중 완료된 fetch 결과가 이미 사라진 화면 state를 덮어쓰지 않게 한다.
 
 ---
@@ -91,6 +92,7 @@ Statistics는 Dashboard보다 preload 우선순위가 낮으므로 화면 진입
 - local cache 결과를 먼저 화면에 올린다.
 - repository background refresh 실패를 Fatal Error로 올리지 않는다.
 - 현재 선택 언어와 fetch 결과의 `language`가 다르면 반영하지 않는다.
+- 현재 사용자와 다른 `userId`의 history는 local cache에 있더라도 반영하지 않는다.
 - background sync 결과가 들어오면 선택 지표 chart를 다시 계산한다.
 - sync 재시도 정책은 repository/local sync metadata 기준으로 관리하며, 이 이슈는 해당 상태를 관찰해 화면에 반영한다.
 

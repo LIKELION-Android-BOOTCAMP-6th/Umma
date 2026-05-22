@@ -9,7 +9,7 @@
 
 ## 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] Statistics route에 진입하면 `StatisticsScreen`이 렌더링된다.
+- [ ] 선행 준비된 Statistics route에 진입하면 `StatisticsScreen`이 현재 언어 컨텍스트를 로드한다.
 - [ ] `StatisticsViewModel`이 `GlobalLangState`의 현재 선택 언어를 observe한다.
 - [ ] `selectedLearningLanguage`가 Statistics 초기 언어 컨텍스트에 반영된다.
 - [ ] `GetStatisticsOverviewUseCase`가 선행 계약을 조합해 현재 선택 언어의 `LangState.external` 로드 상태를 반환한다.
@@ -32,7 +32,7 @@
 
 ### 포함 범위
 
-- Statistics route destination
+- 선행 준비된 Statistics route destination 사용
 - 현재 선택 언어 observe
 - `StatisticsViewModel` 초기 상태 구성
 - Loading / Error 상태
@@ -68,7 +68,7 @@ Dashboard의 delta 값은 진입 힌트이며, Statistics 화면의 그래프 so
 
 ## 작업 지시
 
-- `StatisticsScreen`과 `StatisticsViewModel`을 준비한다.
+- 선행 준비된 `StatisticsScreen`과 route destination을 기준으로 `StatisticsViewModel`을 연결한다.
 - `StatisticsViewModel`이 현재 선택 언어를 기준으로 초기 상태를 구성하게 한다.
 - `GetStatisticsOverviewUseCase`로 현재값 로드 상태와 history 조회 가능 상태를 초기 UI state에 반영한다.
 - `GetStatisticsOverviewUseCase`는 Statistics 화면 초기 상태를 조립하는 얇은 UseCase이며, `StatisticsRepository`의 저장/sync 파이프라인을 직접 구현하지 않는다.

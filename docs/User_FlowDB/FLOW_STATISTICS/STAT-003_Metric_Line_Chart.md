@@ -74,6 +74,7 @@ Composable은 `StatisticsHistory` 원본을 직접 파싱하지 않는다.
 - y축은 metric type별 numeric value를 사용한다.
 - 데이터가 2개 미만이면 선을 그리지 않고 Empty chart 상태를 표시한다.
 - 차트에 표시하는 값과 사용자 라벨은 분리할 수 있다.
+- 점수형 metric은 저장 원본 `0.0 ~ 1.0` 값을 `MetricHistoryPoint` 변환 단계에서 `0 ~ 100` chart value로 환산한다.
 
 ### Vocabulary Level 변환
 
@@ -95,6 +96,7 @@ Composable은 `StatisticsHistory` 원본을 직접 파싱하지 않는다.
 - 선택 지표를 `StatisticsMetricType`으로 관리한다.
 - chart 컴포넌트는 이미 변환된 `MetricHistoryPoint`만 입력받는다.
 - chart 컴포넌트 안에서 repository를 호출하지 않는다.
+- chart 컴포넌트 안에서 점수 scale을 직접 환산하지 않는다.
 - history가 부족한 경우 더미 데이터를 만들어 표시하지 않는다.
 - history가 부족한 경우 Empty chart 상태를 유지한다.
 

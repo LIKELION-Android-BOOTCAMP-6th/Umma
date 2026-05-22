@@ -65,12 +65,15 @@ MVP에서는 다음 5개 지표만 표시한다.
 | `naturalnessScore` | 61 |
 
 표시 문구는 실제 UI 톤에 맞춰 조정할 수 있지만, 지표 종류는 추가하지 않는다.
+`ExternalMetrics`의 점수형 원본 값은 `0.0 ~ 1.0` 기준으로 저장될 수 있으므로, UI card state 변환 단계에서 `0 ~ 100` 표시값으로 환산한다.
+Composable은 원본 scale을 직접 판단하지 않고, 이미 변환된 `valueText`만 표시한다.
 
 ---
 
 ## 작업 지시
 
 - `ExternalMetrics`를 UI 전용 card state로 변환한다.
+- `grammarAccuracy`, `fluencyScore`, `naturalnessScore`는 card state 변환 단계에서 0~100 표시값으로 환산한다.
 - `LangState.external` 원본을 Composable에서 직접 파싱하지 않는다.
 - 카드 클릭 이벤트는 metric type만 상위로 올린다.
 - 카드 클릭 시 chart를 직접 그리지 않는다.

@@ -13,10 +13,10 @@ Correction 완료 이후 언제 어떤 방식으로 `StatisticsHistory`가 기�
 - [ ] history 기록 입력은 LS-006이 저장 완료한 `language`의 `ExternalMetrics` snapshot을 사용한다.
 - [ ] MVP에서는 Flashcard 복습 결과만으로 `StatisticsHistory`를 새로 기록하지 않는다.
 - [ ] 화면 진입, Dashboard 진입, 단순 sync 완료는 history 생성 트리거가 아니다.
-- [ ] history는 `sourceEventId` 기준으로 중복 기록을 방지한다.
+- [ ] history는 `userId + language + sourceEventId` 기준으로 중복 기록을 방지한다.
 - [ ] history local 저장은 Room local first로 수행한다.
 - [ ] Firestore sync 실패는 history 기록 실패로 보지 않고 pending sync로 남긴다.
-- [ ] history local 저장 실패 시 재시도 가능한 상태로 남긴다.
+- [ ] history local 저장 실패 시 호출자가 같은 완료 결과로 재시도할 수 있는 실패 상태를 반환한다.
 - [ ] history 기록 실패가 이미 성공한 Language State 업데이트를 임의로 되돌리지 않는다.
 
 ---
@@ -27,7 +27,7 @@ Correction 완료 이후 언제 어떤 방식으로 `StatisticsHistory`가 기�
 
 - Correction 완료 파이프라인에서 Language State 업데이트 성공 결과 이후 history 기록 UseCase 계약
 - `ExternalMetrics` snapshot → `StatisticsHistory` 변환
-- `sourceEventId` 중복 방지
+- `userId + language + sourceEventId` 중복 방지
 - Room local first 저장
 - Firestore pending sync
 - history 기록 실패/재시도 상태
@@ -70,7 +70,7 @@ data/repository
 Correction 선택 결과 Flashcard local 저장 성공
 → LS-006에서 External Metrics 재계산 완료
 → Local LangState 저장 성공 결과 전달
-→ 기록 대상 language / sourceEventId / ExternalMetrics snapshot 수신
+→ 기록 대상 userId / language / sourceEventId / ExternalMetrics snapshot 수신
 → StatisticsHistory snapshot 생성
 → StatisticsHistory Room local 저장
 → Firestore background sync 예약
@@ -125,7 +125,7 @@ Internal Metrics 전체를 history에 저장하지 않는다.
 sourceEventId = savedLangState.lastAnalysisEventId
 ```
 
-- 같은 `language`와 `sourceEventId` 조합이 이미 있으면 새 history를 만들지 않는다.
+- 같은 `userId`, `language`, `sourceEventId` 조합이 이미 있으면 새 history를 만들지 않는다.
 - 중복 요청이 들어오면 기존 history를 유지하고 성공으로 간주할 수 있다.
 - `sourceEventId`가 없으면 `languageState.updatedAt`과 `language`를 조합한 fallback id로 중복 생성을 방지한다.
 
@@ -135,23 +135,39 @@ Statistics 쪽 기록 UseCase는 LS-006의 내부 계산 과정을 알지 않는
 대신 아래 저장 완료 결과만 입력으로 받는다.
 
 ```text
+userId
 language
 externalMetrics
 savedAt
 sourceEventId
 ```
 
+`userId`는 local Room과 Firestore 경로에서 사용자 데이터를 분리하기 위한 기준이다.
 `sourceEventId`는 `savedLangState.lastAnalysisEventId`를 우선 사용한다.
 값이 없을 때만 `language + savedAt` 조합으로 fallback id를 만든다.
 LS 선행 계약에서 완료 결과 모델을 아직 제공하지 못한다면, `RecordStatisticsHistoryUseCase` 연결은 보류하고 `LangState` 저장 결과를 명시적으로 받을 수 있는 계약부터 정리한다.
+
+Learning State 쪽 책임:
+
+- local `LangState` 저장 성공 이후 저장 완료 결과를 제공한다.
+- 저장 완료 결과에는 `language`, `ExternalMetrics`, `updatedAt`, `lastAnalysisEventId`가 포함되어야 한다.
+- 동일 `analysisEventId` 중복 요청을 실제 저장 단계에서 idempotent하게 처리한다.
+
+Statistics 쪽 책임:
+
+- LS 저장 완료 결과와 현재 사용자 식별자를 받아 `StatisticsHistory`를 생성한다.
+- LS 계산 공식이나 LangState 저장 로직을 다시 구현하지 않는다.
+- `RecordStatisticsHistoryUseCase`는 StatisticsRepository를 통해 history 저장과 중복 방지만 담당한다.
 
 ### 4. 실패 정책
 
 - Room local 저장 성공 시 사용 가능한 history로 본다.
 - Firestore sync 실패는 pending sync로 남긴다.
-- Room local 저장 실패는 history 기록 실패이며 Retry 대상으로 남긴다.
+- Room local 저장 실패는 history 기록 실패로 반환한다.
+- Room local 저장이 실패하면 pending sync record도 남지 않으므로, background sync가 자동으로 복구한다고 가정하지 않는다.
+- 호출자는 동일한 `userId + language + sourceEventId` 완료 결과로 `RecordStatisticsHistoryUseCase`를 다시 호출할 수 있다.
 - history 기록 실패가 이미 저장된 LangState를 되돌리지는 않는다.
-- 다음 background retry에서 누락 history를 보정할 수 있다.
+- 이미 Room에 저장된 history의 Firestore sync 실패만 pending sync/background retry 대상으로 남긴다.
 
 ---
 
@@ -162,7 +178,7 @@ LS 선행 계약에서 완료 결과 모델을 아직 제공하지 못한다면,
 - Flashcard 복습 결과 저장만으로 history가 생성되지 않는다.
 - 같은 분석 이벤트가 두 번 반영되어도 history가 중복 생성되지 않는다.
 - Firestore sync 실패 상태에서도 local history는 Statistics 화면에서 조회 가능하다.
-- history local 저장 실패는 Retry 가능한 상태로 남는다.
+- history local 저장 실패는 호출자가 같은 완료 결과로 재시도할 수 있는 실패로 반환된다.
 
 ---
 
