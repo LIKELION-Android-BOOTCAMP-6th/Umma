@@ -12,15 +12,20 @@ import com.example.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.example.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.example.umma.domain.model.learningstate.TurnSpeaker
+import com.example.umma.domain.model.statistics.StatisticsHistory
+import com.example.umma.domain.model.statistics.StatisticsHistoryRecordResult
 import com.example.umma.domain.model.realtime.AppendTurnCommand
 import com.example.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.example.umma.domain.model.realtime.SessionMemory
 import com.example.umma.domain.model.realtime.SessionTurn
 import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.repository.LearningStateRepo
+import com.example.umma.domain.repository.StatisticsRepository
 import com.example.umma.domain.repository.SessionMemoryRepository
 import com.example.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import com.example.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
+import com.example.umma.domain.usecase.statistics.BuildStatisticsHistoryUseCase
+import com.example.umma.domain.usecase.statistics.RecordStatisticsHistoryUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -38,12 +43,17 @@ class CompleteCorrectionUseCaseTest {
     private val events = CopyOnWriteArrayList<String>()
     private val correctionRepository = RecordingCorrectionRepository(events)
     private val learningStateRepo = RecordingLearningStateRepo(events)
+    private val statisticsRepository = RecordingStatisticsRepository(events)
     private val sessionMemoryRepository = RecordingSessionMemoryRepository(events)
     private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(learningStateRepo)
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
         correctionRepository = correctionRepository,
         applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase,
+        recordStatisticsHistoryUseCase = RecordStatisticsHistoryUseCase(
+            buildStatisticsHistoryUseCase = BuildStatisticsHistoryUseCase(),
+            statisticsRepository = statisticsRepository
+        ),
         buildSessionCompressionPayloadUseCase = BuildSessionCompressionPayloadUseCase(),
         compressSessionMemoryUseCase = CompressSessionMemoryUseCase(sessionMemoryRepository)
     )
@@ -89,14 +99,16 @@ class CompleteCorrectionUseCaseTest {
 
         assertTrue(result.isSuccess)
         val completed = result.getOrThrow()
-        // 성공 경로는 local save -> LangState/Summary update -> RT compression 순서를 지켜야 한다.
+        // 성공 경로는 local save -> LangState/Summary update -> Statistics 기록 -> RT compression 순서를 지켜야 한다.
         // 이 순서가 깨지면 저장되지 않은 교정을 완료 처리하거나, 처리 전 대화를 압축할 수 있다.
         assertEquals(listOf("s-1"), completed.savedFlashcardIds)
         assertEquals(listOf("s-1"), completed.pendingSyncFlashcardIds)
         assertEquals("session-en", completed.sessionMemoryKey)
         assertTrue(completed.sessionCompressionApplied)
         assertFalse(completed.sessionCompressionPending)
-        assertEquals(listOf("save", "update", "compress"), events)
+        assertTrue(completed.statisticsHistoryApplied)
+        assertFalse(completed.statisticsHistoryPending)
+        assertEquals(listOf("save", "update", "record-history", "compress"), events)
 
         assertNotNull(learningStateRepo.lastUpdateInput)
         // 완료된 세션이 다시 Correction 대기 상태로 보이지 않도록 correctionAvailable 을 false 로 내린다.
@@ -157,8 +169,32 @@ class CompleteCorrectionUseCaseTest {
             assertTrue(result.isFailure)
             // 중복 저장으로 새로 생성된 카드가 없으면 이번 완료 흐름이 만든 local 변경도 없다.
             // 이때 rollback을 호출하면 이미 존재하던 Flashcard를 지울 수 있으므로 호출하지 않는다.
-            assertEquals(listOf("save", "update"), events)
-        }
+        assertEquals(listOf("save", "update"), events)
+    }
+
+    @Test
+    fun `does not rollback saved state when statistics history record fails`() = kotlinx.coroutines.runBlocking {
+        val suggestion = baseSuggestion()
+        statisticsRepository.failRecord = true
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(suggestion),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val completed = result.getOrThrow()
+        // Statistics 기록 실패는 local completion 실패로 끌어올리지 않는다.
+        // Flashcard/LangState 저장은 유지되고, statistics 쪽만 진단 메시지로 남는다.
+        // 이 테스트는 correction 완료와 statistics 기록을 서로 다른 책임 경계로 본다.
+        assertTrue(completed.savedFlashcardIds.isNotEmpty())
+        assertTrue(completed.statisticsHistoryApplied.not())
+        assertFalse(completed.statisticsHistoryPending)
+        assertNotNull(completed.statisticsHistoryErrorMessage)
+        assertEquals(listOf("save", "update", "record-history", "compress"), events)
+    }
 
     @Test
     fun `does not rollback saved state when compression fails`() = kotlinx.coroutines.runBlocking {
@@ -176,9 +212,10 @@ class CompleteCorrectionUseCaseTest {
         val completed = result.getOrThrow()
         // compression 은 RT-003 후속 정리라 실패해도 사용자 저장 결과는 유지한다.
         // 대신 pending flag 로 후속 재시도 대상임을 알려준다.
+        // statistics 쪽이 아니라 RT-003 쪽 실패라는 점을 같이 확인한다.
         assertFalse(completed.sessionCompressionApplied)
         assertTrue(completed.sessionCompressionPending)
-        assertEquals(listOf("save", "update", "compress"), events)
+        assertEquals(listOf("save", "update", "record-history", "compress"), events)
     }
 
     private fun baseUpdateInput(): LangStateUpdateInput {
@@ -345,6 +382,37 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
+    }
+
+    private class RecordingStatisticsRepository(
+        private val events: MutableList<String>
+    ) : StatisticsRepository {
+        var failRecord: Boolean = false
+
+        override fun observeHistory(
+            userId: String,
+            language: LangCode
+        ): Flow<com.example.umma.domain.model.statistics.StatisticsHistoryState> {
+            return flowOf(com.example.umma.domain.model.statistics.StatisticsHistoryState.Empty)
+        }
+
+        override suspend fun recordHistory(
+            history: StatisticsHistory
+        ): Result<StatisticsHistoryRecordResult> {
+            events += "record-history"
+            if (failRecord) {
+                return Result.failure(IllegalStateException("statistics history save failed"))
+            }
+            return Result.success(
+                StatisticsHistoryRecordResult(
+                    historyId = history.id,
+                    sourceEventId = history.sourceEventId,
+                    applied = true,
+                    isSyncPending = false,
+                    recordedAt = history.recordedAt
+                )
+            )
+        }
     }
 
     private class RecordingSessionMemoryRepository(

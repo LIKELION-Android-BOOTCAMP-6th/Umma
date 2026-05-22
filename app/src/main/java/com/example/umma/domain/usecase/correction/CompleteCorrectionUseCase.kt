@@ -10,6 +10,7 @@ import com.example.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import com.example.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
+import com.example.umma.domain.usecase.statistics.RecordStatisticsHistoryUseCase
 import javax.inject.Inject
 
 /**
@@ -26,6 +27,7 @@ class CompleteCorrectionUseCase @Inject constructor(
     private val prepareSaveRequestUseCase: PrepareSaveRequestUseCase,
     private val correctionRepository: CorrectionRepository,
     private val applyLanguageStateUpdateUseCase: ApplyLanguageStateUpdateUseCase,
+    private val recordStatisticsHistoryUseCase: RecordStatisticsHistoryUseCase,
     private val buildSessionCompressionPayloadUseCase: BuildSessionCompressionPayloadUseCase,
     private val compressSessionMemoryUseCase: CompressSessionMemoryUseCase
 ) {
@@ -62,7 +64,7 @@ class CompleteCorrectionUseCase @Inject constructor(
 
             // 2) 저장 성공 후에는 같은 완료 흐름 안에서 Session/Dashboard 요약도 닫는다.
             // correctionAvailable 을 false 로 내려야 Dashboard 와 Correction 진입 판단이 같은 상태를 본다.
-            applyLanguageStateUpdateUseCase(
+            val learningStateUpdateResult = applyLanguageStateUpdateUseCase(
                 input.langStateUpdateInput.copy(
                     correctionResult = correctionResult,
                     correctionAvailableOverride = false,
@@ -70,7 +72,14 @@ class CompleteCorrectionUseCase @Inject constructor(
                 )
             ).getOrThrow()
 
-            // 3) 앞의 두 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
+            // 3) LS 저장 결과가 확정되면 Statistics history를 local-first로 기록한다.
+            // history 실패는 교정 완료 자체를 되돌리지 않고, pending/error 상태로만 남긴다.
+            val statisticsHistoryResult = recordStatisticsHistoryIfPossible(
+                userId = input.langStateUpdateInput.uid,
+                updateResult = learningStateUpdateResult
+            )
+
+            // 4) 앞의 세 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
             // 압축은 RT-003 소유 저장소에 대한 후속 정리라 실패해도 저장 완료를 rollback 하지 않는다.
             val compressionResult = compressSessionMemoryIfPossible(input)
 
@@ -82,6 +91,9 @@ class CompleteCorrectionUseCase @Inject constructor(
                     sessionCompressionApplied = compressionResult.applied,
                     sessionCompressionPending = compressionResult.pending,
                     sessionCompressionErrorMessage = compressionResult.errorMessage,
+                    statisticsHistoryApplied = statisticsHistoryResult.applied,
+                    statisticsHistoryPending = statisticsHistoryResult.pending,
+                    statisticsHistoryErrorMessage = statisticsHistoryResult.errorMessage,
                     completedAt = input.requestedAt
                 )
             )
@@ -92,6 +104,33 @@ class CompleteCorrectionUseCase @Inject constructor(
             )
             Result.failure(error)
         }
+    }
+
+    private suspend fun recordStatisticsHistoryIfPossible(
+        userId: String,
+        updateResult: com.example.umma.domain.model.learningstate.LearningStateUpdateResult
+    ): StatisticsHistoryResult {
+        // Statistics 기록은 LS 저장 완료 결과를 입력으로 받는다.
+        // 여기서 실패해도 Correction 완료 자체는 성립하므로 pending/error로만 노출한다.
+        return recordStatisticsHistoryUseCase(
+            userId = userId,
+            updateResult = updateResult
+        ).fold(
+            onSuccess = { result ->
+                StatisticsHistoryResult(
+                    applied = result.applied,
+                    pending = result.isSyncPending,
+                    errorMessage = null
+                )
+            },
+            onFailure = { error ->
+                StatisticsHistoryResult(
+                    applied = false,
+                    pending = false,
+                    errorMessage = error.message
+                )
+            }
+        )
     }
 
     private suspend fun compressSessionMemoryIfPossible(
@@ -179,6 +218,12 @@ class CompleteCorrectionUseCase @Inject constructor(
     }
 
     private data class SessionCompressionResult(
+        val applied: Boolean,
+        val pending: Boolean,
+        val errorMessage: String?
+    )
+
+    private data class StatisticsHistoryResult(
         val applied: Boolean,
         val pending: Boolean,
         val errorMessage: String?
