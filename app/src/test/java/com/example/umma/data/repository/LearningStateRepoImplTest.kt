@@ -111,6 +111,22 @@ class LearningStateRepoImplTest {
         assertEquals("ja", remoteDataSource.lastUpdate?.userPref?.selectedLearningLanguage)
     }
 
+    @Test
+    fun `sync returns success when remote has no user document (new user before setup)`() = runBlocking {
+        // createInitial() 없이 sync() 호출 — users/{uid} 문서 미생성 상태 시뮬레이션.
+        // RecordingLearningStateRemoteDataSource.fetch() 는 lastUpdate==null → userPref=null 반환.
+        val remoteDataSource = RecordingLearningStateRemoteDataSource()
+        val repo = createRepository(remoteDataSource)
+
+        val result = repo.sync()
+
+        // repo 레이어는 userPref=null 인 empty remote 도 성공으로 처리한다.
+        // Snackbar 억제 책임은 DashboardViewModel.setupConfirmed 에 있다.
+        assertTrue(result.isSuccess)
+        assertEquals(0, remoteDataSource.syncCalls)  // pending keys 없음 → write-back 없음
+        assertEquals(1, remoteDataSource.fetchCalls) // fetch 경로로 진입
+    }
+
     private fun createRepository(
         remoteDataSource: RecordingLearningStateRemoteDataSource
     ): LearningStateRepoImpl {
