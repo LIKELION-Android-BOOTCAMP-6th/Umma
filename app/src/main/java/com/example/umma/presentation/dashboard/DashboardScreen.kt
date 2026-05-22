@@ -64,12 +64,12 @@ import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.presentation.auth.AuthViewModel
 import com.example.umma.presentation.auth.InitialSetupDialogStep
-import com.example.umma.presentation.dashboard.component.AnalyticsCard
 import com.example.umma.presentation.dashboard.component.ConversationCard
 import com.example.umma.presentation.dashboard.component.DashboardError
 import com.example.umma.presentation.dashboard.component.DashboardSkeleton
 import com.example.umma.presentation.dashboard.component.FeedbackCard
 import com.example.umma.presentation.dashboard.component.LearningLanguageSelector
+import com.example.umma.presentation.dashboard.component.StatisticsCard
 import com.example.umma.presentation.dashboard.component.StudyCard
 
 /**
@@ -89,7 +89,7 @@ import com.example.umma.presentation.dashboard.component.StudyCard
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    onNavigateToAnalytics: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
@@ -196,7 +196,7 @@ fun DashboardScreen(
                 uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
                 else -> DashboardContent(
                     summary = uiState.summary,
-                    onNavigateToAnalytics = onNavigateToAnalytics,
+                    onNavigateToStatistics = onNavigateToStatistics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
                     onNavigateToSrsStudy = onNavigateToSrsStudy
@@ -354,7 +354,7 @@ fun DashboardScreen(
 @Composable
 private fun DashboardContent(
     summary: DashSummary?,
-    onNavigateToAnalytics: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
@@ -379,7 +379,7 @@ private fun DashboardContent(
             onNavigateToChat = onNavigateToChat,
             onNavigateToSrsStudy = onNavigateToSrsStudy,
             onNavigateToCorrection = onNavigateToCorrection,
-            onNavigateToAnalytics = onNavigateToAnalytics
+            onNavigateToStatistics = onNavigateToStatistics
         )
     }
 }
@@ -402,7 +402,7 @@ private fun DashboardCardGrid(
     onNavigateToChat: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToAnalytics: () -> Unit
+    onNavigateToStatistics: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -410,7 +410,7 @@ private fun DashboardCardGrid(
     val isConversationEmpty = summary?.recentTopic == null && (summary?.recentMinutes ?: 0) == 0
     val isStudyEmpty = (summary?.dueFlashcards ?: 0) == 0 && (summary?.savedFlashcards ?: 0) == 0
     val isFeedbackEmpty = summary?.correctionAvailable != true
-    val isAnalyticsEmpty = (summary?.grammarDelta ?: 0) == 0 &&
+    val isStatisticsEmpty = (summary?.grammarDelta ?: 0) == 0 &&
             (summary?.vocabDelta ?: 0) == 0 &&
             (summary?.fluencyDelta ?: 0) == 0 &&
             (summary?.naturalnessDelta ?: 0) == 0
@@ -468,17 +468,17 @@ private fun DashboardCardGrid(
                     .weight(1f)
                     .fillMaxHeight()
             )
-            AnalyticsCard(
+            StatisticsCard(
                 grammarScoreDelta = summary?.grammarDelta ?: 0,
                 vocabularyScoreDelta = summary?.vocabDelta ?: 0,
                 fluencyScoreDelta = summary?.fluencyDelta ?: 0,
                 naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
-                accentColor = if (isAnalyticsEmpty) TextWrong else null,
+                accentColor = if (isStatisticsEmpty) TextWrong else null,
                 onClick = {
-                    if (isAnalyticsEmpty) {
+                    if (isStatisticsEmpty) {
                         Toast.makeText(context, "데이터 부족", Toast.LENGTH_SHORT).show()
                     }
-                    onNavigateToAnalytics()
+                    onNavigateToStatistics()
                 },
                 modifier = Modifier
                     .weight(1f)
