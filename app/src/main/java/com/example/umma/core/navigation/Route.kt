@@ -15,7 +15,7 @@ sealed interface Route {
 
     @Serializable data object ChatGraph: Route
 
-    @Serializable data object AnalyticsGraph: Route
+    @Serializable data object StatisticsGraph: Route
     // 스플래시 (앱 진입)
     @Serializable
     data object AppEntry:Route
@@ -25,7 +25,7 @@ sealed interface Route {
 
     // 3. 통계
     @Serializable
-    data object Analytics : Route
+    data object Statistics : Route
 
     // 4. 대시보드
     @Serializable

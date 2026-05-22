@@ -23,7 +23,7 @@ import com.example.umma.core.theme.TextPrimary
 import com.example.umma.core.theme.TitleCardR
 
 /**
- * 대시보드 - 대표 언어 성취율 카드.
+ * 대시보드 - 통계 진입 카드.
  *
  * SSOT: DASH-005_Language_Progress_Card.md
  *  (선반영 메모: DASH-001 "Dashboard 카드 구성 → 4. 대표 언어 성취율 카드" 에서
@@ -38,7 +38,7 @@ import com.example.umma.core.theme.TitleCardR
  *  - AC 3 현재 선택 언어 기준 데이터 렌더링 — 호출자(DashboardScreen)가
  *         DashSummary[selectedLearningLanguage] 의 delta 4 종을 매핑 전달.
  *  - AC 4 카드 클릭 → Statistics 화면 이동 (호출자 [onClick] 람다가 navigate 담당,
- *         UmmaNavHost 에서 Route.Analytics 로 wiring 됨)
+ *         UmmaNavHost 에서 Route.Statistics 로 wiring 됨)
  *  - AC 6 통계 데이터 부족 시 Empty — delta 4 종 모두 0 일 때 FlowRow 전체 hide.
  *         본문 텍스트는 영구 CTA ("성취도를 확인해봐요!") 로 유지
  *         (ConversationCard / FeedbackCard / StudyCard 와 동일 패턴).
@@ -65,7 +65,7 @@ import com.example.umma.core.theme.TitleCardR
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun AnalyticsCard(
+fun StatisticsCard(
     grammarScoreDelta: Int,
     vocabularyScoreDelta: Int,
     fluencyScoreDelta: Int,

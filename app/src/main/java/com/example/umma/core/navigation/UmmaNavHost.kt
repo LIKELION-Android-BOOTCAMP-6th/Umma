@@ -8,7 +8,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
-import com.example.umma.presentation.analytics.AnalyticsScreen
 import com.example.umma.presentation.auth.AppEntryScreen
 import com.example.umma.presentation.auth.OnBoardingScreen
 import com.example.umma.presentation.chat.ChatScreen
@@ -16,6 +15,7 @@ import com.example.umma.presentation.dashboard.DashboardScreen
 import com.example.umma.presentation.dashboard.MyPageScreen
 import com.example.umma.presentation.correction.CorrectionScreen
 import com.example.umma.presentation.srsstudy.SrsStudyScreen
+import com.example.umma.presentation.statistics.StatisticsScreen
 
 @Composable
 fun UmmaNavHost(
@@ -68,7 +68,7 @@ fun UmmaNavHost(
             composable<Route.Dashboard> {
                 DashboardScreen(
                     onNavigateToChat = { navController.navigate(Route.Chat) },
-                    onNavigateToAnalytics = { navController.navigate(Route.Analytics) },
+                    onNavigateToStatistics = { navController.navigate(Route.Statistics) },
                     onNavigateToSrsStudy = { navController.navigate(Route.SrsStudy) },
                     onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
                     onNavigateToMyPage = { navController.navigate(Route.MyPage) }
@@ -90,8 +90,8 @@ fun UmmaNavHost(
         }
 
         // 통계 그래프
-        navigation<Route.AnalyticsGraph>(startDestination = Route.Analytics) {
-            composable<Route.Analytics> { AnalyticsScreen() }
+        navigation<Route.StatisticsGraph>(startDestination = Route.Statistics) {
+            composable<Route.Statistics> { StatisticsScreen() }
         }
 
         // SRS 반복학습 그래프
