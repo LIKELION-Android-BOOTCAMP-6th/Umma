@@ -87,6 +87,7 @@ class ChatViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     sessionState = SessionState.LOADING,
+                    showSubtitle = false,
                     errorMessage = null
                 )
             }
@@ -131,7 +132,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * 사용자 발화 turn 녹음을 시작합니다.
+     * 사용자 발화 turn 녹음을 시작합니다. && 권한 체크
      */
     fun startUserTurn(hasRecordAudioPermission: Boolean) {
         if (!hasRecordAudioPermission) {
@@ -145,7 +146,10 @@ class ChatViewModel @Inject constructor(
         }
 
         _uiState.update {
-            it.copy(microphonePermissionDenied = false)
+            it.copy(
+                microphonePermissionDenied = false,
+                errorMessage = null
+            )
         }
 
         beginUserTurn()
@@ -158,12 +162,12 @@ class ChatViewModel @Inject constructor(
     private fun beginUserTurn() {
         val currentState = _uiState.value
         if (currentState.sessionState != SessionState.READY) return
-        if (currentState.isRecording) return
         if (recordJob?.isActive == true) return
 
         _uiState.update {
             it.copy(
                 isRecording = true,
+                inputLevel = 0f,
                 errorMessage = null
             )
         }
@@ -296,6 +300,8 @@ class ChatViewModel @Inject constructor(
      * 현재 사용자 발화 turn 녹음을 종료합니다.
      */
     fun endUserTurn() {
+        if (!_uiState.value.canEndUserTurn) return
+
         recordJob?.cancel()
         recordJob = null
 
@@ -402,22 +408,25 @@ class ChatViewModel @Inject constructor(
 
     /**
      * final transcript 상태를 반영하고 저장을 트리거합니다.
-     *
+     * 만약 text가 비어있거나, 마지막 FinalTurnId가 이번 turnId와 같으면 저장 무시
      * @param event final transcript 이벤트
      */
     private fun handleFinalTranscription(event: AIEvent.FinalTranscription) {
         if (event.text.isBlank()) return
+        if (_uiState.value.lastHandledFinalTurnId == event.turnId) return
 
         _uiState.update {
             when (event.role) {
                 TurnSpeaker.USER -> it.copy(
                     userPartialTranscript = "",
-                    lastFinalUserTranscript = event.text
+                    lastFinalUserTranscript = event.text,
+                    lastHandledFinalTurnId = event.turnId
                 )
 
                 TurnSpeaker.AI -> it.copy(
                     aiPartialTranscript = "",
-                    lastFinalAITranscript = event.text
+                    lastFinalAITranscript = event.text,
+                    lastHandledFinalTurnId = event.turnId
                 )
             }
         }
@@ -628,6 +637,13 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         audioPlayer.release()
+    }
+
+    /**
+     * 자막 토클
+     * */
+    fun toggleSubtitle() {
+        _uiState.update { it.copy(showSubtitle = !it.showSubtitle) }
     }
 
     // ChatScreen 진입 시 호출

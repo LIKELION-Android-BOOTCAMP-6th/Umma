@@ -100,27 +100,36 @@ fun ChatScreen(
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(SpacingL))
-            Text(
-                text = "나: ${uiState.lastFinalUserTranscript.ifBlank { "-" }}",
-                style = TextAnalysisR
-            )
-            Spacer(modifier = Modifier.height(SpacingS))
-            Text(
-                text = "AI: ${uiState.lastFinalAITranscript.ifBlank { "-" }}",
-                style = TextAnalysisR
-            )
+            Button(
+                onClick = { viewModel.toggleSubtitle() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (uiState.showSubtitle) "자막 숨기기" else "자막 보기",
+                    fontSize = 16.sp
+                )
+            }
+            if (uiState.showSubtitle) {
+                Text(
+                    text = "나: ${uiState.lastFinalUserTranscript.ifBlank { "-" }}",
+                    style = TextAnalysisR
+                )
+                Spacer(modifier = Modifier.height(SpacingS))
+                Text(
+                    text = "AI: ${uiState.lastFinalAITranscript.ifBlank { "-" }}",
+                    style = TextAnalysisR
+                )
+            }
             Spacer(modifier = Modifier.height(SpacingL))
             Button(
                 onClick = {
-                    if (uiState.isRecording) {
-                        viewModel.endUserTurn()
-                    } else if (hasRecordAudioPermission()) {
-                        viewModel.startUserTurn(hasRecordAudioPermission = true)
-                    } else {
-                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    when {
+                        uiState.canEndUserTurn -> viewModel.endUserTurn()
+                        hasRecordAudioPermission() -> viewModel.startUserTurn(hasRecordAudioPermission = true)
+                        else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
-                enabled = uiState.sessionState == SessionState.READY,
+                enabled = uiState.canEndUserTurn || uiState.canStartUserTurn,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
@@ -208,6 +217,9 @@ internal fun buildStatusText(uiState: ChatUiState): String {
 
         uiState.aiState == AIState.RECONNECTING ->
             "응답이 중단되었습니다."
+
+        uiState.aiState == AIState.THINKING ->
+            "AI가 응답을 준비 중입니다."
 
         uiState.aiState == AIState.SPEAKING ->
             "AI가 응답 중입니다."
