@@ -14,7 +14,8 @@ Statistics User Flow 작업자는 학습 통계 화면을 구현하기 전에,
 - [ ] 지표 식별자를 `StatisticsMetricType`으로 정의한다.
 - [ ] MVP 지표는 `vocabularyLevel`, `grammarAccuracy`, `expressionRange`, `fluencyScore`, `naturalnessScore`로 고정한다.
 - [ ] `StatisticsHistory`는 `selectedLearningLanguage`가 아니라 데이터 소속 필드인 `language`를 가진다.
-- [ ] `StatisticsRepository`가 전달받은 `language` 기준의 history 조회 계약을 제공한다.
+- [ ] `StatisticsHistory`는 사용자 데이터 분리를 위해 `userId`를 가진다.
+- [ ] `StatisticsRepository`가 `userId + language` 기준의 history 조회 계약을 제공한다.
 - [ ] `StatisticsRepository`가 local cache 우선 조회 결과를 반환한다.
 - [ ] fake repository가 history 있음, history 부족, fetch 실패, pending sync 상태를 재현할 수 있다.
 
@@ -87,12 +88,15 @@ StatisticsHistory
 ```
 
 - `language`: 이 history가 어떤 학습 언어의 데이터인지 나타내는 소속 필드
+- `userId`: local Room과 Firestore에서 사용자별 데이터를 분리하는 기준
 - `recordedAt`: line chart x축 기준 시점
 - `sourceEventId`: 같은 분석 이벤트의 중복 기록 방지용 id
 - `syncStatus`: `synced`, `pending`, `failed` 등 local/remote sync 상태
 
 `StatisticsHistory`는 current value가 아니라 시간별 snapshot이다.
 현재 상태는 `LangState.external`에서 읽고, 변화 그래프는 `StatisticsHistory`에서 읽는다.
+점수형 필드는 `ExternalMetrics`의 원본 스케일을 유지한다.
+현재 `ExternalMetrics`의 `grammarAccuracy`, `fluencyScore`, `naturalnessScore`는 `0.0 ~ 1.0` 값으로 저장하고, 화면 카드와 chart point 변환 단계에서 `0 ~ 100` 표시값으로 환산한다.
 
 ### 2. MetricHistoryPoint
 
@@ -109,6 +113,7 @@ MetricHistoryPoint
 
 `vocabularyLevel`은 line chart 표시를 위해 A1=1, A2=2, B1=3, B2=4, C1=5, C2=6으로 변환한다.
 화면 라벨은 A1~C2 원문을 유지한다.
+점수형 metric은 `StatisticsHistory` 원본 값을 그대로 노출하지 않고, `MetricHistoryPoint` 변환 시 `0 ~ 100` chart value와 display value로 맞춘다.
 
 ### 3. StatisticsMetricType
 
@@ -127,13 +132,14 @@ Internal Metrics 전체를 화면 지표로 노출하지 않는다.
 ### 4. Repository 조회 계약
 
 ```text
-language input
-→ StatisticsRepository.observeHistory(language)
+userId + language input
+→ StatisticsRepository.observeHistory(userId, language)
 → StatisticsHistory list
 → MetricHistoryPoint list
 ```
 
 - Repository는 local cache를 먼저 반환한다.
+- Repository는 local/remote 모두 `userId + language`를 함께 필터링한다.
 - remote refresh는 background sync 기반 stale cache 보정 용도로 수행한다.
 - Repository는 history 원본 목록과 sync 상태를 반환하고, Empty chart 판정은 `GetMetricHistoryPointsUseCase` 또는 ViewModel에서 수행한다.
 
@@ -153,17 +159,20 @@ DataStore는 current summary 저장에는 적합하지만 line chart용 다건 h
 
 ## 검증 기준
 
-- 전달받은 `language`의 history만 조회된다.
+- 전달받은 `userId + language`의 history만 조회된다.
 - 다른 언어의 history가 섞이지 않는다.
+- 다른 사용자의 local history가 섞이지 않는다.
 - local cache만 있어도 line chart point를 만들 수 있다.
 - history가 0개이거나 1개일 때 Empty chart로 분기할 수 있도록 UseCase가 point 개수를 판단한다.
 - `vocabularyLevel`은 chart value와 display value가 분리된다.
+- 점수형 metric은 원본 `0.0 ~ 1.0` 값과 화면/차트용 `0 ~ 100` 값이 분리된다.
 
 ---
 
 ## Edge Cases
 
 - `language` 입력이 없음
+- `userId` 입력이 없음
 - 현재 화면 언어의 history가 없음
 - history가 1개뿐이라 변화 그래프를 그리기 부족함
 - 일부 metric 값이 null이거나 비정상 범위임
