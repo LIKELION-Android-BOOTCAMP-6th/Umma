@@ -77,6 +77,18 @@ class DashboardViewModel @Inject constructor(
     private var pendingSyncAfterCurrent: Boolean = false
 
     /**
+     * Setup 완료 여부 추적.
+     *
+     * null  = 첫 Flow emit 전(미결정)
+     * false = 신규 사용자 — userPref 없음, Firestore 문서 미생성
+     * true  = Setup 완료 확인 — createInitial() 실행 이후 userPref non-null
+     *
+     * ensureObservation() collect 에서 userPref 유무로 갱신.
+     * sync 진입 게이트(onEnter / collect) 와 Snackbar 발화 게이트(triggerSync) 로 사용.
+     */
+    private var setupConfirmed: Boolean? = null
+
+    /**
      * 화면 진입 시 호출. (DASH-001)
      *
      * 두 가지 일을 분리 트리거:
@@ -89,7 +101,11 @@ class DashboardViewModel @Inject constructor(
      */
     fun onEnter() {
         ensureObservation()
-        triggerSync()
+        // setupConfirmed == true → 재진입(기존 사용자) 즉시 sync.
+        // null / false → 첫 진입 또는 신규 사용자. ensureObservation collect 에서 처리.
+        if (setupConfirmed == true) {
+            triggerSync()
+        }
     }
 
     /**
@@ -132,6 +148,17 @@ class DashboardViewModel @Inject constructor(
                 val userPref = global.userPref
                 // 학습 중인 언어 목록. userPref null 이면 빈 리스트로 안전 처리.
                 val learningLangs = userPref?.learningLangs.orEmpty()
+
+                // [DASH-001 후속] Setup 완료 추적 + 첫 확인 시 sync 트리거.
+                // userPref non-null = createInitial() 이 실행된 이후 → Setup 완료 기준.
+                // triggerSync() 는 자체 dedup(fetchJob?.isActive) 을 갖고 있어 중복 호출 안전.
+                val isConfirmedNow = userPref != null
+                val wasConfirmed = setupConfirmed
+                setupConfirmed = isConfirmedNow
+                if (isConfirmedNow && wasConfirmed != true) {
+                    // 기존 사용자 첫 진입 또는 신규→완료 전환 시 한 번만 트리거.
+                    triggerSync()
+                }
 
                 // AC 10: userPref 가 채워졌는데 learningLangs 가 비어있으면 Fatal.
                 //   userPref==null 은 preload 직후/신규 사용자 — Empty 분기에서 처리하므로 여기선 패스.
@@ -243,8 +270,12 @@ class DashboardViewModel @Inject constructor(
                     .onFailure { e ->
                         // DASH-001 AC 7: cache 유지. errorMessage 만 세팅해서 UI 가 알릴 수 있게.
                         Log.w(TAG, "sync failed — keeping cache (AC 7 fallback)", e)
-                        _uiState.update {
-                            it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
+                        // setupConfirmed != true(신규·미결정) → Snackbar 억제.
+                        // users/{uid} 미생성 분기의 실패를 사용자에게 노출하지 않는다.
+                        if (setupConfirmed == true) {
+                            _uiState.update {
+                                it.copy(errorMessage = UiText.Resource(R.string.dashboard_err_sync_failed))
+                            }
                         }
                     }
             } finally {
