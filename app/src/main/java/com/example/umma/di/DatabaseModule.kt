@@ -7,6 +7,8 @@ import com.example.umma.data.source.local.CorrectionFlashcardDatabase
 import com.example.umma.data.source.local.SessionMemoryDatabase
 import com.example.umma.data.source.local.SessionMetadataDao
 import com.example.umma.data.source.local.SessionTurnDao
+import com.example.umma.data.source.local.StatisticsHistoryDao
+import com.example.umma.data.source.local.StatisticsHistoryDatabase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -57,5 +59,24 @@ object DatabaseModule {
         database: CorrectionFlashcardDatabase
     ): CorrectionFlashcardDao {
         return database.correctionFlashcardDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideStatisticsHistoryDatabase(
+        @ApplicationContext context: Context
+    ): StatisticsHistoryDatabase {
+        return Room.databaseBuilder(
+            context,
+            StatisticsHistoryDatabase::class.java,
+            "umma_statistics_history_db"
+        ).fallbackToDestructiveMigration(false).build()
+    }
+
+    @Provides
+    fun provideStatisticsHistoryDao(
+        database: StatisticsHistoryDatabase
+    ): StatisticsHistoryDao {
+        return database.statisticsHistoryDao()
     }
 }
