@@ -9,6 +9,9 @@ import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.model.statistics.StatisticsMetricType
 import com.example.umma.domain.usecase.statistics.GetStatisticsOverviewUseCase
+import com.example.umma.domain.usecase.statistics.GetMetricHistoryPointsUseCase
+import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
+import com.example.umma.presentation.statistics.model.toStatisticsMetricChartState
 import com.example.umma.presentation.statistics.model.toMetricSummaryItems
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -30,7 +33,8 @@ import javax.inject.Inject
 class StatisticsViewModel @Inject constructor(
     private val observeLearningStateUseCase: ObserveLearningStateUseCase,
     private val preloadLearningStateUseCase: PreloadLearningStateUseCase,
-    private val getStatisticsOverviewUseCase: GetStatisticsOverviewUseCase
+    private val getStatisticsOverviewUseCase: GetStatisticsOverviewUseCase,
+    private val getMetricHistoryPointsUseCase: GetMetricHistoryPointsUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StatisticsUiState())
@@ -38,10 +42,14 @@ class StatisticsViewModel @Inject constructor(
 
     // 화면 재진입/재구성 중 중복 초기화가 겹치지 않도록 load job 을 하나만 유지한다.
     private var loadJob: Job? = null
+    // chart 요청은 카드 클릭마다 새로 발생하므로 overview 로딩과 별도 job 으로 관리한다.
+    private var chartJob: Job? = null
     // 현재 선택 언어/현재 언어의 updatedAt 이 바뀌면 다시 준비해야 하는지 추적한다.
     private var pendingReload: Boolean = false
     private var observeJob: Job? = null
     private var lastObservedSignature: StatisticsContextSignature? = null
+    // 빠르게 여러 카드를 누르거나 dialog를 닫을 때, 오래된 응답이 최신 상태를 덮지 못하게 막는다.
+    private var chartRequestVersion: Long = 0L
 
     init {
         // Statistics 화면은 단발성 초기화보다 "현재 선택 언어가 바뀌는 흐름"을 따라가야 하므로
@@ -56,11 +64,34 @@ class StatisticsViewModel @Inject constructor(
     }
 
     fun onMetricClick(metricType: StatisticsMetricType) {
-        // STAT-003에서 chart 입력으로 이어질 선택 지표를 여기서만 보관한다.
-        // 지금 단계에서는 카드 강조 상태만 바뀌고, 데이터 재계산은 하지 않는다.
+        // STAT-003에서는 카드 클릭이 곧 chart dialog 오픈 트리거가 된다.
+        // 선택 카드 하이라이트는 유지하고, chart 데이터는 별도 use case로 받아온다.
         _uiState.update {
-            it.copy(selectedMetricType = metricType)
+            it.copy(
+                selectedMetricType = metricType,
+                metricChartState = StatisticsMetricChartState.Loading(metricType)
+            )
         }
+        loadMetricChart(metricType)
+    }
+
+    fun dismissMetricChart() {
+        // 닫기 이후 도착하는 chart 결과는 무시해야 하므로 version을 먼저 올린다.
+        chartRequestVersion += 1L
+        chartJob?.cancel()
+        chartJob = null
+        _uiState.update {
+            it.copy(metricChartState = StatisticsMetricChartState.Hidden)
+        }
+    }
+
+    fun retryMetricChart() {
+        // Error 상태에서는 해당 metric을, Hidden 이 아닌 이전 선택이 있으면 그 metric을 다시 조회한다.
+        val metricType = _uiState.value.selectedChartMetricType
+            ?: _uiState.value.selectedMetricType
+            ?: return
+
+        loadMetricChart(metricType)
     }
 
     private fun observeContext() {
@@ -147,6 +178,63 @@ class StatisticsViewModel @Inject constructor(
                 if (pendingReload) {
                     pendingReload = false
                     loadOverview()
+                }
+            }
+        }
+    }
+
+    private fun loadMetricChart(metricType: StatisticsMetricType) {
+        val overview = _uiState.value.overview
+        val queryState = overview?.historyQueryState
+
+        if (queryState == null) {
+            // STAT-003 chart는 STAT-001 overview가 만든 query context 없이는 조회할 수 없다.
+            _uiState.update {
+                it.copy(
+                    metricChartState = StatisticsMetricChartState.Error(
+                        metricType = metricType,
+                        message = "차트를 불러올 초기 상태가 없습니다."
+                    )
+                )
+            }
+            return
+        }
+
+        // 이 요청 번호와 완료 시점의 번호가 다르면 사용자가 이미 다른 카드를 눌렀거나 닫은 상태다.
+        val requestVersion = chartRequestVersion + 1L
+        chartRequestVersion = requestVersion
+        chartJob?.cancel()
+        chartJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(metricChartState = StatisticsMetricChartState.Loading(metricType))
+            }
+
+            getMetricHistoryPointsUseCase(queryState, metricType)
+                .onSuccess { points ->
+                    // 이전 요청 결과가 늦게 도착해 현재 dialog를 덮어쓰는 것을 방지한다.
+                    if (requestVersion != chartRequestVersion) return@onSuccess
+
+                    _uiState.update {
+                        it.copy(metricChartState = points.toStatisticsMetricChartState(metricType))
+                    }
+                }
+                .onFailure { error ->
+                    // 실패도 오래된 요청이면 화면에 보여주지 않는다.
+                    if (requestVersion != chartRequestVersion) return@onFailure
+
+                    _uiState.update {
+                        it.copy(
+                            metricChartState = StatisticsMetricChartState.Error(
+                                metricType = metricType,
+                                message = error.message ?: "차트를 불러오지 못했습니다."
+                            )
+                        )
+                    }
+                }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (chartJob === job) {
+                    chartJob = null
                 }
             }
         }

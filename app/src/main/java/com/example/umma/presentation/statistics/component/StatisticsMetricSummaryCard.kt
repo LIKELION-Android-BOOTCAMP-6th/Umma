@@ -57,7 +57,6 @@ import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryIte
 @Composable
 fun StatisticsMetricSummaryGrid(
     items: List<StatisticsMetricSummaryItem>,
-    selectedMetricType: StatisticsMetricType?,
     onMetricClick: (StatisticsMetricType) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -73,7 +72,6 @@ fun StatisticsMetricSummaryGrid(
                 rowItems.forEach { item ->
                     StatisticsMetricSummaryCard(
                         item = item,
-                        isSelected = item.metricType == selectedMetricType,
                         onClick = { onMetricClick(item.metricType) },
                         modifier = Modifier.weight(1f)
                     )
@@ -90,26 +88,19 @@ fun StatisticsMetricSummaryGrid(
 @Composable
 private fun StatisticsMetricSummaryCard(
     item: StatisticsMetricSummaryItem,
-    isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // 카드별 포인트 컬러를 metricType에 묶어두면,
     // 화면이 데이터를 읽는 순간 어떤 카드인지 빠르게 구분된다.
     val accent = item.metricType.accentColor()
-    val borderColor = if (isSelected) {
-        accent.copy(alpha = 0.75f)
-    } else {
-        accent.copy(alpha = 0.16f)
-    }
-
     Card(
         onClick = onClick,
         modifier = modifier.heightIn(min = 132.dp),
         shape = RoundedCornerShape(CardCornerRadius),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
         elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
-        border = BorderStroke(1.dp, borderColor)
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.16f))
     ) {
         Column(
             modifier = Modifier.padding(SpacingL),
@@ -142,7 +133,7 @@ private fun StatisticsMetricSummaryCard(
                 text = item.valueText,
                 style = TextPrimaryR.copy(
                     fontSize = 22.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold
                 ),
                 color = accent
             )

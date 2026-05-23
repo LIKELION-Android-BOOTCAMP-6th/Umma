@@ -6,7 +6,6 @@ import com.example.umma.data.repository.AuthRepositoryImpl
 import com.example.umma.data.repository.CorrectionRepositoryImpl
 import com.example.umma.data.repository.ChatRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
-import com.example.umma.data.repository.StatisticsRepositoryImpl
 import com.example.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
@@ -25,7 +24,6 @@ import com.example.umma.data.repository.FlashcardRepositoryImpl
 import com.example.umma.domain.repository.SessionMemoryRepository
 import com.example.umma.domain.repository.FlashcardRepository
 import com.example.umma.domain.repository.UserProfileRepository
-import com.example.umma.domain.repository.StatisticsRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -114,11 +112,7 @@ abstract class RepositoryModule {
         userProfileRepositoryImpl: UserProfileRepositoryImpl
     ): UserProfileRepository
 
-    @Binds
-    @Singleton
-    abstract fun bindStatisticsRepository(
-        impl: StatisticsRepositoryImpl
-    ): StatisticsRepository
+    // StatisticsRepository 처럼 build variant 에 따라 전환할 대상만 별도 source set 에 둔다.
 
     @Binds
     @Singleton

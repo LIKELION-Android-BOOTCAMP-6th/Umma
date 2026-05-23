@@ -14,6 +14,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -29,8 +30,10 @@ import com.example.umma.core.theme.TitleB
 import com.example.umma.core.theme.TitleColor
 import com.example.umma.core.ui.component.UmmaAppBar
 import com.example.umma.domain.model.statistics.StatisticsMetricType
+import com.example.umma.presentation.statistics.component.StatisticsMetricLineChartDialog
 import com.example.umma.presentation.statistics.component.StatisticsMetricSummaryGrid
 import com.example.umma.presentation.statistics.component.StatisticsSkeleton
+import com.example.umma.presentation.statistics.model.isVisible
 import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryItem
 
 /**
@@ -46,21 +49,31 @@ fun StatisticsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    Scaffold(
-        containerColor = BackgroundPrimary,
-        topBar = {
-            UmmaAppBar(
-                title = "통계",
-                isCenterTitle = true
+    Box {
+        Scaffold(
+            containerColor = BackgroundPrimary,
+            topBar = {
+                UmmaAppBar(
+                    title = "통계",
+                    isCenterTitle = true
+                )
+            }
+        ) { paddingValues ->
+            StatisticsContent(
+                uiState = uiState,
+                modifier = Modifier.padding(paddingValues),
+                onRetry = viewModel::retry,
+                onMetricClick = viewModel::onMetricClick
             )
         }
-    ) { paddingValues ->
-        StatisticsContent(
-            uiState = uiState,
-            modifier = Modifier.padding(paddingValues),
-            onRetry = viewModel::retry,
-            onMetricClick = viewModel::onMetricClick
-        )
+
+        if (uiState.metricChartState.isVisible) {
+            StatisticsMetricLineChartDialog(
+                chartState = uiState.metricChartState,
+                onDismiss = viewModel::dismissMetricChart,
+                onRetry = viewModel::retryMetricChart
+            )
+        }
     }
 }
 
@@ -98,7 +111,6 @@ internal fun StatisticsContent(
             uiState.overview != null -> OverviewPanel(
                 selectedLanguage = uiState.selectedLearningLanguage?.code?.uppercase().orEmpty(),
                 metricSummaryCards = uiState.metricSummaryCards,
-                selectedMetricType = uiState.selectedMetricType,
                 onMetricClick = onMetricClick
             )
 
@@ -140,7 +152,6 @@ private fun ErrorPanel(
 private fun OverviewPanel(
     selectedLanguage: String,
     metricSummaryCards: List<StatisticsMetricSummaryItem>,
-    selectedMetricType: StatisticsMetricType?,
     onMetricClick: (StatisticsMetricType) -> Unit
 ) {
     Column(
@@ -170,7 +181,6 @@ private fun OverviewPanel(
         )
         StatisticsMetricSummaryGrid(
             items = metricSummaryCards,
-            selectedMetricType = selectedMetricType,
             onMetricClick = onMetricClick,
             modifier = Modifier.fillMaxWidth()
         )
