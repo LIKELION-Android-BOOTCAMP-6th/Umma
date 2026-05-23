@@ -1,5 +1,8 @@
 package com.example.umma.presentation.correction
 
+import com.example.umma.domain.model.correction.CompleteCorrectionResult
+import com.example.umma.domain.model.correction.CorrectionFlashcardSaveItem
+import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.learningstate.DashSummary
 import com.example.umma.domain.model.learningstate.FlashcardSummary
 import com.example.umma.domain.model.learningstate.GlobalLangState
@@ -11,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -197,6 +201,123 @@ class CorrectionUiStateTest {
         assertFalse(state.canSave)
     }
 
+    // ─── COR-006-A: 완료 파이프라인 회귀 ────────────────────────────────────────
+
+    @Test
+    fun `canSave is false while isCompleting is true`() {
+        // COR-006-A: 변환이 끝나고 완료 윈도우가 열린 직후에는 같은 버튼이 두 번째 클릭으로 다시 활성화되면 안 된다.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedSuggestionIds = setOf("sugg-1"),
+            isCompleting = true,
+        )
+
+        assertFalse(state.canSave)
+    }
+
+    @Test
+    fun `canSave is false on Phase Done`() {
+        // 완료 후 같은 화면에서 재저장이 일어나지 않아야 한다. UI 가드는 Phase.Done 분기에서 카드 자체를
+        // 숨기는 방식이지만, 그 이전에 canSave 자체가 false 가 되도록 회귀로 못 박는다.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Done,
+            selectedSuggestionIds = setOf("sugg-1"),
+        )
+
+        assertFalse(state.canSave)
+    }
+
+    @Test
+    fun `computeCompletionLaunch returns AlreadyInFlight when isCompleting`() {
+        // 첫 호출이 isCompleting=true 를 emit 한 직후 들어온 두 번째 트리거를 막는 가드.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            isCompleting = true,
+        )
+
+        val outcome = state.computeCompletionLaunch(sampleSaveRequest())
+
+        assertEquals(CompletionLaunchOutcome.AlreadyInFlight, outcome)
+    }
+
+    @Test
+    fun `computeCompletionLaunch returns NoSaveRequest when request is null`() {
+        // 변환이 실패했거나 stale 한 채로 launchCompletion 이 호출된 경우 — request 가 비어 있으면 막힌다.
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Content)
+
+        val outcome = state.computeCompletionLaunch(null)
+
+        assertEquals(CompletionLaunchOutcome.NoSaveRequest, outcome)
+    }
+
+    @Test
+    fun `computeCompletionLaunch returns Launched on happy path`() {
+        // 정상 진입 — ViewModel 은 이 분기에서 viewModelScope.launch 로 실제 호출에 진입한다.
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Content)
+        val request = sampleSaveRequest()
+
+        val outcome = state.computeCompletionLaunch(request)
+
+        assertTrue(outcome is CompletionLaunchOutcome.Launched)
+        assertEquals(request, (outcome as CompletionLaunchOutcome.Launched).saveRequest)
+    }
+
+    @Test
+    fun `openCompletionWindow flips isCompleting to true`() {
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Content)
+
+        val next = state.openCompletionWindow()
+
+        assertTrue(next.isCompleting)
+    }
+
+    @Test
+    fun `openCompletionWindow returns same instance when already completing`() {
+        // 같은 인스턴스를 그대로 돌려줘 MutableStateFlow.update 가 emit 을 생략하도록 한다.
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Content, isCompleting = true)
+
+        val next = state.openCompletionWindow()
+
+        assertSame(state, next)
+    }
+
+    @Test
+    fun `applyCompletionOutcome success transitions to Done and stores result`() {
+        // 성공 분기 — Phase.Done 으로 전환되고 completionResult 가 채워지며 in-flight 윈도우가 닫힌다.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            isCompleting = true,
+        )
+        val expected = sampleCompletionResult(savedIds = listOf("s-1", "s-2"))
+
+        val next = state.applyCompletionOutcome(Result.success(expected))
+
+        assertEquals(CorrectionUiState.Phase.Done, next.phase)
+        assertEquals(expected, next.completionResult)
+        assertFalse(next.isCompleting)
+    }
+
+    @Test
+    fun `applyCompletionOutcome failure only closes in-flight window`() {
+        // 실패 분기 — COR-006-B 가 Retry 상태를 채우기 전까지는 윈도우만 닫아 다음 시도를 허용한다.
+        // 카드 목록 / 선택 / saveRequest 는 그대로 두어 같은 saveRequest 로 재시도가 가능하게 한다.
+        val previousRequest = sampleSaveRequest()
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedSuggestionIds = setOf("s-1"),
+            saveRequest = previousRequest,
+            isCompleting = true,
+        )
+
+        val next = state.applyCompletionOutcome(Result.failure(RuntimeException("local save failed")))
+
+        assertFalse(next.isCompleting)
+        assertEquals(CorrectionUiState.Phase.Content, next.phase)
+        assertEquals(previousRequest, next.saveRequest)
+        assertEquals(setOf("s-1"), next.selectedSuggestionIds)
+        assertNull(next.completionResult)
+    }
+
     /**
      * 테스트용 GlobalLangState 빌더.
      *
@@ -214,4 +335,28 @@ class CorrectionUiStateTest {
         sessionSummaries = mapOf(lang to sessionSummary),
         flashcardSummaries = mapOf(lang to FlashcardSummary.initial(lang)),
     )
+
+    // 완료 파이프라인 회귀에서만 사용하는 fixture. CorrectionSaveRequestOutcomeTest 의 동명 헬퍼와는
+    // 클래스 경계가 다르므로 중복 정의를 허용한다(테스트 파일 간 공유 fixture 의 비용이 가독성 손해보다 큼).
+    private fun sampleSaveRequest(): CorrectionSaveRequest = CorrectionSaveRequest(
+        uid = "uid-1",
+        lang = LangCode.EN,
+        flashcards = listOf(
+            CorrectionFlashcardSaveItem(
+                suggestionId = "s-1",
+                frontText = "나는 학교에 간다",
+                backText = "I go to school.",
+                explanation = "demo",
+            ),
+        ),
+        requestedAt = 1_700_000_000_000L,
+    )
+
+    private fun sampleCompletionResult(savedIds: List<String>): CompleteCorrectionResult =
+        CompleteCorrectionResult(
+            savedFlashcardIds = savedIds,
+            pendingSyncFlashcardIds = emptyList(),
+            sessionMemoryKey = "",
+            completedAt = 1_700_000_000_000L,
+        )
 }

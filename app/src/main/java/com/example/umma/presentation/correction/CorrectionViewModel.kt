@@ -3,8 +3,11 @@ package com.example.umma.presentation.correction
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.umma.domain.model.correction.CompleteCorrectionResult
+import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.GenerateSuggestionsInput
 import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.example.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.example.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
 import com.example.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.example.umma.domain.usecase.correction.PrepareSaveRequestUseCase
@@ -36,13 +39,21 @@ import javax.inject.Inject
  *    저장 버튼 본문(실제 Flashcard 저장)은 후속 백로그 범위라 onSaveClicked 는 로그만 남긴다.
  *  - (COR-005-A) 저장 버튼 클릭 시 선택된 카드 → [CorrectionSaveRequest] 변환을
  *    [PrepareSaveRequestUseCase] 로 위임하고 결과를 [CorrectionUiState.saveRequest] 에 보관한다.
- *    실제 CompleteCorrectionUseCase 호출과 Done/Retry 상태 전이는 COR-006 에서 이 필드를 읽어 진행한다.
+ *  - (COR-006-A) 변환 성공 직후 같은 클릭 흐름에서 완료 파이프라인까지 이어 호출하고, 성공 결과를
+ *    [CorrectionUiState.completionResult] 에 보관하면서 [CorrectionUiState.Phase.Done] 으로 전환한다.
+ *    완료 in-flight 윈도우([CorrectionUiState.isCompleting]) 와 [completionJob] 으로 중복 호출을 막는다.
+ *    ⚠️ 본 단계에서는 [CompleteCorrectionUseCase] 입력의 `langStateUpdateInput` 필드가 필수라
+ *    SYS-CORRECTION-INFRA 영역 보정이 선행되어야 실제 호출이 가능하다. 현재 [stubCompletion] 으로
+ *    완료 결과만 흉내내며, 진짜 호출로 교체하는 PR 분리 계획은 `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md`
+ *    에 인계되어 있다.
  *
  * 비범위:
  *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
- *  - saveRequest 를 받아 CompleteCorrectionUseCase 호출 및 Done/Retry 전이 → COR-006.
+ *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
+ *  - 로컬 완료 성공 후 Dashboard 복귀 navigation, 1회성 이벤트 처리 → COR-007-A.
+ *  - sync / compression pending 비차단 처리 → COR-007-B.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
@@ -60,6 +71,11 @@ class CorrectionViewModel @Inject constructor(
     private val getCurrentUserUid: GetCurrentUserUidUseCase,
     // COR-005-A: 선택된 CorrectionSuggestion 목록을 SYS-CORRECTION-INFRA 저장 계약으로 변환한다.
     private val prepareSaveRequest: PrepareSaveRequestUseCase,
+    // COR-006-A: 완료 파이프라인 진입점. SYS-CORRECTION-INFRA 보정 전까지는 stubCompletion 으로 흉내내고
+    // 실제 호출은 인계 PR 에서 끼운다. 주입을 미리 받아 두는 이유는 인프라 보정 PR 에서 ViewModel 시그니처가
+    // 다시 흔들리지 않도록 하기 위함이다. handover 문서: docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md
+    @Suppress("UnusedPrivateProperty")
+    private val completeCorrection: CompleteCorrectionUseCase,
 ) : ViewModel() {
 
     // 화면이 collect 하는 단일 진실. ViewModel 내부에서만 쓰기 가능.
@@ -69,6 +85,11 @@ class CorrectionViewModel @Inject constructor(
 
     // ensureObservation() 의 collect coroutine 핸들. 이미 active 면 재구독을 막아 중복 collect 를 방지한다.
     private var enterJob: Job? = null
+
+    // COR-006-A: 완료 파이프라인 호출의 coroutine 핸들. isCompleting 플래그와 함께 이중으로 중복 호출을 막는다.
+    // 플래그(state) 가 ViewModel 외부 회귀의 SSOT 이고, 이 Job 은 ViewModel 내부에서 같은 호출 스택 두 번
+    // 진입을 더 빠르게 끊기 위한 보조 가드다.
+    private var completionJob: Job? = null
 
     /**
      * Ready 진입 시 generateSuggestions 트리거를 한 번만 실행하기 위한 가드.
@@ -219,12 +240,18 @@ class CorrectionViewModel @Inject constructor(
      *  - 결과(또는 변환 실패 사유)는 [CorrectionUiState.saveRequest] / [CorrectionUiState.saveErrorReason]
      *    필드에 보관해 COR-006 이 집어가도록 한다.
      *
+     * COR-006-A 범위 (이번 단계 추가):
+     *  - 변환이 [SaveRequestOutcome.Prepared] 로 끝나면 같은 클릭 흐름에서 [launchCompletion] 으로 이어가
+     *    완료 파이프라인까지 호출한다. ViewModel 외부에서 보면 "저장" 버튼 한 번 누름이 변환 + 완료를
+     *    직렬로 끝낸다.
+     *
      * 분기 결정은 [computeSaveRequestOutcome] 가 [SaveRequestOutcome] 으로 돌려주고,
      * ViewModel 은 그 결과를 logging / state 갱신 두 가지로만 적용한다. 모든 분기 가드는
      * pure function 쪽 회귀 테스트(`CorrectionSaveRequestOutcomeTest`)에서 검증된다.
      *
-     * 비범위 (COR-006):
-     *  - CompleteCorrectionUseCase 호출, Done/Retry 전이, 중복 클릭 방지 UI 가드.
+     * 비범위 (COR-006-B / COR-007):
+     *  - 완료 실패 → Retry 상태 유지 (COR-006-B).
+     *  - Done 진입 후 Dashboard 복귀 navigation (COR-007-A).
      */
     fun onSaveClicked() {
         // 가드 판단용 snapshot 은 _uiState 갱신 이전 값으로 잡는다.
@@ -232,7 +259,7 @@ class CorrectionViewModel @Inject constructor(
         // 같은 함수가 두 번 동시에 들어오는 경우 두 번째 호출은 첫 호출이 emit 해둔
         // isSavePreparing == true 를 새 snapshot 으로 읽어 AlreadyInFlight 분기로 막힌다.
         // (현재 onSaveClicked 는 동기 흐름이라 사실상 같은 콜스택 두 번 진입이 불가능하지만,
-        // COR-006 의 suspend 저장 호출이 합류하면 이 가드가 실제 race 차단의 핵심이 된다.)
+        // COR-006-A 의 suspend 한 완료 호출이 합류하면서 이 가드가 실제 race 차단의 핵심이 된다.)
         val snapshot = _uiState.value
         _uiState.update { it.copy(isSavePreparing = true) }
         val outcome = snapshot.computeSaveRequestOutcome(
@@ -244,7 +271,67 @@ class CorrectionViewModel @Inject constructor(
         logSaveOutcome(snapshot, outcome)
         // applySaveRequestOutcome 가 AlreadyInFlight 외 모든 분기에서 in-flight 윈도우를 닫아준다.
         _uiState.update { current -> current.applySaveRequestOutcome(outcome) }
+
+        // COR-006-A: Prepared 분기에서 즉시 완료 파이프라인으로 이어 호출.
+        // 변환 윈도우를 먼저 닫은 뒤 완료 윈도우를 여는 이유는 canSave 가 두 플래그를 모두 가드하기 때문에
+        // 사용자 입장에서 윈도우가 끊기지 않는다는 점이고, 분기별로 어느 단계에서 in-flight 였는지 진단 가능하게
+        // 의미를 분리해 둔 것이다.
+        if (outcome is SaveRequestOutcome.Prepared) {
+            launchCompletion(outcome.request)
+        }
     }
+
+    /**
+     * 완료 파이프라인 호출 진입점.
+     *
+     * [onSaveClicked] 의 Prepared 분기 또는 COR-006-B 가 채울 Retry 액션이 호출한다.
+     * 분기 결정은 [computeCompletionLaunch] 가 [CompletionLaunchOutcome] 으로 돌려주고, 본 함수는
+     * (a) state 갱신, (b) viewModelScope.launch 진입, (c) [stubCompletion] 결과 적용 세 가지만 책임진다.
+     *
+     * ⚠️ 본 단계에서는 SYS-CORRECTION-INFRA 의 `langStateUpdateInput` 필수 필드 충돌로 실제
+     * [CompleteCorrectionUseCase] 호출이 막혀 있어 [stubCompletion] 으로 성공 결과만 흉내낸다.
+     * 인계 문서: `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md`.
+     */
+    private fun launchCompletion(request: CorrectionSaveRequest) {
+        val snapshot = _uiState.value
+        val launch = snapshot.computeCompletionLaunch(request)
+        logCompletionLaunch(launch)
+        if (launch !is CompletionLaunchOutcome.Launched) return
+
+        // 완료 in-flight 윈도우를 먼저 열어 두 번째 클릭이 canSave 가드와 computeCompletionLaunch
+        // 두 곳에서 모두 차단되게 한다.
+        _uiState.update { current -> current.openCompletionWindow() }
+
+        completionJob = viewModelScope.launch {
+            // TODO(SCI-001): SYS-CORRECTION-INFRA 의 CompleteCorrectionInput.langStateUpdateInput 필드가
+            //  옵셔널화 / UseCase 내부 조립 / 헬퍼 UseCase 신설 중 하나로 보정되는 즉시, 아래 stubCompletion 을
+            //  실제 completeCorrection(input) 호출로 교체한다. 입력 조립 책임은 본 PR 의 범위가 아니므로
+            //  ViewModel 은 saveRequest 만 그대로 넘기는 형태가 되어야 한다. 자세한 결정 옵션은
+            //  docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md 참조.
+            val result = stubCompletion(launch.saveRequest)
+            logCompletionResult(result)
+            _uiState.update { current -> current.applyCompletionOutcome(result) }
+        }
+    }
+
+    /**
+     * SYS-CORRECTION-INFRA 보정 전까지 사용하는 임시 완료 결과 생성기.
+     *
+     * 실제 [CompleteCorrectionUseCase] 호출이 막혀 있어, 변환된 [CorrectionSaveRequest] 의 suggestionId 들을
+     * 그대로 `savedFlashcardIds` 로 흉내내 화면 흐름(Phase.Done / completionResult.savedFlashcardIds.size) 을
+     * 끝까지 검증할 수 있게 한다. Firestore sync / Session compression / Statistics 등 후속 상태는 모두 기본값.
+     *
+     * 부팀장이 인프라 보정 후 [launchCompletion] 의 TODO 자리만 실제 호출로 교체하면 본 함수는 제거된다.
+     */
+    private fun stubCompletion(request: CorrectionSaveRequest): Result<CompleteCorrectionResult> =
+        Result.success(
+            CompleteCorrectionResult(
+                savedFlashcardIds = request.flashcards.map { it.suggestionId },
+                pendingSyncFlashcardIds = emptyList(),
+                sessionMemoryKey = "",
+                completedAt = request.requestedAt,
+            )
+        )
 
     /**
      * onSaveClicked 의 분기별 진단 로그.
@@ -279,6 +366,50 @@ class CorrectionViewModel @Inject constructor(
                 "onSaveClicked — 변환 실패 — reason=${outcome.reason}",
             )
         }
+    }
+
+    /**
+     * COR-006-A: 완료 파이프라인 트리거 분기 진단 로그.
+     *
+     * AlreadyInFlight / NoSaveRequest 분기는 사용자 입장에서 "버튼을 한 번 더 눌렀는데 아무 일도 안 일어남"
+     * 으로 보이므로 logcat 단서가 필요하다.
+     */
+    private fun logCompletionLaunch(outcome: CompletionLaunchOutcome) {
+        when (outcome) {
+            CompletionLaunchOutcome.AlreadyInFlight -> Log.d(
+                TAG,
+                "launchCompletion — guard: already completing, ignoring duplicate trigger",
+            )
+            CompletionLaunchOutcome.NoSaveRequest -> Log.d(
+                TAG,
+                "launchCompletion — guard: saveRequest is null, nothing to complete",
+            )
+            is CompletionLaunchOutcome.Launched -> Log.d(
+                TAG,
+                "launchCompletion — flashcards=${outcome.saveRequest.flashcards.size}",
+            )
+        }
+    }
+
+    /**
+     * COR-006-A: 완료 파이프라인 결과 진단 로그.
+     *
+     * 본 단계에서는 [stubCompletion] 이 항상 success 를 돌려주지만, 인프라 보정 후 실제 호출에서는
+     * failure 분기가 의미를 가지므로 미리 두 갈래로 나눠 둔다.
+     */
+    private fun logCompletionResult(result: Result<CompleteCorrectionResult>) {
+        result.fold(
+            onSuccess = { value ->
+                Log.d(
+                    TAG,
+                    "completion success — savedFlashcardIds=${value.savedFlashcardIds.size}, " +
+                            "pendingSync=${value.pendingSyncFlashcardIds.size}",
+                )
+            },
+            onFailure = { e ->
+                Log.w(TAG, "completion failure — reason=${e.message ?: e.javaClass.simpleName}", e)
+            },
+        )
     }
 
     private companion object {

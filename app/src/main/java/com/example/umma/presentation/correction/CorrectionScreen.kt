@@ -33,13 +33,16 @@ import com.example.umma.presentation.correction.component.CorrectionResultList
  * 교정 화면을 구성하는 컴포저블입니다.
  *
  * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md /
- *       COR-003_Result_Cards.md / COR-004_Card_Selection.md
+ *       COR-003_Result_Cards.md / COR-004_Card_Selection.md / COR-006_Completion_Pipeline.md
  *
  * COR-002-A 범위에서는 [CorrectionViewModel] 이 결정한 [CorrectionUiState.Phase] 에 따라
  * 텍스트로만 분기해 흐름 진행을 시각적으로 검증한다.
  * COR-003-A 에서 Content 상태는 [CorrectionResultList] 카드 UI 로 교체되었다.
  * COR-004 에서는 Content 상태에서 카드 목록 아래에 [CorrectionSaveButton] 을 띄워
- * 선택 상태 → 저장 진입점을 연결한다. 실제 저장 호출은 후속 backlog 에서 채운다.
+ * 선택 상태 → 저장 진입점을 연결한다.
+ * COR-006-A 에서는 완료 파이프라인 성공 직후 [CorrectionUiState.Phase.Done] 으로 전환되며,
+ * 카드 목록과 저장 버튼이 사라지고 안내 텍스트와 저장된 카드 수만 남는다. Dashboard 복귀 navigation 은
+ * COR-007-A 가 이 단계 진입 시점을 1회성 이벤트로 소비해 잇는다.
  * Loading / Generating / NotAvailable / Error phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,6 +141,17 @@ fun CorrectionScreen(
                             uiState.errorReason?.let { reason ->
                                 Text(text = "사유: $reason", textAlign = TextAlign.Center)
                             }
+                        }
+
+                        CorrectionUiState.Phase.Done -> {
+                            // COR-006-A: 완료 파이프라인 성공 안내. Dashboard 복귀 버튼은 COR-007-A 가
+                            // 1회성 navigation 이벤트로 잇는다(이 화면에서 머무는 시간은 짧을 예정).
+                            val savedCount = uiState.completionResult?.savedFlashcardIds?.size ?: 0
+                            Text(text = "저장이 완료되었어요", textAlign = TextAlign.Center)
+                            Text(
+                                text = "${savedCount}개 카드가 학습 목록에 추가되었어요",
+                                textAlign = TextAlign.Center,
+                            )
                         }
 
                         // Content 분기는 위의 when 에서 이미 처리.

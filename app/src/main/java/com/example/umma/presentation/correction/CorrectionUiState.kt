@@ -69,6 +69,16 @@ data class CorrectionUiState(
     // 현재 onSaveClicked 는 동기 흐름이라 윈도우가 짧지만, COR-006 가 suspend 한 저장 호출을 얹으면
     // 이 윈도우가 실효를 가진다. 같은 프레임 두 번 디스패치도 함께 막는다.
     val isSavePreparing: Boolean = false,
+    // COR-006-A: 완료 파이프라인 in-flight 가드.
+    // 변환 in-flight([isSavePreparing]) 와 별개로 둔 이유는 두 단계의 의미가 다르기 때문이다.
+    // 저장 버튼 한 번 클릭이 (1) 변환 → (2) 완료 두 단계를 직렬로 진행하는데, 변환 윈도우가 닫힌 뒤
+    // 완료 윈도우가 열리는 짧은 구간에 두 번째 클릭이 들어와도 [canSave] 가 false 가 되도록 분리해 둔다.
+    // 같은 이유로 [canSave] 가 두 플래그를 모두 가드한다.
+    val isCompleting: Boolean = false,
+    // COR-006-A: CompleteCorrectionUseCase 성공 결과 보관.
+    // [Phase.Done] 화면에서 "저장된 카드 수" 를 표시하기 위해 [CompleteCorrectionResult.savedFlashcardIds] 를 읽는다.
+    // 후속 COR-007-A 가 Dashboard 복귀 navigation 을 붙일 때 이 결과를 참조해 1회성 이벤트로 변환한다.
+    val completionResult: CompleteCorrectionResult? = null,
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.
@@ -100,6 +110,11 @@ data class CorrectionUiState(
         // candidateId 매칭 실패 / JSON 파싱 실패 / 필수 필드 누락 / AI 호출 자체 실패.
         // errorReason 필드에 사유 보관.
         Error,
+
+        // COR-006-A: CompleteCorrectionUseCase 가 로컬 완료 성공 결과를 돌려준 직후의 종착 단계.
+        // 카드 목록 / 저장 버튼이 사라지고 안내 텍스트만 노출된다. Dashboard 복귀는 COR-007-A 에서
+        // 이 단계 진입 시점을 1회성 이벤트로 소비해 navigation 으로 잇는다.
+        Done,
     }
 }
 
@@ -210,16 +225,88 @@ internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutco
 /**
  * 저장 버튼 활성 조건.
  *
- * Content 단계이며 한 개 이상 선택되었고, 직전 시도가 in-flight 가 아닌 경우에만 true.
- * - phase 가드: 생성 중 / 에러 / NotAvailable 등에서는 카드 자체가 안 보이므로
+ * Content 단계이며 한 개 이상 선택되었고, 직전 시도가 어느 단계든 in-flight 가 아닌 경우에만 true.
+ * - phase 가드: 생성 중 / 에러 / NotAvailable / Done 등에서는 카드 자체가 안 보이므로
  *   잔존 selectedSuggestionIds 가 있어도 저장이 가능해선 안 된다.
+ *   특히 [CorrectionUiState.Phase.Done] 진입 후에는 같은 화면에서 재저장이 일어나지 않아야 한다.
  * - 0개 가드: AC "선택 항목이 0개이면 저장 버튼은 비활성화" 의 직접 반영.
- * - in-flight 가드 (COR-005-B): 저장 요청 준비 중에는 같은 버튼이 한 번 더 활성화되지 않도록 한다.
+ * - 변환 in-flight 가드 (COR-005-B): 저장 요청 준비 중에는 같은 버튼이 한 번 더 활성화되지 않도록 한다.
+ * - 완료 in-flight 가드 (COR-006-A): 변환 윈도우가 닫힌 직후 완료 윈도우가 열리는 짧은 구간에도
+ *   두 번째 클릭이 들어오지 않도록 [isCompleting] 도 함께 가드한다.
  */
 val CorrectionUiState.canSave: Boolean
     get() = phase == CorrectionUiState.Phase.Content &&
             selectedSuggestionIds.isNotEmpty() &&
-            !isSavePreparing
+            !isSavePreparing &&
+            !isCompleting
+
+/**
+ * COR-006-A 완료 파이프라인 트리거 분기.
+ *
+ * 저장 버튼 한 번의 클릭이 (1) 변환 → (2) 완료 두 단계를 직렬로 진행하므로, 변환이 [SaveRequestOutcome.Prepared]
+ * 로 끝났을 때 즉시 완료 단계로 넘어갈지 / 거부할지를 결정하는 가드를 [SaveRequestOutcome] 와 같은 결로
+ * 추출해 둔다. ViewModel 인스턴스 없이도 모든 분기를 회귀할 수 있다는 장점이 그대로 유지된다.
+ */
+internal sealed interface CompletionLaunchOutcome {
+    /** 직전 완료 호출이 아직 진행 중이라 새 호출을 거절한 경우. state 변화 없음. */
+    object AlreadyInFlight : CompletionLaunchOutcome
+
+    /** 변환된 saveRequest 가 없거나 stale 이라 완료를 시작할 근거가 없는 경우. state 변화 없음. */
+    object NoSaveRequest : CompletionLaunchOutcome
+
+    /** 완료를 시작해도 된다는 결정. ViewModel 은 이 분기에서 viewModelScope.launch 로 실제 호출에 진입한다. */
+    data class Launched(val saveRequest: CorrectionSaveRequest) : CompletionLaunchOutcome
+}
+
+/**
+ * 현재 UiState 스냅샷이 완료 파이프라인을 시작할 수 있는 상태인지 계산한다.
+ *
+ * [CorrectionViewModel.onSaveClicked] 가 변환 직후 같은 호출 스택에서 이 함수를 호출하고,
+ * [CompletionLaunchOutcome.Launched] 분기에서만 실제 [CompleteCorrectionUseCase] 호출에 진입한다.
+ * compute → apply 분리 패턴을 유지하기 위해 state 갱신은 [openCompletionWindow] / [applyCompletionOutcome]
+ * 가 책임진다.
+ */
+internal fun CorrectionUiState.computeCompletionLaunch(
+    request: CorrectionSaveRequest?,
+): CompletionLaunchOutcome {
+    // 완료 in-flight 윈도우는 가장 먼저 본다. 두 번째 클릭이 우연히 같은 request 를 가지고 들어와도 막힌다.
+    if (isCompleting) return CompletionLaunchOutcome.AlreadyInFlight
+    // 변환이 실패했거나 stale 한 경우. canSave 가드와는 별개로, 호출자 쪽에서 request 가 비어 있으면 막는다.
+    val saveRequest = request ?: return CompletionLaunchOutcome.NoSaveRequest
+    return CompletionLaunchOutcome.Launched(saveRequest)
+}
+
+/**
+ * 완료 in-flight 윈도우를 연다. [CompletionLaunchOutcome.Launched] 직후 ViewModel 이 viewModelScope.launch 안에서
+ * 실제 호출에 들어가기 직전에 적용한다.
+ */
+internal fun CorrectionUiState.openCompletionWindow(): CorrectionUiState =
+    if (isCompleting) this else copy(isCompleting = true)
+
+/**
+ * [CompleteCorrectionUseCase] 호출 결과(또는 placeholder stub 결과) 를 UiState 에 반영한다.
+ *
+ * 성공 → [Phase.Done] 으로 전환하고 [completionResult] 에 결과를 보관한다.
+ * 실패 → 완료 in-flight 윈도우만 닫고 다른 필드는 그대로 둔다. COR-006-B 가 Retry 상태를 정의하면서
+ * 이 분기를 [Phase.Retry] / 별도 errorReason 으로 확장할 예정이다.
+ */
+internal fun CorrectionUiState.applyCompletionOutcome(
+    result: Result<CompleteCorrectionResult>,
+): CorrectionUiState = result.fold(
+    onSuccess = { value ->
+        copy(
+            phase = CorrectionUiState.Phase.Done,
+            completionResult = value,
+            isCompleting = false,
+        )
+    },
+    onFailure = {
+        // COR-006-B 가 Retry 분기를 채우기 전까지는 윈도우만 닫아 다음 시도를 허용한다.
+        // 카드 목록 / 선택 / saveRequest 는 그대로 두어 부팀장이 인프라 보정 후 같은 saveRequest 로
+        // 재시도할 수 있게 한다.
+        copy(isCompleting = false)
+    },
+)
 
 /**
  * [GlobalLangState] 스냅샷을 Correction 화면의 UiState 로 환산한다.
