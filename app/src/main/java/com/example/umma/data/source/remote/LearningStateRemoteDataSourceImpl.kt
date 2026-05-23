@@ -7,9 +7,10 @@ import com.example.umma.data.model.learningstate.InternalMetricsDto
 import com.example.umma.data.model.learningstate.LangStateDto
 import com.example.umma.data.model.learningstate.SessionSummaryDto
 import com.example.umma.data.model.learningstate.UserLangPrefDto
-import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,10 +30,13 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
         require(userUid.isNotBlank()) { "userUid must not be blank" }
 
         // Firestore는 한 번에 전체 snapshot을 읽되, 각 하위 컬렉션은 비어 있을 수 있다고 본다.
+        // Source.SERVER: Firestore 자체 로컬 캐시 fallback 없이 항상 서버에서 읽는다.
+        //   비행기 모드 등 실제 네트워크 단절 시 예외가 발생해야 ViewModel 에서 Snackbar 를 발화할 수 있다.
+        //   Source.DEFAULT(기본값)는 오프라인 시 캐시를 반환해 sync 실패를 은폐한다.
         val userRef = firestore.collection("users").document(userUid)
         val userPref = userRef.collection("user_learning_preference")
             .document("current")
-            .get()
+            .get(Source.SERVER)
             .await()
             .data
             ?.toUserLangPrefDto()
@@ -103,12 +107,13 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
         fallbackName: String? = null,
         mapper: (Map<String, Any?>) -> T?
     ): List<T> {
-        val primaryDocs = collection(primaryName).get().await().documents
+        // Source.SERVER: userPref 와 동일한 이유 — 캐시 은폐 방지.
+        val primaryDocs = collection(primaryName).get(Source.SERVER).await().documents
         val docs = if (primaryDocs.isNotEmpty() || fallbackName == null) {
             primaryDocs
         } else {
             // schema migration 중 이름이 다른 컬렉션을 만날 수 있어 fallback을 둔다.
-            collection(fallbackName).get().await().documents
+            collection(fallbackName).get(Source.SERVER).await().documents
         }
 
         return docs.mapNotNull { document ->

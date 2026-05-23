@@ -37,6 +37,12 @@ data class CompleteCorrectionResult(
     val sessionCompressionPending: Boolean = false,
     // compression 실패를 사용자 흐름의 fatal error 로 키우지 않기 위한 진단 메시지.
     val sessionCompressionErrorMessage: String? = null,
+    // StatisticsHistory local-first 기록이 이번 완료 흐름에서 반영되었는지 여부.
+    val statisticsHistoryApplied: Boolean = false,
+    // history 기록이 remote sync pending 으로 남아있는지 여부.
+    val statisticsHistoryPending: Boolean = false,
+    // history 기록 실패 또는 pending 사유를 사용자 흐름에서 확인할 수 있게 남기는 메시지.
+    val statisticsHistoryErrorMessage: String? = null,
     // 완료 시각.
     val completedAt: Long
 )

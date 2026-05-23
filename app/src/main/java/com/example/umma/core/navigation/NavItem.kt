@@ -37,8 +37,8 @@ sealed class NavItem(
     )
 
     // 통계 탭
-    object Analytics: NavItem(
-        route = Route.Analytics,
+    object Statistics: NavItem(
+        route = Route.Statistics,
         label = "통계",
         iconRes = R.drawable.leaderboard_24
     )
@@ -49,7 +49,7 @@ sealed class NavItem(
             Correction,
             Dashboard,
             SrsStudy,
-            Analytics,
+            Statistics,
         )
     }
 }

@@ -29,6 +29,7 @@
 - line chart는 `StatisticsHistory`에서 만든 `MetricHistoryPoint`를 사용한다.
 - history 데이터가 부족하면 Empty chart 상태를 표시한다.
 - Firestore sync 실패는 화면 실패로 보지 않고 pending sync로 관리한다.
+- Statistics route/screen/package 명칭은 System Flow 선행 작업에서 `Statistics` 기준으로 준비되어 있다.
 
 ---
 
@@ -63,6 +64,7 @@ Statistics 화면 작업자는 아래 계약이 준비되어 있다고 보고 �
 | --- | --- | --- |
 | `GlobalLangState` | 현재 선택 언어를 observe할 수 있다. | `SYS-LEARNING-STATE-INFRA`, LS-004 |
 | `LangState.external` | 현재 선택 언어의 MVP 5개 지표 현재값을 읽을 수 있다. | LS-001, LS-006 |
+| Statistics navigation baseline | `Route.Statistics`, `StatisticsScreen`, `presentation/statistics` 기준 진입점이 준비되어 있다. | SYS-STATISTICS-INFRA, STI-003 |
 | `StatisticsRepository` | 현재 선택 언어의 `StatisticsHistory`를 local cache 우선으로 조회할 수 있다. | SYS-STATISTICS-INFRA, STI-001 |
 | `RecordStatisticsHistoryUseCase` | Correction 완료 파이프라인에서 Flashcard 저장과 Language State 업데이트가 모두 성공한 뒤 history snapshot이 누적된다. | STI-002 |
 | `GetStatisticsOverviewUseCase` | 선행 계약을 조합해 화면 초기 상태에 필요한 current metrics와 history 준비 상태를 제공한다. | STAT-001, STAT-002 |
@@ -100,6 +102,7 @@ GlobalLangState
 
 Statistics 화면은 현재 선택 언어의 데이터만 표시한다.
 다른 언어의 history를 동시에 렌더링하지 않는다.
+Repository / UseCase 계층의 history 조회는 현재 사용자와 현재 언어가 함께 분리된 결과를 사용한다.
 
 ### 8.2 지표 정책
 
@@ -128,6 +131,7 @@ StatisticsHistory
 ```
 
 `vocabularyLevel`은 A1~C2 label을 유지하되, line chart에서는 A1=1, A2=2, B1=3, B2=4, C1=5, C2=6 값으로 표시한다.
+`grammarAccuracy`, `fluencyScore`, `naturalnessScore`는 저장된 `ExternalMetrics` 원본 스케일을 그대로 화면에 노출하지 않고, 카드/차트 표시 단계에서 0~100 기준으로 환산한다.
 
 ### 8.4 저장 정책
 

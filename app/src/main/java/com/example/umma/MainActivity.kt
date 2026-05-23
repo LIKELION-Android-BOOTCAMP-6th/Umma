@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
 /**
  * 앱의 루트 컴포저블로, 전체적인 Scaffold 구조와 네비게이션을 관리합니다.
  *
- * 특정 경로([Route.Analytics], [Route.Chat], [Route.CorrectionList], [Route.SrsStudy], [Route.Dashboard])
+ * 특정 경로([Route.Statistics], [Route.Chat], [Route.CorrectionList], [Route.SrsStudy], [Route.Dashboard])
  * 에서는 하단 앱 바를 표시하며, [UmmaNavHost]를 통해 화면 전환을 처리합니다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,7 +51,7 @@ fun UmmaApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val showBottomBar = navBackStackEntry?.destination?.hierarchy?.any {
-        it.hasRoute<Route.Analytics>()
+        it.hasRoute<Route.Statistics>()
                 || it.hasRoute<Route.Chat>()
                 || it.hasRoute<Route.CorrectionList>()
                 || it.hasRoute<Route.SrsStudy>()
