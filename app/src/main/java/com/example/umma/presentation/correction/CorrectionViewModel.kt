@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -28,10 +29,15 @@ import javax.inject.Inject
  *  - (COR-002-A) Ready 첫 emit 시 사용자 추가 입력 없이 generateSuggestions 를 1회 자동 트리거.
  *    RT-003 correction context → 후보 추출 → AI 호출 → CorrectionSuggestion 목록 → Content / Error.
  *
+ *  - (COR-004) 카드 선택/해제 토글과 저장 버튼 클릭 진입점을 노출한다.
+ *    선택 상태는 [CorrectionUiState.selectedSuggestionIds] 가 SSOT 이고,
+ *    저장 버튼 본문(실제 Flashcard 저장)은 후속 백로그 범위라 onSaveClicked 는 로그만 남긴다.
+ *
  * 비범위:
  *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
  *  - 결과 카드 본격 UI → COR-003-A.
- *  - saveFlashcards 등 후속 단계 → COR-004 이후.
+ *  - "전체 선택" 토글 → COR-004 다음 백로그.
+ *  - saveFlashcards 실제 호출 → COR-004 다음 백로그.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
@@ -149,6 +155,9 @@ class CorrectionViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         phase = CorrectionUiState.Phase.Content,
                         suggestions = suggestions,
+                        // 새 suggestions 로 교체되는 시점에 stale 한 selectedSuggestionIds 가 남아 있으면
+                        // 새 목록에 존재하지 않는 id 가 canSave 를 거짓 양성으로 띄울 수 있어 함께 비운다.
+                        selectedSuggestionIds = emptySet(),
                         errorReason = null,
                     )
                 },
@@ -158,11 +167,45 @@ class CorrectionViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         phase = CorrectionUiState.Phase.Error,
                         suggestions = emptyList(),
+                        // 에러 진입 시점에도 동일하게 비워 다음 Content 진입의 출발점을 깔끔하게 둔다.
+                        selectedSuggestionIds = emptySet(),
                         errorReason = reason,
                     )
                 }
             )
         }
+    }
+
+    /**
+     * 카드 한 장의 선택 상태를 뒤집는다.
+     *
+     * AC:
+     *  - 같은 id 를 다시 누르면 선택 해제 → Set 의 `-` 연산.
+     *  - 선택 항목은 `CorrectionSuggestion.id` 기준으로 관리.
+     *  - 같은 카드를 빠르게 여러 번 누르는 엣지케이스는 Set 의 add/remove 가 멱등성과 무관하게
+     *    "현재 상태 기준 토글" 시그니처라 매 호출이 결정적이다.
+     */
+    fun toggleSuggestionSelection(id: String) {
+        _uiState.update { current ->
+            val next = if (id in current.selectedSuggestionIds) {
+                current.selectedSuggestionIds - id
+            } else {
+                current.selectedSuggestionIds + id
+            }
+            current.copy(selectedSuggestionIds = next)
+        }
+    }
+
+    /**
+     * 저장 버튼 진입점.
+     *
+     * COR-004 범위에서는 실제 Flashcard 저장 호출을 하지 않는다.
+     * 현재 선택된 카드 개수만 로그로 남겨 화면 → ViewModel 연결을 시각 검증한다.
+     * 실제 저장 로직 연결은 후속 백로그(COR-005 가정) 에서 이 함수 본문을 채운다.
+     */
+    fun onSaveClicked() {
+        val count = _uiState.value.selectedSuggestionIds.size
+        Log.d(TAG, "onSaveClicked — selected=$count (no-op until next backlog)")
     }
 
     private companion object {

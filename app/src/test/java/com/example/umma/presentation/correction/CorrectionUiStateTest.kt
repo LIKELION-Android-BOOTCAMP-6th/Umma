@@ -8,6 +8,7 @@ import com.example.umma.domain.model.learningstate.LangState
 import com.example.umma.domain.model.learningstate.SessionSummary
 import com.example.umma.domain.model.learningstate.UserLangPref
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -159,6 +160,41 @@ class CorrectionUiStateTest {
         val state = global.toCorrectionUiState()
 
         assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+    }
+
+    // ─── COR-004: canSave 회귀 ───────────────────────────────────────────────
+
+    @Test
+    fun `canSave is false when phase is Content but no suggestion is selected`() {
+        // 사용자가 카드 화면에 들어왔지만 아직 아무것도 안 골랐을 때 저장 버튼은 비활성이어야 한다.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedSuggestionIds = emptySet(),
+        )
+
+        assertFalse(state.canSave)
+    }
+
+    @Test
+    fun `canSave is true when phase is Content and at least one suggestion is selected`() {
+        // 1개 이상 선택된 정상 케이스. 저장 버튼 활성.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedSuggestionIds = setOf("sugg-1"),
+        )
+
+        assertTrue(state.canSave)
+    }
+
+    @Test
+    fun `canSave is false when selection exists but phase is not Content`() {
+        // 생성 중 단계 등에서는 카드 자체가 안 보여야 하므로 stale 한 선택이 남더라도 저장은 막혀야 한다.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Generating,
+            selectedSuggestionIds = setOf("sugg-1"),
+        )
+
+        assertFalse(state.canSave)
     }
 
     /**

@@ -1,6 +1,8 @@
 package com.example.umma.presentation.correction.component
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.example.umma.core.theme.BackgroundHighlight
 import com.example.umma.core.theme.BackgroundSecondary
 import com.example.umma.core.theme.CardCornerRadius
@@ -38,6 +41,7 @@ import com.example.umma.core.theme.TextExplanationR
 import com.example.umma.core.theme.TextLogout
 import com.example.umma.core.theme.TextPrimary
 import com.example.umma.core.theme.TextWrong
+import com.example.umma.core.theme.ThemePrimary
 import com.example.umma.core.theme.ThemeSecondary
 import com.example.umma.core.theme.TitleColor
 import com.example.umma.data.repository.correction.CorrectionSuggestionFixtures
@@ -47,7 +51,7 @@ import com.example.umma.domain.model.learningstate.LangCode
 /**
  * 교정 결과 카드 한 장.
  *
- * SSOT: COR-003_Result_Cards.md
+ * SSOT: COR-003_Result_Cards.md / COR-004_Card_Selection.md
  *
  * 표시 영역:
  *  - 헤더: nativeText (인용 + 정적 스피커 아이콘 — TTS 클릭은 후속 backlog 에서 연결)
@@ -55,25 +59,36 @@ import com.example.umma.domain.model.learningstate.LangCode
  *  - After 행: afterText (청록 체크 + 강조 배경 박스)
  *  - Explanation 행: explanation (보라 Info 아이콘)
  *
+ * 선택 상태 (COR-004):
+ *  - [onClick] 이 카드 전체 탭 영역에서 호출된다 (좌측 별도 체크박스가 아닌 카드 전체 토글).
+ *  - [isSelected] 가 true 면 [ThemePrimary] 색 border 로 시각적으로 강조한다.
+ *
  * 비범위:
- *  - 카드 선택 체크박스 (COR-004)
- *  - 스피커 클릭/TTS 동작 (후속 backlog)
- *  - 내부 후보(CorrectionCandidate) 데이터 노출 없음
+ *  - 좌측 별도 체크박스 위젯 + "전체 선택" 토글 — COR-004 다음 백로그.
+ *  - 스피커 클릭/TTS 동작 (후속 backlog).
+ *  - 내부 후보(CorrectionCandidate) 데이터 노출 없음.
  *
  * @param suggestion 화면에 표시할 교정 결과 계약. [CorrectionSuggestion.nativeText],
  *                   [CorrectionSuggestion.beforeText], [CorrectionSuggestion.afterText],
  *                   [CorrectionSuggestion.explanation] 만 참조한다.
+ * @param isSelected 사용자가 저장 대상으로 골랐는지 여부. ViewModel 의 selectedSuggestionIds 에서 파생.
+ * @param onClick 카드 전체 탭 시 호출. 호출자가 suggestion.id 를 바인딩해서 toggleSuggestionSelection 으로 위임한다.
  */
 @Composable
 fun CorrectionResultCard(
     suggestion: CorrectionSuggestion,
-    modifier: Modifier = Modifier
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier,
+        // clickable 은 Card 자체에 걸어 카드 본문 어디를 눌러도 토글되게 한다.
+        modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(CardCornerRadius),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
-        elevation = CardDefaults.cardElevation(defaultElevation = CardElevation)
+        elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
+        // 선택 시 ThemePrimary border 강조 — ChatScreen.TopicButton 의 강조 패턴과 일관.
+        border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
     ) {
         Column(
             modifier = Modifier
@@ -175,6 +190,21 @@ private fun CorrectionResultCardPreview() {
     val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
     CorrectionResultCard(
         suggestion = suggestion,
+        isSelected = false,
+        onClick = {},
+        modifier = Modifier.padding(SpacingL)
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF8F2E5, name = "카드 — 선택됨")
+@Composable
+private fun CorrectionResultCardSelectedPreview() {
+    // COR-004: 선택된 카드의 ThemePrimary border 강조 시각 검증용.
+    val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
+    CorrectionResultCard(
+        suggestion = suggestion,
+        isSelected = true,
+        onClick = {},
         modifier = Modifier.padding(SpacingL)
     )
 }
@@ -190,6 +220,8 @@ private fun CorrectionResultCardLongExplanationPreview() {
     )
     CorrectionResultCard(
         suggestion = longExplanation,
+        isSelected = false,
+        onClick = {},
         modifier = Modifier.padding(SpacingL)
     )
 }

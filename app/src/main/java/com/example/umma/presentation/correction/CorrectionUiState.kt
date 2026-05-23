@@ -12,18 +12,21 @@ import com.example.umma.domain.model.learningstate.selectedLang
 /**
  * Correction 화면의 단일 UI 상태.
  *
- * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md
+ * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md / COR-004_Card_Selection.md
  *
  * 책임:
  *  - (COR-001-A) Global Learning State 의 selectedLearningLanguage / SessionSummary / LangState snapshot 을
  *    한데 모아 "교정 결과 생성 가능" 여부를 [phase] 한 필드로 노출한다.
  *  - (COR-002-A) Ready 게이트 통과 이후 ViewModel 이 자동으로 generateSuggestions 를 호출하면
  *    [Phase.Generating] → [Phase.Content] 또는 [Phase.Error] 로 진행한다.
+ *  - (COR-004) 사용자가 저장 대상으로 고른 카드 목록을 [selectedSuggestionIds] 로 보관한다.
+ *    저장 버튼 활성/비활성은 [canSave] 확장 속성으로 파생한다.
  *
  * 비범위:
  *  - Empty 분리 / Retry 액션은 COR-002-B 에서 [Phase.Empty] 와 함께 추가한다.
  *    그래서 [Phase.Content] 는 suggestions 가 비어 있어도 그대로 유지된다.
- *  - 결과 카드 본격 UI 는 COR-003-A.
+ *  - "전체 선택" 토글과 실제 Flashcard 저장 호출은 COR-004 다음 백로그 범위.
+ *    이번 단계의 저장 버튼은 ViewModel 메서드만 호출하고 본문은 placeholder 이다.
  */
 data class CorrectionUiState(
     // 첫 emit 전 (preload 대기) → Ready / NotAvailable / Generating / Content / Error 중 하나로 수렴.
@@ -36,6 +39,9 @@ data class CorrectionUiState(
     val langStateSnapshot: LangState? = null,
     // Content 상태에서 화면이 표시할 교정 결과 목록. 그 외 phase 에서는 빈 리스트.
     val suggestions: List<CorrectionSuggestion> = emptyList(),
+    // 사용자가 저장 대상으로 고른 CorrectionSuggestion.id 집합. 순서 무관 + 중복 자동 방어 목적으로 Set 사용.
+    // Content 가 새 suggestions 로 교체될 때 stale id 잔존을 막기 위해 ViewModel 이 함께 비운다.
+    val selectedSuggestionIds: Set<String> = emptySet(),
     // Error 상태에서 logcat / 화면 디버깅 텍스트로 노출할 짧은 사유. 그 외에는 null.
     val errorReason: String? = null,
 ) {
@@ -75,6 +81,17 @@ data class CorrectionUiState(
 /** Ready 진입 여부를 한 줄로 확인할 수 있는 편의 속성. */
 val CorrectionUiState.isReady: Boolean
     get() = phase == CorrectionUiState.Phase.Ready
+
+/**
+ * 저장 버튼 활성 조건.
+ *
+ * Content 단계이며 한 개 이상 선택된 경우에만 true.
+ * - phase 가드: 생성 중 / 에러 / NotAvailable 등에서는 카드 자체가 안 보이므로
+ *   잔존 selectedSuggestionIds 가 있어도 저장이 가능해선 안 된다.
+ * - 0개 가드: AC "선택 항목이 0개이면 저장 버튼은 비활성화" 의 직접 반영.
+ */
+val CorrectionUiState.canSave: Boolean
+    get() = phase == CorrectionUiState.Phase.Content && selectedSuggestionIds.isNotEmpty()
 
 /**
  * [GlobalLangState] 스냅샷을 Correction 화면의 UiState 로 환산한다.
