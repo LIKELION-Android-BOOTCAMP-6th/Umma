@@ -11,7 +11,9 @@ import com.example.umma.domain.model.statistics.StatisticsOverview
 import com.example.umma.domain.model.statistics.StatisticsMetricType
 import com.example.umma.presentation.statistics.StatisticsContent
 import com.example.umma.presentation.statistics.StatisticsUiState
+import com.example.umma.presentation.statistics.component.StatisticsMetricLineChartDialog
 import com.example.umma.presentation.statistics.model.toMetricSummaryItems
+import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
 
 /**
  * Statistics 화면을 실제 데이터처럼 채워서 보는 Preview다.
@@ -42,6 +44,24 @@ fun StatisticsSkeletonPreview() {
             uiState = StatisticsUiState(isLoading = true),
             onRetry = {},
             onMetricClick = {}
+        )
+    }
+}
+
+/**
+ * 차트 dialog와 line chart 상태를 함께 확인하는 Preview다.
+ */
+@Preview(showBackground = true, showSystemUi = true, backgroundColor = 0xFFF8F2E5)
+@Composable
+fun StatisticsChartDialogPreview() {
+    UmmaTheme {
+        StatisticsMetricLineChartDialog(
+            chartState = StatisticsMetricChartState.Ready(
+                metricType = StatisticsMetricType.GrammarAccuracy,
+                points = previewPoints()
+            ),
+            onDismiss = {},
+            onRetry = {}
         )
     }
 }
@@ -78,3 +98,24 @@ private fun previewUiState(): StatisticsUiState {
         selectedMetricType = StatisticsMetricType.GrammarAccuracy
     )
 }
+
+private fun previewPoints() = listOf(
+    com.example.umma.domain.model.statistics.MetricHistoryPoint(
+        metricType = StatisticsMetricType.GrammarAccuracy,
+        recordedAt = 1_000L,
+        value = 61.0,
+        displayValue = "61%"
+    ),
+    com.example.umma.domain.model.statistics.MetricHistoryPoint(
+        metricType = StatisticsMetricType.GrammarAccuracy,
+        recordedAt = 2_000L,
+        value = 73.0,
+        displayValue = "73%"
+    ),
+    com.example.umma.domain.model.statistics.MetricHistoryPoint(
+        metricType = StatisticsMetricType.GrammarAccuracy,
+        recordedAt = 3_000L,
+        value = 82.0,
+        displayValue = "82%"
+    )
+)

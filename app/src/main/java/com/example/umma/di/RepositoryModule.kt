@@ -1,6 +1,5 @@
 package com.example.umma.di
 
-// TODO(COR-001-A): 화면 시각 검증 후 Fake import 제거.
 import com.example.umma.core.util.NetworkConnectivityMonitor
 import com.example.umma.core.util.NetworkConnectivityMonitorImpl
 import com.example.umma.data.repository.AuthRepositoryImpl
@@ -9,7 +8,6 @@ import com.example.umma.data.repository.CorrectionRepositoryImpl
 import com.example.umma.data.repository.FlashcardRepositoryImpl
 import com.example.umma.data.repository.LearningStateRepoImpl
 import com.example.umma.data.repository.SessionMemoryRepositoryImpl
-import com.example.umma.data.repository.StatisticsRepositoryImpl
 import com.example.umma.data.repository.UserProfileRepositoryImpl
 import com.example.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
@@ -25,8 +23,8 @@ import com.example.umma.domain.repository.CorrectionRepository
 import com.example.umma.domain.repository.FlashcardRepository
 import com.example.umma.domain.repository.LearningStateRepo
 import com.example.umma.domain.repository.SessionMemoryRepository
-import com.example.umma.domain.repository.StatisticsRepository
 import com.example.umma.domain.repository.UserProfileRepository
+
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -120,11 +118,7 @@ abstract class RepositoryModule {
         userProfileRepositoryImpl: UserProfileRepositoryImpl
     ): UserProfileRepository
 
-    @Binds
-    @Singleton
-    abstract fun bindStatisticsRepository(
-        impl: StatisticsRepositoryImpl
-    ): StatisticsRepository
+    // StatisticsRepository 처럼 build variant 에 따라 전환할 대상만 별도 source set 에 둔다.
 
     @Binds
     @Singleton

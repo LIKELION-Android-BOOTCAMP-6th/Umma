@@ -4,6 +4,7 @@ import com.example.umma.domain.model.statistics.StatisticsHistoryQueryState
 import com.example.umma.domain.model.statistics.StatisticsMetricType
 import com.example.umma.domain.model.statistics.StatisticsOverview
 import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryItem
+import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
 
 /**
  * Statistics 화면이 바로 렌더링할 수 있는 상태다.
@@ -20,6 +21,8 @@ data class StatisticsUiState(
     val metricSummaryCards: List<StatisticsMetricSummaryItem> = emptyList(),
     // 지금 선택된 metric. STAT-003에서 chart 입력으로 이어받을 값이다.
     val selectedMetricType: StatisticsMetricType? = null,
+    // 선택 metric에 대한 chart dialog 상태.
+    val metricChartState: StatisticsMetricChartState = StatisticsMetricChartState.Hidden,
     // 실패 시 사용자에게 보여줄 메시지.
     val errorMessage: String? = null,
     // 실패나 네트워크 문제 등으로 다시 시도할 수 있는지 여부.
@@ -30,4 +33,11 @@ data class StatisticsUiState(
     val selectedLearningLanguage = overview?.selectedLearningLanguage
     val currentExternalMetrics = overview?.currentExternalMetrics
     val historyQueryState: StatisticsHistoryQueryState? = overview?.historyQueryState
+    val selectedChartMetricType = when (val state = metricChartState) {
+        is StatisticsMetricChartState.Loading -> state.metricType
+        is StatisticsMetricChartState.Ready -> state.metricType
+        is StatisticsMetricChartState.Empty -> state.metricType
+        is StatisticsMetricChartState.Error -> state.metricType
+        StatisticsMetricChartState.Hidden -> null
+    }
 }
