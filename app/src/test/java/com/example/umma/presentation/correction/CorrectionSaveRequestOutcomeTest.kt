@@ -5,6 +5,7 @@ import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.CorrectionSuggestion
 import com.example.umma.domain.model.learningstate.LangCode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -171,6 +172,75 @@ class CorrectionSaveRequestOutcomeTest {
             is SaveRequestOutcome.Failed -> assertEquals("RuntimeException", outcome.reason)
             else -> fail("expected Failed, got $outcome")
         }
+    }
+
+    // ─── COR-005-B 회귀 ────────────────────────────────────────────────────
+
+    @Test
+    fun `returns AlreadyInFlight when isSavePreparing is true and leaves state untouched`() {
+        // COR-005-B: 직전 시도가 in-flight 인 동안 들어온 두 번째 호출은 prepare 를 거치지 않고 막힌다.
+        val state = readyContentState().copy(isSavePreparing = true)
+
+        val outcome = state.computeSaveRequestOutcome(uid = "uid-1", prepare = recordingPrepare())
+        val next = state.applySaveRequestOutcome(outcome)
+
+        assertEquals(SaveRequestOutcome.AlreadyInFlight, outcome)
+        // 같은 인스턴스를 그대로 돌려줘야 in-flight 윈도우의 소유자(첫 호출)가 영향을 받지 않는다.
+        assertSame(state, next)
+        assertTrue("AlreadyInFlight 분기에서는 prepare 가 호출되면 안 된다", recordedCalls.isEmpty())
+    }
+
+    @Test
+    fun `canSave is false while isSavePreparing`() {
+        // 저장 버튼이 in-flight 동안 비활성화되어야 한다 — UI 가드의 단위 회귀.
+        val state = readyContentState().copy(isSavePreparing = true)
+
+        assertFalse("isSavePreparing 동안 canSave 는 false", state.canSave)
+    }
+
+    @Test
+    fun `apply with Prepared clears isSavePreparing`() {
+        // 성공 분기 — 다음 클릭이 가능하도록 윈도우를 닫아야 한다.
+        val state = readyContentState().copy(isSavePreparing = true)
+        val expected = sampleSaveRequest()
+
+        val next = state.applySaveRequestOutcome(SaveRequestOutcome.Prepared(expected))
+
+        assertFalse(next.isSavePreparing)
+        assertEquals(expected, next.saveRequest)
+    }
+
+    @Test
+    fun `apply with Failed clears isSavePreparing and surfaces reason`() {
+        // 변환 실패 분기 — 윈도우를 닫고 saveErrorReason 으로 사유를 노출한다.
+        val state = readyContentState().copy(isSavePreparing = true)
+
+        val next = state.applySaveRequestOutcome(SaveRequestOutcome.Failed("nativeText must not be blank"))
+
+        assertFalse(next.isSavePreparing)
+        assertNull(next.saveRequest)
+        assertEquals("nativeText must not be blank", next.saveErrorReason)
+    }
+
+    @Test
+    fun `apply with UidUnavailable clears isSavePreparing`() {
+        // uid 차단 분기도 동일하게 윈도우를 닫아야 다음 클릭이 가능하다.
+        val state = readyContentState().copy(isSavePreparing = true)
+
+        val next = state.applySaveRequestOutcome(SaveRequestOutcome.UidUnavailable())
+
+        assertFalse(next.isSavePreparing)
+    }
+
+    @Test
+    fun `apply with NotSavable closes preparing window when it was opened`() {
+        // ViewModel 이 onSaveClicked 진입에서 isSavePreparing=true 를 emit 한 직후, snapshot 단계 race
+        // 등으로 compute 가 NotSavable 을 돌려준 경우에도 윈도우가 끼인 채 남으면 안 된다.
+        val state = readyContentState().copy(isSavePreparing = true)
+
+        val next = state.applySaveRequestOutcome(SaveRequestOutcome.NotSavable)
+
+        assertFalse(next.isSavePreparing)
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────

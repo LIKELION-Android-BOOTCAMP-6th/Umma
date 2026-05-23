@@ -1,5 +1,6 @@
 package com.example.umma.presentation.correction
 
+import com.example.umma.domain.model.correction.CompleteCorrectionResult
 import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.CorrectionSuggestion
 import com.example.umma.domain.model.learningstate.GlobalLangState
@@ -24,13 +25,20 @@ import com.example.umma.domain.model.learningstate.selectedLang
  *    저장 버튼 활성/비활성은 [canSave] 확장 속성으로 파생한다.
  *  - (COR-005-A) 저장 버튼 클릭 시 ViewModel 이 만들어둔 Flashcard 저장 요청 모델을
  *    [saveRequest] 에 보관한다. 변환 실패 사유는 [saveErrorReason] 에 남긴다.
- *    실제 저장 파이프라인 호출과 Done/Retry UI 전이는 COR-006 범위라 여기서는 다루지 않는다.
+ *  - (COR-006-A) 저장 요청 변환 성공 후 CompleteCorrectionUseCase 완료 파이프라인 호출까지 이어가고,
+ *    완료 in-flight 윈도우([isCompleting])와 완료 결과 보관([completionResult])을 추가한다.
+ *    완료 성공 시 [Phase.Done] 으로 전환되어 카드 목록과 저장 버튼이 사라지고 안내 텍스트로 마무리된다.
+ *    ⚠️ 현재 단계에서는 SYS-CORRECTION-INFRA 의 [com.example.umma.domain.model.correction.CompleteCorrectionInput.langStateUpdateInput]
+ *    필드가 필수라 ViewModel 이 실제 UseCase 를 호출하지 못한다. 자세한 충돌과 인계 내용은
+ *    `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md` 를 참고한다.
  *
  * 비범위:
  *  - Empty 분리 / Retry 액션은 COR-002-B 에서 [Phase.Empty] 와 함께 추가한다.
  *    그래서 [Phase.Content] 는 suggestions 가 비어 있어도 그대로 유지된다.
  *  - "전체 선택" 토글은 후속 UI 백로그 범위.
- *  - [saveRequest] 를 받아 CompleteCorrectionUseCase 를 호출하고 Done/Retry 상태로 전환하는 흐름은 COR-006.
+ *  - 완료 실패 → Retry 상태 유지는 COR-006-B 가 [Phase.Retry] 또는 추가 필드와 함께 다룬다.
+ *  - 로컬 완료 성공 후 Dashboard 복귀 navigation 은 COR-007-A 가 1회성 이벤트로 다룬다.
+ *  - Firestore sync / Session compression pending 의 사용자 노출 정책은 COR-007-B 영역.
  */
 data class CorrectionUiState(
     // 첫 emit 전 (preload 대기) → Ready / NotAvailable / Generating / Content / Error 중 하나로 수렴.
@@ -52,9 +60,15 @@ data class CorrectionUiState(
     // CompleteCorrectionUseCase 로 넘기므로 화면 계층에서는 보관만 한다.
     // 새 suggestions 가 들어오거나 변환이 다시 시도될 때 ViewModel 이 함께 갱신/초기화한다.
     val saveRequest: CorrectionSaveRequest? = null,
-    // COR-005-A: 변환 실패 사유(예: uid 미확보, blank 필수 필드). UI 노출은 COR-006 범위라
-    // 현재는 logcat 보조와 회귀 테스트의 단서로만 사용한다.
+    // COR-005-A 에서 추가된 변환 실패 사유(예: uid 미확보, blank 필수 필드).
+    // COR-005-B 부터 Content phase 카드 목록 상단 배너로 사용자에게 노출된다.
+    // 다음 저장 시도(Prepared/Failed/UidUnavailable apply) 시 함께 갱신된다.
     val saveErrorReason: String? = null,
+    // COR-005-B: 저장 요청 준비 in-flight 가드.
+    // true 동안 [canSave] 가 false 가 되어 저장 버튼이 비활성화된다.
+    // 현재 onSaveClicked 는 동기 흐름이라 윈도우가 짧지만, COR-006 가 suspend 한 저장 호출을 얹으면
+    // 이 윈도우가 실효를 가진다. 같은 프레임 두 번 디스패치도 함께 막는다.
+    val isSavePreparing: Boolean = false,
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.
@@ -104,6 +118,15 @@ internal sealed interface SaveRequestOutcome {
     /** [CorrectionUiState.canSave] 가 false 라 변환을 시도조차 하지 않은 경우. state 변화 없음. */
     object NotSavable : SaveRequestOutcome
 
+    /**
+     * COR-005-B: 직전 저장 시도가 아직 in-flight 라 새 시도를 거절한 경우. state 변화 없음.
+     *
+     * canSave 가드보다 먼저 분기되어 "버튼 비활성인데도 같은 프레임에서 들어온 두 번째 호출"
+     * 을 진단 로그와 회귀 테스트에서 식별 가능하게 한다. COR-006 가 suspend 한 저장 호출을
+     * 얹기 시작하면 이 분기가 실제 race 차단의 핵심이 된다.
+     */
+    object AlreadyInFlight : SaveRequestOutcome
+
     /** 선택 id 중 현재 [CorrectionUiState.suggestions] 와 매칭되는 것이 없는 경우. state 변화 없음. */
     object NoMatchingSuggestions : SaveRequestOutcome
 
@@ -128,6 +151,10 @@ internal fun CorrectionUiState.computeSaveRequestOutcome(
     uid: String?,
     prepare: (uid: String, selected: List<CorrectionSuggestion>) -> Result<CorrectionSaveRequest>,
 ): SaveRequestOutcome {
+    // COR-005-B: in-flight 가드는 canSave 보다 먼저 본다.
+    // canSave 도 isSavePreparing 을 참조하기 때문에, 가드 순서가 뒤집히면 "중복 클릭" 과
+    // "원래부터 저장 불가" 분기가 모두 NotSavable 로 합쳐져 진단이 모호해진다.
+    if (isSavePreparing) return SaveRequestOutcome.AlreadyInFlight
     if (!canSave) return SaveRequestOutcome.NotSavable
 
     // AC 엣지: 선택된 id 중 현재 결과 목록에 없는 것은 stale 이므로 변환 대상에서 제외한다.
@@ -152,22 +179,47 @@ internal fun CorrectionUiState.computeSaveRequestOutcome(
  */
 internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutcome): CorrectionUiState =
     when (outcome) {
-        SaveRequestOutcome.NotSavable, SaveRequestOutcome.NoMatchingSuggestions -> this
-        is SaveRequestOutcome.UidUnavailable -> copy(saveRequest = null, saveErrorReason = outcome.reason)
-        is SaveRequestOutcome.Prepared -> copy(saveRequest = outcome.request, saveErrorReason = null)
-        is SaveRequestOutcome.Failed -> copy(saveRequest = null, saveErrorReason = outcome.reason)
+        // AlreadyInFlight 는 원래 in-flight owner 가 아직 진행 중인 분기이므로
+        // 두 번째 호출이 윈도우를 함부로 닫지 않도록 같은 인스턴스를 그대로 돌려준다.
+        SaveRequestOutcome.AlreadyInFlight -> this
+        // 시도조차 하지 않은 분기 — saveRequest / saveErrorReason 은 그대로 두지만,
+        // ViewModel 이 onSaveClicked 진입에서 열어둔 in-flight 윈도우는 닫아 다음 클릭을 허용해야 한다.
+        // isSavePreparing 이 이미 false 면 인스턴스를 새로 만들지 않아 MutableStateFlow.update 가 emit 을 생략한다.
+        SaveRequestOutcome.NotSavable,
+        SaveRequestOutcome.NoMatchingSuggestions ->
+            if (isSavePreparing) copy(isSavePreparing = false) else this
+        // COR-005-B: 실제 시도가 일어난 분기는 모두 in-flight 윈도우를 함께 닫는다.
+        // 클리어 책임을 apply 한 곳에 응집해 ViewModel 본문이 finally 블록을 들지 않아도 된다.
+        is SaveRequestOutcome.UidUnavailable -> copy(
+            saveRequest = null,
+            saveErrorReason = outcome.reason,
+            isSavePreparing = false,
+        )
+        is SaveRequestOutcome.Prepared -> copy(
+            saveRequest = outcome.request,
+            saveErrorReason = null,
+            isSavePreparing = false,
+        )
+        is SaveRequestOutcome.Failed -> copy(
+            saveRequest = null,
+            saveErrorReason = outcome.reason,
+            isSavePreparing = false,
+        )
     }
 
 /**
  * 저장 버튼 활성 조건.
  *
- * Content 단계이며 한 개 이상 선택된 경우에만 true.
+ * Content 단계이며 한 개 이상 선택되었고, 직전 시도가 in-flight 가 아닌 경우에만 true.
  * - phase 가드: 생성 중 / 에러 / NotAvailable 등에서는 카드 자체가 안 보이므로
  *   잔존 selectedSuggestionIds 가 있어도 저장이 가능해선 안 된다.
  * - 0개 가드: AC "선택 항목이 0개이면 저장 버튼은 비활성화" 의 직접 반영.
+ * - in-flight 가드 (COR-005-B): 저장 요청 준비 중에는 같은 버튼이 한 번 더 활성화되지 않도록 한다.
  */
 val CorrectionUiState.canSave: Boolean
-    get() = phase == CorrectionUiState.Phase.Content && selectedSuggestionIds.isNotEmpty()
+    get() = phase == CorrectionUiState.Phase.Content &&
+            selectedSuggestionIds.isNotEmpty() &&
+            !isSavePreparing
 
 /**
  * [GlobalLangState] 스냅샷을 Correction 화면의 UiState 로 환산한다.

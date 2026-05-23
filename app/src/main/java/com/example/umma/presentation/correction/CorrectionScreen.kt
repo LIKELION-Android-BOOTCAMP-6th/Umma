@@ -1,5 +1,6 @@
 package com.example.umma.presentation.correction
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,6 +75,14 @@ fun CorrectionScreen(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
+                    // COR-005-B: 변환 실패가 있으면 카드 목록 위에 빨간 배너로 노출한다.
+                    // Column 의 첫 자식이라 스크롤 영역(weight=1f) 위에 자연스럽게 고정된다.
+                    uiState.saveErrorReason?.let { reason ->
+                        CorrectionSaveErrorBanner(
+                            reason = reason,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
                         selectedIds = uiState.selectedSuggestionIds,
@@ -168,5 +178,35 @@ private fun CorrectionSaveButton(
         modifier = modifier,
     ) {
         Text(text = "저장")
+    }
+}
+
+/**
+ * 저장 요청 변환 실패 배너.
+ *
+ * SSOT: COR-005_Save_Request.md (AC "저장 요청 변환 실패 시 Error 상태를 표시한다").
+ *
+ * Content phase 카드 목록 위에 깔리며, 색상은 Material3 의 errorContainer / onErrorContainer
+ * 슬롯을 그대로 쓴다(별도 디자인 토큰 추가 보류 — 다른 화면도 동일 슬롯을 쓰면 일괄 갱신 가능).
+ * 사용자 안내 문구와 raw 사유를 두 줄로 병기해 디버깅 단서를 남긴다.
+ */
+@Composable
+private fun CorrectionSaveErrorBanner(
+    reason: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = SpacingL, vertical = SpacingM),
+    ) {
+        Text(
+            text = "저장 요청을 만들지 못했어요",
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        Text(
+            text = "사유: $reason",
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
     }
 }

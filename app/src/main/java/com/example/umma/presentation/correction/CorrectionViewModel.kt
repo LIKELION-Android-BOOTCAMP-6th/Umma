@@ -227,7 +227,14 @@ class CorrectionViewModel @Inject constructor(
      *  - CompleteCorrectionUseCase 호출, Done/Retry 전이, 중복 클릭 방지 UI 가드.
      */
     fun onSaveClicked() {
+        // 가드 판단용 snapshot 은 _uiState 갱신 이전 값으로 잡는다.
+        // 첫 호출은 isSavePreparing == false 인 snapshot 으로 compute 가드를 통과하고,
+        // 같은 함수가 두 번 동시에 들어오는 경우 두 번째 호출은 첫 호출이 emit 해둔
+        // isSavePreparing == true 를 새 snapshot 으로 읽어 AlreadyInFlight 분기로 막힌다.
+        // (현재 onSaveClicked 는 동기 흐름이라 사실상 같은 콜스택 두 번 진입이 불가능하지만,
+        // COR-006 의 suspend 저장 호출이 합류하면 이 가드가 실제 race 차단의 핵심이 된다.)
         val snapshot = _uiState.value
+        _uiState.update { it.copy(isSavePreparing = true) }
         val outcome = snapshot.computeSaveRequestOutcome(
             uid = getCurrentUserUid.getCurrentUserUid(),
             prepare = { uid, selected ->
@@ -235,6 +242,7 @@ class CorrectionViewModel @Inject constructor(
             },
         )
         logSaveOutcome(snapshot, outcome)
+        // applySaveRequestOutcome 가 AlreadyInFlight 외 모든 분기에서 in-flight 윈도우를 닫아준다.
         _uiState.update { current -> current.applySaveRequestOutcome(outcome) }
     }
 
@@ -249,6 +257,10 @@ class CorrectionViewModel @Inject constructor(
             SaveRequestOutcome.NotSavable -> Log.d(
                 TAG,
                 "onSaveClicked — guard: !canSave (phase=${snapshot.phase}, selected=${snapshot.selectedSuggestionIds.size})",
+            )
+            SaveRequestOutcome.AlreadyInFlight -> Log.d(
+                TAG,
+                "onSaveClicked — guard: already preparing, ignoring duplicate click",
             )
             SaveRequestOutcome.NoMatchingSuggestions -> Log.d(
                 TAG,
