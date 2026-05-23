@@ -4,8 +4,10 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.umma.domain.model.correction.GenerateSuggestionsInput
+import com.example.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.example.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
 import com.example.umma.domain.usecase.correction.GenerateSuggestionsUseCase
+import com.example.umma.domain.usecase.correction.PrepareSaveRequestUseCase
 import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.realtime.GetCorrectionContextUseCase
@@ -32,12 +34,15 @@ import javax.inject.Inject
  *  - (COR-004) 카드 선택/해제 토글과 저장 버튼 클릭 진입점을 노출한다.
  *    선택 상태는 [CorrectionUiState.selectedSuggestionIds] 가 SSOT 이고,
  *    저장 버튼 본문(실제 Flashcard 저장)은 후속 백로그 범위라 onSaveClicked 는 로그만 남긴다.
+ *  - (COR-005-A) 저장 버튼 클릭 시 선택된 카드 → [CorrectionSaveRequest] 변환을
+ *    [PrepareSaveRequestUseCase] 로 위임하고 결과를 [CorrectionUiState.saveRequest] 에 보관한다.
+ *    실제 CompleteCorrectionUseCase 호출과 Done/Retry 상태 전이는 COR-006 에서 이 필드를 읽어 진행한다.
  *
  * 비범위:
  *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
  *  - 결과 카드 본격 UI → COR-003-A.
- *  - "전체 선택" 토글 → COR-004 다음 백로그.
- *  - saveFlashcards 실제 호출 → COR-004 다음 백로그.
+ *  - "전체 선택" 토글 → 후속 UI 백로그.
+ *  - saveRequest 를 받아 CompleteCorrectionUseCase 호출 및 Done/Retry 전이 → COR-006.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
@@ -51,6 +56,10 @@ class CorrectionViewModel @Inject constructor(
     private val extractSessionCandidates: ExtractSessionCandidatesUseCase,
     // 후보 + LangState → AI 호출 → CorrectionSuggestion 목록. Result 로 success/failure 가 갈린다.
     private val generateSuggestions: GenerateSuggestionsUseCase,
+    // COR-005-A: Flashcard 저장 요청의 uid 출처. Room 저장이 uid+cardId 복합키라 화면에서 누락되면 안 된다.
+    private val getCurrentUserUid: GetCurrentUserUidUseCase,
+    // COR-005-A: 선택된 CorrectionSuggestion 목록을 SYS-CORRECTION-INFRA 저장 계약으로 변환한다.
+    private val prepareSaveRequest: PrepareSaveRequestUseCase,
 ) : ViewModel() {
 
     // 화면이 collect 하는 단일 진실. ViewModel 내부에서만 쓰기 가능.
@@ -64,8 +73,8 @@ class CorrectionViewModel @Inject constructor(
     /**
      * Ready 진입 시 generateSuggestions 트리거를 한 번만 실행하기 위한 가드.
      *
-     * -A 범위에서는 한 번 생성이 시작된 뒤 GlobalLangState 가 다시 Ready 를 흘려보내도 무시한다.
-     * 선택 언어 변경 / Retry 정책은 -B 에서 이 가드를 푸는 방향으로 확장한다.
+     * 1-1.COR-001-A 범위에서는 한 번 생성이 시작된 뒤 GlobalLangState 가 다시 Ready 를 흘려보내도 무시한다.
+     * 선택 언어 변경 / Retry 정책은 4-1.COR-001-B 에서 이 가드를 푸는 방향으로 확장한다.
      */
     private var generationLaunched = false
 
@@ -159,6 +168,9 @@ class CorrectionViewModel @Inject constructor(
                         // 새 목록에 존재하지 않는 id 가 canSave 를 거짓 양성으로 띄울 수 있어 함께 비운다.
                         selectedSuggestionIds = emptySet(),
                         errorReason = null,
+                        // 직전 저장 시도가 만들어둔 saveRequest 도 새 목록 기준에서는 stale 이므로 함께 비운다.
+                        saveRequest = null,
+                        saveErrorReason = null,
                     )
                 },
                 onFailure = { e ->
@@ -170,6 +182,9 @@ class CorrectionViewModel @Inject constructor(
                         // 에러 진입 시점에도 동일하게 비워 다음 Content 진입의 출발점을 깔끔하게 둔다.
                         selectedSuggestionIds = emptySet(),
                         errorReason = reason,
+                        // suggestions 가 사라진 상태에서 직전 saveRequest 만 살아 있으면 COR-006 호출 근거가 흔들린다.
+                        saveRequest = null,
+                        saveErrorReason = null,
                     )
                 }
             )
@@ -199,13 +214,59 @@ class CorrectionViewModel @Inject constructor(
     /**
      * 저장 버튼 진입점.
      *
-     * COR-004 범위에서는 실제 Flashcard 저장 호출을 하지 않는다.
-     * 현재 선택된 카드 개수만 로그로 남겨 화면 → ViewModel 연결을 시각 검증한다.
-     * 실제 저장 로직 연결은 후속 백로그(COR-005 가정) 에서 이 함수 본문을 채운다.
+     * COR-005-A 범위:
+     *  - 선택된 카드 → [com.example.umma.domain.model.correction.CorrectionSaveRequest] 변환만 책임진다.
+     *  - 결과(또는 변환 실패 사유)는 [CorrectionUiState.saveRequest] / [CorrectionUiState.saveErrorReason]
+     *    필드에 보관해 COR-006 이 집어가도록 한다.
+     *
+     * 분기 결정은 [computeSaveRequestOutcome] 가 [SaveRequestOutcome] 으로 돌려주고,
+     * ViewModel 은 그 결과를 logging / state 갱신 두 가지로만 적용한다. 모든 분기 가드는
+     * pure function 쪽 회귀 테스트(`CorrectionSaveRequestOutcomeTest`)에서 검증된다.
+     *
+     * 비범위 (COR-006):
+     *  - CompleteCorrectionUseCase 호출, Done/Retry 전이, 중복 클릭 방지 UI 가드.
      */
     fun onSaveClicked() {
-        val count = _uiState.value.selectedSuggestionIds.size
-        Log.d(TAG, "onSaveClicked — selected=$count (no-op until next backlog)")
+        val snapshot = _uiState.value
+        val outcome = snapshot.computeSaveRequestOutcome(
+            uid = getCurrentUserUid.getCurrentUserUid(),
+            prepare = { uid, selected ->
+                prepareSaveRequest(uid = uid, selectedSuggestions = selected)
+            },
+        )
+        logSaveOutcome(snapshot, outcome)
+        _uiState.update { current -> current.applySaveRequestOutcome(outcome) }
+    }
+
+    /**
+     * onSaveClicked 의 분기별 진단 로그.
+     *
+     * UiState 에 사유를 담지 않는 분기(NotSavable / NoMatchingSuggestions) 도 logcat 에는 남겨야
+     * 사용자 화면에서 "버튼을 눌렀는데 아무 일도 안 일어남" 케이스를 디버깅할 수 있다.
+     */
+    private fun logSaveOutcome(snapshot: CorrectionUiState, outcome: SaveRequestOutcome) {
+        when (outcome) {
+            SaveRequestOutcome.NotSavable -> Log.d(
+                TAG,
+                "onSaveClicked — guard: !canSave (phase=${snapshot.phase}, selected=${snapshot.selectedSuggestionIds.size})",
+            )
+            SaveRequestOutcome.NoMatchingSuggestions -> Log.d(
+                TAG,
+                "onSaveClicked — guard: no matching suggestions for selected ids",
+            )
+            is SaveRequestOutcome.UidUnavailable -> Log.w(
+                TAG,
+                "onSaveClicked — uid unavailable, blocking save request",
+            )
+            is SaveRequestOutcome.Prepared -> Log.d(
+                TAG,
+                "onSaveClicked — saveRequest 준비 — flashcards=${outcome.request.flashcards.size}",
+            )
+            is SaveRequestOutcome.Failed -> Log.w(
+                TAG,
+                "onSaveClicked — 변환 실패 — reason=${outcome.reason}",
+            )
+        }
     }
 
     private companion object {

@@ -1,5 +1,6 @@
 package com.example.umma.presentation.correction
 
+import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.CorrectionSuggestion
 import com.example.umma.domain.model.learningstate.GlobalLangState
 import com.example.umma.domain.model.learningstate.LangCode
@@ -21,12 +22,15 @@ import com.example.umma.domain.model.learningstate.selectedLang
  *    [Phase.Generating] → [Phase.Content] 또는 [Phase.Error] 로 진행한다.
  *  - (COR-004) 사용자가 저장 대상으로 고른 카드 목록을 [selectedSuggestionIds] 로 보관한다.
  *    저장 버튼 활성/비활성은 [canSave] 확장 속성으로 파생한다.
+ *  - (COR-005-A) 저장 버튼 클릭 시 ViewModel 이 만들어둔 Flashcard 저장 요청 모델을
+ *    [saveRequest] 에 보관한다. 변환 실패 사유는 [saveErrorReason] 에 남긴다.
+ *    실제 저장 파이프라인 호출과 Done/Retry UI 전이는 COR-006 범위라 여기서는 다루지 않는다.
  *
  * 비범위:
  *  - Empty 분리 / Retry 액션은 COR-002-B 에서 [Phase.Empty] 와 함께 추가한다.
  *    그래서 [Phase.Content] 는 suggestions 가 비어 있어도 그대로 유지된다.
- *  - "전체 선택" 토글과 실제 Flashcard 저장 호출은 COR-004 다음 백로그 범위.
- *    이번 단계의 저장 버튼은 ViewModel 메서드만 호출하고 본문은 placeholder 이다.
+ *  - "전체 선택" 토글은 후속 UI 백로그 범위.
+ *  - [saveRequest] 를 받아 CompleteCorrectionUseCase 를 호출하고 Done/Retry 상태로 전환하는 흐름은 COR-006.
  */
 data class CorrectionUiState(
     // 첫 emit 전 (preload 대기) → Ready / NotAvailable / Generating / Content / Error 중 하나로 수렴.
@@ -44,6 +48,13 @@ data class CorrectionUiState(
     val selectedSuggestionIds: Set<String> = emptySet(),
     // Error 상태에서 logcat / 화면 디버깅 텍스트로 노출할 짧은 사유. 그 외에는 null.
     val errorReason: String? = null,
+    // COR-005-A: 변환에 성공한 Flashcard 저장 요청 모델. COR-006 이 이 값을 읽어
+    // CompleteCorrectionUseCase 로 넘기므로 화면 계층에서는 보관만 한다.
+    // 새 suggestions 가 들어오거나 변환이 다시 시도될 때 ViewModel 이 함께 갱신/초기화한다.
+    val saveRequest: CorrectionSaveRequest? = null,
+    // COR-005-A: 변환 실패 사유(예: uid 미확보, blank 필수 필드). UI 노출은 COR-006 범위라
+    // 현재는 logcat 보조와 회귀 테스트의 단서로만 사용한다.
+    val saveErrorReason: String? = null,
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.
@@ -81,6 +92,71 @@ data class CorrectionUiState(
 /** Ready 진입 여부를 한 줄로 확인할 수 있는 편의 속성. */
 val CorrectionUiState.isReady: Boolean
     get() = phase == CorrectionUiState.Phase.Ready
+
+/**
+ * COR-005-A 저장 요청 변환 시도의 분기 결과.
+ *
+ * ViewModel 의 `onSaveClicked` 안에 분기 if/else 를 늘어놓는 대신, "어떤 분기로 끝났는지" 를
+ * 값으로 들고 다닌다. 덕분에 logging 책임과 state 갱신 책임을 한 곳에 묶지 않을 수 있고,
+ * 모든 분기를 ViewModel 인스턴스 없이 [computeSaveRequestOutcome] 단위로 회귀 테스트할 수 있다.
+ */
+internal sealed interface SaveRequestOutcome {
+    /** [CorrectionUiState.canSave] 가 false 라 변환을 시도조차 하지 않은 경우. state 변화 없음. */
+    object NotSavable : SaveRequestOutcome
+
+    /** 선택 id 중 현재 [CorrectionUiState.suggestions] 와 매칭되는 것이 없는 경우. state 변화 없음. */
+    object NoMatchingSuggestions : SaveRequestOutcome
+
+    /** uid 가 null/blank 라 도메인 require 전에 화면 계층이 차단한 경우. */
+    data class UidUnavailable(val reason: String = "uid unavailable") : SaveRequestOutcome
+
+    /** [com.example.umma.domain.usecase.correction.PrepareSaveRequestUseCase] 성공. */
+    data class Prepared(val request: CorrectionSaveRequest) : SaveRequestOutcome
+
+    /** UseCase require 실패 등 변환이 실제로 시도됐지만 실패한 경우. */
+    data class Failed(val reason: String) : SaveRequestOutcome
+}
+
+/**
+ * 현재 UiState 스냅샷과 외부 의존성(uid, prepare 함수)을 받아 어떤 분기로 끝나야 할지 계산한다.
+ *
+ * 이 함수가 [SaveRequestOutcome] 만 돌려주고 직접 state 를 바꾸지 않는 이유는
+ * (1) logging 분기와 state 갱신 분기를 ViewModel 한 곳에서만 결정하기 위함이고,
+ * (2) ViewModel 의 viewModelScope/Main dispatcher 셋업 없이도 모든 가드를 회귀할 수 있게 하기 위함이다.
+ */
+internal fun CorrectionUiState.computeSaveRequestOutcome(
+    uid: String?,
+    prepare: (uid: String, selected: List<CorrectionSuggestion>) -> Result<CorrectionSaveRequest>,
+): SaveRequestOutcome {
+    if (!canSave) return SaveRequestOutcome.NotSavable
+
+    // AC 엣지: 선택된 id 중 현재 결과 목록에 없는 것은 stale 이므로 변환 대상에서 제외한다.
+    // 새 suggestions 로 교체된 직후 화면 race 로 들어온 id 가 require 까지 흘러 들어가지 않게 막는다.
+    val selected = suggestions.filter { it.id in selectedSuggestionIds }
+    if (selected.isEmpty()) return SaveRequestOutcome.NoMatchingSuggestions
+
+    if (uid.isNullOrBlank()) return SaveRequestOutcome.UidUnavailable()
+
+    return prepare(uid, selected).fold(
+        onSuccess = { SaveRequestOutcome.Prepared(it) },
+        onFailure = { e -> SaveRequestOutcome.Failed(e.message ?: e.javaClass.simpleName) }
+    )
+}
+
+/**
+ * [computeSaveRequestOutcome] 결과를 UiState 에 반영한다.
+ *
+ * NotSavable / NoMatchingSuggestions 는 사용자가 이미 알고 있는 상태(버튼 비활성, 선택 변화 없음)
+ * 라 굳이 새 객체를 만들지 않는다. MutableStateFlow.update 는 같은 인스턴스면 emit 을 생략하므로
+ * 불필요한 collector 깨움도 함께 막을 수 있다.
+ */
+internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutcome): CorrectionUiState =
+    when (outcome) {
+        SaveRequestOutcome.NotSavable, SaveRequestOutcome.NoMatchingSuggestions -> this
+        is SaveRequestOutcome.UidUnavailable -> copy(saveRequest = null, saveErrorReason = outcome.reason)
+        is SaveRequestOutcome.Prepared -> copy(saveRequest = outcome.request, saveErrorReason = null)
+        is SaveRequestOutcome.Failed -> copy(saveRequest = null, saveErrorReason = outcome.reason)
+    }
 
 /**
  * 저장 버튼 활성 조건.
