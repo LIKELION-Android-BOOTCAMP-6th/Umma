@@ -1,7 +1,10 @@
 package com.example.umma.data.repository.fake
 
 import com.example.umma.data.model.correction.CorrectionFlashcardDto
+import com.example.umma.data.repository.correction.CorrectionAiClient
+import com.example.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.example.umma.data.repository.correction.CorrectionFlashcardStore
+import com.example.umma.data.repository.correction.CorrectionPromptBuilder
 import com.example.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.example.umma.data.source.local.TestCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
@@ -16,15 +19,20 @@ import org.junit.Test
 class FakeCorrectionRepositoryTest {
 
     private fun newRepository(): FakeCorrectionRepository = FakeCorrectionRepository(
-        CorrectionFlashcardStore(
+        flashcardStore = CorrectionFlashcardStore(
             localDataSource = TestCorrectionFlashcardLocalDataSource(),
             remoteDataSource = NoopCorrectionFlashcardRemoteDataSource()
-        )
+        ),
+        // Fake 는 generateSuggestions 에서 fixture builder fallback 만 쓰므로 promptBuilder/aiClient/mapper 는 실제 호출되지 않는다.
+        // 그래도 super 생성자 invariant 를 만족시키기 위해 real instance 를 넘긴다.
+        promptBuilder = CorrectionPromptBuilder(),
+        aiClient = ThrowingCorrectionAiClient,
+        responseMapper = CorrectionAiResponseMapper()
     )
 
     @Test
-    fun `fake repository follows correction repository suggestion contract`() = runBlocking {
-        // 토글이 비어 있으면 super 위임으로 real fixture builder 결과를 그대로 사용한다는 회귀 가드.
+    fun `fake repository falls back to fixture builder when override is null`() = runBlocking {
+        // 토글이 비어 있으면 super 의 실제 AI 호출이 아니라 fixture builder 결과를 그대로 사용한다는 회귀 가드.
         val repository = newRepository()
 
         val result = repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
@@ -138,5 +146,15 @@ class FakeCorrectionRepositoryTest {
 
         override suspend fun deleteFlashcards(flashcardIds: List<String>): Result<Unit> =
             Result.success(Unit)
+    }
+
+    /**
+     * Fake 가 fixture builder 로 fallback 하는 동안에는 AI client 가 절대 호출되어선 안 된다.
+     * 호출되면 즉시 실패해 회귀를 알리도록 throw 한다.
+     */
+    private object ThrowingCorrectionAiClient : CorrectionAiClient {
+        override suspend fun generateJson(prompt: String): String {
+            throw AssertionError("Fake fallback should not invoke real AI client")
+        }
     }
 }

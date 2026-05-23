@@ -1,14 +1,22 @@
 package com.example.umma.data.repository
 
 import com.example.umma.data.model.correction.CorrectionFlashcardDto
+import com.example.umma.data.repository.correction.CorrectionAiClient
+import com.example.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.example.umma.data.repository.correction.CorrectionFlashcardStore
+import com.example.umma.data.repository.correction.CorrectionPromptBuilder
 import com.example.umma.data.source.local.TestCorrectionFlashcardLocalDataSource
 import com.example.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
-import com.example.umma.domain.model.correction.CorrectionSaveRequest
+import com.example.umma.domain.model.correction.CorrectionCandidate
 import com.example.umma.domain.model.correction.CorrectionFlashcardSaveItem
+import com.example.umma.domain.model.correction.CorrectionSaveRequest
+import com.example.umma.domain.model.correction.GenerateSuggestionsInput
 import com.example.umma.domain.model.learningstate.LangCode
+import com.example.umma.domain.model.learningstate.LangState
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,12 +26,109 @@ class CorrectionRepositoryImplTest {
     // Recording remote 는 Firestore 대신 sync 성공/실패와 DTO 내용을 관찰하기 위한 테스트 대역이다.
     private val remoteDataSource = RecordingCorrectionFlashcardRemoteDataSource()
     private val localDataSource = TestCorrectionFlashcardLocalDataSource()
+    private val aiClient = FakeCorrectionAiClient()
     private val repository = CorrectionRepositoryImpl(
-        CorrectionFlashcardStore(
+        flashcardStore = CorrectionFlashcardStore(
             localDataSource = localDataSource,
             remoteDataSource = remoteDataSource
-        )
+        ),
+        promptBuilder = CorrectionPromptBuilder(),
+        aiClient = aiClient,
+        responseMapper = CorrectionAiResponseMapper()
     )
+
+    // ──────────────────────────────────────────────────────────────
+    // COR-002-A — generateSuggestions happy path / Error 분기
+    // ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `generateSuggestions returns mapped suggestions when ai response is valid`() = runBlocking {
+        val input = GenerateSuggestionsInput(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "i go school"
+                )
+            ),
+            langState = LangState.initial(LangCode.EN)
+        )
+        aiClient.responseJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school.",
+                  "explanation": "go 뒤에는 to school 을 사용한다."
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = repository.generateSuggestions(input)
+
+        assertTrue("success expected", result.isSuccess)
+        val suggestions = result.getOrThrow()
+        assertEquals(1, suggestions.size)
+        val suggestion = suggestions.single()
+        assertEquals("corr-en-0-a", suggestion.id)
+        assertEquals("i go school", suggestion.beforeText)
+        assertEquals("I go to school.", suggestion.afterText)
+        assertEquals("나는 학교에 간다", suggestion.nativeText)
+        assertNotNull(aiClient.lastPrompt)
+        assertTrue("프롬프트에 candidateId 가 포함되어야 함", aiClient.lastPrompt!!.contains("en-0-a"))
+    }
+
+    @Test
+    fun `generateSuggestions returns failure when ai returns unknown candidate id`() = runBlocking {
+        // AC 6: candidateId 불일치 → Error.
+        val input = GenerateSuggestionsInput(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "i go school"
+                )
+            ),
+            langState = LangState.initial(LangCode.EN)
+        )
+        aiClient.responseJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "ghost",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school.",
+                  "explanation": "demo"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = repository.generateSuggestions(input)
+
+        assertTrue("failure expected", result.isFailure)
+        val e = result.exceptionOrNull()
+        assertTrue(e is IllegalArgumentException)
+    }
+
+    @Test
+    fun `generateSuggestions skips ai call when candidates list is empty`() = runBlocking {
+        // 후보 0건일 때 네트워크/비용 낭비를 막는다. Empty UX 본격 처리는 -B.
+        val input = GenerateSuggestionsInput(
+            candidates = emptyList(),
+            langState = LangState.initial(LangCode.EN)
+        )
+
+        val result = repository.generateSuggestions(input)
+
+        assertTrue(result.isSuccess)
+        assertTrue(result.getOrThrow().isEmpty())
+        assertNull("AI client 가 호출되면 안 됨", aiClient.lastPrompt)
+    }
 
     @Test
     fun `saveFlashcards stores suggestions locally and marks them pending sync`() = runBlocking {
@@ -245,6 +350,23 @@ class CorrectionRepositoryImplTest {
 
         assertTrue(rollback.isSuccess)
         assertEquals(listOf("s-1"), afterRollback.localSavedFlashcardIds)
+    }
+
+    /**
+     * 테스트에서 raw JSON 응답을 직접 주입하기 위한 fake AI client.
+     *
+     * 실제 [com.example.umma.data.repository.correction.GeminiCorrectionAiClient] 는 Firebase 호출이 필요해 단위 테스트가 어렵다.
+     * Repository 가 prompt builder → ai client → mapper 의 모양을 유지하는 한,
+     * 이 fake 만으로 happy path / Error 분기를 모두 검증할 수 있다.
+     */
+    private class FakeCorrectionAiClient : CorrectionAiClient {
+        var responseJson: String = """{"suggestions":[]}"""
+        var lastPrompt: String? = null
+
+        override suspend fun generateJson(prompt: String): String {
+            lastPrompt = prompt
+            return responseJson
+        }
     }
 
     private class RecordingCorrectionFlashcardRemoteDataSource :

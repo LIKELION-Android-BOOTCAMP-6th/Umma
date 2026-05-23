@@ -19,7 +19,7 @@ import javax.inject.Inject
  * 3. 후보의 원문/언어/turn 정보와 AI가 만든 nativeText, afterText, explanation을 합쳐 domain 모델을 만든다.
  * 4. 필수 필드가 비어 있거나 candidateId가 맞지 않으면 실패로 처리해 화면의 Error/Retry 흐름으로 이어지게 한다.
  */
-internal class CorrectionAiResponseMapper @Inject constructor() {
+class CorrectionAiResponseMapper @Inject constructor() {
 
     private val json: Json = Json {
         ignoreUnknownKeys = true

@@ -1,5 +1,6 @@
 package com.example.umma.presentation.correction
 
+import com.example.umma.domain.model.correction.CorrectionSuggestion
 import com.example.umma.domain.model.learningstate.GlobalLangState
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.LangState
@@ -11,28 +12,32 @@ import com.example.umma.domain.model.learningstate.selectedLang
 /**
  * Correction 화면의 단일 UI 상태.
  *
- * SSOT: COR-001_Initial_State.md
+ * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md
  *
- * 책임 (COR-001-A):
- *  - Global Learning State 의 selectedLearningLanguage / SessionSummary / LangState snapshot 을
+ * 책임:
+ *  - (COR-001-A) Global Learning State 의 selectedLearningLanguage / SessionSummary / LangState snapshot 을
  *    한데 모아 "교정 결과 생성 가능" 여부를 [phase] 한 필드로 노출한다.
- *  - Ready 게이트 도달 자체가 COR-002 (교정 결과 생성) 의 트리거 hook 이다.
- *    별도 사용자 버튼 없이 다음 흐름으로 이어진다 — AC "Ready 상태가 되면
- *    사용자 버튼 없이 COR-002 교정 결과 생성 흐름으로 이어질 수 있다." 매핑.
+ *  - (COR-002-A) Ready 게이트 통과 이후 ViewModel 이 자동으로 generateSuggestions 를 호출하면
+ *    [Phase.Generating] → [Phase.Content] 또는 [Phase.Error] 로 진행한다.
  *
  * 비범위:
- *  - generateSuggestions 호출 결과(Content/Empty/Error)는 COR-002 백로그에서 별도 phase 로 추가.
- *  - sync / network 실패 분기 또한 이 백로그 AC 에 없어 Error phase 를 두지 않는다.
+ *  - Empty 분리 / Retry 액션은 COR-002-B 에서 [Phase.Empty] 와 함께 추가한다.
+ *    그래서 [Phase.Content] 는 suggestions 가 비어 있어도 그대로 유지된다.
+ *  - 결과 카드 본격 UI 는 COR-003-A.
  */
 data class CorrectionUiState(
-    // 첫 emit 전 (preload 대기) → Ready 또는 NotAvailable 중 하나로 수렴.
+    // 첫 emit 전 (preload 대기) → Ready / NotAvailable / Generating / Content / Error 중 하나로 수렴.
     val phase: Phase = Phase.Loading,
     // 현재 선택 학습 언어. NotAvailable 사유 디버깅에도 사용.
     val selectedLearningLanguage: LangCode? = null,
     // 현재 선택 언어 기준 SessionSummary. correctionAvailable 판정 근거.
     val sessionSummary: SessionSummary? = null,
-    // 현재 선택 언어 기준 LangState snapshot. COR-002 prompt 구성에 쓰일 예정.
+    // 현재 선택 언어 기준 LangState snapshot. generateSuggestions 입력으로 사용된다.
     val langStateSnapshot: LangState? = null,
+    // Content 상태에서 화면이 표시할 교정 결과 목록. 그 외 phase 에서는 빈 리스트.
+    val suggestions: List<CorrectionSuggestion> = emptyList(),
+    // Error 상태에서 logcat / 화면 디버깅 텍스트로 노출할 짧은 사유. 그 외에는 null.
+    val errorReason: String? = null,
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.
@@ -48,35 +53,43 @@ data class CorrectionUiState(
 
         // selectedLang + sessionSummary + langState 모두 채워졌고
         // sessionSummary.correctionAvailable == true 인 상태.
-        // COR-002 자동 진행 트리거 hook.
+        // ViewModel 이 이 phase 를 보면 즉시 generateSuggestions 를 1회 트리거한다.
         Ready,
 
         // 위 조건 중 하나라도 누락된 상태.
         NotAvailable,
+
+        // AI 호출 in-flight. 중복 트리거 방지에도 사용된다.
+        Generating,
+
+        // suggestions 가 채워진 정상 상태. -A 범위에서는 빈 리스트도 Content 로 둔다.
+        // (Empty UX 는 COR-002-B 에서 Phase.Empty 로 분리.)
+        Content,
+
+        // candidateId 매칭 실패 / JSON 파싱 실패 / 필수 필드 누락 / AI 호출 자체 실패.
+        // errorReason 필드에 사유 보관.
+        Error,
     }
 }
 
-/** Ready 진입 여부를 한 줄로 확인할 수 있는 편의 속성. COR-002 LaunchedEffect 게이트 등에 쓰인다. */
+/** Ready 진입 여부를 한 줄로 확인할 수 있는 편의 속성. */
 val CorrectionUiState.isReady: Boolean
     get() = phase == CorrectionUiState.Phase.Ready
 
 /**
  * [GlobalLangState] 스냅샷을 Correction 화면의 UiState 로 환산한다.
  *
+ * 이 함수는 Loading/Ready/NotAvailable 만 결정한다.
+ * Generating/Content/Error 로의 전이는 ViewModel 의 generateCorrection 흐름에서만 이뤄지며,
+ * 한 번 그 phase 에 진입한 뒤에는 GlobalLangState 의 추가 emit 이 이 함수를 다시 통과하더라도
+ * ViewModel 이 _uiState 를 덮어쓰지 않도록 가드를 둔다.
+ *
  * AC 매핑:
  *  - "selectedLearningLanguage 확인"        → [GlobalLangState.selectedLang]
  *  - "SessionSummary 로드"                  → [GlobalLangState.currentSessionSummary]
  *  - "correctionAvailable 기준 판단"        → SessionSummary.correctionAvailable
  *  - "LangState snapshot 로드"              → [GlobalLangState.currentLangState]
- *  - "RT-003 correction context 조회 준비"  → SessionSummary.correctionAvailable 로 갈음
- *  - "Ready → COR-002 자동 진행"            → phase = Ready (Screen 측 LaunchedEffect hook)
- *
- * AC 6 (DashSummary 아닌 SessionSummary 기준) 매핑: 본 함수는 [GlobalLangState.dashSummaries]
- * 를 일절 참조하지 않는다. Ready 판정은 오로지 SessionSummary 의 correctionAvailable 만 본다.
- *
- * 순수 함수로 추출한 의도: [CorrectionViewModel] 의 collect 콜백 본체를 비우고 단위 테스트
- * 가능성을 끌어올린다 — 분기 로직만 검증하면 viewModelScope / Main dispatcher 셋업 없이도
- * 모든 AC 시나리오를 빠르게 회귀할 수 있다.
+ *  - "Ready → COR-002 자동 진행"            → phase = Ready (ViewModel 측 LaunchedEffect hook)
  */
 internal fun GlobalLangState.toCorrectionUiState(): CorrectionUiState {
     val lang = selectedLang

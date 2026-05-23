@@ -20,10 +20,11 @@ import com.example.umma.core.ui.component.UmmaAppBar
 /**
  * 교정 화면을 구성하는 컴포저블입니다.
  *
- * SSOT: COR-001_Initial_State.md
+ * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md
  *
- * COR-001-A 범위에서는 [CorrectionViewModel] 이 판정한 [CorrectionUiState.Phase] 에 따라
- * 텍스트만 분기해 시각 검증을 가능하게 한다. 본 UI(교정 결과 카드 등)는 COR-002 이후에 다룬다.
+ * COR-002-A 범위에서는 [CorrectionViewModel] 이 결정한 [CorrectionUiState.Phase] 에 따라
+ * 텍스트로만 분기해 흐름 진행을 시각적으로 검증한다.
+ * 본격 카드 UI (Content 상태) 는 COR-003-A 에서 교체된다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,7 +53,8 @@ fun CorrectionScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // COR-001-A 시각 검증용 최소 분기. 본 UI 는 COR-002 백로그에서 교체된다.
+            // COR-002-A 시각 검증용 텍스트 분기.
+            // Generating/Content/Error 의 사용자 노출 디자인은 COR-003 에서 다룬다.
             when (uiState.phase) {
                 CorrectionUiState.Phase.Loading -> {
                     Text(text = "로딩 중…", textAlign = TextAlign.Center)
@@ -64,13 +66,38 @@ fun CorrectionScreen(
                 }
 
                 CorrectionUiState.Phase.Ready -> {
-                    // Ready 게이트 통과 — COR-002 에서 generateSuggestions 자동 호출 hook 이 붙는다.
+                    // Ready 진입 직후 ViewModel 이 즉시 Generating 으로 전이시키므로 이 분기는 보통 한 프레임만 보인다.
                     Text(text = "교정 결과를 준비합니다…", textAlign = TextAlign.Center)
                     Text(
                         text = "언어=${uiState.selectedLearningLanguage?.code} · " +
                                 "최근 주제=${uiState.sessionSummary?.recentTopic ?: "-"}",
                         textAlign = TextAlign.Center
                     )
+                }
+
+                CorrectionUiState.Phase.Generating -> {
+                    Text(text = "AI 가 교정 결과를 생성 중…", textAlign = TextAlign.Center)
+                }
+
+                CorrectionUiState.Phase.Content -> {
+                    // 본격 카드 UI 는 COR-003-A. 여기서는 개수와 첫 카드 요약만 텍스트로 검증.
+                    Text(
+                        text = "교정 결과 ${uiState.suggestions.size}건",
+                        textAlign = TextAlign.Center
+                    )
+                    uiState.suggestions.firstOrNull()?.let { first ->
+                        Text(
+                            text = "예) ${first.beforeText} → ${first.afterText}",
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                CorrectionUiState.Phase.Error -> {
+                    Text(text = "교정 결과 생성에 실패했어요", textAlign = TextAlign.Center)
+                    uiState.errorReason?.let { reason ->
+                        Text(text = "사유: $reason", textAlign = TextAlign.Center)
+                    }
                 }
             }
         }

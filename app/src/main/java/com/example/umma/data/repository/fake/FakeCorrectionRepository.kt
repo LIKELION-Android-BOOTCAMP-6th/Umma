@@ -1,7 +1,11 @@
 package com.example.umma.data.repository.fake
 
 import com.example.umma.data.repository.CorrectionRepositoryImpl
+import com.example.umma.data.repository.correction.CorrectionAiClient
+import com.example.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.example.umma.data.repository.correction.CorrectionFlashcardStore
+import com.example.umma.data.repository.correction.CorrectionPromptBuilder
+import com.example.umma.data.repository.correction.CorrectionSuggestionFixtureBuilder
 import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.CorrectionSaveResult
 import com.example.umma.domain.model.correction.CorrectionSuggestion
@@ -15,9 +19,9 @@ import javax.inject.Singleton
  * 토글 필드 한 줄로 generateSuggestions 의 Content / Empty / Error,
  * saveFlashcards 의 Success / SaveFail / PendingSync, rollback 실패를 빠르게 재현한다.
  *
- * [CorrectionRepositoryImpl] 을 상속해 토글이 비어 있을 때는 production 저장 경로
- * ([CorrectionFlashcardStore]) 로 그대로 위임한다.
- * 그래서 fake 라도 real save 로직과 같은 결과 모양을 곧장 비교할 수 있다.
+ * [CorrectionRepositoryImpl] 을 상속해 토글이 비어 있을 때:
+ *  - generateSuggestions 는 [CorrectionSuggestionFixtureBuilder] 로 fallback. (super 가 실제 Gemini 호출이 되어 화면 검증 의도가 깨지지 않게.)
+ *  - saveFlashcards / rollbackFlashcards 는 super 로 위임해 real save 경로와 같은 결과 모양을 비교한다.
  *
  * 이 클래스는 fake/테스트 용도다.
  * 실제 AI 연동 후 화면이 production 데이터만으로 검증 가능해지면
@@ -25,11 +29,14 @@ import javax.inject.Singleton
  */
 @Singleton
 class FakeCorrectionRepository @Inject constructor(
-    flashcardStore: CorrectionFlashcardStore
-) : CorrectionRepositoryImpl(flashcardStore) {
+    flashcardStore: CorrectionFlashcardStore,
+    promptBuilder: CorrectionPromptBuilder,
+    aiClient: CorrectionAiClient,
+    responseMapper: CorrectionAiResponseMapper
+) : CorrectionRepositoryImpl(flashcardStore, promptBuilder, aiClient, responseMapper) {
 
     /**
-     * null 이면 super 위임으로 fixture builder 결과를 그대로 사용한다.
+     * null 이면 fixture builder 결과로 fallback 한다 (실제 Gemini 호출은 fake 모드에서 의도와 어긋난다).
      * empty list 면 Empty 상태, 비어 있지 않으면 Content 상태를 재현한다.
      */
     var suggestionsOverride: List<CorrectionSuggestion>? = null
@@ -52,10 +59,13 @@ class FakeCorrectionRepository @Inject constructor(
     override suspend fun generateSuggestions(
         input: GenerateSuggestionsInput
     ): Result<List<CorrectionSuggestion>> {
-        // failure → override → super 순서. real 경로와 비교 가능성을 유지하기 위해 super 위임을 default 로 둔다.
+        // failure → override → fixture fallback 순서.
+        // fixture fallback 은 super(=실제 Gemini) 호출 대신 deterministic fixture builder 를 직접 부른다.
         generateFailure?.let { return Result.failure(it) }
         suggestionsOverride?.let { return Result.success(it) }
-        return super.generateSuggestions(input)
+        return runCatching {
+            CorrectionSuggestionFixtureBuilder.buildSuggestions(input)
+        }
     }
 
     override suspend fun saveFlashcards(
