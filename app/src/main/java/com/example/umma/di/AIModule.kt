@@ -1,9 +1,12 @@
 package com.example.umma.di
 
+import com.example.umma.data.repository.correction.CorrectionAiClient
+import com.example.umma.data.repository.correction.GeminiCorrectionAiClient
 import com.google.firebase.Firebase
 import com.google.firebase.ai.FirebaseAI
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,4 +32,22 @@ object AIModule {
     fun provideFirebaseAI(): FirebaseAI {
         return Firebase.ai(backend = GenerativeBackend.googleAI())
     }
+}
+
+/**
+ * Correction 도메인이 사용하는 단발 AI 호출 어댑터 바인딩.
+ *
+ * 인터페이스를 두는 이유는 Repository/ViewModel 단위 테스트에서 fake JSON 을 주입하기 위해서다.
+ * 모듈을 [AIModule] 과 분리한 이유는 @Provides (object) 와 @Binds (abstract class) 가
+ * 같은 클래스에 공존할 수 없기 때문이다.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class CorrectionAiBindings {
+
+    @Binds
+    @Singleton
+    abstract fun bindCorrectionAiClient(
+        impl: GeminiCorrectionAiClient
+    ): CorrectionAiClient
 }
