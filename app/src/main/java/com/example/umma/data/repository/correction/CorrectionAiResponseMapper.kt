@@ -21,6 +21,8 @@ import javax.inject.Inject
  */
 class CorrectionAiResponseMapper @Inject constructor() {
 
+    // AI 응답 JSON 디코더. 미래에 schema가 늘어나도 깨지지 않도록 ignoreUnknownKeys=true,
+    // null 필드는 직렬화 단계에서 누락되도록 explicitNulls=false 로 둔다.
     private val json: Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -100,6 +102,7 @@ class CorrectionAiResponseMapper @Inject constructor() {
  */
 @Serializable
 private data class CorrectionAiResponseDto(
+    // 후보별 교정 결과 배열. AI가 모든 후보를 한 번에 돌려주므로 배열로 받는다. 누락 시 빈 배열로 fallback.
     @SerialName("suggestions")
     val suggestions: List<CorrectionAiSuggestionDto> = emptyList()
 )
@@ -109,12 +112,16 @@ private data class CorrectionAiResponseDto(
  */
 @Serializable
 private data class CorrectionAiSuggestionDto(
+    // 원본 후보 식별자. 프롬프트에서 내려보낸 값을 AI가 그대로 복사해야 매칭이 성립한다.
     @SerialName("candidateId")
     val candidateId: String,
+    // 교정된 문장의 한국어(ko) 번역. Flashcard 앞면(frontText)으로 쓰인다.
     @SerialName("nativeText")
     val nativeText: String,
+    // 교정 후 학습 언어 문장. Flashcard 뒷면(backText)으로 쓰인다.
     @SerialName("afterText")
     val afterText: String,
+    // 60자 이내 한국어 교정 사유 설명. Flashcard explanation 필드로 그대로 들어간다.
     @SerialName("explanation")
     val explanation: String
 )

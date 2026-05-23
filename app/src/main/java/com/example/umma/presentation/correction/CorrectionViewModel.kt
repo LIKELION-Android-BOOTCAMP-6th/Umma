@@ -35,16 +35,24 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
+    // 화면 진입 직후 1회 LearningState 적재. 네트워크 실패해도 NotAvailable 로 fallback 되므로 throw 하지 않는다.
     private val preloadLearningState: PreloadLearningStateUseCase,
+    // GlobalLangState 변경을 Flow 로 구독. Ready / NotAvailable 분기의 단일 입력원.
     private val observeLearningState: ObserveLearningStateUseCase,
+    // RT-003 read model. 현재 세션의 user turn 목록을 Flow 첫 emit 으로 가져온다.
     private val getCorrectionContext: GetCorrectionContextUseCase,
+    // 세션 turn 목록 → CorrectionCandidate 목록. 빈 결과면 generateSuggestions 가 early-return.
     private val extractSessionCandidates: ExtractSessionCandidatesUseCase,
+    // 후보 + LangState → AI 호출 → CorrectionSuggestion 목록. Result 로 success/failure 가 갈린다.
     private val generateSuggestions: GenerateSuggestionsUseCase,
 ) : ViewModel() {
 
+    // 화면이 collect 하는 단일 진실. ViewModel 내부에서만 쓰기 가능.
     private val _uiState = MutableStateFlow(CorrectionUiState())
+    // 외부(Composable)로 노출되는 read-only StateFlow. _uiState 를 그대로 비춘다.
     val uiState: StateFlow<CorrectionUiState> = _uiState.asStateFlow()
 
+    // ensureObservation() 의 collect coroutine 핸들. 이미 active 면 재구독을 막아 중복 collect 를 방지한다.
     private var enterJob: Job? = null
 
     /**

@@ -29,9 +29,15 @@ import javax.inject.Singleton
  */
 @Singleton
 class FakeCorrectionRepository @Inject constructor(
+    // 아래 4개는 모두 super(CorrectionRepositoryImpl) 로 그대로 위임되는 passthrough.
+    // saveFlashcards / rollbackFlashcards 처럼 fake 가 override 하지 않은 경로에서는 real 저장 흐름이 그대로 돈다.
+    // Flashcard local-first 저장 위임처 (super 가 사용).
     flashcardStore: CorrectionFlashcardStore,
+    // 프롬프트 빌더 (super 가 사용 — fake 의 generateSuggestions 가 override 되어 있어 실제 호출은 보통 일어나지 않음).
     promptBuilder: CorrectionPromptBuilder,
+    // AI 호출 어댑터 (super 가 사용 — 위와 동일하게 fake override 가 가로채는 게 정상 동작).
     aiClient: CorrectionAiClient,
+    // AI 응답 매퍼 (super 가 사용 — 위와 동일).
     responseMapper: CorrectionAiResponseMapper
 ) : CorrectionRepositoryImpl(flashcardStore, promptBuilder, aiClient, responseMapper) {
 

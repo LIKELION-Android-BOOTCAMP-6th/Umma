@@ -25,9 +25,13 @@ import javax.inject.Singleton
  */
 @Singleton
 open class CorrectionRepositoryImpl @Inject constructor(
+    // Flashcard local-first 저장 위임처. local Room 저장 + Firestore sync pending 분리를 담당한다.
     private val flashcardStore: CorrectionFlashcardStore,
+    // AI 파이프라인 1단: LangState + 후보 목록을 Gemini 호출용 프롬프트 문자열로 조립.
     private val promptBuilder: CorrectionPromptBuilder,
+    // AI 파이프라인 2단: Gemini 2.5-flash 단발 JSON 호출 어댑터. 테스트에서는 fake 로 교체된다.
     private val aiClient: CorrectionAiClient,
+    // AI 파이프라인 3단: raw JSON → CorrectionSuggestion 변환 + candidateId 매칭/필수 필드 검증.
     private val responseMapper: CorrectionAiResponseMapper
 ) : CorrectionRepository {
 

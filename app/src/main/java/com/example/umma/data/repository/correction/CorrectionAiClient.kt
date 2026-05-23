@@ -30,6 +30,7 @@ interface CorrectionAiClient {
  */
 @Singleton
 class GeminiCorrectionAiClient @Inject constructor(
+    // AIModule.provideFirebaseAI 가 주입하는 Google AI 백엔드 핸들. 호출 시점마다 모델을 새로 만든다.
     private val firebaseAI: FirebaseAI
 ) : CorrectionAiClient {
 
