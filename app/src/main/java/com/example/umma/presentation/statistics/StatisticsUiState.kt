@@ -5,6 +5,7 @@ import com.example.umma.domain.model.statistics.StatisticsMetricType
 import com.example.umma.domain.model.statistics.StatisticsOverview
 import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryItem
 import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
+import com.example.umma.presentation.statistics.model.StatisticsSyncState
 
 /**
  * Statistics 화면이 바로 렌더링할 수 있는 상태다.
@@ -23,6 +24,8 @@ data class StatisticsUiState(
     val selectedMetricType: StatisticsMetricType? = null,
     // 선택 metric에 대한 chart dialog 상태.
     val metricChartState: StatisticsMetricChartState = StatisticsMetricChartState.Hidden,
+    // background refresh / pending sync를 보여주는 보조 상태.
+    val syncState: StatisticsSyncState = StatisticsSyncState.Idle,
     // 실패 시 사용자에게 보여줄 메시지.
     val errorMessage: String? = null,
     // 실패나 네트워크 문제 등으로 다시 시도할 수 있는지 여부.

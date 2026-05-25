@@ -35,6 +35,7 @@ import com.example.umma.presentation.statistics.component.StatisticsMetricSummar
 import com.example.umma.presentation.statistics.component.StatisticsSkeleton
 import com.example.umma.presentation.statistics.model.isVisible
 import com.example.umma.presentation.statistics.model.StatisticsMetricSummaryItem
+import com.example.umma.presentation.statistics.model.StatisticsSyncState
 
 /**
  * Statistics 화면의 첫 진입 화면이다.
@@ -111,6 +112,7 @@ internal fun StatisticsContent(
             uiState.overview != null -> OverviewPanel(
                 selectedLanguage = uiState.selectedLearningLanguage?.code?.uppercase().orEmpty(),
                 metricSummaryCards = uiState.metricSummaryCards,
+                syncState = uiState.syncState,
                 onMetricClick = onMetricClick
             )
 
@@ -152,6 +154,7 @@ private fun ErrorPanel(
 private fun OverviewPanel(
     selectedLanguage: String,
     metricSummaryCards: List<StatisticsMetricSummaryItem>,
+    syncState: StatisticsSyncState,
     onMetricClick: (StatisticsMetricType) -> Unit
 ) {
     Column(
@@ -179,10 +182,31 @@ private fun OverviewPanel(
             style = TextSecondaryR,
             color = TextPrimary.copy(alpha = 0.82f)
         )
+        SyncStateText(syncState = syncState)
         StatisticsMetricSummaryGrid(
             items = metricSummaryCards,
             onMetricClick = onMetricClick,
             modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun SyncStateText(
+    syncState: StatisticsSyncState
+) {
+    val message = when (syncState) {
+        StatisticsSyncState.Idle -> null
+        StatisticsSyncState.Refreshing -> "최신 history를 확인하는 중"
+        is StatisticsSyncState.Pending -> syncState.message
+        is StatisticsSyncState.Error -> syncState.message
+    }
+
+    if (message != null) {
+        Text(
+            text = message,
+            style = TextSecondaryR,
+            color = TextPrimary.copy(alpha = 0.66f)
         )
     }
 }

@@ -3,16 +3,24 @@ package com.example.umma.presentation.statistics
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.umma.domain.model.statistics.StatisticsHistoryState
 import com.example.umma.domain.model.learningstate.currentLangState
 import com.example.umma.domain.model.learningstate.selectedLang
 import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.model.statistics.StatisticsMetricType
+import com.example.umma.domain.usecase.statistics.ObserveStatisticsHistoryUseCase
 import com.example.umma.domain.usecase.statistics.GetStatisticsOverviewUseCase
 import com.example.umma.domain.usecase.statistics.GetMetricHistoryPointsUseCase
+import com.example.umma.domain.usecase.statistics.RefreshStatisticsHistoryUseCase
+import com.example.umma.domain.usecase.statistics.SyncPendingStatisticsHistoriesUseCase
 import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
 import com.example.umma.presentation.statistics.model.toStatisticsMetricChartState
 import com.example.umma.presentation.statistics.model.toMetricSummaryItems
+import com.example.umma.presentation.statistics.model.StatisticsSyncState
+import com.example.umma.presentation.statistics.model.resolveStatisticsSyncState
+import com.example.umma.presentation.statistics.model.isVisible
+import com.example.umma.domain.model.statistics.toMetricPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -33,6 +41,9 @@ import javax.inject.Inject
 class StatisticsViewModel @Inject constructor(
     private val observeLearningStateUseCase: ObserveLearningStateUseCase,
     private val preloadLearningStateUseCase: PreloadLearningStateUseCase,
+    private val observeStatisticsHistoryUseCase: ObserveStatisticsHistoryUseCase,
+    private val refreshStatisticsHistoryUseCase: RefreshStatisticsHistoryUseCase,
+    private val syncPendingStatisticsHistoriesUseCase: SyncPendingStatisticsHistoriesUseCase,
     private val getStatisticsOverviewUseCase: GetStatisticsOverviewUseCase,
     private val getMetricHistoryPointsUseCase: GetMetricHistoryPointsUseCase
 ) : ViewModel() {
@@ -44,10 +55,18 @@ class StatisticsViewModel @Inject constructor(
     private var loadJob: Job? = null
     // chart 요청은 카드 클릭마다 새로 발생하므로 overview 로딩과 별도 job 으로 관리한다.
     private var chartJob: Job? = null
+    // statistics history는 local observe를 계속 붙잡고 있다가 refresh 결과가 오면 chart와 sync 상태를 갱신한다.
+    private var historyObserveJob: Job? = null
+    // Firestore refresh는 local first 렌더링 이후에 별도로 수행한다.
+    private var refreshJob: Job? = null
+    // pending write-back은 화면 렌더링을 막지 않는 보조 작업이므로 refresh와 별도 job으로 둔다.
+    private var pendingSyncJob: Job? = null
     // 현재 선택 언어/현재 언어의 updatedAt 이 바뀌면 다시 준비해야 하는지 추적한다.
     private var pendingReload: Boolean = false
     private var observeJob: Job? = null
     private var lastObservedSignature: StatisticsContextSignature? = null
+    private var latestHistoryState: StatisticsHistoryState? = null
+    private var pendingHistoryStateDuringRefresh: StatisticsHistoryState? = null
     // 빠르게 여러 카드를 누르거나 dialog를 닫을 때, 오래된 응답이 최신 상태를 덮지 못하게 막는다.
     private var chartRequestVersion: Long = 0L
 
@@ -126,6 +145,18 @@ class StatisticsViewModel @Inject constructor(
 
         // 이번 로딩 사이클에는 추가 reload가 필요하지 않도록 먼저 비워 둔다.
         pendingReload = false
+        // 새 language/context로 갈아타는 순간 이전 chart/history refresh 는 더 이상 유효하지 않다.
+        historyObserveJob?.cancel()
+        historyObserveJob = null
+        refreshJob?.cancel()
+        refreshJob = null
+        pendingSyncJob?.cancel()
+        pendingSyncJob = null
+        chartJob?.cancel()
+        chartJob = null
+        chartRequestVersion += 1L
+        latestHistoryState = null
+        pendingHistoryStateDuringRefresh = null
         loadJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -133,7 +164,10 @@ class StatisticsViewModel @Inject constructor(
                     errorMessage = null,
                     isRetryable = false,
                     overview = null,
-                    metricSummaryCards = emptyList()
+                    metricSummaryCards = emptyList(),
+                    selectedMetricType = null,
+                    metricChartState = StatisticsMetricChartState.Hidden,
+                    syncState = StatisticsSyncState.Idle
                 )
             }
 
@@ -156,9 +190,13 @@ class StatisticsViewModel @Inject constructor(
                             overview = overview,
                             metricSummaryCards = metricCards,
                             errorMessage = null,
-                            isRetryable = false
+                            isRetryable = false,
+                            syncState = StatisticsSyncState.Idle
                         )
                     }
+                    observeHistory(overview.historyQueryState)
+                    syncPendingHistoriesInBackground(overview.userId)
+                    refreshHistory(overview.historyQueryState)
                 }
                 .onFailure { error ->
                     // 준비해야 할 컨텍스트가 하나라도 비어 있으면 retry 가능한 Error 상태로 보낸다.
@@ -168,7 +206,8 @@ class StatisticsViewModel @Inject constructor(
                             overview = null,
                             metricSummaryCards = emptyList(),
                             errorMessage = error.message ?: "Statistics 초기 상태를 불러오지 못했습니다.",
-                            isRetryable = true
+                            isRetryable = true,
+                            syncState = StatisticsSyncState.Idle
                         )
                     }
             }
@@ -178,6 +217,85 @@ class StatisticsViewModel @Inject constructor(
                 if (pendingReload) {
                     pendingReload = false
                     loadOverview()
+                }
+            }
+        }
+    }
+
+    private fun syncPendingHistoriesInBackground(userId: String) {
+        pendingSyncJob?.cancel()
+        pendingSyncJob = viewModelScope.launch {
+            syncPendingStatisticsHistoriesUseCase(userId)
+                .onSuccess { syncedCount ->
+                    if (syncedCount > 0) {
+                        Log.d(TAG, "synced pending statistics histories: $syncedCount")
+                    }
+                }
+                .onFailure { error ->
+                    // pending retry 실패는 non-blocking 상태다.
+                    // local row는 PENDING으로 유지되어 다음 화면 진입 때 같은 경로로 다시 시도된다.
+                    Log.w(TAG, "syncPendingStatisticsHistoriesUseCase failed", error)
+                }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (pendingSyncJob === job) {
+                    pendingSyncJob = null
+                }
+            }
+        }
+    }
+
+    private fun observeHistory(queryState: com.example.umma.domain.model.statistics.StatisticsHistoryQueryState) {
+        // background refresh가 끝난 뒤에도 같은 observe 스트림이 계속 살아 있어야
+        // local cache 변경이 화면과 chart에 자동으로 반영된다.
+        historyObserveJob?.cancel()
+        historyObserveJob = viewModelScope.launch {
+            observeStatisticsHistoryUseCase(queryState).collect { historyState ->
+                // refresh 결과와 local pending 상태를 같은 snapshot으로 취급하기 위해
+                // 최신 historyState를 따로 들고 있어 refresh 성공 직후 sync 상태를 다시 계산한다.
+                latestHistoryState = historyState
+                if (refreshJob?.isActive == true) {
+                    // Refreshing 표시 중 observe 결과를 화면에 바로 덮지는 않지만,
+                    // refresh 종료 직후 최신 local snapshot으로 상태를 복구하기 위해 보관한다.
+                    pendingHistoryStateDuringRefresh = historyState
+                }
+                updateSyncState(historyState)
+                updateVisibleChart(historyState)
+            }
+        }
+    }
+
+    private fun refreshHistory(queryState: com.example.umma.domain.model.statistics.StatisticsHistoryQueryState) {
+        // refresh는 화면을 직접 갱신하는 단계가 아니라, local cache를 보정하는 단계다.
+        // 실제 UI 반영은 observeHistory()가 다시 흘려주는 snapshot을 기준으로 한다.
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(syncState = StatisticsSyncState.Refreshing)
+            }
+
+            refreshStatisticsHistoryUseCase(queryState)
+                .onSuccess {
+                    applySyncStateFromLatestHistory()
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "refreshStatisticsHistoryUseCase failed", error)
+                    // 실패 상태는 non-blocking 보조 표시로 남긴다.
+                    // 기존 local snapshot으로 즉시 덮어쓰면 사용자가 refresh 실패를 알 수 없다.
+                    pendingHistoryStateDuringRefresh = null
+                    _uiState.update {
+                        it.copy(
+                            syncState = StatisticsSyncState.Error(
+                                message = error.message ?: "최신 history를 불러오지 못했습니다."
+                            )
+                        )
+                    }
+                }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (refreshJob === job) {
+                    refreshJob = null
+                    applyPendingHistoryStateAfterRefresh()
                 }
             }
         }
@@ -238,6 +356,63 @@ class StatisticsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun updateSyncState(historyState: StatisticsHistoryState) {
+        // refresh job이 진행 중이면 UI는 별도 refreshing 상태를 유지해야 하므로
+        // observe가 도착해도 여기서 덮어쓰지 않는다.
+        if (refreshJob?.isActive == true) return
+        val syncState = resolveStatisticsSyncState(historyState)
+
+        _uiState.update { current ->
+            if (current.syncState is StatisticsSyncState.Error && syncState is StatisticsSyncState.Error) {
+                current
+            } else {
+                current.copy(syncState = syncState)
+            }
+        }
+    }
+
+    private fun applySyncStateFromLatestHistory() {
+        // refresh 성공 직후에는 현재 local snapshot을 다시 읽어
+        // pending/synced 여부를 한 번 더 계산해 sync 상태를 정리한다.
+        val syncState = latestHistoryState?.let(::resolveStatisticsSyncState)
+            ?: StatisticsSyncState.Idle
+
+        _uiState.update { it.copy(syncState = syncState) }
+    }
+
+    private fun applyPendingHistoryStateAfterRefresh() {
+        // refresh job이 active인 동안 들어온 observe 결과는 updateSyncState()에서 일부러 보류된다.
+        // completion 시점에 한 번 더 반영해 Refreshing 상태에 갇히거나 최신 sync 상태를 놓치지 않게 한다.
+        val pendingState = pendingHistoryStateDuringRefresh ?: return
+        pendingHistoryStateDuringRefresh = null
+        updateSyncState(pendingState)
+    }
+
+    private fun updateVisibleChart(historyState: StatisticsHistoryState) {
+        // 차트 dialog가 열려 있을 때만 snapshot 변경을 반영한다.
+        // 숨김 상태의 차트까지 계속 갱신하면 오래된 결과가 다시 보일 수 있다.
+        val metricType = _uiState.value.selectedChartMetricType ?: return
+        if (!_uiState.value.metricChartState.isVisible) return
+
+        val chartState = when (historyState) {
+            StatisticsHistoryState.Empty -> StatisticsMetricChartState.Empty(metricType)
+            is StatisticsHistoryState.Content -> historyState.histories
+                .sortedBy { it.recordedAt }
+                .map { it.toMetricPoint(metricType) }
+                .toStatisticsMetricChartState(metricType)
+            is StatisticsHistoryState.Retry -> StatisticsMetricChartState.Error(
+                metricType = metricType,
+                message = historyState.cause?.message ?: "차트를 불러오지 못했습니다."
+            )
+            is StatisticsHistoryState.Error -> StatisticsMetricChartState.Error(
+                metricType = metricType,
+                message = historyState.cause?.message ?: "차트를 불러오지 못했습니다."
+            )
+        }
+
+        _uiState.update { it.copy(metricChartState = chartState) }
     }
 
     private companion object {

@@ -9,7 +9,9 @@ import com.example.umma.domain.model.statistics.StatisticsHistoryRecordResult
 import com.example.umma.domain.repository.StatisticsRepository
 import com.example.umma.BuildConfig
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +24,8 @@ import javax.inject.Singleton
 @Singleton
 class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
 
-    private val histories = mutableListOf(
+    private val histories = MutableStateFlow(
+        listOf(
         // Statistics 화면을 실제 실행에서 바로 확인할 수 있도록
         // 여러 언어와 여러 시점의 history를 기본으로 깔아 둔다.
         StatisticsHistory(
@@ -259,15 +262,18 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             sourceEventId = "event-user2-ja",
             syncStatus = SyncStatus.SYNCED
         )
+        )
     )
 
     var queryFailure: Throwable? = null
     var recordFailureCause: Throwable? = null
+    var refreshFailureCause: Throwable? = null
+    var pendingSyncFailureCause: Throwable? = null
+    var refreshSeed: List<StatisticsHistory>? = null
 
     fun seedHistories(items: List<StatisticsHistory>) {
         // 테스트에서 특정 경계 상태만 보고 싶을 때 기본 seed 를 덮어쓴다.
-        histories.clear()
-        histories.addAll(items)
+        histories.value = items
     }
 
     fun setFetchFailure(cause: Throwable?) {
@@ -278,45 +284,62 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
         recordFailureCause = cause
     }
 
+    fun setRefreshFailure(cause: Throwable?) {
+        refreshFailureCause = cause
+    }
+
+    fun setPendingSyncFailure(cause: Throwable?) {
+        pendingSyncFailureCause = cause
+    }
+
+    fun seedRefreshHistories(items: List<StatisticsHistory>) {
+        // refresh 결과는 local cache 보정용이라, 테스트에서 remote 최신본만 따로 주입할 수 있어야 한다.
+        refreshSeed = items
+    }
+
     override fun observeHistory(userId: String, language: LangCode): Flow<StatisticsHistoryState> {
         // fake도 실제 repository처럼 userId + language 조합으로만 보여준다.
         // fetchFailure가 설정되면 화면이 Retry 상태를 재현할 수 있어야 한다.
         queryFailure?.let { return flowOf(StatisticsHistoryState.Retry(it)) }
 
-        val filtered = histories
-            .filter { it.userId == userId && it.language == language }
-            .sortedBy { it.recordedAt }
-
-        val debugFallback = if (filtered.isEmpty() && BuildConfig.DEBUG) {
-            // 실제 앱 실행에서 Firebase uid가 달라도 chart 예시를 바로 볼 수 있도록
-            // debug에서는 언어 기준 샘플을 한 번 더 허용한다.
-            histories
-                .filter { it.language == language }
+        // Room observe처럼 저장소 변경이 다시 emit되어야 STAT-004 refresh 흐름을 검증할 수 있다.
+        return histories.map { currentHistories ->
+            val filtered = currentHistories
+                .filter { it.userId == userId && it.language == language }
                 .sortedBy { it.recordedAt }
-        } else {
-            filtered
-        }
 
-        return flowOf(
+            val debugFallback = if (filtered.isEmpty() && BuildConfig.DEBUG) {
+                // 실제 앱 실행에서 Firebase uid가 달라도 chart 예시를 바로 볼 수 있도록
+                // debug에서는 언어 기준 샘플을 한 번 더 허용한다.
+                currentHistories
+                    .filter { it.language == language }
+                    .sortedBy { it.recordedAt }
+            } else {
+                filtered
+            }
+
             when {
                 debugFallback.isEmpty() -> StatisticsHistoryState.Empty
                 else -> StatisticsHistoryState.Content(debugFallback)
             }
-        )
+        }
     }
 
     override suspend fun recordHistory(history: StatisticsHistory): Result<StatisticsHistoryRecordResult> {
         recordFailureCause?.let { return Result.failure(it) }
 
-        val existingIndex = histories.indexOfFirst { it.id == history.id }
+        val currentHistories = histories.value.toMutableList()
+        val existingIndex = currentHistories.indexOfFirst { it.id == history.id }
         // 같은 id 가 다시 들어오면 새 row 를 추가하지 않고 덮어써서,
         // idempotent 하게 저장되는 것처럼 행동한다.
         val applied = existingIndex == -1
         if (applied) {
-            histories.add(history)
+            currentHistories.add(history)
         } else {
-            histories[existingIndex] = history
+            currentHistories[existingIndex] = history
         }
+        // 실제 Room과 같이 local write 이후 observeHistory 구독자에게 새 snapshot을 흘린다.
+        histories.value = currentHistories
 
         return Result.success(
             StatisticsHistoryRecordResult(
@@ -327,5 +350,45 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
                 recordedAt = history.recordedAt
             )
         )
+    }
+
+    override suspend fun refreshHistory(userId: String, language: LangCode): Result<Unit> {
+        refreshFailureCause?.let { return Result.failure(it) }
+
+        val currentHistories = histories.value.toMutableList()
+        val remoteSnapshot = (refreshSeed ?: currentHistories)
+            .filter { it.userId == userId && it.language == language }
+            .sortedBy { it.recordedAt }
+
+        remoteSnapshot.forEach { remoteHistory ->
+            val existingIndex = currentHistories.indexOfFirst { it.id == remoteHistory.id }
+            // refresh는 local pending row를 지우지 않고, remote에 있는 최신 스냅샷만 덮어쓴다.
+            if (existingIndex == -1) {
+                currentHistories.add(remoteHistory.copy(syncStatus = SyncStatus.SYNCED))
+            } else {
+                currentHistories[existingIndex] = remoteHistory.copy(syncStatus = SyncStatus.SYNCED)
+            }
+        }
+        // remote -> local 보정 결과가 기존 observe stream에 다시 전달되도록 한다.
+        histories.value = currentHistories
+
+        return Result.success(Unit)
+    }
+
+    override suspend fun syncPendingHistories(userId: String): Result<Int> {
+        pendingSyncFailureCause?.let { return Result.failure(it) }
+
+        var syncedCount = 0
+        histories.value = histories.value.map { history ->
+            // real repository처럼 같은 userId의 PENDING row만 Firestore write-back 성공 상태로 바꾼다.
+            if (history.userId == userId && history.syncStatus == SyncStatus.PENDING) {
+                syncedCount += 1
+                history.copy(syncStatus = SyncStatus.SYNCED)
+            } else {
+                history
+            }
+        }
+
+        return Result.success(syncedCount)
     }
 }
