@@ -28,9 +28,6 @@ import com.example.umma.domain.model.learningstate.selectedLang
  *  - (COR-006-A) 저장 요청 변환 성공 후 CompleteCorrectionUseCase 완료 파이프라인 호출까지 이어가고,
  *    완료 in-flight 윈도우([isCompleting])와 완료 결과 보관([completionResult])을 추가한다.
  *    완료 성공 시 [Phase.Done] 으로 전환되어 카드 목록과 저장 버튼이 사라지고 안내 텍스트로 마무리된다.
- *    ⚠️ 현재 단계에서는 SYS-CORRECTION-INFRA 의 [com.example.umma.domain.model.correction.CompleteCorrectionInput.langStateUpdateInput]
- *    필드가 필수라 ViewModel 이 실제 UseCase 를 호출하지 못한다. 자세한 충돌과 인계 내용은
- *    `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md` 를 참고한다.
  *
  * 비범위:
  *  - Empty 분리 / Retry 액션은 COR-002-B 에서 [Phase.Empty] 와 함께 추가한다.
