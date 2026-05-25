@@ -59,3 +59,18 @@ class RefreshStatisticsHistoryUseCase @Inject constructor(
         return statisticsRepository.refreshHistory(readyState.userId, readyState.language)
     }
 }
+
+/**
+ * local에 남은 StatisticsHistory pending write-back을 재시도하는 UseCase다.
+ *
+ * 화면은 이미 local history를 볼 수 있으므로 실패를 fatal error로 다루지 않는다.
+ * 성공한 row만 SYNCED로 정리되고, 실패 row는 PENDING으로 남아 다음 재진입 때 다시 시도된다.
+ */
+class SyncPendingStatisticsHistoriesUseCase @Inject constructor(
+    private val statisticsRepository: StatisticsRepository
+) {
+    suspend operator fun invoke(userId: String): Result<Int> {
+        // userId 단위로 pending을 정리해 현재 화면 언어가 아닌 이전 기록도 함께 복구한다.
+        return statisticsRepository.syncPendingHistories(userId)
+    }
+}

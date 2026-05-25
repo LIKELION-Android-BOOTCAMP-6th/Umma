@@ -101,6 +101,54 @@ class StatisticsRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
+
+    override suspend fun syncPendingHistories(userId: String): Result<Int> {
+        return runCatching {
+            // PENDING row는 이미 local-first 저장이 끝난 데이터다.
+            // 같은 Firestore 문서 id로 set()을 반복하므로 재시도해도 중복 문서를 만들지 않는다.
+            val pendingHistories = localDataSource
+                .getPendingHistories(userId = userId, limit = PENDING_SYNC_BATCH_SIZE)
+                .map { it.toDomain() }
+
+            if (pendingHistories.isEmpty()) {
+                return@runCatching 0
+            }
+
+            val syncedIds = mutableListOf<String>()
+            var firstFailure: Throwable? = null
+
+            pendingHistories.forEach { pendingHistory ->
+                // Firestore에는 성공 상태로 mirror하고, local 상태는 remote 성공 후에만 SYNCED로 바꾼다.
+                val remoteResult = remoteDataSource.syncHistory(
+                    pendingHistory.copy(syncStatus = SyncStatus.SYNCED)
+                )
+
+                remoteResult
+                    .onSuccess { syncedIds += pendingHistory.id }
+                    .onFailure { failure ->
+                        // 일부 row가 실패해도 나머지 row는 계속 시도한다.
+                        // 실패 row는 PENDING으로 남아 다음 진입/재시도 때 다시 올라간다.
+                        if (firstFailure == null) firstFailure = failure
+                    }
+            }
+
+            if (syncedIds.isNotEmpty()) {
+                // Firestore 성공 row만 local SYNCED로 정리한다.
+                // 이 단계가 실패하면 remote에는 올라갔지만 local은 PENDING이므로 다음 retry가 다시 덮어쓴다.
+                localDataSource.markSynced(userId, syncedIds)
+            }
+
+            if (syncedIds.isEmpty()) {
+                firstFailure?.let { throw it }
+            }
+
+            syncedIds.size
+        }
+    }
+
+    private companion object {
+        const val PENDING_SYNC_BATCH_SIZE = 50
+    }
 }
 
 private fun StatisticsHistory.toEntity(): StatisticsHistoryEntity {

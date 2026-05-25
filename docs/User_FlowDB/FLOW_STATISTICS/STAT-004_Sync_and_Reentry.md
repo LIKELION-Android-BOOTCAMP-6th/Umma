@@ -13,6 +13,7 @@
 - [ ] repository가 제공하는 background refresh 결과를 관찰해 stale cache 보정 상태를 화면에 반영한다.
 - [ ] Firestore sync 실패는 화면 실패로 처리하지 않는다.
 - [ ] sync pending 상태가 있어도 local history는 표시된다.
+- [ ] 재진입 시 local에 남은 `PENDING` history를 Firestore로 재동기화하고 성공 row만 `SYNCED`로 정리한다.
 - [ ] background refresh로 새 history가 들어오면 현재 선택 언어 기준으로 chart가 갱신된다.
 - [ ] 다른 언어의 refresh 결과는 현재 화면에 섞이지 않는다.
 - [ ] 네트워크 실패 시 기존 local history를 유지한다.
@@ -37,6 +38,7 @@
 - local cache 우선 렌더링
 - background refresh 결과 observe 및 화면 반영
 - pending sync 상태 표시
+- pending history Firestore write-back retry
 - 재진입 시 최신 local state 관찰
 - sync 실패 시 non-blocking 상태 처리
 
@@ -65,6 +67,7 @@
 Statistics 화면 진입 또는 재진입
 → StatisticsHistory local cache 조회
 → 즉시 Content 또는 Empty 렌더링
+→ local PENDING history write-back retry 실행
 → Repository background refresh 결과 observe
 → 변경사항 local 반영 결과 observe
 → 현재 선택 언어 화면 갱신
@@ -79,6 +82,8 @@ remote refresh는 화면 state를 직접 바꾸는 것이 아니라 local cache 
 ## pending sync 정책
 
 - history local 저장 후 Firestore sync가 실패하면 repository/local sync metadata에 pending sync로 남는다.
+- 화면 진입/재진입 시 repository는 `PENDING` history를 같은 Firestore 문서 id로 다시 write-back한다.
+- write-back 성공 row만 local `syncStatus`를 `SYNCED`로 정리하고, 실패 row는 다음 재시도 대상으로 남긴다.
 - pending sync는 사용자에게 chart 실패로 표시하지 않는다.
 - 사용자에게 노출해야 할 때는 작은 sync 상태 표시로만 알린다.
 - pending 상태인 history도 local에 있으면 chart source로 사용할 수 있다.
@@ -99,6 +104,7 @@ remote refresh는 화면 state를 직접 바꾸는 것이 아니라 local cache 
 
 - local cache 결과를 먼저 화면에 올린다.
 - repository background refresh 실패를 Fatal Error로 올리지 않는다.
+- local PENDING write-back 실패를 Fatal Error로 올리지 않는다.
 - 현재 선택 언어와 fetch 결과의 `language`가 다르면 반영하지 않는다.
 - 현재 사용자와 다른 `userId`의 history는 local cache에 있더라도 반영하지 않는다.
 - background refresh 결과가 들어오면 선택 지표 chart를 다시 계산한다.
@@ -114,6 +120,7 @@ remote refresh는 화면 state를 직접 바꾸는 것이 아니라 local cache 
 domain/usecase/statistics/
 → ObserveStatisticsHistoryUseCase
 → RefreshStatisticsHistoryUseCase
+→ SyncPendingStatisticsHistoriesUseCase
 
 presentation/statistics/
 → StatisticsViewModel
@@ -137,6 +144,7 @@ FatalError는 local cache도 없고 기본 화면을 구성할 수 없을 때만
 ## 검증 기준
 
 - offline 상태에서도 local history가 있으면 chart를 볼 수 있다.
+- Firestore write-back 실패로 남은 pending history가 재진입 후 다시 sync 대상이 된다.
 - repository background refresh 실패 시 기존 chart가 사라지지 않는다.
 - background refresh로 새 point가 추가되면 chart가 갱신된다.
 - 언어 변경 후 이전 언어의 chart point가 남지 않는다.

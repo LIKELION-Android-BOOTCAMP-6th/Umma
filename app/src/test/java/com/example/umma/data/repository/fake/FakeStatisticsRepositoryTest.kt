@@ -255,4 +255,65 @@ class FakeStatisticsRepositoryTest {
         val content = repository.observeHistory("user-1", LangCode.EN).first() as StatisticsHistoryState.Content
         assertTrue(content.histories.any { it.id == "stats-new" })
     }
+
+    @Test
+    fun `fake repository syncs only pending histories for requested user`() = runBlocking {
+        // STAT-004의 pending retry는 사용자 단위로 동작하되, 다른 사용자의 pending은 건드리면 안 된다.
+        val repository = FakeStatisticsRepository().apply {
+            seedHistories(
+                listOf(
+                    testHistory(id = "user-1-pending", userId = "user-1", syncStatus = SyncStatus.PENDING),
+                    testHistory(id = "user-1-synced", userId = "user-1", syncStatus = SyncStatus.SYNCED),
+                    testHistory(id = "user-2-pending", userId = "user-2", syncStatus = SyncStatus.PENDING)
+                )
+            )
+        }
+
+        val syncedCount = repository.syncPendingHistories("user-1").getOrThrow()
+
+        val userOneEnglish = repository.observeHistory("user-1", LangCode.EN).first() as StatisticsHistoryState.Content
+        val userTwoJapanese = repository.observeHistory("user-2", LangCode.JA).first() as StatisticsHistoryState.Content
+
+        // user-1의 pending row만 SYNCED로 정리되고,
+        // user-2의 pending row는 사용자 경계 때문에 그대로 유지된다.
+        assertEquals(1, syncedCount)
+        assertTrue(userOneEnglish.histories.all { it.syncStatus == SyncStatus.SYNCED })
+        assertTrue(userTwoJapanese.histories.all { it.syncStatus == SyncStatus.PENDING })
+    }
+
+    @Test
+    fun `fake repository leaves pending histories when retry fails`() = runBlocking {
+        // Firestore 재전송 실패를 재현하면 local PENDING 상태가 유지되어 다음 retry 대상이 되어야 한다.
+        val repository = FakeStatisticsRepository().apply {
+            setPendingSyncFailure(IllegalStateException("network down"))
+        }
+
+        val result = repository.syncPendingHistories("user-1")
+        val content = repository.observeHistory("user-1", LangCode.EN).first() as StatisticsHistoryState.Content
+
+        // 실패 결과는 caller가 non-blocking으로 처리하고, local row는 아직 PENDING으로 남긴다.
+        assertTrue(result.isFailure)
+        assertTrue(content.histories.any { it.syncStatus == SyncStatus.PENDING })
+    }
+
+    private fun testHistory(
+        id: String,
+        userId: String,
+        syncStatus: SyncStatus
+    ): StatisticsHistory {
+        // pending retry 테스트는 syncStatus와 userId 경계만 보면 되므로 나머지 지표는 고정값으로 둔다.
+        return StatisticsHistory(
+            id = id,
+            userId = userId,
+            language = if (userId == "user-1") LangCode.EN else LangCode.JA,
+            recordedAt = 1_000L,
+            vocabularyLevel = VocabLevel.A1,
+            grammarAccuracy = 0.5,
+            expressionRange = 3,
+            fluencyScore = 0.5,
+            naturalnessScore = 0.5,
+            sourceEventId = "event-$id",
+            syncStatus = syncStatus
+        )
+    }
 }

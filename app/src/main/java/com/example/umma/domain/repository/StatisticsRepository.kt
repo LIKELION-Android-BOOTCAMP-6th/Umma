@@ -37,4 +37,14 @@ interface StatisticsRepository {
     suspend fun refreshHistory(userId: String, language: LangCode): Result<Unit> {
         return Result.failure(UnsupportedOperationException("refreshHistory is not implemented"))
     }
+
+    /**
+     * local에 PENDING으로 남은 StatisticsHistory를 Firestore mirror로 다시 올린다.
+     *
+     * refreshHistory가 remote -> local 보정이라면, 이 함수는 local -> remote write-back이다.
+     * 실제 STAT-004 경로의 real/fake repository는 반드시 override한다.
+     */
+    suspend fun syncPendingHistories(userId: String): Result<Int> {
+        return Result.failure(UnsupportedOperationException("syncPendingHistories is not implemented"))
+    }
 }

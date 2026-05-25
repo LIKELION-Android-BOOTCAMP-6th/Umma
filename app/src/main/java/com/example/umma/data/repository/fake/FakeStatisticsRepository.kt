@@ -268,6 +268,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
     var queryFailure: Throwable? = null
     var recordFailureCause: Throwable? = null
     var refreshFailureCause: Throwable? = null
+    var pendingSyncFailureCause: Throwable? = null
     var refreshSeed: List<StatisticsHistory>? = null
 
     fun seedHistories(items: List<StatisticsHistory>) {
@@ -285,6 +286,10 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
 
     fun setRefreshFailure(cause: Throwable?) {
         refreshFailureCause = cause
+    }
+
+    fun setPendingSyncFailure(cause: Throwable?) {
+        pendingSyncFailureCause = cause
     }
 
     fun seedRefreshHistories(items: List<StatisticsHistory>) {
@@ -368,5 +373,22 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
         histories.value = currentHistories
 
         return Result.success(Unit)
+    }
+
+    override suspend fun syncPendingHistories(userId: String): Result<Int> {
+        pendingSyncFailureCause?.let { return Result.failure(it) }
+
+        var syncedCount = 0
+        histories.value = histories.value.map { history ->
+            // real repository처럼 같은 userId의 PENDING row만 Firestore write-back 성공 상태로 바꾼다.
+            if (history.userId == userId && history.syncStatus == SyncStatus.PENDING) {
+                syncedCount += 1
+                history.copy(syncStatus = SyncStatus.SYNCED)
+            } else {
+                history
+            }
+        }
+
+        return Result.success(syncedCount)
     }
 }

@@ -29,6 +29,7 @@
 - line chart는 `StatisticsHistory`에서 만든 `MetricHistoryPoint`를 사용한다.
 - history 데이터가 부족하면 Empty chart 상태를 표시한다.
 - Firestore sync 실패는 화면 실패로 보지 않고 pending sync로 관리한다.
+- local에 남은 `PENDING` history는 재진입/갱신 시 Firestore write-back을 재시도한다.
 - Statistics route/screen/package 명칭은 System Flow 선행 작업에서 `Statistics` 기준으로 준비되어 있다.
 
 ---
@@ -147,6 +148,7 @@ History 생성은 `SYS-STATISTICS-INFRA`의 `STI-002` 계약에 따라 교정 �
 화면 진입, Dashboard 진입, Flashcard 복습 결과 저장만으로는 MVP Statistics history를 생성하지 않는다.
 Firestore sync 실패는 사용자 화면 실패로 보지 않는다.
 Statistics 화면의 `background refresh`는 Firestore의 최신 history를 local Room에 보정하는 흐름이고, `pending sync`는 local에 먼저 저장된 history가 아직 Firestore에 올라가지 않은 상태다.
+이미 local에 저장된 pending history는 재진입 시 재동기화 대상이며, 성공한 row만 `SYNCED`로 정리한다.
 
 ---
 

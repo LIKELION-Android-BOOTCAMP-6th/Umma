@@ -23,13 +23,16 @@ import com.example.umma.domain.usecase.statistics.GetMetricHistoryPointsUseCase
 import com.example.umma.domain.usecase.statistics.GetStatisticsOverviewUseCase
 import com.example.umma.domain.usecase.statistics.ObserveStatisticsHistoryUseCase
 import com.example.umma.domain.usecase.statistics.RefreshStatisticsHistoryUseCase
+import com.example.umma.domain.usecase.statistics.SyncPendingStatisticsHistoriesUseCase
 import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
 import com.example.umma.test.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -41,6 +44,32 @@ class StatisticsViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `overview load retries pending histories for current user`() = runTest {
+        // 화면 진입 시 overview가 준비되면 local PENDING history를 Firestore로 재시도해야 한다.
+        // 이 테스트는 실제 저장 결과가 아니라 ViewModel이 retry usecase를 연결했는지를 검증한다.
+        val learningRepo = FakeLearningStateRepo(initialState = statisticsState(LangCode.EN))
+        val statisticsRepo = ControlledStatisticsRepository()
+
+        StatisticsViewModel(
+            observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+            preloadLearningStateUseCase = PreloadLearningStateUseCase(learningRepo),
+            observeStatisticsHistoryUseCase = ObserveStatisticsHistoryUseCase(statisticsRepo),
+            refreshStatisticsHistoryUseCase = RefreshStatisticsHistoryUseCase(statisticsRepo),
+            syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
+            getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
+                getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+            ),
+            getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
+        )
+
+        advanceUntilIdle()
+
+        assertEquals(listOf("user-1"), statisticsRepo.syncedUserIds)
+    }
+
     @Test
     fun `old chart result does not overwrite latest language state`() = runTest {
         // 언어 변경 중 오래 걸린 chart 응답이 늦게 도착해도 최신 선택 언어 상태를 덮지 않는지 본다.
@@ -51,6 +80,7 @@ class StatisticsViewModelTest {
             preloadLearningStateUseCase = PreloadLearningStateUseCase(learningRepo),
             observeStatisticsHistoryUseCase = ObserveStatisticsHistoryUseCase(statisticsRepo),
             refreshStatisticsHistoryUseCase = RefreshStatisticsHistoryUseCase(statisticsRepo),
+            syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
             getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
                 getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
                 observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
@@ -193,6 +223,7 @@ class StatisticsViewModelTest {
     private class ControlledStatisticsRepository : StatisticsRepository {
         // language별로 다른 completion 시점을 만들어, 오래된 결과가 늦게 도착하는 상황을 재현한다.
         private val pendingResults = mutableMapOf<LangCode, CompletableDeferred<StatisticsHistoryState>>()
+        val syncedUserIds = mutableListOf<String>()
 
         override fun observeHistory(
             userId: String,
@@ -220,6 +251,12 @@ class StatisticsViewModelTest {
             userId: String,
             language: LangCode
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun syncPendingHistories(userId: String): Result<Int> {
+            // ViewModel이 화면 진입 시 현재 userId로 pending retry를 호출했는지 확인할 수 있도록 기록한다.
+            syncedUserIds += userId
+            return Result.success(0)
+        }
 
         fun release(language: LangCode) {
             // 나중에 도착한 응답을 명시적으로 완료시켜 stale result 경로를 만든다.

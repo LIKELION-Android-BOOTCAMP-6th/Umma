@@ -13,6 +13,7 @@ import com.example.umma.domain.usecase.statistics.ObserveStatisticsHistoryUseCas
 import com.example.umma.domain.usecase.statistics.GetStatisticsOverviewUseCase
 import com.example.umma.domain.usecase.statistics.GetMetricHistoryPointsUseCase
 import com.example.umma.domain.usecase.statistics.RefreshStatisticsHistoryUseCase
+import com.example.umma.domain.usecase.statistics.SyncPendingStatisticsHistoriesUseCase
 import com.example.umma.presentation.statistics.model.StatisticsMetricChartState
 import com.example.umma.presentation.statistics.model.toStatisticsMetricChartState
 import com.example.umma.presentation.statistics.model.toMetricSummaryItems
@@ -42,6 +43,7 @@ class StatisticsViewModel @Inject constructor(
     private val preloadLearningStateUseCase: PreloadLearningStateUseCase,
     private val observeStatisticsHistoryUseCase: ObserveStatisticsHistoryUseCase,
     private val refreshStatisticsHistoryUseCase: RefreshStatisticsHistoryUseCase,
+    private val syncPendingStatisticsHistoriesUseCase: SyncPendingStatisticsHistoriesUseCase,
     private val getStatisticsOverviewUseCase: GetStatisticsOverviewUseCase,
     private val getMetricHistoryPointsUseCase: GetMetricHistoryPointsUseCase
 ) : ViewModel() {
@@ -57,6 +59,8 @@ class StatisticsViewModel @Inject constructor(
     private var historyObserveJob: Job? = null
     // Firestore refresh는 local first 렌더링 이후에 별도로 수행한다.
     private var refreshJob: Job? = null
+    // pending write-back은 화면 렌더링을 막지 않는 보조 작업이므로 refresh와 별도 job으로 둔다.
+    private var pendingSyncJob: Job? = null
     // 현재 선택 언어/현재 언어의 updatedAt 이 바뀌면 다시 준비해야 하는지 추적한다.
     private var pendingReload: Boolean = false
     private var observeJob: Job? = null
@@ -146,6 +150,8 @@ class StatisticsViewModel @Inject constructor(
         historyObserveJob = null
         refreshJob?.cancel()
         refreshJob = null
+        pendingSyncJob?.cancel()
+        pendingSyncJob = null
         chartJob?.cancel()
         chartJob = null
         chartRequestVersion += 1L
@@ -189,6 +195,7 @@ class StatisticsViewModel @Inject constructor(
                         )
                     }
                     observeHistory(overview.historyQueryState)
+                    syncPendingHistoriesInBackground(overview.userId)
                     refreshHistory(overview.historyQueryState)
                 }
                 .onFailure { error ->
@@ -210,6 +217,29 @@ class StatisticsViewModel @Inject constructor(
                 if (pendingReload) {
                     pendingReload = false
                     loadOverview()
+                }
+            }
+        }
+    }
+
+    private fun syncPendingHistoriesInBackground(userId: String) {
+        pendingSyncJob?.cancel()
+        pendingSyncJob = viewModelScope.launch {
+            syncPendingStatisticsHistoriesUseCase(userId)
+                .onSuccess { syncedCount ->
+                    if (syncedCount > 0) {
+                        Log.d(TAG, "synced pending statistics histories: $syncedCount")
+                    }
+                }
+                .onFailure { error ->
+                    // pending retry 실패는 non-blocking 상태다.
+                    // local row는 PENDING으로 유지되어 다음 화면 진입 때 같은 경로로 다시 시도된다.
+                    Log.w(TAG, "syncPendingStatisticsHistoriesUseCase failed", error)
+                }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (pendingSyncJob === job) {
+                    pendingSyncJob = null
                 }
             }
         }

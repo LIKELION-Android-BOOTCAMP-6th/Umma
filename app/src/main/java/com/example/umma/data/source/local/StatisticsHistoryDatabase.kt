@@ -71,6 +71,27 @@ interface StatisticsHistoryDao {
     fun observeHistory(userId: String, language: String): Flow<List<StatisticsHistoryEntity>>
 
     /**
+     * Firestore write-back이 아직 끝나지 않은 history만 오래된 순서로 가져온다.
+     *
+     * pending retry는 사용자 단위로 수행하므로, 현재 화면 언어가 아니어도 같은 사용자의 pending을 함께 정리한다.
+     */
+    @Query(
+        """
+        SELECT *
+        FROM statistics_history
+        WHERE userId = :userId
+          AND syncStatus = :pendingStatus
+        ORDER BY recordedAt ASC, id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getPendingHistories(
+        userId: String,
+        pendingStatus: String,
+        limit: Int
+    ): List<StatisticsHistoryEntity>
+
+    /**
      * pending sync가 끝난 history만 SYNCED로 정리한다.
      */
     @Query(
@@ -108,6 +129,15 @@ class StatisticsHistoryLocalDataSource @Inject constructor(
 ) {
     fun observeHistory(userId: String, language: String): Flow<List<StatisticsHistoryEntity>> {
         return dao.observeHistory(userId, language)
+    }
+
+    suspend fun getPendingHistories(userId: String, limit: Int): List<StatisticsHistoryEntity> {
+        // retry 대상만 읽어오고, remote write-back 직전에 domain으로 복원한다.
+        return dao.getPendingHistories(
+            userId = userId,
+            pendingStatus = SyncStatus.PENDING.name,
+            limit = limit
+        )
     }
 
     suspend fun saveHistory(history: StatisticsHistoryEntity) {
