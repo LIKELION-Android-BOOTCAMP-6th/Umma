@@ -259,7 +259,7 @@ private fun SrsCardBack(card: Flashcard) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFFFFF8E1))
                         .padding(12.dp)
