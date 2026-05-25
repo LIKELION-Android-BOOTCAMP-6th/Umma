@@ -33,7 +33,8 @@ import com.example.umma.presentation.correction.component.CorrectionResultList
  * 교정 화면을 구성하는 컴포저블입니다.
  *
  * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md /
- *       COR-003_Result_Cards.md / COR-004_Card_Selection.md / COR-006_Completion_Pipeline.md
+ *       COR-003_Result_Cards.md / COR-004_Card_Selection.md / COR-006_Completion_Pipeline.md /
+ *       COR-007_Return_and_Sync.md
  *
  * COR-002-A 범위에서는 [CorrectionViewModel] 이 결정한 [CorrectionUiState.Phase] 에 따라
  * 텍스트로만 분기해 흐름 진행을 시각적으로 검증한다.
@@ -41,20 +42,40 @@ import com.example.umma.presentation.correction.component.CorrectionResultList
  * COR-004 에서는 Content 상태에서 카드 목록 아래에 [CorrectionSaveButton] 을 띄워
  * 선택 상태 → 저장 진입점을 연결한다.
  * COR-006-A 에서는 완료 파이프라인 성공 직후 [CorrectionUiState.Phase.Done] 으로 전환되며,
- * 카드 목록과 저장 버튼이 사라지고 안내 텍스트와 저장된 카드 수만 남는다. Dashboard 복귀 navigation 은
- * COR-007-A 가 이 단계 진입 시점을 1회성 이벤트로 소비해 잇는다.
+ * 카드 목록과 저장 버튼이 사라지고 안내 텍스트와 저장된 카드 수만 남는다.
+ * COR-007-A 에서는 ViewModel 이 Done 직후 Channel 로 emit 한
+ * [CorrectionEvent.NavigateToDashboard] 를 collect 해 [onNavigateToDashboard] 콜백을 호출,
+ * 상위 NavHost 가 backstack 을 정리하며 Dashboard 로 복귀시킨다. Channel 기반이라 회전/recomposition
+ * 으로 동일 이벤트가 재발화되지 않는다(AC: "완료 성공 이벤트는 한 번만 소비된다").
  * Loading / Generating / NotAvailable / Error phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
+ *
+ * @param onNavigateToDashboard 완료 파이프라인 성공 후 Dashboard 로 복귀시켜야 할 때 호출되는 1회성 콜백.
+ *  실제 navigate 와 backstack 정리(popUpTo<CorrectionGraph> inclusive=true + launchSingleTop) 책임은
+ *  상위 NavHost 가 가진다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CorrectionScreen(
-    viewModel: CorrectionViewModel = hiltViewModel()
+    onNavigateToDashboard: () -> Unit,
+    viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     // 화면 진입 시 1회만 Flow 셋업. ViewModel 내부에 가드가 있어 재호출되어도 안전.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
+    }
+
+    // COR-007-A: 1회성 effect 채널 collect.
+    // - Channel.receiveAsFlow() 라 각 emit 은 단일 collector 에 정확히 한 번 전달된다.
+    //   회전/recomposition 으로 LaunchedEffect 가 재시작되어도 이미 소비된 element 는 재발화되지 않는다.
+    // - key=Unit — 화면 lifecycle 동안 단 한 번의 collect coroutine 만 유지.
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard()
+            }
+        }
     }
 
     Scaffold(

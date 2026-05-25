@@ -19,10 +19,13 @@ import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.realtime.GetCorrectionContextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -47,13 +50,15 @@ import javax.inject.Inject
  *    완료 in-flight 윈도우([CorrectionUiState.isCompleting]) 와 [completionJob] 으로 중복 호출을 막는다.
  *    [BuildLangStateUpdateInputUseCase] 로 LangStateUpdateInput 을 조립한 뒤 [CompleteCorrectionUseCase]
  *    에 전달하는 실제 호출이 연결되어 있다. 인계 문서: `docs/handover/LS-008_LANGSTATE_INPUT_READY.md`.
+ *  - (COR-007-A) 완료 파이프라인 성공 직후 [events] 채널로 [CorrectionEvent.NavigateToDashboard] 를
+ *    정확히 한 번 방출한다. State(`Phase.Done`) 결정 책임은 [applyCompletionOutcome] 에 그대로 두고,
+ *    1회성 navigation 신호만 Channel 로 분리해 회전/recomposition/재진입에 의한 재발화를 막는다.
  *
  * 비범위:
  *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
  *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
- *  - 로컬 완료 성공 후 Dashboard 복귀 navigation, 1회성 이벤트 처리 → COR-007-A.
  *  - sync / compression pending 비차단 처리 → COR-007-B.
  */
 @HiltViewModel
@@ -84,6 +89,14 @@ class CorrectionViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CorrectionUiState())
     // 외부(Composable)로 노출되는 read-only StateFlow. _uiState 를 그대로 비춘다.
     val uiState: StateFlow<CorrectionUiState> = _uiState.asStateFlow()
+
+    // COR-007-A: 1회성 navigation/effect 전달 채널. StateFlow 와 분리한 이유는 navigation 같이
+    // "정확히 한 번만 일어나야 하는 effect" 가 recomposition 마다 상태로 재소비되면 중복 이동이
+    // 발생하기 때문이다. Channel 의 element 는 단일 collector 에 한 번만 전달되므로 회전/재진입
+    // 사이에 동일 이벤트가 두 번 발화되지 않는다. BUFFERED — Compose 측 collect 시점과 emit 시점이
+    // 어긋날 가능성을 흡수한다(Done 직후 화면이 활성이라 보통은 즉시 소비됨).
+    private val _events = Channel<CorrectionEvent>(Channel.BUFFERED)
+    val events: Flow<CorrectionEvent> = _events.receiveAsFlow()
 
     // ensureObservation() 의 collect coroutine 핸들. 이미 active 면 재구독을 막아 중복 collect 를 방지한다.
     private var enterJob: Job? = null
@@ -362,6 +375,14 @@ class CorrectionViewModel @Inject constructor(
             )
             logCompletionResult(result)
             _uiState.update { current -> current.applyCompletionOutcome(result) }
+
+            // COR-007-A: 완료 성공 경로에서만 Dashboard 복귀 1회성 이벤트를 발화한다.
+            // 1~4단계 실패와 5단계 호출 실패 분기는 각자 위에서 applyCompletionOutcome(err) + return@launch
+            // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
+            // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
+            if (result.isSuccess) {
+                _events.send(CorrectionEvent.NavigateToDashboard)
+            }
         }
     }
 
