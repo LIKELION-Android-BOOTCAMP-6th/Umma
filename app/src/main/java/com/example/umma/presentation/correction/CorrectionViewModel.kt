@@ -53,13 +53,19 @@ import javax.inject.Inject
  *  - (COR-007-A) 완료 파이프라인 성공 직후 [events] 채널로 [CorrectionEvent.NavigateToDashboard] 를
  *    정확히 한 번 방출한다. State(`Phase.Done`) 결정 책임은 [applyCompletionOutcome] 에 그대로 두고,
  *    1회성 navigation 신호만 Channel 로 분리해 회전/recomposition/재진입에 의한 재발화를 막는다.
+ *  - (COR-007-B) Firestore sync / Session compression / Statistics history 의 pending 상태는
+ *    사용자 흐름을 막지 않는다. [CompleteCorrectionUseCase] 가 pending 케이스에서도 `Result.success`
+ *    로 흘려보내므로 [applyCompletionOutcome] 의 success 분기 하나로 [Phase.Done] 진입과
+ *    [CorrectionEvent.NavigateToDashboard] 발화가 동일하게 이뤄진다. pending 자체는 사용자에게
+ *    어떤 UI 로도 노출하지 않고, [logCompletionResult] 진단 로그가 개발 확인의 SSOT 다.
+ *    회귀는 `CorrectionUiStateTest` 의 pending 비차단 3건 + `CompleteCorrectionUseCaseTest` 의
+ *    compression/statistics 실패 비롤백 테스트가 함께 보장한다.
  *
  * 비범위:
  *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
  *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
- *  - sync / compression pending 비차단 처리 → COR-007-B.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
@@ -96,6 +102,8 @@ class CorrectionViewModel @Inject constructor(
     // 사이에 동일 이벤트가 두 번 발화되지 않는다. BUFFERED — Compose 측 collect 시점과 emit 시점이
     // 어긋날 가능성을 흡수한다(Done 직후 화면이 활성이라 보통은 즉시 소비됨).
     private val _events = Channel<CorrectionEvent>(Channel.BUFFERED)
+    // 외부(Composable)가 collect 하는 read-only 이벤트 스트림. _events 를 receiveAsFlow 로 단방향 expose 해서
+    // 1회성 navigation/effect 신호(NavigateToDashboard 등) 만 화면 레이어로 흘려보낸다.
     val events: Flow<CorrectionEvent> = _events.receiveAsFlow()
 
     // ensureObservation() 의 collect coroutine 핸들. 이미 active 면 재구독을 막아 중복 collect 를 방지한다.
@@ -449,14 +457,33 @@ class CorrectionViewModel @Inject constructor(
      *
      * uid 미확보 / RT-003 context 조회 실패 / [BuildLangStateUpdateInputUseCase] 조립 실패 /
      * [CompleteCorrectionUseCase] 자체 실패 가 모두 failure 로 흘러온다.
+     *
+     * COR-007-B: success 분기에는 Firestore sync / Session compression / Statistics history 의
+     * pending 3종이 포함되어 흘러올 수 있다. pending 은 사용자 실패가 아니라 *후속 재시도 대상*
+     * 이므로 화면에는 노출하지 않고, 본 로그가 개발 확인의 단일 SSOT 다. 각 단계의 errorMessage
+     * 도 함께 남겨 어떤 단계가 pending 으로 떨어졌는지 logcat 만으로 식별 가능하게 한다.
      */
     private fun logCompletionResult(result: Result<CompleteCorrectionResult>) {
         result.fold(
             onSuccess = { value ->
+                // COR-007-B: pending 3종(sync / compression / statistics) 와 진단 메시지를 한 줄에 모은다.
+                // 한 줄로 모으는 이유: "어느 단계가 pending 인가"를 grep 한 번으로 식별하기 위함.
                 Log.d(
                     TAG,
-                    "completion success — savedFlashcardIds=${value.savedFlashcardIds.size}, " +
-                            "pendingSync=${value.pendingSyncFlashcardIds.size}",
+                    buildString {
+                        append("completion success — saved=${value.savedFlashcardIds.size}")
+                        append(", pendingSync=${value.pendingSyncFlashcardIds.size}")
+                        append(", compressionApplied=${value.sessionCompressionApplied}")
+                        append(", compressionPending=${value.sessionCompressionPending}")
+                        value.sessionCompressionErrorMessage?.let {
+                            append(", compressionErr=$it")
+                        }
+                        append(", statsApplied=${value.statisticsHistoryApplied}")
+                        append(", statsPending=${value.statisticsHistoryPending}")
+                        value.statisticsHistoryErrorMessage?.let {
+                            append(", statsErr=$it")
+                        }
+                    },
                 )
             },
             onFailure = { e ->
@@ -465,7 +492,9 @@ class CorrectionViewModel @Inject constructor(
         )
     }
 
+    // 클래스 내부 진단 로그 전용 상수 묶음. ViewModel 외부에서 참조할 일이 없어 private companion 으로 격리한다.
     private companion object {
+        // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
     }
 }
