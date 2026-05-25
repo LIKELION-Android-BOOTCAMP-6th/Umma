@@ -1,19 +1,78 @@
 package com.example.umma.presentation.srsstudy
 
+import android.util.Log
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.umma.core.theme.ButtonScreenB
+import com.example.umma.core.theme.PercentageDialogB
+import com.example.umma.core.theme.SpacingL
+import com.example.umma.core.theme.SpacingM
+import com.example.umma.core.theme.SpacingS
+import com.example.umma.core.theme.SpacingXL
+import com.example.umma.core.theme.TextAnalysisR
+import com.example.umma.core.theme.TextCardR
+import com.example.umma.core.theme.TextCorrect
+import com.example.umma.core.theme.TextCorrectionSB
+import com.example.umma.core.theme.TextExplanationR
+import com.example.umma.core.theme.TextPrimary
+import com.example.umma.core.theme.ThemePrimary
+import com.example.umma.core.theme.TitleDialogSB
 import com.example.umma.core.ui.component.UmmaAppBar
+import com.example.umma.domain.model.flashcard.Flashcard
+import com.example.umma.domain.model.flashcard.ReviewRating
 
 /** SRS 반복학습 화면입니다. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SrsStudyScreen() {
+fun SrsStudyScreen(
+    viewModel: SrsStudyViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // 학습 언어 세팅, 초기 로딩 시작
+    LaunchedEffect(Unit) {
+        viewModel.onEnter()
+    }
     Scaffold(
         topBar = {
             UmmaAppBar(
@@ -22,15 +81,381 @@ fun SrsStudyScreen() {
             )
         }
     ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        )
+        {
+            when {
+                uiState.isLoading -> SrsLoadingContent(Modifier.align(Alignment.Center))
+                uiState.hasInitError -> SrsErrorContent(Modifier.align(Alignment.Center)) { viewModel.onRetry() }
+                uiState.isDone -> SrsDoneContent(Modifier.align(Alignment.Center))
+                uiState.cards.isEmpty() -> SrsEmptyContent(Modifier.align(Alignment.Center))
+                else -> SrsStudyContent(
+                    uiState = uiState,
+                    onCardFlip = { viewModel.onCardFlip() },
+                    onRatingSelected = { viewModel.onRatingSelected(it) },
+                    onConfirmRating = { viewModel.onConfirmRating() }
+                )
+            }
+        }
+    }
+
+}
+
+//----- 로딩 완료 후 카드 진행 상황, 플래시 카드, 평가 버튼
+@Composable
+private fun SrsStudyContent(
+    uiState: SrsStudyUiState,
+    onCardFlip: () -> Unit,
+    onRatingSelected: (ReviewRating) -> Unit,
+    onConfirmRating: () -> Unit
+) {
+    val card = uiState.currentCard ?: return
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.padding(paddingValues)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = SpacingL, vertical = SpacingL),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 지금은 라우트/테마/앱바 연결만 확인하고, 카드 UI 는 SRS-002 이후 단계에서 붙인다.
-            // 이 화면은 흐름 검증용 진입점이라 실제 deck 렌더링 전까지는 가벼운 플레이스홀더만 둔다.
-            Text(
-                text = "복습 플레이스 홀더",
-                textAlign = TextAlign.Center
+            Spacer(modifier = Modifier.height(SpacingS))
+            // 클릭 시 플래시카드 뒤집기
+            SrsFlashCard(
+                card = card,
+                isFlipped = uiState.isCardFlipped,
+                onFlip = onCardFlip
+            )
+            Spacer(modifier = Modifier.height(SpacingXL))
+            SrsRatingButtons(
+                isFlipped = uiState.isCardFlipped,
+                selectedRating = uiState.selectedRating,
+                onRatingSelected = onRatingSelected
             )
         }
+
+        // 카드 뒷면일 때
+        if (uiState.isCardFlipped) {
+            FloatingActionButton(
+                onClick = { onConfirmRating() },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp),
+                containerColor =
+                    if (uiState.selectedRating != null) ThemePrimary
+                    else TextCorrect,
+                shape = CircleShape
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "다음 카드",
+                    tint = Color.White
+                )
+            }
+        }
+    }
+}
+
+//----- 플래시 카드 클릭 시 앞 뒤 전환
+@Composable
+private fun SrsFlashCard(
+    card: Flashcard,
+    isFlipped: Boolean,
+    onFlip: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(280.dp)
+            .clickable { onFlip() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        if (isFlipped) {
+            SrsCardBack(card = card)
+        } else {
+            SrsCardFront(card = card)
+        }
+    }
+}
+
+//----- 카드 앞면
+@Composable
+private fun SrsCardFront(card: Flashcard) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = card.frontText,
+            fontSize = 15.sp,
+            color = Color(0xFF777777),
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(SpacingL))
+
+        if (!card.hint.isNullOrBlank()) {
+            Text(
+                text = card.hint,
+                style = TitleDialogSB,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(SpacingL))
+        }
+        // 구분선
+        Box(
+            modifier = Modifier
+                .width(48.dp)
+                .height(2.dp)
+                .background(Color(0xFFE8750A))
+        )
+
+        Spacer(modifier = Modifier.height(SpacingL))
+        Icon(
+            imageVector = Icons.Default.TouchApp,
+            contentDescription = null,
+            modifier = Modifier.height(24.dp)
+        )
+        Text(
+            text = "눌러서 교정 확인",
+            style = TextAnalysisR,
+            color = TextPrimary
+        )
+    }
+}
+
+//----- 카드 뒷면
+@Composable
+private fun SrsCardBack(card: Flashcard) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .padding()
+                .fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "V CORRECT ANSWER",
+                    style = TextCorrectionSB,
+                    color = TextCorrect
+
+                )
+            }
+            Spacer(modifier = Modifier.height(SpacingM))
+            // 정답 문장
+            Text(
+                text = card.backText,
+                style = PercentageDialogB
+            )
+            // Grammar Note 박스
+            if (card.explanation.isNotBlank()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFFF8E1))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Grammar Note",
+                            style = TextExplanationR,
+                            color = Color(0xFFB8860B),
+                        )
+                        Spacer(modifier = Modifier.height(SpacingS))
+                        Text(
+                            text = card.explanation,
+                            style = TextAnalysisR
+                        )
+                    }
+                }
+            }
+        }
+        // 우측 상단 스피커 버튼
+        IconButton(
+            onClick = {},
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Default.VolumeUp,
+                contentDescription = "발음 듣기",
+                tint = Color(0xFF999999)
+            )
+        }
+    }
+}
+
+//----- 평가 버튼 (2x2 그리드)
+@Composable
+private fun SrsRatingButtons(
+    isFlipped: Boolean,
+    selectedRating: ReviewRating?,
+    onRatingSelected: (ReviewRating) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SrsRatingButton(
+                Modifier.weight(1f),
+                "Again",
+                "1m",
+                TextPrimary,
+                isSelected = selectedRating == ReviewRating.AGAIN,
+                onClick = {
+                    onRatingSelected(ReviewRating.AGAIN)
+                }
+            )
+            SrsRatingButton(
+                Modifier.weight(1f),
+                "Hard",
+                "2h",
+                TextPrimary,
+                isSelected = selectedRating == ReviewRating.HARD,
+                onClick = {
+                    onRatingSelected(ReviewRating.HARD)
+                }
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SrsRatingButton(
+                Modifier.weight(1f),
+                "Good",
+                "4h",
+                TextPrimary,
+                isSelected = selectedRating == ReviewRating.GOOD,
+                onClick = {
+                    onRatingSelected(
+                        ReviewRating.GOOD
+                    )
+                }
+            )
+            SrsRatingButton(
+                Modifier.weight(1f),
+                "Easy",
+                "Tomorrow",
+                TextPrimary,
+                isSelected = selectedRating == ReviewRating.EASY,
+                onClick = {
+                    onRatingSelected(ReviewRating.EASY)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SrsRatingButton(
+    modifier: Modifier = Modifier,
+    label: String,
+    time: String,
+    iconColor: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier.clickable { onClick() },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFEDE8)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = if (isSelected) BorderStroke(2.dp, iconColor) else null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(color = iconColor, shape = CircleShape)
+            )
+            Text(
+                text = label,
+                fontWeight = ButtonScreenB.fontWeight,
+                fontSize = TextAnalysisR.fontSize,
+                color = TextPrimary
+            )
+            Text(
+                text = time,
+                style = TextCardR,
+                color = TextCorrect
+            )
+        }
+    }
+}
+
+//----- 로딩, 에러, 빈 상태, 완료
+@Composable
+private fun SrsLoadingContent(
+    modifier: Modifier = Modifier
+) {
+    CircularProgressIndicator(modifier = modifier)
+    Log.d("ummaDev", "SrsLoadingContent 로딩")
+}
+
+/**
+ * 학습 정보 불러오지 못함,
+ * 다시 시도 표시
+ */
+@Composable
+private fun SrsErrorContent(modifier: Modifier = Modifier, onRetry: () -> Unit) {
+    Log.d("ummaDev", "SrsErrorContent -----")
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(SpacingS)
+    ) {
+        Text("학습 정보를 불러오지 못했습니다")
+        Button(onClick = onRetry) { Text(text = "다시 시도") }
+    }
+}
+
+/** 복습할 카드 없음 */
+@Composable
+private fun SrsEmptyContent(modifier: Modifier = Modifier) {
+    Log.d("ummaDev", "SrsEmptyContent -----")
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(SpacingS)
+    ) {
+        Text("없음")
+        Text("오늘 복습할 카드가 없어요")
+        Text("내일 다시 확인해보세요")
+    }
+}
+
+@Composable
+private fun SrsDoneContent(modifier: Modifier = Modifier) {
+    Log.d("ummaDev", "SrsDoneContent -----")
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(SpacingS)
+    ) {
+        Text("완료")
+        Text("학습 완료")
+        Text("오늘의 복습 완료")
     }
 }

@@ -1,7 +1,9 @@
 package com.example.umma.di
 
 import com.example.umma.data.repository.fake.FakeStatisticsRepository
+import com.example.umma.data.repository.fake.FakeFlashcardRepository
 import com.example.umma.domain.repository.StatisticsRepository
+import com.example.umma.domain.repository.FlashcardRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -22,4 +24,10 @@ object VariantRepositoryModule {
     fun provideStatisticsRepository(
         fake: FakeStatisticsRepository
     ): StatisticsRepository = fake
+
+    @Provides
+    @Singleton
+    fun provideFlashcardRepository(
+        fake: FakeFlashcardRepository
+    ): FlashcardRepository = fake
 }
