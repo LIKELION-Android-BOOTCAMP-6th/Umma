@@ -101,13 +101,7 @@ abstract class RepositoryModule {
         impl: SessionMemoryRepositoryImpl
     ): SessionMemoryRepository
 
-    // SRS 반복학습 저장소. 화면 개발 시 FakeFlashcardRepository 로 교체 가능.
-//    @Binds
-//    @Singleton
-//    abstract fun bindFlashcardRepository(
-//        impl: FlashcardRepositoryImpl
-//        impl: FakeFlashcardRepository
-//    ): FlashcardRepository
+    // FlashcardRepository 바인딩은 dev/mock 폴더의 VariantRepositoryModule에서 처리
 
     @Binds
     @Singleton
