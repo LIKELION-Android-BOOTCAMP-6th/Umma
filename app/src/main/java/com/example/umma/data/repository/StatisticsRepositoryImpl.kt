@@ -3,6 +3,7 @@ package com.example.umma.data.repository
 import com.example.umma.data.source.local.StatisticsHistoryEntity
 import com.example.umma.data.source.local.StatisticsHistoryLocalDataSource
 import com.example.umma.data.source.local.toDomain
+import com.example.umma.data.model.statistics.toDomain as dtoToDomain
 import com.example.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.learningstate.SyncStatus
@@ -75,6 +76,27 @@ class StatisticsRepositoryImpl @Inject constructor(
                     recordedAt = history.recordedAt
                 )
             )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun refreshHistory(
+        userId: String,
+        language: LangCode
+    ): Result<Unit> {
+        return try {
+            // refresh는 Firestore 최신 스냅샷을 local cache에 보정하는 역할만 한다.
+            // local pending history는 삭제하지 않고, remote에 있는 최신 row만 덮어쓴다.
+            val remoteHistories = remoteDataSource.fetchHistory(userId, language).getOrThrow()
+            val entities = remoteHistories
+                // remote DTO는 먼저 domain snapshot으로 바꿔서 syncStatus 같은 정책 값을
+                // 저장 계층과 분리한 뒤 다시 entity 로 내려보낸다.
+                .map { it.dtoToDomain().copy(syncStatus = SyncStatus.SYNCED) }
+                .map { it.toEntity() }
+
+            localDataSource.saveHistories(entities)
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }

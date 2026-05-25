@@ -40,7 +40,7 @@
 | Statistics 진입 | Dashboard 언어 성취율 카드로 진입 | selectedLearningLanguage와 현재 ExternalMetrics를 확인 | Statistics 화면 초기 상태 구성 | 언어 없음 / 상태 로드 실패 | Loading / Ready / Error | STAT-001 |
 | 지표 요약 카드 표시 | 화면 진입 후 지표 확인 | 현재 선택 언어의 ExternalMetrics 5개를 요약 카드로 렌더링 | 지표 카드 표시 | 지표 없음 / 데이터 부족 | Content / Empty | STAT-002 |
 | 지표 line chart 표시 | 지표 카드 클릭 | 선택 지표의 StatisticsHistory를 MetricHistoryPoint로 변환해 chart dialog 표시 | 그래프 다이얼로그 표시 | history 부족 / 조회 실패 | ChartLoading / Chart / Empty / Error | STAT-003 |
-| 동기화 및 재진입 | 화면 재진입, background sync 완료 | local cache 우선 렌더링 후 Firestore 보정 결과 반영 | 최신 history 반영 | sync pending / navigation 실패 | Content / PendingSync / Error | STAT-004 |
+| 동기화 및 재진입 | 화면 재진입, background refresh 완료 | local cache 우선 렌더링 후 Firestore 보정 결과 반영 | 최신 history 반영 | sync pending / navigation 실패 | Content / PendingSync / Error | STAT-004 |
 
 ---
 
@@ -85,7 +85,7 @@ Dashboard에서 전달되는 진입 정보가 있더라도 Statistics 화면의 
 4. Grammar Accuracy 카드를 클릭한다.
 5. Grammar Accuracy history line chart 다이얼로그가 표시되는지 확인한다.
 6. history 데이터가 부족한 지표를 클릭해 Empty chart 상태를 확인한다.
-7. 화면 재진입 시 local cache가 먼저 표시되고, background sync 결과가 반영되는지 확인한다.
+7. 화면 재진입 시 local cache가 먼저 표시되고, background refresh 결과가 반영되는지 확인한다.
 
 ---
 
@@ -146,6 +146,7 @@ Statistics 화면은 history를 생성하지 않는다.
 History 생성은 `SYS-STATISTICS-INFRA`의 `STI-002` 계약에 따라 교정 결과 Flashcard 저장과 `LS-006` Language State 업데이트가 모두 성공한 이후 호출되는 기록 UseCase에서 수행된다.
 화면 진입, Dashboard 진입, Flashcard 복습 결과 저장만으로는 MVP Statistics history를 생성하지 않는다.
 Firestore sync 실패는 사용자 화면 실패로 보지 않는다.
+Statistics 화면의 `background refresh`는 Firestore의 최신 history를 local Room에 보정하는 흐름이고, `pending sync`는 local에 먼저 저장된 history가 아직 Firestore에 올라가지 않은 상태다.
 
 ---
 

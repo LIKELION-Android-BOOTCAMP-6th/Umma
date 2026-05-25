@@ -2,8 +2,8 @@ package com.example.umma.domain.repository
 
 import com.example.umma.domain.model.learningstate.LangCode
 import com.example.umma.domain.model.statistics.StatisticsHistory
-import com.example.umma.domain.model.statistics.StatisticsHistoryState
 import com.example.umma.domain.model.statistics.StatisticsHistoryRecordResult
+import com.example.umma.domain.model.statistics.StatisticsHistoryState
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -26,4 +26,15 @@ interface StatisticsRepository {
      * 구현체는 local 저장 성공을 우선 기준으로 삼고, remote sync 실패는 pending 으로 남긴다.
      */
     suspend fun recordHistory(history: StatisticsHistory): Result<StatisticsHistoryRecordResult>
+
+    /**
+     * Firestore의 최신 history를 local cache에 보정한다.
+     *
+     * 화면은 이 결과를 직접 그리지 않고 local observe 결과를 다시 읽는다.
+     * 기존 usecase 테스트의 단순 test double은 refresh를 사용하지 않으므로 기본 실패 구현을 둔다.
+     * 실제 STAT-004 경로에서 쓰는 real/fake repository는 반드시 override한다.
+     */
+    suspend fun refreshHistory(userId: String, language: LangCode): Result<Unit> {
+        return Result.failure(UnsupportedOperationException("refreshHistory is not implemented"))
+    }
 }
