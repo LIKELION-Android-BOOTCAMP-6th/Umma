@@ -17,7 +17,7 @@ fun SrsStudyScreen() {
     Scaffold(
         topBar = {
             UmmaAppBar(
-                title = "복습",
+                title = "학습",
                 isCenterTitle = true
             )
         }
@@ -28,7 +28,7 @@ fun SrsStudyScreen() {
             // 지금은 라우트/테마/앱바 연결만 확인하고, 카드 UI 는 SRS-002 이후 단계에서 붙인다.
             // 이 화면은 흐름 검증용 진입점이라 실제 deck 렌더링 전까지는 가벼운 플레이스홀더만 둔다.
             Text(
-                text = "복습 플레이스 홀더",
+                text = "학습 플레이스 홀더",
                 textAlign = TextAlign.Center
             )
         }
