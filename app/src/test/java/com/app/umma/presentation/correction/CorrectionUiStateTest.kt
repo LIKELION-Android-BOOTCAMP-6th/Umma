@@ -546,6 +546,59 @@ class CorrectionUiStateTest {
         assertNull(afterError.saveErrorReason)
     }
 
+    // ─── COR-003-B: 카드 화면 상태 렌더링 invariant 회귀 ────────────────────────
+    // 이슈 #134 엣지 케이스 "Empty / Error 상태인데 이전 카드가 남아 보이는 경우" 를 못 박는다.
+    // [applyGenerationOutcome] 이 모든 비-Content outcome 에서 suggestions 를 비운다는
+    // 계약을 COR-003-B SSOT 회귀로 명시한다. [applyGenerationOutcome clears stale ...] 테스트와
+    // 의미가 겹치지만, 이 두 건은 *카드 화면 상태 구분* 관점의 invariant 를 독립적으로 못 박는다.
+    // (하나가 깨져도 나머지가 살아 어느 invariant 가 깨졌는지 즉시 식별 가능하게 한다.)
+
+    @Test
+    fun `applyGenerationOutcome on EmptyResult clears suggestions to prevent leftover cards`() {
+        // COR-003-B 엣지: "Empty 상태인데 이전 카드가 남아 보이는 경우".
+        // Generating 직전까지 suggestions 가 채워진 Content 상태(=Retry 흐름)에서도
+        // EmptyResult outcome 적용 후 suggestions 가 완전히 비워져야 한다.
+        val staleContent = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Generating,
+            suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
+        )
+
+        val next = staleContent.applyGenerationOutcome(Result.success(emptyList()))
+
+        // EmptyResult 로 전환됐는지 확인.
+        assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)
+        // 이전 카드가 남지 않아야 한다 — 카드 화면이 비어 있어야 하는 상태의 핵심 invariant.
+        assertTrue(
+            "EmptyResult 상태에서 이전 suggestions 가 잔존하면 안 됨",
+            next.suggestions.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `applyGenerationOutcome on Error clears suggestions to prevent leftover cards`() {
+        // COR-003-B 엣지: "Error 상태인데 Content UI(카드 목록)가 함께 노출되는 경우".
+        // AI 호출/파싱 실패로 Error 로 전환될 때, 직전 Content phase 의 suggestions 가
+        // 남아 있으면 화면 분기는 CorrectionError 를 그리지만 stale 카드 데이터가 UiState 에
+        // 잔존해 이후 phase 전환 시 렌더링 이상이 생길 수 있다.
+        val staleContent = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Generating,
+            suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
+        )
+
+        val next = staleContent.applyGenerationOutcome(
+            Result.failure(CorrectionSuggestionFixtures.generateFailure("candidateId mismatch")),
+        )
+
+        // Error 로 전환됐는지 확인.
+        assertEquals(CorrectionUiState.Phase.Error, next.phase)
+        assertEquals("candidateId mismatch", next.errorReason)
+        // 이전 카드가 남지 않아야 한다 — Error UI 와 Content 카드 UI 가 동시에 노출되는 경우를 차단.
+        assertTrue(
+            "Error 상태에서 이전 suggestions 가 잔존하면 안 됨",
+            next.suggestions.isEmpty(),
+        )
+    }
+
     /**
      * 테스트용 GlobalLangState 빌더.
      *

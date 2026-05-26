@@ -2,6 +2,7 @@ package com.app.umma.presentation.correction
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -19,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
@@ -52,7 +55,9 @@ import com.app.umma.presentation.correction.component.CorrectionResultList
  * 끌어올려 "AI 와 대화하기" CTA 를 노출하고, 클릭 시 [onNavigateToChat] 콜백으로 위임한다.
  * COR-002-B 에서는 AI 응답 0건([CorrectionUiState.Phase.EmptyResult]) 을 [CorrectionEmptyResult] 로,
  * 호출/파싱/필수 필드 실패([CorrectionUiState.Phase.Error]) 를 [CorrectionError] + Retry 버튼으로 연결한다.
- * Loading / Generating phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
+ * COR-003-B 에서는 Loading / Ready / Generating 세 phase 를 [CorrectionLoading] 단일 컴포저블로 묶어
+ * CircularProgressIndicator + 안내 텍스트를 표시한다. 세 phase 는 사용자 관점에서 모두 "카드가 등장하기 전
+ * 대기 시간"이라 동일한 시각으로 통합한다(FLOW_CORRECTION.md §3 "진입 후 Loading 을 거쳐 카드 목록 확인").
  *
  * @param onNavigateToDashboard 완료 파이프라인 성공 후 Dashboard 로 복귀시켜야 할 때 호출되는 1회성 콜백.
  *  실제 navigate 와 backstack 정리(popUpTo<CorrectionGraph> inclusive=true + launchSingleTop) 책임은
@@ -99,8 +104,9 @@ fun CorrectionScreen(
         // COR-004:   Content 분기에서는 카드 목록(weight=1f) 아래에 저장 버튼을 화면 하단에 고정한다.
         //            Scaffold.bottomBar 슬롯이 아닌 content 내부에 두는 이유 — 다른 phase 에서는
         //            저장 버튼 자체가 의미가 없어 bottomBar 가 빈 영역으로 남는 문제를 피한다.
-        // 나머지 phase 는 COR-002-A 시각 검증용 텍스트 분기를 그대로 유지하며,
-        // 사용자 노출 디자인은 후속 backlog 에서 다룬다.
+        // COR-003-B: Loading / Ready / Generating 은 [CorrectionLoading] 단일 분기로 묶어
+        //            CircularProgressIndicator 를 노출한다. 세 phase 에서 카드 목록이 호출되지 않음을
+        //            when 분기 완전성으로 컴파일 타임에 보장한다(엣지: "Loading 중 중복 카드 노출" 차단).
         when (uiState.phase) {
             CorrectionUiState.Phase.Content -> {
                 Column(
@@ -169,7 +175,25 @@ fun CorrectionScreen(
                 )
             }
 
+            // COR-003-B: 카드가 등장하기 전 대기 구간을 단일 Loading UI 로 표시한다.
+            // - Loading: preload 대기 (첫 emit 전)
+            // - Ready  : ViewModel 이 즉시 Generating 으로 전이시키므로 보통 한 프레임만 보인다.
+            // - Generating: AI 호출 in-flight.
+            // 세 phase 모두 사용자 관점에서 동일한 "준비 중" 의미이므로 같은 컴포저블로 통합한다.
+            CorrectionUiState.Phase.Loading,
+            CorrectionUiState.Phase.Ready,
+            CorrectionUiState.Phase.Generating -> {
+                CorrectionLoading(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                )
+            }
+
             else -> {
+                // COR-006-A: Done phase — 완료 파이프라인 성공 안내.
+                // Dashboard 복귀는 COR-007-A 가 1회성 navigation 이벤트로 잇는다(이 화면에서 머무는 시간은 짧을 예정).
+                // Content / Empty / EmptyResult / Error / Loading / Ready / Generating 은 위에서 이미 처리.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -177,43 +201,60 @@ fun CorrectionScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    when (uiState.phase) {
-                        CorrectionUiState.Phase.Loading -> {
-                            Text(text = "로딩 중…", textAlign = TextAlign.Center)
-                        }
-
-                        CorrectionUiState.Phase.Ready -> {
-                            // Ready 진입 직후 ViewModel 이 즉시 Generating 으로 전이시키므로 이 분기는 보통 한 프레임만 보인다.
-                            Text(text = "교정 결과를 준비합니다…", textAlign = TextAlign.Center)
-                            Text(
-                                text = "언어=${uiState.selectedLearningLanguage?.code} · " +
-                                        "최근 주제=${uiState.sessionSummary?.recentTopic ?: "-"}",
-                                textAlign = TextAlign.Center
-                            )
-                        }
-
-                        CorrectionUiState.Phase.Generating -> {
-                            Text(text = "AI 가 교정 결과를 생성 중…", textAlign = TextAlign.Center)
-                        }
-
-                        CorrectionUiState.Phase.Done -> {
-                            // COR-006-A: 완료 파이프라인 성공 안내. Dashboard 복귀 버튼은 COR-007-A 가
-                            // 1회성 navigation 이벤트로 잇는다(이 화면에서 머무는 시간은 짧을 예정).
-                            val savedCount = uiState.completionResult?.savedFlashcardIds?.size ?: 0
-                            Text(text = "저장이 완료되었어요", textAlign = TextAlign.Center)
-                            Text(
-                                text = "${savedCount}개 카드가 학습 목록에 추가되었어요",
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-
-                        // Content / Empty / EmptyResult / Error 분기는 위의 when 에서 이미 처리.
-                        else -> Unit
-                    }
+                    val savedCount = uiState.completionResult?.savedFlashcardIds?.size ?: 0
+                    Text(text = "저장이 완료되었어요", textAlign = TextAlign.Center)
+                    Text(
+                        text = "${savedCount}개 카드가 학습 목록에 추가되었어요",
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
     }
+}
+
+/**
+ * COR-003-B: 카드 화면 Loading UI.
+ *
+ * 노출 조건 (세 phase 를 사용자 관점에서 단일 시각으로 통합):
+ *  - [CorrectionUiState.Phase.Loading]    : preload 대기 — 첫 GlobalLangState emit 전.
+ *  - [CorrectionUiState.Phase.Ready]      : Ready 게이트 통과 직후. ViewModel 이 즉시 Generating 으로
+ *                                           전이시키므로 보통 한 프레임만 보인다.
+ *  - [CorrectionUiState.Phase.Generating] : AI 호출 in-flight.
+ *
+ * 설계 근거: FLOW_CORRECTION.md §3 "사용자는 진입 후 Loading 을 거쳐 교정 결과 카드 목록을 확인한다."
+ * 에서 카드 화면의 Loading 은 이 세 phase 를 하나의 "준비 중" 구간으로 표기한다.
+ *
+ * 인디케이터 색상은 [ThemePrimary] — 다른 화면(학습 버튼 활성 토큰) 과 일관.
+ * 안내 텍스트는 사용자에게 "아직 로딩 중" 임을 인지시키는 최소 안내이며, logcat 진단용
+ * Ready 디버깅 정보(언어 / 최근 주제)는 이 컴포저블 표면에 노출하지 않는다.
+ */
+@Composable
+private fun CorrectionLoading(
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(SpacingM),
+        ) {
+            // Material3 기본 stroke 크기를 유지하고 앱 테마 색만 적용한다.
+            CircularProgressIndicator(color = ThemePrimary)
+            Text(
+                text = "교정 결과를 준비하고 있어요",
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF8F2E5, name = "Loading 상태")
+@Composable
+private fun CorrectionLoadingPreview() {
+    CorrectionLoading()
 }
 
 /**
