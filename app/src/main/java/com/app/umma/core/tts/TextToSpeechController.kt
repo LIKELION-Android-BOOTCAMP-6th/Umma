@@ -6,9 +6,7 @@ import android.util.Log
 import com.app.umma.domain.model.learningstate.LangCode
 import java.util.Locale
 import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
 class TextToSpeechController @Inject constructor(
     private val context: Context
 ) {
