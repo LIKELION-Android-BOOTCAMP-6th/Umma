@@ -36,7 +36,11 @@ import javax.inject.Inject
  * SSOT: COR-001_Initial_State.md / COR-002_Suggestion_Generation.md
  *
  * 책임:
- *  - (COR-001-A) [GlobalLangState] 구독 → Ready / NotAvailable 분기.
+ *  - (COR-001-A) [GlobalLangState] 구독 → Ready / Empty 분기. (구 `NotAvailable` 의 rename — COR-001-B 정합화 결과.)
+ *  - (COR-001-B) 결손 4종(선택 언어 없음 / SessionSummary 없음 / LangState snapshot 없음 / correctionAvailable=false)
+ *    을 [CorrectionUiState.Phase.Empty] 한 분기로 묶고, 중복 collect / 중복 generate 두 가드를
+ *    각각 [enterJob] 활성 체크 + [com.app.umma.presentation.correction.shouldTriggerGeneration] pure helper 로
+ *    보장한다. 화면 레이어가 Empty 상태에서 AI Chat 이동 CTA 를 노출하는 책임은 [CorrectionScreen] 이 진다.
  *  - (COR-002-A) Ready 첫 emit 시 사용자 추가 입력 없이 generateSuggestions 를 1회 자동 트리거.
  *    RT-003 correction context → 후보 추출 → AI 호출 → CorrectionSuggestion 목록 → Content / Error.
  *
@@ -62,16 +66,18 @@ import javax.inject.Inject
  *    compression/statistics 실패 비롤백 테스트가 함께 보장한다.
  *
  * 비범위:
- *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
+ *  - Content phase 안에서 suggestions 가 0 개일 때의 빈 결과 UX / Retry / 선택 언어 변경 재트리거 → COR-002-B.
+ *    (COR-001-B 의 [CorrectionUiState.Phase.Empty] 와 다른 의미 — Ready 게이트 미통과 vs Content 0건 분리.)
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
  *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
-    // 화면 진입 직후 1회 LearningState 적재. 네트워크 실패해도 NotAvailable 로 fallback 되므로 throw 하지 않는다.
+    // 화면 진입 직후 1회 LearningState 적재. 네트워크 실패해도 Empty 로 fallback 되므로 throw 하지 않는다.
+    // (COR-001-B: 구 표기 `NotAvailable` → `Empty` 로 rename. 의미는 동일.)
     private val preloadLearningState: PreloadLearningStateUseCase,
-    // GlobalLangState 변경을 Flow 로 구독. Ready / NotAvailable 분기의 단일 입력원.
+    // GlobalLangState 변경을 Flow 로 구독. Ready / Empty 분기의 단일 입력원.
     private val observeLearningState: ObserveLearningStateUseCase,
     // RT-003 read model. 현재 세션의 user turn 목록을 Flow 첫 emit 으로 가져온다.
     private val getCorrectionContext: GetCorrectionContextUseCase,
@@ -107,6 +113,9 @@ class CorrectionViewModel @Inject constructor(
     val events: Flow<CorrectionEvent> = _events.receiveAsFlow()
 
     // ensureObservation() 의 collect coroutine 핸들. 이미 active 면 재구독을 막아 중복 collect 를 방지한다.
+    // (COR-001-B AC "중복 요청과 중복 초기화 방지" 의 1차 가드 — 화면 재진입으로 onEnter 가 다시 불려도
+    //  같은 인스턴스에서는 새 collect 가 시작되지 않는다. ViewModel 인스턴스가 새로 만들어진 경우에는
+    //  자연스럽게 새 collect 가 시작되며, 이는 의도된 동작.)
     private var enterJob: Job? = null
 
     // COR-006-A: 완료 파이프라인 호출의 coroutine 핸들. isCompleting 플래그와 함께 이중으로 중복 호출을 막는다.
@@ -118,7 +127,11 @@ class CorrectionViewModel @Inject constructor(
      * Ready 진입 시 generateSuggestions 트리거를 한 번만 실행하기 위한 가드.
      *
      * 1-1.COR-001-A 범위에서는 한 번 생성이 시작된 뒤 GlobalLangState 가 다시 Ready 를 흘려보내도 무시한다.
-     * 선택 언어 변경 / Retry 정책은 4-1.COR-001-B 에서 이 가드를 푸는 방향으로 확장한다.
+     * 선택 언어 변경 / Retry 정책은 후속 COR-002-B 에서 이 가드를 푸는 방향으로 확장한다.
+     *
+     * COR-001-B: 분기 결정 자체는 [shouldTriggerGeneration] pure helper 가 가지고 있고, 본 플래그는
+     * 그 helper 의 두 번째 인자(`alreadyLaunched`) 와 1:1 대응한다. ViewModel 본문은 helper 호출 결과만
+     * 보고, 회귀 테스트는 helper 단위에서 phase × launched 조합을 모두 못 박는다.
      */
     private var generationLaunched = false
 
@@ -126,7 +139,20 @@ class CorrectionViewModel @Inject constructor(
         ensureObservation()
     }
 
+    /**
+     * GlobalLangState 구독 셋업.
+     *
+     * COR-001-B 중복 방어 가드 (두 겹):
+     *  1. [enterJob] 활성 체크 — 같은 ViewModel 인스턴스에서 [onEnter] 가 여러 번 호출되어도
+     *     새 collect 가 시작되지 않는다. 화면 재진입 / recomposition 시 [CorrectionScreen]
+     *     의 LaunchedEffect 가 다시 발화되어도 안전.
+     *  2. [shouldTriggerGeneration] — Ready 가 emit 된 직후 generate 트리거 분기를 결정하는
+     *     pure helper. 한 번 launched=true 가 되면 GlobalLangState refresh 로 Ready 가 다시
+     *     흘러와도 false 를 돌려 두 번째 generate 를 막는다. 동시에 Empty / 진행 단계에서는
+     *     phase 자체로 막혀 generate 가 시작되지 않는다.
+     */
     private fun ensureObservation() {
+        // 가드 1: 이미 collect 중이면 새 coroutine 을 띄우지 않는다. (COR-001-B AC "중복 초기화 방지")
         if (enterJob?.isActive == true) {
             Log.d(TAG, "ensureObservation() skipped — already collecting")
             return
@@ -135,20 +161,22 @@ class CorrectionViewModel @Inject constructor(
             Log.d(TAG, "ensureObservation() — COR-001-A preload start")
 
             preloadLearningState().exceptionOrNull()?.let { e ->
-                Log.w(TAG, "preload failed — falling back to NotAvailable", e)
+                // 실패해도 NotAvailable(=Empty) 분기로 fallback 되어 화면 흐름은 막히지 않는다.
+                Log.w(TAG, "preload failed — falling back to Empty", e)
             }
 
             observeLearningState().collect { global ->
                 // -A 가드: generate 가 시작된 뒤에는 LangState refresh 로 Ready 가 다시 떨어져도
-                // Generating/Content/Error 를 덮어쓰지 않는다. Retry 정책은 -B 에서 다룬다.
+                // Generating/Content/Error 를 덮어쓰지 않는다. Retry 정책은 후속에서 다룬다.
                 if (generationLaunched) {
                     return@collect
                 }
 
                 val next = global.toCorrectionUiState()
+                // logcat 진단용 — UI 는 Empty 한 분기로 합쳐 보여주므로 사유 식별은 이 로그가 단일 SSOT.
                 val reason = global.notAvailableReason()
                 if (reason != null) {
-                    Log.d(TAG, "NotAvailable — $reason")
+                    Log.d(TAG, "Empty — $reason")
                 } else {
                     Log.d(
                         TAG,
@@ -159,7 +187,10 @@ class CorrectionViewModel @Inject constructor(
                 }
                 _uiState.value = next
 
-                if (next.phase == CorrectionUiState.Phase.Ready) {
+                // 가드 2 (COR-001-B): generate 트리거 분기는 pure helper 가 결정한다.
+                // helper 가 false 를 돌리는 모든 경우(Empty / 이미 launched / Generating 등) 가
+                // CorrectionUiStateTest 의 shouldTriggerGeneration 표 회귀로 못 박혀 있다.
+                if (shouldTriggerGeneration(next.phase, generationLaunched)) {
                     generationLaunched = true
                     triggerGeneration(next)
                 }

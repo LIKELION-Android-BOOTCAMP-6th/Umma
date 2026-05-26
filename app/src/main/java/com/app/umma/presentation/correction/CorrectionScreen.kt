@@ -25,6 +25,7 @@ import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
+import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.presentation.correction.component.CorrectionResultList
@@ -47,16 +48,22 @@ import com.app.umma.presentation.correction.component.CorrectionResultList
  * [CorrectionEvent.NavigateToDashboard] 를 collect 해 [onNavigateToDashboard] 콜백을 호출,
  * 상위 NavHost 가 backstack 을 정리하며 Dashboard 로 복귀시킨다. Channel 기반이라 회전/recomposition
  * 으로 동일 이벤트가 재발화되지 않는다(AC: "완료 성공 이벤트는 한 번만 소비된다").
- * Loading / Generating / NotAvailable / Error phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
+ * COR-001-B 에서는 [CorrectionUiState.Phase.Empty] (구 NotAvailable) 분기를 [CorrectionEmpty] 컴포저블로
+ * 끌어올려 "AI 와 대화하기" CTA 를 노출하고, 클릭 시 [onNavigateToChat] 콜백으로 위임한다.
+ * Loading / Generating / Error phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
  *
  * @param onNavigateToDashboard 완료 파이프라인 성공 후 Dashboard 로 복귀시켜야 할 때 호출되는 1회성 콜백.
  *  실제 navigate 와 backstack 정리(popUpTo<CorrectionGraph> inclusive=true + launchSingleTop) 책임은
  *  상위 NavHost 가 가진다.
+ * @param onNavigateToChat COR-001-B: Empty 상태 CTA 가 클릭됐을 때 호출되는 콜백. AI Chat 으로 이동시키며,
+ *  탭 전환 정책(popUpTo<Dashboard>{saveState=true} + launchSingleTop + restoreState)은 상위 NavHost 가
+ *  결정한다. ViewModel 이 결정하는 1회성 effect 가 아니라 사용자 직접 의도라서 콜백 직결 흐름이다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CorrectionScreen(
     onNavigateToDashboard: () -> Unit,
+    onNavigateToChat: () -> Unit,
     viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -125,6 +132,18 @@ fun CorrectionScreen(
                 }
             }
 
+            // COR-001-B: 결손 케이스(언어/세션/LangState 없음, correctionAvailable=false)는 단일 Empty 분기로
+            // 묶고, 짧은 안내 + AI Chat 이동 CTA 를 함께 노출한다. 어느 필드가 비었는지는 ViewModel 의
+            // logcat (notAvailableReason) 으로만 추적하며, UiState 표면에 별도 reason 필드는 두지 않는다.
+            CorrectionUiState.Phase.Empty -> {
+                CorrectionEmpty(
+                    onNavigateToChat = onNavigateToChat,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                )
+            }
+
             else -> {
                 Column(
                     modifier = Modifier
@@ -136,11 +155,6 @@ fun CorrectionScreen(
                     when (uiState.phase) {
                         CorrectionUiState.Phase.Loading -> {
                             Text(text = "로딩 중…", textAlign = TextAlign.Center)
-                        }
-
-                        CorrectionUiState.Phase.NotAvailable -> {
-                            // 결손 케이스 — 어느 필드가 비었는지는 logcat (CorrectionViewModel) 으로 추적.
-                            Text(text = "아직 교정할 대화가 없어요", textAlign = TextAlign.Center)
                         }
 
                         CorrectionUiState.Phase.Ready -> {
@@ -175,11 +189,60 @@ fun CorrectionScreen(
                             )
                         }
 
-                        // Content 분기는 위의 when 에서 이미 처리.
+                        // Content / Empty 분기는 위의 when 에서 이미 처리.
                         else -> Unit
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * COR-001-B: 결손 케이스 Empty UI.
+ *
+ * 노출 조건:
+ *  - selectedLearningLanguage 가 없음
+ *  - 선택 언어 기준 SessionSummary 가 없음
+ *  - 선택 언어 기준 LangState snapshot 이 없음
+ *  - SessionSummary.correctionAvailable == false
+ *
+ * 위 4종 중 어느 분기로 떨어졌는지는 화면에 보여주지 않는다 — 사용자 관점에서는 모두 "지금은 교정할 대화가 없다"
+ * 한 가지 의미라 분기 노출이 의미 없고, 실 디버깅은 [CorrectionViewModel] 의 logcat ([com.app.umma.presentation.correction.notAvailableReason])
+ * 가 단일 SSOT 다.
+ *
+ * CTA "AI 와 대화하기" 는 사용자가 교정 가능한 대화를 만들 수 있는 진입점으로 안내한다. 클릭 시 상위 NavHost 가
+ * 탭 전환 패턴(`UmmaBottomAppBar` 와 동일: `popUpTo<Dashboard>{saveState=true} + launchSingleTop + restoreState`)
+ * 으로 Chat 그래프로 이동시킨다. 사용자가 다시 교정 탭으로 돌아오면 backstack 이 복원되어 자연스러운 재진입을 보장한다.
+ */
+@Composable
+private fun CorrectionEmpty(
+    onNavigateToChat: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "아직 교정할 대화가 없어요",
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "AI 와 대화를 시작해 보세요",
+            textAlign = TextAlign.Center,
+        )
+        Button(
+            // BottomBar Chat 탭 라벨("대화") 와 일관된 라벨링. "AI Chat 이동" 문구는 설계 문서 표기.
+            onClick = onNavigateToChat,
+            shape = RoundedCornerShape(ChipCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+            modifier = Modifier
+                .padding(top = SpacingL)
+                .padding(horizontal = SpacingL, vertical = SpacingS),
+        ) {
+            Text(text = "AI 와 대화하기")
         }
     }
 }

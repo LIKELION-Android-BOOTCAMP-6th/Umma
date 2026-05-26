@@ -19,23 +19,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * COR-001-A 분기 로직 회귀 테스트.
+ * COR-001-A 분기 로직 + COR-001-B Empty 분기 / 중복 방어 가드 회귀 테스트.
  *
  * [GlobalLangState.toCorrectionUiState] 는 [CorrectionViewModel] 의 collect 본체에서 분리한
  * 순수 함수다. ViewModel 자체는 viewModelScope/Main dispatcher 셋업이 필요해 무겁지만,
  * 이 함수는 [GlobalLangState] 만 받으면 동일한 결과를 돌려주므로 모든 AC 시나리오를
  * coroutines-test 의존성 없이 즉시 회귀할 수 있다.
+ *
+ * COR-001-B 에서는 [Phase.NotAvailable] 이 [Phase.Empty] 로 rename 되었고, generate 트리거 가드를
+ * [shouldTriggerGeneration] pure helper 로 분리해 phase × launched 조합을 표 형태로 회귀한다.
  */
 class CorrectionUiStateTest {
 
     @Test
-    fun `returns NotAvailable when userPref is missing`() {
+    fun `returns Empty when userPref is missing`() {
         // emptyDataStore 와 동일 — 신규 사용자, 아직 onboarding 도 안 함.
+        // COR-001-B: 구 `NotAvailable` 의 rename — 결손 분기는 단일 Empty 로 합쳐 보여준다.
         val global = GlobalLangState.initial()
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         assertNull(state.selectedLearningLanguage)
         assertEquals(
             "selectedLang == null (userPref absent)",
@@ -44,7 +48,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when SessionSummary is missing for the selected language`() {
+    fun `returns Empty when SessionSummary is missing for the selected language`() {
         // userPref / langState 는 있지만 sessionSummaries 가 비어있는 케이스.
         val lang = LangCode.EN
         val global = GlobalLangState(
@@ -57,7 +61,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         assertEquals(lang, state.selectedLearningLanguage)
         assertNull(state.sessionSummary)
         assertEquals(
@@ -67,7 +71,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when LangState snapshot is missing`() {
+    fun `returns Empty when LangState snapshot is missing`() {
         // sessionSummary 는 살아있고 correctionAvailable=true 인데 langStates 만 비어 있는 케이스.
         val lang = LangCode.EN
         val global = GlobalLangState(
@@ -87,7 +91,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         assertNotNull(state.sessionSummary)
         assertNull(state.langStateSnapshot)
         assertEquals(
@@ -97,7 +101,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when correctionAvailable is false`() {
+    fun `returns Empty when correctionAvailable is false`() {
         // 모든 필드 채워졌으나 correctionAvailable 만 false — Ready 게이트가 닫혀 있음.
         val lang = LangCode.EN
         val global = buildGlobal(
@@ -112,7 +116,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         // 필드는 채워서 노출 — 디버깅 / 후속 단계 참고용.
         assertEquals(lang, state.selectedLearningLanguage)
         assertNotNull(state.sessionSummary)
@@ -146,7 +150,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when SessionSummary correctionAvailable is false even if DashSummary is true`() {
+    fun `returns Empty when SessionSummary correctionAvailable is false even if DashSummary is true`() {
         // AC 6 (마지막 줄): "DashSummary 가 아니라 SessionSummary 기준" 검증.
         // 두 필드가 모순될 때 Ready 판정 근거가 어느 쪽인지 못박는 회귀 테스트.
         val lang = LangCode.EN
@@ -163,7 +167,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
     }
 
     // ─── COR-004: canSave 회귀 ───────────────────────────────────────────────
@@ -382,6 +386,54 @@ class CorrectionUiStateTest {
         assertEquals(previousRequest, next.saveRequest)
         assertEquals(setOf("s-1"), next.selectedSuggestionIds)
         assertNull(next.completionResult)
+    }
+
+    // ─── COR-001-B: 중복 방어 가드 회귀 ───────────────────────────────────────
+    // [shouldTriggerGeneration] 는 [CorrectionViewModel.ensureObservation] 의 generate 트리거
+    // 분기 결정을 pure function 으로 추출한 것이다. ViewModel 본문과 항상 동치여야 한다는 invariant
+    // 를 phase × launched 조합 표로 못 박는다. 본 4건이 깨지면 ViewModel 본문도 함께 깨진 것.
+
+    @Test
+    fun `shouldTriggerGeneration returns true on Ready when not yet launched`() {
+        // happy path — Ready 첫 emit 직후 한 번만 트리거된다.
+        assertTrue(shouldTriggerGeneration(CorrectionUiState.Phase.Ready, alreadyLaunched = false))
+    }
+
+    @Test
+    fun `shouldTriggerGeneration returns false when already launched`() {
+        // COR-001-B AC "중복 요청 방지" 의 핵심 — GlobalLangState refresh 로 Ready 가 다시 흘러와도
+        // launched 가 true 면 두 번째 generate 가 시작되면 안 된다.
+        assertFalse(shouldTriggerGeneration(CorrectionUiState.Phase.Ready, alreadyLaunched = true))
+    }
+
+    @Test
+    fun `shouldTriggerGeneration returns false on Empty regardless of launched flag`() {
+        // 결손 분기에서는 launched 와 무관하게 generate 가 일어나면 안 된다. 사용자가 Empty 화면에서
+        // CTA 클릭 없이 가만히 있어도, refresh 가 들어와도 어느 쪽이든 false.
+        assertFalse(shouldTriggerGeneration(CorrectionUiState.Phase.Empty, alreadyLaunched = false))
+        assertFalse(shouldTriggerGeneration(CorrectionUiState.Phase.Empty, alreadyLaunched = true))
+    }
+
+    @Test
+    fun `shouldTriggerGeneration returns false on Loading Generating Content Error Done`() {
+        // Ready 이외의 모든 phase 는 generate 진입 자격이 없다는 invariant. enum 분기 회귀.
+        // Ready 만 트리거 자격 → 나머지 모두 false 가 보장되어야 ViewModel 본문 한 줄 if 가 안전하다.
+        listOf(
+            CorrectionUiState.Phase.Loading,
+            CorrectionUiState.Phase.Generating,
+            CorrectionUiState.Phase.Content,
+            CorrectionUiState.Phase.Error,
+            CorrectionUiState.Phase.Done,
+        ).forEach { phase ->
+            assertFalse(
+                "$phase 에서는 generate 트리거가 일어나면 안 됨 (launched=false)",
+                shouldTriggerGeneration(phase, alreadyLaunched = false),
+            )
+            assertFalse(
+                "$phase 에서는 generate 트리거가 일어나면 안 됨 (launched=true)",
+                shouldTriggerGeneration(phase, alreadyLaunched = true),
+            )
+        }
     }
 
     /**
