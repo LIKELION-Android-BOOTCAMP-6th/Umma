@@ -1,5 +1,6 @@
 package com.app.umma.presentation.correction
 
+import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionFlashcardSaveItem
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
@@ -19,23 +20,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * COR-001-A 분기 로직 회귀 테스트.
+ * COR-001-A/B 분기 로직 + COR-002-B generate 결과 반영 회귀 테스트.
  *
  * [GlobalLangState.toCorrectionUiState] 는 [CorrectionViewModel] 의 collect 본체에서 분리한
  * 순수 함수다. ViewModel 자체는 viewModelScope/Main dispatcher 셋업이 필요해 무겁지만,
  * 이 함수는 [GlobalLangState] 만 받으면 동일한 결과를 돌려주므로 모든 AC 시나리오를
  * coroutines-test 의존성 없이 즉시 회귀할 수 있다.
+ *
+ * COR-001-B 에서는 [Phase.NotAvailable] 이 [Phase.Empty] 로 rename 되었고, generate 트리거 가드를
+ * [shouldTriggerGeneration] pure helper 로 분리해 phase × launched 조합을 표 형태로 회귀한다.
+ *
+ * COR-002-B 에서는 [applyGenerationOutcome] pure helper 로 result × suggestions.isEmpty 조합을
+ * 회귀한다(EmptyResult/Content/Error 3분기 + 공통 정리 invariant).
  */
 class CorrectionUiStateTest {
 
     @Test
-    fun `returns NotAvailable when userPref is missing`() {
+    fun `returns Empty when userPref is missing`() {
         // emptyDataStore 와 동일 — 신규 사용자, 아직 onboarding 도 안 함.
+        // COR-001-B: 구 `NotAvailable` 의 rename — 결손 분기는 단일 Empty 로 합쳐 보여준다.
         val global = GlobalLangState.initial()
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         assertNull(state.selectedLearningLanguage)
         assertEquals(
             "selectedLang == null (userPref absent)",
@@ -44,7 +52,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when SessionSummary is missing for the selected language`() {
+    fun `returns Empty when SessionSummary is missing for the selected language`() {
         // userPref / langState 는 있지만 sessionSummaries 가 비어있는 케이스.
         val lang = LangCode.EN
         val global = GlobalLangState(
@@ -57,7 +65,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         assertEquals(lang, state.selectedLearningLanguage)
         assertNull(state.sessionSummary)
         assertEquals(
@@ -67,7 +75,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when LangState snapshot is missing`() {
+    fun `returns Empty when LangState snapshot is missing`() {
         // sessionSummary 는 살아있고 correctionAvailable=true 인데 langStates 만 비어 있는 케이스.
         val lang = LangCode.EN
         val global = GlobalLangState(
@@ -87,7 +95,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         assertNotNull(state.sessionSummary)
         assertNull(state.langStateSnapshot)
         assertEquals(
@@ -97,7 +105,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when correctionAvailable is false`() {
+    fun `returns Empty when correctionAvailable is false`() {
         // 모든 필드 채워졌으나 correctionAvailable 만 false — Ready 게이트가 닫혀 있음.
         val lang = LangCode.EN
         val global = buildGlobal(
@@ -112,7 +120,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
         // 필드는 채워서 노출 — 디버깅 / 후속 단계 참고용.
         assertEquals(lang, state.selectedLearningLanguage)
         assertNotNull(state.sessionSummary)
@@ -146,7 +154,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `returns NotAvailable when SessionSummary correctionAvailable is false even if DashSummary is true`() {
+    fun `returns Empty when SessionSummary correctionAvailable is false even if DashSummary is true`() {
         // AC 6 (마지막 줄): "DashSummary 가 아니라 SessionSummary 기준" 검증.
         // 두 필드가 모순될 때 Ready 판정 근거가 어느 쪽인지 못박는 회귀 테스트.
         val lang = LangCode.EN
@@ -163,7 +171,7 @@ class CorrectionUiStateTest {
 
         val state = global.toCorrectionUiState()
 
-        assertEquals(CorrectionUiState.Phase.NotAvailable, state.phase)
+        assertEquals(CorrectionUiState.Phase.Empty, state.phase)
     }
 
     // ─── COR-004: canSave 회귀 ───────────────────────────────────────────────
@@ -382,6 +390,160 @@ class CorrectionUiStateTest {
         assertEquals(previousRequest, next.saveRequest)
         assertEquals(setOf("s-1"), next.selectedSuggestionIds)
         assertNull(next.completionResult)
+    }
+
+    // ─── COR-001-B: 중복 방어 가드 회귀 ───────────────────────────────────────
+    // [shouldTriggerGeneration] 는 [CorrectionViewModel.ensureObservation] 의 generate 트리거
+    // 분기 결정을 pure function 으로 추출한 것이다. ViewModel 본문과 항상 동치여야 한다는 invariant
+    // 를 phase × launched 조합 표로 못 박는다. 본 4건이 깨지면 ViewModel 본문도 함께 깨진 것.
+
+    @Test
+    fun `shouldTriggerGeneration returns true on Ready when not yet launched`() {
+        // happy path — Ready 첫 emit 직후 한 번만 트리거된다.
+        assertTrue(shouldTriggerGeneration(CorrectionUiState.Phase.Ready, alreadyLaunched = false))
+    }
+
+    @Test
+    fun `shouldTriggerGeneration returns false when already launched`() {
+        // COR-001-B AC "중복 요청 방지" 의 핵심 — GlobalLangState refresh 로 Ready 가 다시 흘러와도
+        // launched 가 true 면 두 번째 generate 가 시작되면 안 된다.
+        assertFalse(shouldTriggerGeneration(CorrectionUiState.Phase.Ready, alreadyLaunched = true))
+    }
+
+    @Test
+    fun `shouldTriggerGeneration returns false on Empty regardless of launched flag`() {
+        // 결손 분기에서는 launched 와 무관하게 generate 가 일어나면 안 된다. 사용자가 Empty 화면에서
+        // CTA 클릭 없이 가만히 있어도, refresh 가 들어와도 어느 쪽이든 false.
+        assertFalse(shouldTriggerGeneration(CorrectionUiState.Phase.Empty, alreadyLaunched = false))
+        assertFalse(shouldTriggerGeneration(CorrectionUiState.Phase.Empty, alreadyLaunched = true))
+    }
+
+    @Test
+    fun `shouldTriggerGeneration returns false on Loading Generating Content EmptyResult Error Done`() {
+        // Ready 이외의 모든 phase 는 generate 진입 자격이 없다는 invariant. enum 분기 완전성 회귀.
+        // COR-002-B 에서 추가된 EmptyResult 도 포함 — launched 와 무관하게 false.
+        listOf(
+            CorrectionUiState.Phase.Loading,
+            CorrectionUiState.Phase.Generating,
+            CorrectionUiState.Phase.Content,
+            CorrectionUiState.Phase.EmptyResult,
+            CorrectionUiState.Phase.Error,
+            CorrectionUiState.Phase.Done,
+        ).forEach { phase ->
+            assertFalse(
+                "$phase 에서는 generate 트리거가 일어나면 안 됨 (launched=false)",
+                shouldTriggerGeneration(phase, alreadyLaunched = false),
+            )
+            assertFalse(
+                "$phase 에서는 generate 트리거가 일어나면 안 됨 (launched=true)",
+                shouldTriggerGeneration(phase, alreadyLaunched = true),
+            )
+        }
+    }
+
+    // ─── COR-002-B: applyGenerationOutcome 회귀 ───────────────────────────────
+    // [applyGenerationOutcome] 은 [CorrectionViewModel.triggerGeneration] 의 result.fold 본문을
+    // pure function 으로 추출한 것이다. result × suggestions.isEmpty 조합 표를 못 박아
+    // ViewModel 분기 변경 시 이 5건이 깨지도록 한다.
+    // fixture: [CorrectionSuggestionFixtures.contentSuggestions] / emptyList() / generateFailure()
+
+    @Test
+    fun `applyGenerationOutcome on success with non-empty list transitions to Content`() {
+        // AC: "실제 AI 성공 응답에서 1개 이상을 생성하고 Content 상태로 전환한다."
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions()
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
+
+        val next = state.applyGenerationOutcome(Result.success(suggestions))
+
+        assertEquals(CorrectionUiState.Phase.Content, next.phase)
+        assertEquals(suggestions, next.suggestions)
+        assertTrue(next.selectedSuggestionIds.isEmpty())
+        assertNull(next.errorReason)
+        assertNull(next.saveRequest)
+        assertNull(next.saveErrorReason)
+    }
+
+    @Test
+    fun `applyGenerationOutcome on success with empty list transitions to EmptyResult`() {
+        // AC: "결과가 비어 있으면 Empty 상태를 반환한다." (설계 문서 = Phase.EmptyResult)
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
+
+        val next = state.applyGenerationOutcome(Result.success(emptyList()))
+
+        assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)
+        assertTrue(next.suggestions.isEmpty())
+        assertNull(next.errorReason)
+    }
+
+    @Test
+    fun `applyGenerationOutcome on failure with message transitions to Error`() {
+        // AC: "AI 요청 실패, 응답 파싱 실패, 필수 필드 누락 시 Error 상태로 전환."
+        val throwable = CorrectionSuggestionFixtures.generateFailure("candidateId mismatch")
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
+
+        val next = state.applyGenerationOutcome(Result.failure(throwable))
+
+        assertEquals(CorrectionUiState.Phase.Error, next.phase)
+        assertEquals("candidateId mismatch", next.errorReason)
+        assertTrue(next.suggestions.isEmpty())
+        assertNull(next.saveRequest)
+        assertNull(next.saveErrorReason)
+    }
+
+    @Test
+    fun `applyGenerationOutcome on failure with null message falls back to class simpleName`() {
+        // message == null 인 throwable 은 class simpleName 을 errorReason 으로 사용.
+        val throwable = CorrectionSuggestionFixtures.generateFailure()
+        // generateFailure 는 기본 메시지를 넣어주므로, message=null 케이스는 직접 만든다.
+        val noMessageThrowable = object : Throwable() {
+            override val message: String? = null
+        }
+        val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
+
+        val next = state.applyGenerationOutcome(Result.failure(noMessageThrowable))
+
+        assertEquals(CorrectionUiState.Phase.Error, next.phase)
+        // simpleName 은 anonymous object 라 빈 문자열이 될 수 있으므로, null 이 아닌 것만 확인.
+        assertNotNull(next.errorReason)
+    }
+
+    @Test
+    fun `applyGenerationOutcome clears stale selectedIds saveRequest saveErrorReason on all outcomes`() {
+        // 직전 Content 상태에서 selectedIds / saveRequest / saveErrorReason 이 채워져 있던 경우에도
+        // outcome 적용 후 모두 비워지는 invariant — 정리 책임을 helper 로 통합했음을 검증.
+        val staleState = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Generating,
+            suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
+            selectedSuggestionIds = setOf("s-1", "s-2"),
+            saveRequest = CorrectionSaveRequest(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                flashcards = emptyList(),
+            ),
+            saveErrorReason = "이전 저장 실패",
+        )
+
+        // 성공 케이스
+        val afterContent = staleState.applyGenerationOutcome(
+            Result.success(CorrectionSuggestionFixtures.contentSuggestions()),
+        )
+        assertTrue(afterContent.selectedSuggestionIds.isEmpty())
+        assertNull(afterContent.saveRequest)
+        assertNull(afterContent.saveErrorReason)
+
+        // 빈 목록 케이스
+        val afterEmptyResult = staleState.applyGenerationOutcome(Result.success(emptyList()))
+        assertTrue(afterEmptyResult.selectedSuggestionIds.isEmpty())
+        assertNull(afterEmptyResult.saveRequest)
+        assertNull(afterEmptyResult.saveErrorReason)
+
+        // 실패 케이스
+        val afterError = staleState.applyGenerationOutcome(
+            Result.failure(CorrectionSuggestionFixtures.generateFailure()),
+        )
+        assertTrue(afterError.selectedSuggestionIds.isEmpty())
+        assertNull(afterError.saveRequest)
+        assertNull(afterError.saveErrorReason)
     }
 
     /**

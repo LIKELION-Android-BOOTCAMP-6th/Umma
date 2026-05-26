@@ -21,8 +21,8 @@ import com.app.umma.domain.model.learningstate.LangCode
  * SSOT: COR-003_Result_Cards.md / COR-004_Card_Selection.md
  *
  * [suggestions] 리스트를 [LazyColumn] 으로 렌더링하여 카드 수가 많아질 때 스크롤이 가능하게 한다.
- * 빈 리스트는 Empty 화면 없이 그냥 빈 스크롤 영역으로 처리한다.
- * (Empty 상태 분리는 COR-002-B 에서 Phase.Empty 와 함께 다룬다.)
+ * AI 응답이 0건이면 [com.app.umma.presentation.correction.CorrectionUiState.Phase.EmptyResult] 로
+ * 분기되어 본 컴포넌트가 호출되지 않으므로, 인수 [suggestions] 는 항상 비어 있지 않다(COR-002-B 보장).
  *
  * COR-004:
  *  - [selectedIds] 로 각 카드의 선택 상태를 결정한다.

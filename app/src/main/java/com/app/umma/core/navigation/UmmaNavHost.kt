@@ -119,6 +119,19 @@ fun UmmaNavHost(
                             popUpTo<Route.CorrectionGraph> { inclusive = true }
                             launchSingleTop = true
                         }
+                    },
+                    onNavigateToChat = {
+                        // COR-001-B: Empty 상태 CTA — BottomBar 탭 전환과 동일 패턴.
+                        // - popUpTo<Dashboard>{saveState=true}: 현재 Correction 탭 backstack 상태를 보존해
+                        //   사용자가 다시 교정 탭으로 돌아오면 재진입이 자연스럽다. 시작점인 Dashboard 까지 pop 하므로
+                        //   다른 탭(Chat) 진입 시 backstack 이 평탄해진다.
+                        // - launchSingleTop=true + restoreState=true: 기존 Chat 인스턴스 재사용 + 상태 복원.
+                        //   UmmaBottomAppBar 의 탭 전환 정책과 1:1 동치라 두 진입점이 동일한 nav 결과를 만든다.
+                        navController.navigate(Route.Chat) {
+                            popUpTo<Route.Dashboard> { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 )
             }
