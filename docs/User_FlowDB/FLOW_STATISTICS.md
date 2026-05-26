@@ -3,7 +3,7 @@
 ## 1. 목표
 
 - 사용자는 Dashboard의 언어 성취율 카드에서 Statistics 화면으로 이동해 현재 선택 언어의 학습 성장 상태를 확인할 수 있다.
-- 사용자는 학습 지표 요약 카드를 보고, 각 지표 카드를 클릭해 시간별 변화 line chart를 확인할 수 있다.
+- 사용자는 학습 지표 요약 카드를 보고, 각 지표 카드를 클릭해 다이얼로그에서 시간별 변화 line chart를 확인할 수 있다.
 - Statistics 화면은 저장된 `StatisticsHistory`를 local cache 우선으로 조회한다.
 
 ---
@@ -25,10 +25,11 @@
 - Statistics 화면 진입 시 현재 선택 언어 기준 상태를 읽는다.
 - 현재 선택 언어의 `ExternalMetrics` 기반 요약 카드가 표시된다.
 - MVP 지표는 `vocabularyLevel`, `grammarAccuracy`, `expressionRange`, `fluencyScore`, `naturalnessScore`로 제한된다.
-- 사용자가 지표 카드를 클릭하면 해당 지표의 history line chart가 표시된다.
+- 사용자가 지표 카드를 클릭하면 해당 지표의 history line chart 다이얼로그가 표시된다.
 - line chart는 `StatisticsHistory`에서 만든 `MetricHistoryPoint`를 사용한다.
 - history 데이터가 부족하면 Empty chart 상태를 표시한다.
 - Firestore sync 실패는 화면 실패로 보지 않고 pending sync로 관리한다.
+- local에 남은 `PENDING` history는 재진입/갱신 시 Firestore write-back을 재시도한다.
 - Statistics route/screen/package 명칭은 System Flow 선행 작업에서 `Statistics` 기준으로 준비되어 있다.
 
 ---
@@ -39,8 +40,8 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | Statistics 진입 | Dashboard 언어 성취율 카드로 진입 | selectedLearningLanguage와 현재 ExternalMetrics를 확인 | Statistics 화면 초기 상태 구성 | 언어 없음 / 상태 로드 실패 | Loading / Ready / Error | STAT-001 |
 | 지표 요약 카드 표시 | 화면 진입 후 지표 확인 | 현재 선택 언어의 ExternalMetrics 5개를 요약 카드로 렌더링 | 지표 카드 표시 | 지표 없음 / 데이터 부족 | Content / Empty | STAT-002 |
-| 지표 line chart 표시 | 지표 카드 클릭 | 선택 지표의 StatisticsHistory를 MetricHistoryPoint로 변환해 line chart 표시 | 그래프 표시 | history 부족 / 조회 실패 | ChartLoading / Chart / Empty / Error | STAT-003 |
-| 동기화 및 재진입 | 화면 재진입, background sync 완료 | local cache 우선 렌더링 후 Firestore 보정 결과 반영 | 최신 history 반영 | sync pending / navigation 실패 | Content / PendingSync / Error | STAT-004 |
+| 지표 line chart 표시 | 지표 카드 클릭 | 선택 지표의 StatisticsHistory를 MetricHistoryPoint로 변환해 chart dialog 표시 | 그래프 다이얼로그 표시 | history 부족 / 조회 실패 | ChartLoading / Chart / Empty / Error | STAT-003 |
+| 동기화 및 재진입 | 화면 재진입, background refresh 완료 | local cache 우선 렌더링 후 Firestore 보정 결과 반영 | 최신 history 반영 | sync pending / navigation 실패 | Content / PendingSync / Error | STAT-004 |
 
 ---
 
@@ -83,9 +84,9 @@ Dashboard에서 전달되는 진입 정보가 있더라도 Statistics 화면의 
 2. Statistics 화면에 진입해 현재 선택 언어가 반영되는지 확인한다.
 3. Vocabulary Level, Grammar Accuracy, Expression Range, Fluency Score, Naturalness Score 요약 카드를 확인한다.
 4. Grammar Accuracy 카드를 클릭한다.
-5. Grammar Accuracy history line chart가 표시되는지 확인한다.
+5. Grammar Accuracy history line chart 다이얼로그가 표시되는지 확인한다.
 6. history 데이터가 부족한 지표를 클릭해 Empty chart 상태를 확인한다.
-7. 화면 재진입 시 local cache가 먼저 표시되고, background sync 결과가 반영되는지 확인한다.
+7. 화면 재진입 시 local cache가 먼저 표시되고, background refresh 결과가 반영되는지 확인한다.
 
 ---
 
@@ -127,8 +128,15 @@ MVP 차트는 모든 지표를 line chart로 통일한다.
 StatisticsHistory
 → selected metric
 → MetricHistoryPoint list
-→ line chart
+→ chart dialog
+→ Vico line chart
 ```
+
+지표 카드는 요약 정보와 클릭 진입점 역할을 유지한다.
+차트는 카드 자체를 전환하지 않고 다이얼로그로 표시한다.
+카드 영역이 이미 화면에서 차지하는 비중이 크므로, MVP에서는 선택 지표의 상세 변화만 다이얼로그에서 집중해서 보여준다.
+line chart 렌더링은 직접 Canvas로 모두 구현하지 않고 Vico 기반 Compose chart를 사용한다.
+다만 Vico는 이미 변환된 `MetricHistoryPoint`를 그리는 역할만 맡고, history 조회와 scale 변환은 UseCase / UI state mapper 경계에서 처리한다.
 
 `vocabularyLevel`은 A1~C2 label을 유지하되, line chart에서는 A1=1, A2=2, B1=3, B2=4, C1=5, C2=6 값으로 표시한다.
 `grammarAccuracy`, `fluencyScore`, `naturalnessScore`는 저장된 `ExternalMetrics` 원본 스케일을 그대로 화면에 노출하지 않고, 카드/차트 표시 단계에서 0~100 기준으로 환산한다.
@@ -139,6 +147,8 @@ Statistics 화면은 history를 생성하지 않는다.
 History 생성은 `SYS-STATISTICS-INFRA`의 `STI-002` 계약에 따라 교정 결과 Flashcard 저장과 `LS-006` Language State 업데이트가 모두 성공한 이후 호출되는 기록 UseCase에서 수행된다.
 화면 진입, Dashboard 진입, Flashcard 복습 결과 저장만으로는 MVP Statistics history를 생성하지 않는다.
 Firestore sync 실패는 사용자 화면 실패로 보지 않는다.
+Statistics 화면의 `background refresh`는 Firestore의 최신 history를 local Room에 보정하는 흐름이고, `pending sync`는 local에 먼저 저장된 history가 아직 Firestore에 올라가지 않은 상태다.
+이미 local에 저장된 pending history는 재진입 시 재동기화 대상이며, 성공한 row만 `SYNCED`로 정리한다.
 
 ---
 
@@ -146,7 +156,7 @@ Firestore sync 실패는 사용자 화면 실패로 보지 않는다.
 
 - Statistics Screen
 - Metric Summary Card
-- Metric Line Chart
+- Metric Line Chart Dialog
 - Empty Chart State
 - Chart Loading Skeleton
 - Pending Sync Indicator

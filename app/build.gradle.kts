@@ -12,11 +12,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.umma"
+    namespace = "com.app.umma"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.umma"
+        applicationId = "com.app.umma"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -42,6 +42,17 @@ android {
             )
         }
     }
+
+    flavorDimensions += "data"
+    productFlavors {
+        create("dev") {
+            dimension = "data"
+        }
+        create("mock") {
+            dimension = "data"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -56,6 +67,18 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+androidComponents {
+    beforeVariants(
+        selector()
+            .withFlavor("data" to "mock")
+            .withBuildType("release")
+    ) { variantBuilder ->
+        // mock은 화면 검증용이므로 release 변형을 만들지 않는다.
+        // 배포 후보는 devRelease만 사용한다.
+        variantBuilder.enable = false
     }
 }
 
@@ -92,6 +115,10 @@ dependencies {
     // Navigation
     implementation(libs.navigation.compose)
 
+    // Charts
+    implementation(libs.vico.compose)
+    implementation(libs.vico.compose.m3)
+
     // DataStore
     implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
@@ -108,6 +135,7 @@ dependencies {
     implementation(libs.googleid)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
