@@ -126,6 +126,7 @@ class SrsStudyViewModel @Inject constructor(
      * "다시 시도" 버튼 클릭 시 실행
      */
     fun onRetry() {
+        ttsController.stop()
         deckJob?.cancel()
         initJob = null
         deckJob = null
@@ -150,6 +151,8 @@ class SrsStudyViewModel @Inject constructor(
      * 평가 없으면 클릭 X
      */
     fun onConfirmRating() {
+        // 저장 중이면 return
+        if (_uiState.value.isSaving) return
         // 선택 안했으면 null: 종료
         val rating = _uiState.value.selectedRating ?: return
         // 현재 카드 없으면 null: 종료
@@ -199,8 +202,8 @@ class SrsStudyViewModel @Inject constructor(
     fun onPlayPronunciation() {
         val card = _uiState.value.currentCard ?: return
         val lang = _uiState.value.selectedLearningLanguage ?: return
-        // 언어 설정 실패해도 흐름 차단하지 않음
-        ttsController.setLanguage(lang)
+        // 언어 설정 실패-> 재생 X
+        if (!ttsController.setLanguage(lang)) return
         ttsController.speak(card.backText)
         _uiState.update { it.copy(isSpeaking = true) }
     }
