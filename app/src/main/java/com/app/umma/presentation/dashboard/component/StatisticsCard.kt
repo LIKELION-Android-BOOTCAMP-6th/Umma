@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import com.app.umma.R
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.CardCornerRadius
 import com.app.umma.core.theme.CardElevation
