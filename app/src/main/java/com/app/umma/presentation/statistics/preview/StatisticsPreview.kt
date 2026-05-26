@@ -70,6 +70,7 @@ fun StatisticsChartDialogPreview() {
  * 통계 카드에 실제 값이 들어온 상태를 보여주는 샘플 상태다.
  *
  * Preview에서만 쓰는 값이므로, 런타임 ViewModel이나 Repository에는 연결하지 않는다.
+ * 날짜를 흩어 놓은 이유는 x축 label, summary, marker가 한 화면에서 같이 보이도록 하기 위해서다.
  */
 private fun previewUiState(): StatisticsUiState {
     val language = LangCode.EN
@@ -100,21 +101,34 @@ private fun previewUiState(): StatisticsUiState {
 }
 
 private fun previewPoints() = listOf(
+    // preview에서는 1/1 반복 대신 실제 날짜 흐름이 보이도록 샘플을 분산시킨다.
     com.app.umma.domain.model.statistics.MetricHistoryPoint(
         metricType = StatisticsMetricType.GrammarAccuracy,
-        recordedAt = 1_000L,
+        recordedAt = 1_735_657_200_000L,
         value = 61.0,
         displayValue = "61%"
     ),
     com.app.umma.domain.model.statistics.MetricHistoryPoint(
         metricType = StatisticsMetricType.GrammarAccuracy,
-        recordedAt = 2_000L,
+        recordedAt = 1_736_260_800_000L,
         value = 73.0,
         displayValue = "73%"
     ),
     com.app.umma.domain.model.statistics.MetricHistoryPoint(
         metricType = StatisticsMetricType.GrammarAccuracy,
-        recordedAt = 3_000L,
+        recordedAt = 1_737_465_600_000L,
+        value = 69.0,
+        displayValue = "69%"
+    ),
+    com.app.umma.domain.model.statistics.MetricHistoryPoint(
+        metricType = StatisticsMetricType.GrammarAccuracy,
+        recordedAt = 1_740_326_400_000L,
+        value = 78.0,
+        displayValue = "78%"
+    ),
+    com.app.umma.domain.model.statistics.MetricHistoryPoint(
+        metricType = StatisticsMetricType.GrammarAccuracy,
+        recordedAt = 1_743_019_200_000L,
         value = 82.0,
         displayValue = "82%"
     )
