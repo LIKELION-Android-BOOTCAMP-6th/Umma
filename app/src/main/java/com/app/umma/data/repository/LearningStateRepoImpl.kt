@@ -17,6 +17,8 @@ import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Preferences DataStore + in-memory snapshot을 함께 쓰는 학습 상태 저장소 구현체.
@@ -58,6 +61,10 @@ class LearningStateRepoImpl @Inject constructor(
         explicitNulls = false
         ignoreUnknownKeys = true
     }
+
+    // turn 단위 중복 신호를 같은 프로세스 안에서 빠르게 걸러내기 위한 last seen key.
+    // persistent storage가 아니라도 동일 세션 내 재호출은 막아야 하므로 repo 수명 동안만 유지한다.
+    private val lastCorrectionSignalEventIds = ConcurrentHashMap<LangCode, String>()
 
     // 앱 세션 동안만 유지되는 즉시 반영용 메모리 스냅샷.
     private val _state = MutableStateFlow(GlobalLangState.initial())
@@ -269,6 +276,112 @@ class LearningStateRepoImpl @Inject constructor(
         }
     }
 
+    override suspend fun updateCorrectionSignal(
+        input: CorrectionSignalUpdateInput
+    ): Result<CorrectionSignalUpdateResult> {
+        // 입력 검증은 UseCase에서도 한 번 했지만, 저장소에서도 방어적으로 다시 확인한다.
+        // repository 경계는 외부 caller가 잘못된 값을 넣어도 캐시를 오염시키지 않아야 한다.
+        if (input.uid.isBlank()) {
+            return Result.failure(IllegalArgumentException("uid must not be blank"))
+        }
+        if (input.sessionMemoryKey.isBlank()) {
+            return Result.failure(IllegalArgumentException("sessionMemoryKey must not be blank"))
+        }
+        if (input.sourceEventId.isBlank()) {
+            return Result.failure(IllegalArgumentException("sourceEventId must not be blank"))
+        }
+        if (input.recentMinutes != null && input.recentMinutes < 0) {
+            return Result.failure(IllegalArgumentException("recentMinutes must not be negative"))
+        }
+
+        return try {
+            val current = _state.value
+            val lang = input.lang
+            val selectedLang = current.userPref?.selectedLang ?: return Result.failure(
+                IllegalStateException("selected learning language is missing")
+            )
+            if (selectedLang != lang) {
+                return Result.failure(
+                    IllegalArgumentException("correction signal lang must match selected learning language")
+                )
+            }
+
+            // LS-009는 이미 존재하는 current summary에 Chat 신호를 전파하는 작업이다.
+            // summary가 없다면 Initial Setup / language state preload 쪽 정합성이 깨진 상태이므로 새로 만들지 않는다.
+            val previousSession = current.sessionSummaries[lang] ?: return Result.failure(
+                IllegalStateException("session summary is missing for lang=${lang.code}")
+            )
+            val previousDash = current.dashSummaries[lang] ?: return Result.failure(
+                IllegalStateException("dash summary is missing for lang=${lang.code}")
+            )
+
+            // 같은 turn 재시도는 현재 summary 값이 true/false 어느 쪽이든 no-op이어야 한다.
+            // 교정 완료가 false로 내린 뒤 stale retry가 와도 같은 event id면 다시 켜지지 않는다.
+            val lastEventId = lastCorrectionSignalEventIds[lang]
+            if (lastEventId == input.sourceEventId) {
+                // 이미 반영된 신호를 다시 받는 경우에는 상태를 건드리지 말고 결과만 돌려준다.
+                return Result.success(
+                    CorrectionSignalUpdateResult(
+                        lang = lang,
+                        sessionSummary = previousSession,
+                        dashSummary = previousDash,
+                        applied = false,
+                        sourceEventId = input.sourceEventId,
+                        updatedAt = previousSession.updatedAt ?: input.updatedAt
+                    )
+                )
+            }
+
+            val nextMinutes = input.recentMinutes ?: previousSession.recentMinutes
+            val nextTopic = input.recentTopic ?: previousSession.recentTopic ?: previousDash.recentTopic
+
+            // correctionAvailable 값은 UseCase/caller가 결정한 정책 입력이다.
+            // Repository는 true를 하드코딩하지 않고 두 summary에 같은 값을 저장만 한다.
+            val nextSession = previousSession.copy(
+                correctionAvailable = input.correctionAvailable,
+                recentMinutes = nextMinutes,
+                recentTopic = nextTopic,
+                updatedAt = input.updatedAt
+            )
+            val nextDash = previousDash.copy(
+                correctionAvailable = input.correctionAvailable,
+                recentMinutes = nextMinutes,
+                recentTopic = nextTopic,
+                updatedAt = input.updatedAt
+            )
+
+            val nextState = current.copy(
+                dashSummaries = current.dashSummaries + (lang to nextDash),
+                sessionSummaries = current.sessionSummaries + (lang to nextSession),
+                isPreloaded = true
+            )
+
+            // write-back 대상도 세션/대시보드 summary 둘 다 포함해야 remote 복구 후에 다시 어긋나지 않는다.
+            persistSnapshot(
+                state = nextState,
+                addPendingSyncKeys = setOf(
+                    PendingSyncKey.dashSummary(lang),
+                    PendingSyncKey.sessionSummary(lang)
+                )
+            )
+            _state.value = nextState
+            lastCorrectionSignalEventIds[lang] = input.sourceEventId
+
+            Result.success(
+                CorrectionSignalUpdateResult(
+                    lang = lang,
+                    sessionSummary = nextSession,
+                    dashSummary = nextDash,
+                    applied = true,
+                    sourceEventId = input.sourceEventId,
+                    updatedAt = input.updatedAt
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun createInitial(
         userUid: String,
         userPref: UserLangPref,
@@ -319,6 +432,7 @@ class LearningStateRepoImpl @Inject constructor(
         return try {
             dataStore.edit { it.clear() }
             _state.value = GlobalLangState.initial()
+            lastCorrectionSignalEventIds.clear()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

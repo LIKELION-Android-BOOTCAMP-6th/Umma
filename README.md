@@ -68,36 +68,55 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 ## 📂 Project Structure
 
 ```text
-├── docs/                   # 설계 및 기획 문서 (System/User FlowDB)
-│   └── drawio/             # 문서 이해를 돕는 draw.io 도식 원본
-├── app/src/main/java/com/example/umma
-│   ├── core/                   # 앱 전역 공용 모듈
-│   ├── navigation/          # 라우트, 네비게이션 호스트, 바텀바
-│   ├── theme/               # 색상, 타이포그래피, 테마
-│   └── ui/                  # 공통 UI 컴포넌트, LCE 상태 처리, 다국어 텍스트
-├── di/                     # 의존성 주입(Hilt) 모듈
-├── domain/                 # 순수 코틀린 비즈니스 로직
-│   ├── model/               # 도메인 모델
-│   │   ├── learningstate/   # 학습 상태 / 대시보드 요약 / 유저 언어 설정
-│   │   └── correction/      # 교정 후보 / 제안 / 결과 모델
-│   ├── repository/          # 저장소 인터페이스
-│   └── usecase/             # 유즈케이스 (비즈니스 규칙)
-│       ├── learningstate/   # 학습 상태 읽기/쓰기 관련 유즈케이스
-│       └── correction/      # 교정 후보 추출 및 완료 파이프라인 유즈케이스
-├── data/                   # 데이터 계층 구현부
-│   ├── repository/          # 저장소 구현체
-│   ├── source/
-│   │   ├── local/           # 데이터스토어, 로컬 DB(Room), 기기 자원
-│   │   └── remote/          # 파이어베이스, 구글 인증, AI 연동(Gemini Live)
-│   └── mapper/              # 데이터 객체(DTO/Entity)와 도메인 모델 간 매퍼
-└── presentation/           # UI 및 상태 관리 (화면 구성)
-    ├── auth/                # 로그인, 앱 진입부
-    ├── onboarding/          # 초기 학습 언어 및 환경 설정
-    ├── dashboard/           # 대시보드 화면 및 요약 카드
-    ├── chat/                # 음성 채팅 화면 및 뷰모델
-    ├── correction/          # 문장 교정 화면 (구 피드백)
-    ├── study/               # 플래시카드 및 반복학습 화면
-    └── analytics/           # 학습 성장 통계 화면
+├── .github/
+│   ├── ISSUE_TEMPLATE/      # GitHub Issue 템플릿
+│   └── pull_request_template.md
+├── docs/                    # 설계 및 기획 문서 (System/User FlowDB)
+│   ├── Demo/                # 데모 시나리오 및 테스트 시트
+│   ├── System_FlowDB/       # 시스템 인프라 설계 문서
+│   ├── User_FlowDB/         # 사용자 플로우 설계 문서
+│   ├── drawio/              # 문서 이해를 돕는 draw.io 도식 원본
+│   └── handover/            # 도메인 간 인계/후속 작업 문서
+└── app/src/main/java/com/app/umma
+    ├── core/                # 앱 전역 공용 모듈
+    │   ├── navigation/      # 라우트, 네비게이션 호스트, 바텀바
+    │   ├── theme/           # 색상, 타이포그래피, 테마
+    │   ├── ui/              # 공통 UI 컴포넌트
+    │   └── util/            # 공통 유틸리티
+    ├── di/                  # 의존성 주입(Hilt) 모듈
+    ├── domain/              # 순수 코틀린 비즈니스 로직
+    │   ├── audio/           # 음성 입출력 도메인 계약
+    │   ├── model/           # 도메인 모델
+    │   │   ├── correction/  # 교정 후보 / 제안 / 결과 모델
+    │   │   ├── flashcard/   # 플래시카드 / SRS 모델
+    │   │   ├── learningstate/ # 학습 상태 / 대시보드 요약 / 유저 언어 설정
+    │   │   ├── realtime/    # Session Memory / turn 모델
+    │   │   ├── statistics/  # 통계 history / chart 모델
+    │   │   └── user/        # 사용자 프로필 모델
+    │   ├── repository/      # 저장소 인터페이스
+    │   └── usecase/         # 유즈케이스 (비즈니스 규칙)
+    │       ├── auth/
+    │       ├── chat/
+    │       ├── correction/
+    │       ├── flashcardreview/
+    │       ├── learningstate/
+    │       ├── realtime/
+    │       ├── statistics/
+    │       └── user/
+    ├── data/                # 데이터 계층 구현부
+    │   ├── model/           # DTO / Entity 변환 모델
+    │   ├── repository/      # 저장소 구현체와 fake repository
+    │   └── source/
+    │       ├── local/       # DataStore, Room, 기기 자원
+    │       └── remote/      # Firebase, Google 인증, Gemini Live 연동
+    └── presentation/        # UI 및 상태 관리
+        ├── auth/            # 로그인, 앱 진입부
+        ├── chat/            # AI 음성 채팅 화면 및 ViewModel
+        ├── correction/      # 문장 교정 화면
+        ├── dashboard/       # 대시보드 화면 및 요약 카드
+        ├── srsstudy/        # 플래시카드 기반 SRS 반복학습 화면
+        ├── statistics/      # 학습 통계 화면 및 chart 상태
+        └── util/            # presentation 공통 유틸리티
 ```
 
 ---
@@ -225,14 +244,18 @@ users/{uid}
 ├── user_learning_preference/current
 ├── language_states/{lang}
 ├── dashboard_summaries/{lang}
+├── session_summaries/{lang}
 ├── sessions/{lang} (recentFullContext 포함)
-└── flashcards/{cardId}
+├── flashcards/{cardId}
+└── statistics_history/{historyId}
 ```
 
 - `lang`: Session, Flashcard, Statistics, Language State가 어떤 언어의 데이터인지 나타내는 소속 필드
 - `selectedLearningLanguage`: Dashboard와 기능 이동이 현재 바라보는 앱 전역 언어 컨텍스트
 - Dashboard는 `DashSummary[selectedLearningLanguage]`만 사용하여 빠르게 렌더링합니다.
 - AI Chat은 언어별 재사용 Session Memory에 확정 turn 단위로 대화 맥락을 저장하며, 이는 Correction의 핵심 소스가 됩니다.
+- Correction 진입 판단은 `SessionSummary[selectedLearningLanguage].correctionAvailable`을 기준으로 하고, Dashboard 교정 대기 표시는 `DashSummary[selectedLearningLanguage].correctionAvailable`을 기준으로 합니다.
+- Statistics는 `StatisticsHistory`를 local-first로 관찰하고, Firestore refresh / pending sync는 화면 실패와 분리해서 처리합니다.
 
 ---
 
@@ -291,12 +314,21 @@ feat(#42) AI 음성 대화 실시간 스트리밍 기능 구현
 
 **PR 템플릿**
 ```text
+## Type (해당되는 타입만 남기고 삭제)
+- Feat
+- Fix
+- Refactor
+- Docs
+- Chore
+
+---
+
 ## Summary
 - 
 
 ---
 
-## Related Issue
+## Related Issue (작업에 관련된 이슈 반드시 태그)
 - Closes #
 
 ---
@@ -306,12 +338,12 @@ feat(#42) AI 음성 대화 실시간 스트리밍 기능 구현
 
 ---
 
-## How to Test
+## How to Test (테스트가 불필요한 작업일 경우 삭제 가능)
 1. 
 
 ---
 
-## Notes
+## Notes (예: 해당 작업 이후 공유되어야 할 점)
 - 
 ```
 

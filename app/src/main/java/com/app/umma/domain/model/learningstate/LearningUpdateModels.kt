@@ -132,6 +132,39 @@ data class FlashcardSummaryUpdateInput(
 )
 
 /**
+ * Chat turn 확정 후 correctionAvailable 신호만 올릴 때 사용하는 최소 입력.
+ *
+ * 이 입력은 full LangState 분석을 다시 돌리지 않고, 세션/대시보드 요약만
+ * local-first로 갱신하기 위한 lightweight 계약이다.
+ *
+ * 왜 uid / sessionMemoryKey / sourceEventId가 따로 필요한가:
+ *  - uid: 어떤 사용자 스냅샷을 갱신할지 식별한다.
+ *  - sessionMemoryKey: 같은 대화 세션에서 나온 신호인지 경계한다.
+ *  - sourceEventId: 같은 turn 재시도에서 중복 반영을 막는다.
+ *
+ * `correctionAvailable` 값 자체는 UseCase/caller가 결정한다. Repository는 이 값을 보고
+ * "켜야 하는지/꺼야 하는지"를 다시 판단하지 않고 summary에 저장만 한다.
+ */
+data class CorrectionSignalUpdateInput(
+    // 사용자 식별자.
+    val uid: String,
+    // 갱신 대상 학습 언어.
+    val lang: LangCode,
+    // 어떤 Session Memory 스코프에서 나온 신호인지 추적하기 위한 키.
+    val sessionMemoryKey: String,
+    // 같은 turn 재시도나 stale 호출을 구분하기 위한 이벤트 식별자.
+    val sourceEventId: String,
+    // 이 신호가 summary에 저장하려는 교정 가능 여부. 기본 Chat final turn 신호는 true다.
+    val correctionAvailable: Boolean = true,
+    // 필요 시 최근 대화 길이만 함께 덮어쓴다.
+    val recentMinutes: Int? = null,
+    // 필요 시 최근 주제도 함께 덮어쓴다.
+    val recentTopic: String? = null,
+    // 신호가 확정된 시각.
+    val updatedAt: Long
+)
+
+/**
  * FlashcardSummary와 DashSummary가 함께 갱신된 결과.
  */
 data class FlashcardSummaryUpdateResult(
@@ -146,5 +179,29 @@ data class FlashcardSummaryUpdateResult(
     // 중복 방지용 이벤트 식별자.
     val sourceEventId: String?,
     // 갱신 시각.
+    val updatedAt: Long
+)
+
+/**
+ * correctionAvailable signal 갱신이 끝난 뒤의 결과.
+ *
+ * Dashboard와 Correction이 서로 다른 summary를 읽더라도 같은 신호를 보게 되도록
+ * SessionSummary / DashSummary를 함께 돌려준다.
+ *
+ * 이 결과는 "LS가 내부적으로 어떤 summary를 함께 맞췄는지"를 호출자에게 보여주는
+ * 기록용 계약이다. 화면은 여기서 계산하지 않고, 자기 역할에 맞는 summary만 읽는다.
+ */
+data class CorrectionSignalUpdateResult(
+    // 갱신 대상 언어.
+    val lang: LangCode,
+    // Correction 진입 판단용 세션 요약.
+    val sessionSummary: SessionSummary,
+    // Dashboard 표시용 대시보드 요약.
+    val dashSummary: DashSummary,
+    // 실제로 새 값이 반영됐는지, 중복 신호라 skip 됐는지 구분한다.
+    val applied: Boolean,
+    // 중복 방지용 이벤트 식별자.
+    val sourceEventId: String,
+    // 결과가 확정된 시각.
     val updatedAt: Long
 )
