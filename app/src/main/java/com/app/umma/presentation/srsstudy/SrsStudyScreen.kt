@@ -300,7 +300,7 @@ private fun SrsCardBack(
             Icon(
                 imageVector = Icons.AutoMirrored.Default.VolumeUp,
                 contentDescription = "발음 듣기",
-                tint = Color(0xFF999999)
+                tint = if (isSpeaking) ThemePrimary else TextCorrect
             )
         }
     }

@@ -2,6 +2,7 @@ package com.app.umma.core.tts
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import com.app.umma.domain.model.learningstate.LangCode
 import java.util.Locale
@@ -55,13 +56,24 @@ class TextToSpeechController @Inject constructor(
      * text 를 소리내어 읽음
      * 이미 재생 중이면 QUEUE_FLUSH로 기존 재생 중단 후 새 텍스트 재생
      */
-    fun speak(text: String) {
+    fun speak(text: String, onComplete: () -> Unit = {}) {
         if (!isReady) {
             Log.d("ummaDev", "TextToSpeechController - 초기화 전 speak 무시")
             return
         }
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onDone(utteranceId: String?) {
+                onComplete()
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+            }
+
+            override fun onStart(utteranceId: String?) {}
+        })
         // QUEUE_FLUSH: 재생 중이던 것 바로 중단, 새 텍스트 재생
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utteranceId")
     }
 
     /** 현재 재생 중단 */

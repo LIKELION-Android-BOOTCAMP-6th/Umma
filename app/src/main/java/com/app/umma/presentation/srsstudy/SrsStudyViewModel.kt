@@ -55,7 +55,7 @@ class SrsStudyViewModel @Inject constructor(
         // 학습 언어 읽는 중
         initJob = viewModelScope.launch {
             _uiState.update {
-                it.copy(isLoading = true, hasInitError = false)
+                it.copy(isLoading = true, hasInitError = false, cards = emptyList())
             }
 
             // 현재 학습 언어 가져오는 UseCase
@@ -98,15 +98,20 @@ class SrsStudyViewModel @Inject constructor(
             observeReviewDeck(userUid, language).collect { deckState ->
                 when (deckState) {
                     // 카드 있음 -> 첫 번째 카드부터 시작
-                    is ReviewDeckState.Content -> _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            hasInitError = false,
-                            cards = deckState.cards,
-                            currentCardIndex = 0,
-                            isCardFlipped = false,
-                            isDone = false
-                        )
+                    is ReviewDeckState.Content -> _uiState.update { it ->
+                        if (it.cards.isNotEmpty() && !it.isDone) {
+                            it.copy(isLoading = false, hasInitError = false)
+                        } else {
+                            it.copy(
+                                isLoading = false,
+                                hasInitError = false,
+                                cards = deckState.cards,
+                                currentCardIndex = 0,
+                                isCardFlipped = false,
+                                isDone = false
+                            )
+                        }
+
                     }
 
                     is ReviewDeckState.Empty -> _uiState.update {
@@ -170,9 +175,15 @@ class SrsStudyViewModel @Inject constructor(
             applyReviewDecision(userId, card, decision).onSuccess {
                 ttsController.stop()
                 _uiState.update { state ->
+                    val updatedCards = if (rating == ReviewRating.AGAIN) {
+                        state.cards + card
+                    } else {
+                        state.cards
+                    }
                     val nextIndex = state.currentCardIndex + 1
-                    val isDone = nextIndex >= state.totalCards
+                    val isDone = nextIndex >= updatedCards.size
                     state.copy(
+                        cards = updatedCards,
                         // 마지막 카드: 인덱스 유지, 아니라면 다음
                         currentCardIndex = if (isDone) state.currentCardIndex else nextIndex,
                         // 다음 카드 앞면으로
@@ -204,7 +215,11 @@ class SrsStudyViewModel @Inject constructor(
         val lang = _uiState.value.selectedLearningLanguage ?: return
         // 언어 설정 실패-> 재생 X
         if (!ttsController.setLanguage(lang)) return
-        ttsController.speak(card.backText)
+        // 재생 끝나면 실행
+        ttsController.speak(card.backText) {
+            _uiState.update { it.copy(isSpeaking = false) }
+        }
+        // 재생 시작하면 실행
         _uiState.update { it.copy(isSpeaking = true) }
     }
 
