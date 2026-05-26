@@ -96,9 +96,11 @@ class LearningStateWriteUseCasesTest {
         ).getOrThrow()
 
         // lightweight signal 은 LangState 분석 없이 session/dash summary 만 함께 갱신해야 한다.
+        // 기본 Chat final turn 신호는 correctionAvailable=true 입력으로 repo까지 그대로 전달된다.
         assertTrue(result.applied)
         assertEquals(1, repo.correctionSignalUpdateCalls)
         assertEquals("turn-1", repo.lastCorrectionSignalInput?.sourceEventId)
+        assertEquals(true, repo.lastCorrectionSignalInput?.correctionAvailable)
         assertTrue(result.sessionSummary.correctionAvailable)
         assertTrue(result.dashSummary.correctionAvailable)
         assertEquals(7, result.sessionSummary.recentMinutes)
@@ -202,12 +204,12 @@ class LearningStateWriteUseCasesTest {
             input: CorrectionSignalUpdateInput
         ): Result<CorrectionSignalUpdateResult> {
             // UseCase 테스트에서는 "입력 검증 후 repo에 정확히 전달됐는지"만 보려 한다.
-            // 실제 summary 반영 방식은 repo 테스트에서 따로 확인한다.
+            // Fake 응답도 input.correctionAvailable을 그대로 써야 UseCase가 정책 값을 바꾸지 않음을 볼 수 있다.
             correctionSignalUpdateCalls += 1
             lastCorrectionSignalInput = input
             val sessionSummary = SessionSummary(
                 lang = input.lang,
-                correctionAvailable = true,
+                correctionAvailable = input.correctionAvailable,
                 recentMinutes = input.recentMinutes ?: 0,
                 recentTopic = input.recentTopic,
                 updatedAt = input.updatedAt
@@ -216,7 +218,7 @@ class LearningStateWriteUseCasesTest {
                 lang = input.lang,
                 recentMinutes = input.recentMinutes ?: 0,
                 recentTopic = input.recentTopic,
-                correctionAvailable = true,
+                correctionAvailable = input.correctionAvailable,
                 dueFlashcards = 0,
                 savedFlashcards = 0,
                 grammarDelta = 0,

@@ -221,10 +221,9 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
             IllegalStateException("dash summary is missing for lang=${input.lang.code}")
         )
 
-        if (lastCorrectionSignalEventIds[input.lang] == input.sourceEventId &&
-            previousSession.correctionAvailable &&
-            previousDash.correctionAvailable
-        ) {
+        // real repo와 같이 event id만으로 stale retry를 막는다.
+        // summary 값까지 조건에 넣으면 교정 완료 후 false 상태에서 같은 turn이 다시 켜질 수 있다.
+        if (lastCorrectionSignalEventIds[input.lang] == input.sourceEventId) {
             return Result.success(
                 CorrectionSignalUpdateResult(
                     lang = input.lang,
@@ -239,15 +238,15 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 
         val nextMinutes = input.recentMinutes ?: previousSession.recentMinutes
         val nextTopic = input.recentTopic ?: previousSession.recentTopic ?: previousDash.recentTopic
-        // 실전에서는 최근 대화 길이와 주제가 같이 보이는 편이 디버깅에 유리하므로 그대로 유지한다.
+        // Fake도 정책을 다시 계산하지 않고 input 값을 저장해야 real repo와 같은 책임 경계를 검증할 수 있다.
         val nextSession = previousSession.copy(
-            correctionAvailable = true,
+            correctionAvailable = input.correctionAvailable,
             recentMinutes = nextMinutes,
             recentTopic = nextTopic,
             updatedAt = input.updatedAt
         )
         val nextDash = previousDash.copy(
-            correctionAvailable = true,
+            correctionAvailable = input.correctionAvailable,
             recentMinutes = nextMinutes,
             recentTopic = nextTopic,
             updatedAt = input.updatedAt

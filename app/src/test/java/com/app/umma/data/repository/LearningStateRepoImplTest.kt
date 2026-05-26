@@ -4,12 +4,15 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
+import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
@@ -160,6 +163,69 @@ class LearningStateRepoImplTest {
 
         val duplicate = repo.updateCorrectionSignal(input).getOrThrow()
         assertFalse(duplicate.applied)
+    }
+
+    @Test
+    fun `updateCorrectionSignal does not re-enable correction after same event was completed`() = runBlocking {
+        val remoteDataSource = RecordingLearningStateRemoteDataSource()
+        val repo = createRepository(remoteDataSource)
+
+        repo.createInitial(
+            userUid = USER_UID,
+            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+            dashSummary = DashSummary.initial(LangCode.EN),
+            sessionSummary = SessionSummary.initial(LangCode.EN),
+            flashcardSummary = FlashcardSummary.initial(LangCode.EN)
+        ).getOrThrow()
+
+        val input = CorrectionSignalUpdateInput(
+            uid = USER_UID,
+            lang = LangCode.EN,
+            sessionMemoryKey = "session-en",
+            sourceEventId = "turn-1",
+            recentMinutes = 9,
+            recentTopic = "Travel",
+            updatedAt = 2_000L
+        )
+
+        repo.updateCorrectionSignal(input).getOrThrow()
+        // Correction 완료 파이프라인이 같은 summary를 false로 내린 상태를 만든다.
+        // 이후 같은 turn retry가 오면 repo의 idempotent 기준이 event id뿐인지 검증할 수 있다.
+        repo.updateLanguageState(
+            LangStateUpdateInput(
+                uid = USER_UID,
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "analysis-after-correction",
+                currentState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+                preparedState = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+                    updatedAt = 3_000L,
+                    lastAnalysisEventId = "analysis-after-correction"
+                ),
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "I need book ticket.",
+                        tokenCount = 5,
+                        durationMs = 2_000L
+                    )
+                ),
+                correctionResult = null,
+                correctionAvailableOverride = false,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        ).getOrThrow()
+
+        val retry = repo.updateCorrectionSignal(input.copy(updatedAt = 4_000L)).getOrThrow()
+        val state = repo.observeLearningState().first()
+
+        // 같은 sourceEventId 재도착은 현재 correctionAvailable 값과 무관하게 stale retry로 본다.
+        // 이 회귀는 조건에 correctionAvailable을 포함했을 때 다시 true로 올라가던 문제를 막는다.
+        assertFalse(retry.applied)
+        assertFalse(state.sessionSummaries[LangCode.EN]?.correctionAvailable == true)
+        assertFalse(state.dashSummaries[LangCode.EN]?.correctionAvailable == true)
     }
 
     @Test

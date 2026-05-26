@@ -315,13 +315,10 @@ class LearningStateRepoImpl @Inject constructor(
                 IllegalStateException("dash summary is missing for lang=${lang.code}")
             )
 
-            // 같은 turn 재시도는 local summary 값을 다시 쓰더라도 결과가 바뀌지 않아야 한다.
-            // repo 안에 마지막 event id를 남겨 두고 동일 이벤트는 no-op으로 처리한다.
+            // 같은 turn 재시도는 현재 summary 값이 true/false 어느 쪽이든 no-op이어야 한다.
+            // 교정 완료가 false로 내린 뒤 stale retry가 와도 같은 event id면 다시 켜지지 않는다.
             val lastEventId = lastCorrectionSignalEventIds[lang]
-            if (lastEventId == input.sourceEventId &&
-                previousSession.correctionAvailable &&
-                previousDash.correctionAvailable
-            ) {
+            if (lastEventId == input.sourceEventId) {
                 // 이미 반영된 신호를 다시 받는 경우에는 상태를 건드리지 말고 결과만 돌려준다.
                 return Result.success(
                     CorrectionSignalUpdateResult(
@@ -338,16 +335,16 @@ class LearningStateRepoImpl @Inject constructor(
             val nextMinutes = input.recentMinutes ?: previousSession.recentMinutes
             val nextTopic = input.recentTopic ?: previousSession.recentTopic ?: previousDash.recentTopic
 
-            // Dashboard와 Correction이 서로 다른 summary를 보더라도 같은 신호를 보게 해야 한다.
-            // 그래서 SessionSummary와 DashSummary를 같은 값으로 함께 갱신한다.
+            // correctionAvailable 값은 UseCase/caller가 결정한 정책 입력이다.
+            // Repository는 true를 하드코딩하지 않고 두 summary에 같은 값을 저장만 한다.
             val nextSession = previousSession.copy(
-                correctionAvailable = true,
+                correctionAvailable = input.correctionAvailable,
                 recentMinutes = nextMinutes,
                 recentTopic = nextTopic,
                 updatedAt = input.updatedAt
             )
             val nextDash = previousDash.copy(
-                correctionAvailable = true,
+                correctionAvailable = input.correctionAvailable,
                 recentMinutes = nextMinutes,
                 recentTopic = nextTopic,
                 updatedAt = input.updatedAt

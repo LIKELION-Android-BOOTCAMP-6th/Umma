@@ -141,6 +141,9 @@ data class FlashcardSummaryUpdateInput(
  *  - uid: 어떤 사용자 스냅샷을 갱신할지 식별한다.
  *  - sessionMemoryKey: 같은 대화 세션에서 나온 신호인지 경계한다.
  *  - sourceEventId: 같은 turn 재시도에서 중복 반영을 막는다.
+ *
+ * `correctionAvailable` 값 자체는 UseCase/caller가 결정한다. Repository는 이 값을 보고
+ * "켜야 하는지/꺼야 하는지"를 다시 판단하지 않고 summary에 저장만 한다.
  */
 data class CorrectionSignalUpdateInput(
     // 사용자 식별자.
@@ -151,6 +154,8 @@ data class CorrectionSignalUpdateInput(
     val sessionMemoryKey: String,
     // 같은 turn 재시도나 stale 호출을 구분하기 위한 이벤트 식별자.
     val sourceEventId: String,
+    // 이 신호가 summary에 저장하려는 교정 가능 여부. 기본 Chat final turn 신호는 true다.
+    val correctionAvailable: Boolean = true,
     // 필요 시 최근 대화 길이만 함께 덮어쓴다.
     val recentMinutes: Int? = null,
     // 필요 시 최근 주제도 함께 덮어쓴다.
