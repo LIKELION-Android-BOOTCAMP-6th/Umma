@@ -1,50 +1,76 @@
 package com.app.umma.presentation.chat
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.app.umma.R
+import com.app.umma.core.theme.BackgroundDeactivated
+import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
+import com.app.umma.core.theme.TextSecondary
 import com.app.umma.core.theme.ThemePrimary
-import com.app.umma.core.theme.TitleB
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.user.Topic
 
-/**
- * 채팅 화면을 구성하는 컴포저블입니다.
- *
- * @param viewModel 채팅 비즈니스 로직을 처리하는 [ChatViewModel]
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -52,20 +78,8 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            viewModel.startUserTurn(hasRecordAudioPermission = true)
-        } else {
-            viewModel.startUserTurn(hasRecordAudioPermission = false)
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.checkInterestTopics()
-        viewModel.startChat()
-    }
+    val activity = context.findActivity()
+    var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
 
     fun hasRecordAudioPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -74,107 +88,290 @@ fun ChatScreen(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    fun openAppSettings() {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null)
+            )
+        )
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.startUserTurn(hasRecordAudioPermission = true)
+        } else {
+            val permanentlyDenied = activity != null &&
+                    hasRequestedMicPermission &&
+                    !ActivityCompat.shouldShowRequestPermissionRationale(
+                        activity,
+                        Manifest.permission.RECORD_AUDIO
+                    )
+            viewModel.onMicPermissionDenied(permanently = permanentlyDenied)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.checkInterestTopics()
+        viewModel.startChat()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopChat()
+        }
+    }
+
     Scaffold(
         topBar = {
             UmmaAppBar(
                 title = "대화",
-                isCenterTitle = true
+                isCenterTitle = true,
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.toggleSubtitle() },
+                        modifier = Modifier.padding(end = 10.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                id = if (uiState.showSubtitle) {
+                                    R.drawable.outline_closed_caption_24
+                                } else {
+                                    R.drawable.outline_closed_caption_disabled_24
+                                }
+                            ),
+                            modifier = Modifier.size(50.dp),
+                            contentDescription = if (uiState.showSubtitle) {
+                                "자막 숨기기"
+                            } else {
+                                "자막 보기"
+                            },
+                            tint = if (uiState.showSubtitle) {
+                                ThemePrimary
+                            } else {
+                                BackgroundDeactivated
+                            }
+                        )
+                    }
+                }
             )
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(paddingValues)
+                .fillMaxSize()
                 .padding(horizontal = SpacingL)
         ) {
-            Text(
-                text = "대화 상태: ${uiState.sessionState.name}",
-                textAlign = TextAlign.Center,
-                style = TitleB
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = buildStatusText(uiState),
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(SpacingL))
-            Button(
-                onClick = { viewModel.toggleSubtitle() },
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp)
+                    .size(192.dp)
+                    .border(width = 8.dp, color = Color.White, shape = CircleShape)
+                    .shadow(12.dp, CircleShape)
+                    .background(ThemePrimary, CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (uiState.showSubtitle) "자막 숨기기" else "자막 보기",
-                    fontSize = 16.sp
+                Icon(
+                    painter = painterResource(id = R.drawable.baseline_record_voice_over_24),
+                    contentDescription = "중앙 비주얼",
+                    tint = Color.White,
+                    modifier = Modifier.size(86.dp)
                 )
             }
+
             if (uiState.showSubtitle) {
-                Text(
-                    text = "나: ${uiState.lastFinalUserTranscript.ifBlank { "-" }}",
-                    style = TextAnalysisR
-                )
-                Spacer(modifier = Modifier.height(SpacingS))
-                Text(
-                    text = "AI: ${uiState.lastFinalAITranscript.ifBlank { "-" }}",
-                    style = TextAnalysisR
-                )
-            }
-            Spacer(modifier = Modifier.height(SpacingL))
-            Button(
-                onClick = {
-                    when {
-                        uiState.canEndUserTurn -> viewModel.endUserTurn()
-                        hasRecordAudioPermission() -> viewModel.startUserTurn(hasRecordAudioPermission = true)
-                        else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                enabled = uiState.canEndUserTurn || uiState.canStartUserTurn,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = if (uiState.isRecording) "내 말하기 끝내기" else "내 말하기 시작",
-                    fontSize = 16.sp
-                )
-            }
-            if (uiState.isRecoverableError) {
-                Spacer(modifier = Modifier.height(SpacingS))
-                Button(
-                    onClick = { viewModel.retryConnection() },
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 140.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "다시 연결")
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentSize(Alignment.CenterStart)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White)
+                                .border(width = 1.5.dp, color = ThemePrimary, shape = RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "Umma Tutor",
+                                style = TextAnalysisR.copy(fontWeight = FontWeight.Bold),
+                                color = Color.Black
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 22.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(color = BackgroundSecondary)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = uiState.lastFinalAITranscript.ifBlank { "-" },
+                                style = TextAnalysisR,
+                                color = Color.Black,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .wrapContentSize(Alignment.CenterEnd)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .padding(bottom = 22.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(ThemePrimary)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = uiState.lastFinalUserTranscript.ifBlank { "-" },
+                                style = TextAnalysisR,
+                                color = Color.White,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(ThemePrimary)
+                                .border(width = 2.dp, color = Color.White, shape = RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = uiState.userNickname.ifBlank { "User" },
+                                style = TextAnalysisR.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
             }
-            if (uiState.microphonePermissionDenied) {
-                Spacer(modifier = Modifier.height(SpacingS))
-                Text(
-                    text = "마이크 권한이 필요합니다.",
-                    color = TextLogout,
-                    style = TextAnalysisR
+
+            val micEnabled = uiState.canEndUserTurn || uiState.canStartUserTurn
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 72.dp)
+                    .size(64.dp)
+                    .border(width = 4.dp, color = Color.White, shape = CircleShape)
+                    .shadow(8.dp, CircleShape)
+                    .background(
+                        color = if (micEnabled) ThemePrimary else BackgroundDeactivated,
+                        shape = CircleShape
+                    )
+                    .clickable(enabled = micEnabled) {
+                        when {
+                            uiState.canEndUserTurn -> viewModel.endUserTurn()
+                            hasRecordAudioPermission() -> viewModel.startUserTurn(
+                                hasRecordAudioPermission = true
+                            )
+
+                            uiState.microphonePermissionPermanentlyDenied -> openAppSettings()
+                            else -> {
+                                hasRequestedMicPermission = true
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.baseline_mic_24),
+                    contentDescription = if (uiState.isRecording) "Stop talking" else "Start talking",
+                    tint = Color.White
                 )
             }
-            // fallbackMessage != null이면
-            uiState.fallbackMessage?.let { message ->
-                Spacer(modifier = Modifier.height(SpacingS))
-                Text(
-                    text = message,
-                    textAlign = TextAlign.Center,
-                    style = TextAnalysisR
-                )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (uiState.microphonePermissionDenied) {
+                    Text(
+                        text = if (uiState.microphonePermissionPermanentlyDenied) {
+                            "Mic permission is permanently denied. Open settings to allow it."
+                        } else {
+                            "Mic permission is required."
+                        },
+                        color = TextLogout,
+                        style = TextAnalysisR,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                if (uiState.microphonePermissionPermanentlyDenied) {
+                    Button(
+                        onClick = { openAppSettings() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = SpacingS)
+                    ) {
+                        Text(text = "Open Settings")
+                    }
+                }
+
+                if (uiState.isRecoverableError) {
+                    Text(
+                        text = buildStatusText(uiState),
+                        textAlign = TextAlign.Center,
+                        style = TextAnalysisR,
+                        modifier = Modifier.padding(top = SpacingS)
+                    )
+                    Button(
+                        onClick = { viewModel.retryConnection() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = SpacingS)
+                    ) {
+                        Text(text = "Retry Connection")
+                    }
+                }
+
+                uiState.fallbackMessage?.let { message ->
+                    Text(
+                        text = message,
+                        textAlign = TextAlign.Center,
+                        style = TextAnalysisR,
+                        modifier = Modifier.padding(top = SpacingS)
+                    )
+                }
             }
         }
     }
+
     if (uiState.showTopicDialog) {
         UmmaDialog(
-            title = "관심 주제 선택 5개",
+            title = "Pick 5 Topics",
             modifier = Modifier.padding(horizontal = SpacingL),
             onCancel = {},
             onConfirm = { viewModel.saveInterestTopics() },
-            confirmText = "완료"
+            confirmText = "Done"
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 24.dp)
             ) {
                 Topic.entries.forEach { topic ->
                     val isSelected = uiState.selectedTopic.contains(topic)
@@ -185,11 +382,11 @@ fun ChatScreen(
                     )
                 }
                 uiState.topicError?.let {
-                    Spacer(modifier = Modifier.height(SpacingS))
                     Text(
                         text = it,
                         color = TextLogout,
-                        fontSize = TextAnalysisR.fontSize
+                        fontSize = TextAnalysisR.fontSize,
+                        modifier = Modifier.padding(top = SpacingS)
                     )
                 }
             }
@@ -197,39 +394,19 @@ fun ChatScreen(
     }
 }
 
-/**
- * 채팅 화면 상단 상태 문구를 생성합니다.
- *
- * @param uiState 현재 채팅 UI 상태
- * @return 사용자에게 표시할 상태 문구
- */
 internal fun buildStatusText(uiState: ChatUiState): String {
     uiState.errorMessage?.let { return it }
 
     return when {
-        uiState.sessionState == SessionState.LOADING ->
-            "세션 준비 중입니다."
-
+        uiState.sessionState == SessionState.LOADING -> "Preparing session..."
         uiState.sessionState == SessionState.RECONNECTING ->
-            "재연결 중 ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
-
-        uiState.aiState == AIState.RECONNECTING ->
-            "응답이 중단되었습니다."
-
-        uiState.aiState == AIState.THINKING ->
-            "AI가 응답을 준비 중입니다."
-
-        uiState.aiState == AIState.SPEAKING ->
-            "AI가 응답 중입니다."
-
-        uiState.isRecording ->
-            "듣고 있습니다."
-
-        uiState.sessionState == SessionState.READY ->
-            "준비되었습니다."
-
-        else ->
-            ""
+            "Reconnecting ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
+        uiState.aiState == AIState.RECONNECTING -> "Response was interrupted."
+        uiState.aiState == AIState.THINKING -> "AI is thinking..."
+        uiState.aiState == AIState.SPEAKING -> "AI is speaking..."
+        uiState.isRecording -> "Listening..."
+        uiState.sessionState == SessionState.READY -> "Ready."
+        else -> ""
     }
 }
 
@@ -256,5 +433,13 @@ private fun TopicButton(
             fontSize = 16.sp,
             color = if (isSelected) ThemePrimary else TextPrimary
         )
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }
