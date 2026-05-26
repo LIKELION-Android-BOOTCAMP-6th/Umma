@@ -1,9 +1,9 @@
-package com.example.umma.di
+package com.app.umma.di
 
-import com.example.umma.data.repository.fake.FakeStatisticsRepository
-import com.example.umma.data.repository.fake.FakeFlashcardRepository
-import com.example.umma.domain.repository.StatisticsRepository
-import com.example.umma.domain.repository.FlashcardRepository
+import com.app.umma.data.repository.fake.FakeStatisticsRepository
+import com.app.umma.data.repository.fake.FakeFlashcardRepository
+import com.app.umma.domain.repository.StatisticsRepository
+import com.app.umma.domain.repository.FlashcardRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
