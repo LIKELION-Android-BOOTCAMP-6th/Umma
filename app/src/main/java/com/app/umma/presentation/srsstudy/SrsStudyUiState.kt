@@ -8,7 +8,7 @@ data class SrsStudyUiState(
     val isLoading: Boolean = true,
     // 언어 정보 불러오기 실패 시 true, "다시 시도" 버튼 표시
     val hasInitError: Boolean = false,
-    // GlobalLAngState 현재 학습 언어
+    // GlobalLangState 현재 학습 언어
     val selectedLearningLanguage: LangCode? = null,
 
     // 오늘 복습할 카드 목록
@@ -19,14 +19,20 @@ data class SrsStudyUiState(
     val isCardFlipped: Boolean = false,
     // 모든 카드 끝냈을 시 true -> 완료 화면
     val isDone: Boolean = false,
-    // 현재 선택된 평가 버튼(Again, Hard, Hood, Easy, null = 아직 선택 안함)
-    val selectedRating: ReviewRating? = null
+    // 현재 선택된 평가 버튼(Again, Hard, Again, Easy, null = 아직 선택 안함)
+    val selectedRating: ReviewRating? = null,
+    // Room 저장 요청을 보낸 후 응답 오기 전 까지 true
+    // true -> 평가 버튼 비활성화, 중복 시도 방지
+    val isSaving: Boolean = false,
+    // 저장 실패 시 true -> 화면에 안내 표시
+    val hasSaveError: Boolean = false,
+    // 발음 재생 중일 때 true -> 버튼 색상 변경
+    val isSpeaking: Boolean = false
 ) {
     /** 지금 보고 있는 카드, 없으면 null */
     val currentCard: Flashcard?
         get() = cards.getOrNull(currentCardIndex)
 
-    /** */
     val totalCards: Int
         get() = cards.size
 

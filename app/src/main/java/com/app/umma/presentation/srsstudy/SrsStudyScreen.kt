@@ -96,12 +96,12 @@ fun SrsStudyScreen(
                     uiState = uiState,
                     onCardFlip = { viewModel.onCardFlip() },
                     onRatingSelected = { viewModel.onRatingSelected(it) },
-                    onConfirmRating = { viewModel.onConfirmRating() }
+                    onConfirmRating = { viewModel.onConfirmRating() },
+                    onSpeak = { viewModel.onPlayPronunciation() }
                 )
             }
         }
     }
-
 }
 
 //----- 로딩 완료 후 카드 진행 상황, 플래시 카드, 평가 버튼
@@ -110,7 +110,8 @@ private fun SrsStudyContent(
     uiState: SrsStudyUiState,
     onCardFlip: () -> Unit,
     onRatingSelected: (ReviewRating) -> Unit,
-    onConfirmRating: () -> Unit
+    onConfirmRating: () -> Unit,
+    onSpeak: () -> Unit
 ) {
     val card = uiState.currentCard ?: return
     Box(modifier = Modifier.fillMaxSize()) {
@@ -121,11 +122,15 @@ private fun SrsStudyContent(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(SpacingS))
+            // 현재 카드 개수 / 총 카드 개수
+            Text(text = "${uiState.currentCardIndex + 1}/${uiState.cards.size}")
             // 클릭 시 플래시카드 뒤집기
             SrsFlashCard(
                 card = card,
                 isFlipped = uiState.isCardFlipped,
-                onFlip = onCardFlip
+                isSpeaking = uiState.isSpeaking,
+                onFlip = onCardFlip,
+                onSpeak = onSpeak
             )
             Spacer(modifier = Modifier.height(SpacingXL))
             SrsRatingButtons(
@@ -162,7 +167,9 @@ private fun SrsStudyContent(
 private fun SrsFlashCard(
     card: Flashcard,
     isFlipped: Boolean,
-    onFlip: () -> Unit
+    isSpeaking: Boolean,
+    onFlip: () -> Unit,
+    onSpeak: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -174,7 +181,7 @@ private fun SrsFlashCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         if (isFlipped) {
-            SrsCardBack(card = card)
+            SrsCardBack(card = card, isSpeaking = isSpeaking, onSpeak = onSpeak)
         } else {
             SrsCardFront(card = card)
         }
@@ -231,7 +238,11 @@ private fun SrsCardFront(card: Flashcard) {
 
 //----- 카드 뒷면
 @Composable
-private fun SrsCardBack(card: Flashcard) {
+private fun SrsCardBack(
+    card: Flashcard,
+    isSpeaking: Boolean,
+    onSpeak: () -> Unit
+) {
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -281,7 +292,7 @@ private fun SrsCardBack(card: Flashcard) {
         }
         // 우측 상단 스피커 버튼
         IconButton(
-            onClick = {},
+            onClick = onSpeak,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(4.dp)
