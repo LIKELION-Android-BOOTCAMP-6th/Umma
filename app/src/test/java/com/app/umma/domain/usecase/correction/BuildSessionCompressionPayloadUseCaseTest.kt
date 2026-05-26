@@ -1,0 +1,95 @@
+package com.app.umma.domain.usecase.correction
+
+import com.app.umma.domain.model.correction.CorrectionSuggestion
+import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.TurnSpeaker
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class BuildSessionCompressionPayloadUseCaseTest {
+
+    private val useCase = BuildSessionCompressionPayloadUseCase()
+
+    @Test
+    fun `builds compression command from correction suggestions and user turns`() {
+        // Correction 완료 후 Session Memory 에 남길 최소 압축 재료를 만든다.
+        // 핵심 문장은 교정된 afterText, topic 은 최근 user turn 을 우선해 구성되는지 확인한다.
+        val result = useCase(
+            language = LangCode.EN,
+            selectedSuggestions = listOf(baseSuggestion()),
+            recentUserTurns = listOf(
+                ConversationTurn(
+                    speaker = TurnSpeaker.USER,
+                    text = "I want to talk about travel and museum plans."
+                )
+            ),
+            compressedAt = 2_000L
+        )
+
+        val command = result.getOrThrow()
+
+        assertNotNull(command)
+        assertEquals(LangCode.EN, command!!.language)
+        assertEquals(2_000L, command.compressedAt)
+        assertEquals(listOf("I went to the museum yesterday."), command.topicKeySentences)
+        assertTrue(command.topicSummaries.first().contains("I go to museum yesterday."))
+        assertTrue(command.recentTopics.contains("travel"))
+    }
+
+    @Test
+    fun `returns null when there is no meaningful compression payload`() {
+        // 빈 payload 로 RT-003 compression 을 호출하면 원문 buffer 만 지워질 수 있다.
+        // 그래서 요약/핵심 문장이 모두 비어 있으면 command 대신 null 을 돌려야 한다.
+        val result = useCase(
+            language = LangCode.EN,
+            selectedSuggestions = listOf(
+                baseSuggestion().copy(
+                    beforeText = " ",
+                    afterText = " ",
+                    explanation = " "
+                )
+            ),
+            recentUserTurns = emptyList(),
+            compressedAt = 2_000L
+        )
+
+        assertTrue(result.isSuccess)
+        assertNull(result.getOrThrow())
+    }
+
+    @Test
+    fun `limits repeated summaries and key sentences`() {
+        // 같은 교정 결과가 여러 번 들어와도 압축 metadata 가 불필요하게 커지지 않아야 한다.
+        // distinct + limit 정책이 유지되는지 반복 입력으로 확인한다.
+        val repeated = baseSuggestion()
+        val result = useCase(
+            language = LangCode.EN,
+            selectedSuggestions = List(8) { repeated.copy(id = "s-$it") },
+            recentUserTurns = emptyList(),
+            compressedAt = 2_000L
+        )
+
+        val command = result.getOrThrow()
+
+        assertNotNull(command)
+        assertEquals(1, command!!.topicSummaries.size)
+        assertEquals(1, command.topicKeySentences.size)
+    }
+
+    private fun baseSuggestion(): CorrectionSuggestion {
+        return CorrectionSuggestion(
+            id = "s-1",
+            lang = LangCode.EN,
+            sourceCandidateIds = listOf("c-1"),
+            sourceTurnIndex = 0,
+            beforeText = "I go to museum yesterday.",
+            nativeText = "나는 어제 박물관에 갔다.",
+            afterText = "I went to the museum yesterday.",
+            explanation = "Use past tense for yesterday."
+        )
+    }
+}

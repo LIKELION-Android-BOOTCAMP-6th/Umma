@@ -12,11 +12,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.umma"
+    namespace = "com.app.umma"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.umma"
+        applicationId = "com.app.umma"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

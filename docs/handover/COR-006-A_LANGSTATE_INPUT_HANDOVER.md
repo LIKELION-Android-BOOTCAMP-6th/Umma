@@ -22,7 +22,7 @@
 
 ### 1.2. 코드 측 (Domain)
 
-[`CompleteCorrectionInput`](../../app/src/main/java/com/example/umma/domain/model/correction/CorrectionCompletionModels.kt):
+[`CompleteCorrectionInput`](../../app/src/main/java/com/app/umma/domain/model/correction/CorrectionCompletionModels.kt):
 
 ```kotlin
 data class CompleteCorrectionInput(
@@ -45,7 +45,7 @@ ViewModel 에서 임시로 입력을 조립해 호출하면 LangState/Statistics
 
 ### 2.1. 위치
 
-[`CorrectionViewModel.launchCompletion`](../../app/src/main/java/com/example/umma/presentation/correction/CorrectionViewModel.kt) 내부 `viewModelScope.launch { ... }` 블록.
+[`CorrectionViewModel.launchCompletion`](../../app/src/main/java/com/app/umma/presentation/correction/CorrectionViewModel.kt) 내부 `viewModelScope.launch { ... }` 블록.
 
 ```kotlin
 completionJob = viewModelScope.launch {
@@ -67,7 +67,7 @@ completionJob = viewModelScope.launch {
 
 ### 2.3. 회귀 테스트
 
-- [`CorrectionUiStateTest`](../../app/src/test/java/com/example/umma/presentation/correction/CorrectionUiStateTest.kt) — `computeCompletionLaunch` / `openCompletionWindow` / `applyCompletionOutcome` / `canSave` 가드(`isCompleting`, `Phase.Done`).
+- [`CorrectionUiStateTest`](../../app/src/test/java/com/app/umma/presentation/correction/CorrectionUiStateTest.kt) — `computeCompletionLaunch` / `openCompletionWindow` / `applyCompletionOutcome` / `canSave` 가드(`isCompleting`, `Phase.Done`).
 
 ---
 

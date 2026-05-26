@@ -12,8 +12,8 @@ Correction 완료 흐름에서 필요한 `LangStateUpdateInput` 조립 계약은
 
 새로 추가된 계약은 다음 파일에 있다.
 
-- [`BuildLangStateUpdateInputUseCase`](../../app/src/main/java/com/example/umma/domain/usecase/learningstate/BuildLangStateUpdateInputUseCase.kt)
-- [`BuildLangStateUpdateInputUseCaseTest`](../../app/src/test/java/com/example/umma/domain/usecase/learningstate/BuildLangStateUpdateInputUseCaseTest.kt)
+- [`BuildLangStateUpdateInputUseCase`](../../app/src/main/java/com/app/umma/domain/usecase/learningstate/BuildLangStateUpdateInputUseCase.kt)
+- [`BuildLangStateUpdateInputUseCaseTest`](../../app/src/test/java/com/app/umma/domain/usecase/learningstate/BuildLangStateUpdateInputUseCaseTest.kt)
 
 이 작업은 `CorrectionViewModel`, `CompleteCorrectionUseCase`, `domain/usecase/correction` 파일을 수정하지 않는다.
 Correction 쪽 후속 작업자는 아래 계약을 호출부에 연결하면 된다.
