@@ -1,6 +1,8 @@
 package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
@@ -77,6 +79,35 @@ class LearningStateWriteUseCasesTest {
     }
 
     @Test
+    fun `passes correction signal update to repository`() = runBlocking {
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyCorrectionSignalUpdateUseCase(repo)
+
+        val result = useCase(
+            CorrectionSignalUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                sourceEventId = "turn-1",
+                recentMinutes = 7,
+                recentTopic = "Travel",
+                updatedAt = 5_000L
+            )
+        ).getOrThrow()
+
+        // lightweight signal 은 LangState 분석 없이 session/dash summary 만 함께 갱신해야 한다.
+        // 기본 Chat final turn 신호는 correctionAvailable=true 입력으로 repo까지 그대로 전달된다.
+        assertTrue(result.applied)
+        assertEquals(1, repo.correctionSignalUpdateCalls)
+        assertEquals("turn-1", repo.lastCorrectionSignalInput?.sourceEventId)
+        assertEquals(true, repo.lastCorrectionSignalInput?.correctionAvailable)
+        assertTrue(result.sessionSummary.correctionAvailable)
+        assertTrue(result.dashSummary.correctionAvailable)
+        assertEquals(7, result.sessionSummary.recentMinutes)
+        assertEquals("Travel", result.sessionSummary.recentTopic)
+    }
+
+    @Test
     fun `rejects negative flashcard summary counts`() = runBlocking {
         val repo = RecordingLearningStateRepo()
         val useCase = ApplyFlashcardSummaryUpdateUseCase(repo)
@@ -101,6 +132,8 @@ class LearningStateWriteUseCasesTest {
         private val state = MutableStateFlow(GlobalLangState.initial())
         var languageStateUpdateCalls: Int = 0
         var flashcardSummaryUpdateCalls: Int = 0
+        var correctionSignalUpdateCalls: Int = 0
+        var lastCorrectionSignalInput: CorrectionSignalUpdateInput? = null
 
         override fun observeLearningState(): Flow<GlobalLangState> = state
 
@@ -159,6 +192,45 @@ class LearningStateWriteUseCasesTest {
                 FlashcardSummaryUpdateResult(
                     lang = input.lang,
                     flashcardSummary = flashcardSummary,
+                    dashSummary = dashSummary,
+                    applied = true,
+                    sourceEventId = input.sourceEventId,
+                    updatedAt = input.updatedAt
+                )
+            )
+        }
+
+        override suspend fun updateCorrectionSignal(
+            input: CorrectionSignalUpdateInput
+        ): Result<CorrectionSignalUpdateResult> {
+            // UseCase 테스트에서는 "입력 검증 후 repo에 정확히 전달됐는지"만 보려 한다.
+            // Fake 응답도 input.correctionAvailable을 그대로 써야 UseCase가 정책 값을 바꾸지 않음을 볼 수 있다.
+            correctionSignalUpdateCalls += 1
+            lastCorrectionSignalInput = input
+            val sessionSummary = SessionSummary(
+                lang = input.lang,
+                correctionAvailable = input.correctionAvailable,
+                recentMinutes = input.recentMinutes ?: 0,
+                recentTopic = input.recentTopic,
+                updatedAt = input.updatedAt
+            )
+            val dashSummary = DashSummary(
+                lang = input.lang,
+                recentMinutes = input.recentMinutes ?: 0,
+                recentTopic = input.recentTopic,
+                correctionAvailable = input.correctionAvailable,
+                dueFlashcards = 0,
+                savedFlashcards = 0,
+                grammarDelta = 0,
+                fluencyDelta = 0,
+                vocabDelta = 0,
+                naturalnessDelta = 0,
+                updatedAt = input.updatedAt
+            )
+            return Result.success(
+                CorrectionSignalUpdateResult(
+                    lang = input.lang,
+                    sessionSummary = sessionSummary,
                     dashSummary = dashSummary,
                     applied = true,
                     sourceEventId = input.sourceEventId,

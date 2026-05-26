@@ -21,6 +21,7 @@ import com.app.umma.domain.usecase.chat.StartSessionUseCase
 import com.app.umma.domain.usecase.chat.StopSessionUseCase
 import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.app.umma.domain.usecase.user.GetUserProfileUseCase
+import com.app.umma.domain.usecase.user.GetUserNicknameUseCase
 import com.app.umma.domain.usecase.user.SaveInterestTopicsUseCase
 import com.app.umma.presentation.util.calculateLevel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +44,7 @@ class ChatViewModel @Inject constructor(
     private val sendAudioDataUseCase: SendAudioDataUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
     private val getUserProfileUseCase: GetUserProfileUseCase,
+    private val getUserNicknameUseCase: GetUserNicknameUseCase,
     private val saveInterestTopicsUseCase: SaveInterestTopicsUseCase,
     private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
@@ -74,12 +76,15 @@ class ChatViewModel @Inject constructor(
      * 동시 turn 저장 중 상태를 추적하기 위한 카운터입니다.
      */
     private var pendingTurnSaveCount: Int = 0
+    private var stopChatJob: Job? = null
 
     /**
      * 채팅 세션을 시작합니다.
      */
     fun startChat() {
         viewModelScope.launch {
+            stopChatJob?.join()
+
             if (_uiState.value.sessionState == SessionState.LOADING) return@launch
 
             startObservingAIEvents()
@@ -87,6 +92,7 @@ class ChatViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     sessionState = SessionState.LOADING,
+                    showSubtitle = false,
                     errorMessage = null
                 )
             }
@@ -131,24 +137,37 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * 사용자 발화 turn 녹음을 시작합니다.
+     * 사용자 발화 turn 녹음을 시작합니다. && 권한 체크
      */
     fun startUserTurn(hasRecordAudioPermission: Boolean) {
         if (!hasRecordAudioPermission) {
-            _uiState.update {
-                it.copy(
-                    microphonePermissionDenied = true,
-                    errorMessage = "마이크 권한이 필요합니다."
-                )
-            }
+            onMicPermissionDenied(permanently = false)
             return
         }
 
         _uiState.update {
-            it.copy(microphonePermissionDenied = false)
+            it.copy(
+                microphonePermissionDenied = false,
+                microphonePermissionPermanentlyDenied = false,
+                errorMessage = null
+            )
         }
 
         beginUserTurn()
+    }
+
+    fun onMicPermissionDenied(permanently: Boolean) {
+        _uiState.update {
+            it.copy(
+                microphonePermissionDenied = true,
+                microphonePermissionPermanentlyDenied = permanently,
+                errorMessage = if (permanently) {
+                    "마이크 권한이 영구 거부되었습니다. 설정에서 권한을 허용해주세요."
+                } else {
+                    "마이크 권한이 필요합니다."
+                }
+            )
+        }
     }
 
     /**
@@ -157,13 +176,13 @@ class ChatViewModel @Inject constructor(
     @SuppressLint("MissingPermission")
     private fun beginUserTurn() {
         val currentState = _uiState.value
-        if (currentState.sessionState != SessionState.READY) return
-        if (currentState.isRecording) return
+        if (!currentState.canStartUserTurn) return
         if (recordJob?.isActive == true) return
 
         _uiState.update {
             it.copy(
                 isRecording = true,
+                inputLevel = 0f,
                 errorMessage = null
             )
         }
@@ -187,6 +206,23 @@ class ChatViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * AI speaking 진입 시 에코 루프를 막기 위해 사용자 녹음을 즉시 종료합니다.
+     */
+    private fun stopRecordingForAiSpeaking() {
+        if (!_uiState.value.isRecording) return
+
+        recordJob?.cancel()
+        recordJob = null
+
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                inputLevel = 0f
+            )
         }
     }
 
@@ -296,6 +332,8 @@ class ChatViewModel @Inject constructor(
      * 현재 사용자 발화 turn 녹음을 종료합니다.
      */
     fun endUserTurn() {
+        if (!_uiState.value.canEndUserTurn) return
+
         recordJob?.cancel()
         recordJob = null
 
@@ -311,7 +349,8 @@ class ChatViewModel @Inject constructor(
      * 현재 chat 세션을 종료하고 상태를 초기화합니다.
      */
     fun stopChat() {
-        viewModelScope.launch {
+        stopChatJob?.cancel()
+        stopChatJob = viewModelScope.launch {
             eventJob?.cancel()
             eventJob = null
 
@@ -402,22 +441,25 @@ class ChatViewModel @Inject constructor(
 
     /**
      * final transcript 상태를 반영하고 저장을 트리거합니다.
-     *
+     * 만약 text가 비어있거나, 마지막 FinalTurnId가 이번 turnId와 같으면 저장 무시
      * @param event final transcript 이벤트
      */
     private fun handleFinalTranscription(event: AIEvent.FinalTranscription) {
         if (event.text.isBlank()) return
+        if (_uiState.value.lastHandledFinalTurnId == event.turnId) return
 
         _uiState.update {
             when (event.role) {
                 TurnSpeaker.USER -> it.copy(
                     userPartialTranscript = "",
-                    lastFinalUserTranscript = event.text
+                    lastFinalUserTranscript = event.text,
+                    lastHandledFinalTurnId = event.turnId
                 )
 
                 TurnSpeaker.AI -> it.copy(
                     aiPartialTranscript = "",
-                    lastFinalAITranscript = event.text
+                    lastFinalAITranscript = event.text,
+                    lastHandledFinalTurnId = event.turnId
                 )
             }
         }
@@ -493,8 +535,16 @@ class ChatViewModel @Inject constructor(
      * @param event 오디오 응답 이벤트
      */
     private fun handleAudioResponse(event: AIEvent.AudioResponse) {
+        stopRecordingForAiSpeaking()
+
         _uiState.update {
-            it.copy(outputLevel = calculateLevel(event.audio))
+            it.copy(
+                aiState = if (
+                    it.aiState != AIState.RECONNECTING &&
+                    it.aiState != AIState.ERROR
+                ) AIState.SPEAKING else it.aiState,
+                outputLevel = calculateLevel(event.audio)
+            )
         }
         audioPlayer.playAudioChunk(event.audio)
     }
@@ -517,6 +567,10 @@ class ChatViewModel @Inject constructor(
      * @param event 상태 변화 이벤트
      */
     private fun handleStateChanged(event: AIEvent.StateChanged) {
+        if (event.state == AIState.SPEAKING) {
+            stopRecordingForAiSpeaking()
+        }
+
         _uiState.update {
             it.copy(
                 aiState = event.state,
@@ -627,13 +681,24 @@ class ChatViewModel @Inject constructor(
      */
     override fun onCleared() {
         super.onCleared()
-        audioPlayer.release()
+        audioPlayer.stopPlaying()
+    }
+
+    /**
+     * 자막 토클
+     * */
+    fun toggleSubtitle() {
+        _uiState.update { it.copy(showSubtitle = !it.showSubtitle) }
     }
 
     // ChatScreen 진입 시 호출
     fun checkInterestTopics() {
         viewModelScope.launch {
             val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            val nickname = getUserNicknameUseCase(uid).orEmpty()
+            if (nickname.isNotBlank()) {
+                _uiState.update { it.copy(userNickname = nickname) }
+            }
             val profile = getUserProfileUseCase(uid) ?: return@launch
 
             if (profile.interestTopics.isEmpty()) {

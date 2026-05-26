@@ -1,6 +1,8 @@
 package com.app.umma.data.repository.fake
 
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -80,6 +83,9 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
      */
     private val changeBehavior: ChangeBehavior = ChangeBehavior.SUCCESS
 //    private val changeBehavior: ChangeBehavior = ChangeBehavior.FAILURE
+
+    // LS-009 중복 신호 확인용. Fake에서도 같은 turn 재호출이 no-op으로 보이도록 맞춘다.
+    private val lastCorrectionSignalEventIds = ConcurrentHashMap<LangCode, String>()
 
     override fun observeLearningState(): Flow<GlobalLangState> = _state.asStateFlow()
     override fun observeUserPref() = _state.map { it.userPref }
@@ -191,6 +197,78 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
         )
     }
 
+    override suspend fun updateCorrectionSignal(
+        input: CorrectionSignalUpdateInput
+    ): Result<CorrectionSignalUpdateResult> {
+        // Fake도 real repo와 같은 계약을 흉내 내야 ViewModel 테스트가 의미를 가진다.
+        // 즉, session/dash summary를 함께 바꾸고 중복 이벤트는 no-op으로 돌려준다.
+        val current = _state.value
+        val selectedLang = current.userPref?.selectedLang ?: return Result.failure(
+            IllegalStateException("selected learning language is missing")
+        )
+        if (selectedLang != input.lang) {
+            return Result.failure(
+                IllegalArgumentException("correction signal lang must match selected learning language")
+            )
+        }
+
+        // Fake도 missing summary를 자동 생성하지 않는다.
+        // real repo와 다르게 동작하면 mock 화면에서만 LS 정합성 문제가 숨겨질 수 있다.
+        val previousSession = current.sessionSummaries[input.lang] ?: return Result.failure(
+            IllegalStateException("session summary is missing for lang=${input.lang.code}")
+        )
+        val previousDash = current.dashSummaries[input.lang] ?: return Result.failure(
+            IllegalStateException("dash summary is missing for lang=${input.lang.code}")
+        )
+
+        // real repo와 같이 event id만으로 stale retry를 막는다.
+        // summary 값까지 조건에 넣으면 교정 완료 후 false 상태에서 같은 turn이 다시 켜질 수 있다.
+        if (lastCorrectionSignalEventIds[input.lang] == input.sourceEventId) {
+            return Result.success(
+                CorrectionSignalUpdateResult(
+                    lang = input.lang,
+                    sessionSummary = previousSession,
+                    dashSummary = previousDash,
+                    applied = false,
+                    sourceEventId = input.sourceEventId,
+                    updatedAt = previousSession.updatedAt ?: input.updatedAt
+                )
+            )
+        }
+
+        val nextMinutes = input.recentMinutes ?: previousSession.recentMinutes
+        val nextTopic = input.recentTopic ?: previousSession.recentTopic ?: previousDash.recentTopic
+        // Fake도 정책을 다시 계산하지 않고 input 값을 저장해야 real repo와 같은 책임 경계를 검증할 수 있다.
+        val nextSession = previousSession.copy(
+            correctionAvailable = input.correctionAvailable,
+            recentMinutes = nextMinutes,
+            recentTopic = nextTopic,
+            updatedAt = input.updatedAt
+        )
+        val nextDash = previousDash.copy(
+            correctionAvailable = input.correctionAvailable,
+            recentMinutes = nextMinutes,
+            recentTopic = nextTopic,
+            updatedAt = input.updatedAt
+        )
+
+        _state.value = current.copy(
+            sessionSummaries = current.sessionSummaries + (input.lang to nextSession),
+            dashSummaries = current.dashSummaries + (input.lang to nextDash)
+        )
+        lastCorrectionSignalEventIds[input.lang] = input.sourceEventId
+        return Result.success(
+            CorrectionSignalUpdateResult(
+                lang = input.lang,
+                sessionSummary = nextSession,
+                dashSummary = nextDash,
+                applied = true,
+                sourceEventId = input.sourceEventId,
+                updatedAt = input.updatedAt
+            )
+        )
+    }
+
     override suspend fun createInitial(
         userUid: String,
         userPref: UserLangPref,
@@ -202,6 +280,7 @@ class FakeLearningStateRepo @Inject constructor() : LearningStateRepo {
 
     override suspend fun clear(): Result<Unit> {
         _state.value = GlobalLangState.initial()
+        lastCorrectionSignalEventIds.clear()
         return Result.success(Unit)
     }
 

@@ -5,6 +5,8 @@ import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
@@ -50,6 +52,13 @@ interface LearningStateRepo {
     suspend fun updateFlashcardSummary(
         input: FlashcardSummaryUpdateInput
     ): Result<FlashcardSummaryUpdateResult>
+
+    // AI Chat final turn 이후 correctionAvailable 신호만 가볍게 반영한다.
+    suspend fun updateCorrectionSignal(
+        input: CorrectionSignalUpdateInput
+    ): Result<CorrectionSignalUpdateResult> = Result.failure(
+        UnsupportedOperationException("updateCorrectionSignal is not implemented")
+    )
 
     // 신규 사용자 첫 상태를 만든다.
     suspend fun createInitial(

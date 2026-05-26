@@ -6,6 +6,14 @@ import android.media.AudioTrack
 import com.app.umma.domain.audio.AudioOutput
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 
 @Singleton
 class AudioPlayer @Inject constructor() : AudioOutput {
@@ -25,6 +33,12 @@ class AudioPlayer @Inject constructor() : AudioOutput {
 
     // 오디오 트랙 정의
     private var audioTrack: AudioTrack? = null
+    private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var playbackJob: Job? = null
+    private val audioQueue = Channel<ByteArray>(
+        capacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
 
     // 초기화
     init {
@@ -59,25 +73,62 @@ class AudioPlayer @Inject constructor() : AudioOutput {
     // 오디오 트랙에 삽입된 데이터 재생
     override fun startPlaying() {
         if (audioTrack?.state == AudioTrack.STATE_INITIALIZED) {
-            audioTrack?.play()
+            if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                audioTrack?.play()
+            }
+            startPlaybackWorkerIfNeeded()
         }
     }
 
     // 오디오 트랙에 데이터 삽입
     override fun playAudioChunk(audio: ByteArray) {
-        audioTrack?.write(audio, 0, audio.size)
+        if (audioTrack?.state == AudioTrack.STATE_INITIALIZED &&
+            audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING
+        ) {
+            audioTrack?.play()
+            startPlaybackWorkerIfNeeded()
+        }
+        audioQueue.trySend(audio.copyOf()).isSuccess
     }
+
 
     // 재생 멈춤
     override fun stopPlaying() {
+        playbackJob?.cancel()
+        playbackJob = null
+        clearAudioQueue()
         audioTrack?.stop()
         audioTrack?.flush()
     }
 
     // 메모리 릴리즈
     override fun release() {
+        playbackJob?.cancel()
+        playbackJob = null
+        clearAudioQueue()
+        playerScope.cancel()
         audioTrack?.release()
         audioTrack = null
+    }
+
+    private fun startPlaybackWorkerIfNeeded() {
+        if (playbackJob?.isActive == true) return
+
+        playbackJob = playerScope.launch {
+            for (chunk in audioQueue) {
+                if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    audioTrack?.play()
+                }
+                audioTrack?.write(chunk, 0, chunk.size)
+            }
+        }
+    }
+
+    private fun clearAudioQueue() {
+        while (true) {
+            val result = audioQueue.tryReceive()
+            if (result.isFailure) break
+        }
     }
 
 }
