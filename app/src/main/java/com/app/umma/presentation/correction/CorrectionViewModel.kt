@@ -65,9 +65,13 @@ import javax.inject.Inject
  *    회귀는 `CorrectionUiStateTest` 의 pending 비차단 3건 + `CompleteCorrectionUseCaseTest` 의
  *    compression/statistics 실패 비롤백 테스트가 함께 보장한다.
  *
+ *  - (COR-002-B) AI 응답 0건 → [CorrectionUiState.Phase.EmptyResult] 분기.
+ *    AI 호출/파싱/필수 필드 누락 실패 → [CorrectionUiState.Phase.Error] + [onRetryClicked] 액션.
+ *    [triggerGeneration] 결과 적용은 [com.app.umma.presentation.correction.applyGenerationOutcome] pure helper 로 위임.
+ *    터미널 phase([CorrectionUiState.Phase.Empty]/[CorrectionUiState.Phase.EmptyResult]/[CorrectionUiState.Phase.Error])
+ *    진입 시 [generationLaunched] 가드를 해제해, 다른 경로로 학습 언어가 바뀌면 새 Ready emit 에서 자동 재시도된다.
+ *
  * 비범위:
- *  - Content phase 안에서 suggestions 가 0 개일 때의 빈 결과 UX / Retry / 선택 언어 변경 재트리거 → COR-002-B.
- *    (COR-001-B 의 [CorrectionUiState.Phase.Empty] 와 다른 의미 — Ready 게이트 미통과 vs Content 0건 분리.)
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
  *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
@@ -118,7 +122,20 @@ class CorrectionViewModel @Inject constructor(
     //  자연스럽게 새 collect 가 시작되며, 이는 의도된 동작.)
     private var enterJob: Job? = null
 
-    // COR-006-A: 완료 파이프라인 호출의 coroutine 핸들. isCompleting 플래그와 함께 이중으로 중복 호출을 막는다.
+    /**
+     * COR-002-B: 터미널 phase 집합.
+     *
+     * [triggerGeneration] 결과가 이 집합 중 하나로 전환되면 [generationLaunched] 를 false 로 리셋해,
+     * 학습 언어가 바뀌어 [GlobalLangState][com.app.umma.domain.model.learningstate.GlobalLangState] 가
+     * 새 Ready 를 emit 하면 자동으로 새 generate 가 다시 시작될 수 있게 한다.
+     * 자동 재시도가 아닌 명시적 버튼 클릭([onRetryClicked]) 도 같은 흐름([triggerGeneration]) 으로 진입한다.
+     */
+    private val terminalPhases = setOf(
+        CorrectionUiState.Phase.Empty,
+        CorrectionUiState.Phase.EmptyResult,
+        CorrectionUiState.Phase.Error,
+    )
+
     // 플래그(state) 가 ViewModel 외부 회귀의 SSOT 이고, 이 Job 은 ViewModel 내부에서 같은 호출 스택 두 번
     // 진입을 더 빠르게 끊기 위한 보조 가드다.
     private var completionJob: Job? = null
@@ -126,10 +143,11 @@ class CorrectionViewModel @Inject constructor(
     /**
      * Ready 진입 시 generateSuggestions 트리거를 한 번만 실행하기 위한 가드.
      *
-     * 1-1.COR-001-A 범위에서는 한 번 생성이 시작된 뒤 GlobalLangState 가 다시 Ready 를 흘려보내도 무시한다.
-     * 선택 언어 변경 / Retry 정책은 후속 COR-002-B 에서 이 가드를 푸는 방향으로 확장한다.
+     * COR-001-A/B 범위에서는 한 번 생성이 시작된 뒤 GlobalLangState 가 다시 Ready 를 흘려보내도 무시한다.
      *
-     * COR-001-B: 분기 결정 자체는 [shouldTriggerGeneration] pure helper 가 가지고 있고, 본 플래그는
+     * COR-002-B: [terminalPhases] 중 하나로 진입하는 시점에 false 로 리셋한다. 이후 학습 언어 변경으로
+     * GlobalLangState 가 새 Ready 를 emit 하면 자동으로 generate 가 다시 시작된다.
+     * 분기 결정 자체는 [shouldTriggerGeneration] pure helper 가 가지고 있고, 본 플래그는
      * 그 helper 의 두 번째 인자(`alreadyLaunched`) 와 1:1 대응한다. ViewModel 본문은 helper 호출 결과만
      * 보고, 회귀 테스트는 helper 단위에서 phase × launched 조합을 모두 못 박는다.
      */
@@ -199,25 +217,30 @@ class CorrectionViewModel @Inject constructor(
     }
 
     /**
-     * Ready 게이트 통과 직후의 자동 교정 흐름.
+     * Ready 게이트 통과 직후의 자동 교정 흐름. [onRetryClicked] 도 같은 진입점을 사용한다.
      *
      * 1) RT-003 correction context 조회 (Flow 첫 emit).
      * 2) ExtractSessionCandidatesUseCase 로 후보 추출.
      * 3) GenerateSuggestionsInput 구성 → GenerateSuggestionsUseCase.
-     * 4) success → Content, failure → Error.
+     * 4) [applyGenerationOutcome] pure helper 로 결과 적용:
+     *    - success([])        → [CorrectionUiState.Phase.EmptyResult]
+     *    - success(non-empty) → [CorrectionUiState.Phase.Content]
+     *    - failure            → [CorrectionUiState.Phase.Error]
+     * 5) 터미널 phase 진입 시 [generationLaunched] 가드 해제 (COR-002-B 자동 재시도 정책).
      */
     private fun triggerGeneration(ready: CorrectionUiState) {
         val lang = ready.selectedLearningLanguage ?: return
         val langState = ready.langStateSnapshot ?: return
 
         viewModelScope.launch {
+            // Generating 전환 — errorReason 은 helper 에서 채워지므로 여기선 비워만 둔다.
             _uiState.value = _uiState.value.copy(
                 phase = CorrectionUiState.Phase.Generating,
                 errorReason = null,
             )
 
             val result = runCatching {
-                // RT-003 read model 은 Flow 라 추가 emit 이 흘러도 -A 범위에서는 첫 snapshot 만 본다.
+                // RT-003 read model 은 Flow 라 추가 emit 이 흘러도 첫 snapshot 만 본다.
                 val sessionTurns = getCorrectionContext(lang).first()
                 val candidates = extractSessionCandidates(
                     selectedLang = lang,
@@ -233,37 +256,39 @@ class CorrectionViewModel @Inject constructor(
                 generateSuggestions(input).getOrThrow()
             }
 
-            result.fold(
-                onSuccess = { suggestions ->
-                    Log.d(TAG, "Content — suggestions=${suggestions.size}")
-                    _uiState.value = _uiState.value.copy(
-                        phase = CorrectionUiState.Phase.Content,
-                        suggestions = suggestions,
-                        // 새 suggestions 로 교체되는 시점에 stale 한 selectedSuggestionIds 가 남아 있으면
-                        // 새 목록에 존재하지 않는 id 가 canSave 를 거짓 양성으로 띄울 수 있어 함께 비운다.
-                        selectedSuggestionIds = emptySet(),
-                        errorReason = null,
-                        // 직전 저장 시도가 만들어둔 saveRequest 도 새 목록 기준에서는 stale 이므로 함께 비운다.
-                        saveRequest = null,
-                        saveErrorReason = null,
-                    )
-                },
-                onFailure = { e ->
-                    val reason = e.message ?: e.javaClass.simpleName
-                    Log.w(TAG, "Error — reason=$reason", e)
-                    _uiState.value = _uiState.value.copy(
-                        phase = CorrectionUiState.Phase.Error,
-                        suggestions = emptyList(),
-                        // 에러 진입 시점에도 동일하게 비워 다음 Content 진입의 출발점을 깔끔하게 둔다.
-                        selectedSuggestionIds = emptySet(),
-                        errorReason = reason,
-                        // suggestions 가 사라진 상태에서 직전 saveRequest 만 살아 있으면 COR-006 호출 근거가 흔들린다.
-                        saveRequest = null,
-                        saveErrorReason = null,
-                    )
-                }
+            // COR-002-B: 분기 결정(EmptyResult/Content/Error) 과 필드 정리는 pure helper 에 위임.
+            _uiState.value = _uiState.value.applyGenerationOutcome(result)
+            Log.d(
+                TAG,
+                "applyGenerationOutcome → phase=${_uiState.value.phase}, " +
+                        "suggestions=${_uiState.value.suggestions.size}, " +
+                        "errorReason=${_uiState.value.errorReason}",
             )
+
+            // COR-002-B: 터미널 phase 진입 시 가드 해제 — 학습 언어 변경 후 새 Ready emit 에서 자동 재시도.
+            if (_uiState.value.phase in terminalPhases) {
+                generationLaunched = false
+            }
         }
+    }
+
+    /**
+     * COR-002-B: Error 상태에서 사용자가 호출하는 Retry 액션.
+     *
+     * 같은 Session Memory(= 현재 선택 언어 기준 SessionMemory) 와 _uiState 의 langStateSnapshot 으로
+     * [triggerGeneration] 흐름을 다시 진입한다. [CorrectionUiState.Phase.Error] 외 상태에서 호출되면 no-op.
+     *
+     * 언어 변경 자동 재시도와의 관계:
+     *  - [terminalPhases] 진입 시 [generationLaunched]=false 리셋으로 GlobalLangState refresh 가
+     *    새 Ready 를 흘려보내면 자동으로 generate 가 다시 시작된다.
+     *  - 본 함수는 사용자가 같은 언어로 명시적으로 다시 시도하는 경로다.
+     */
+    fun onRetryClicked() {
+        val current = _uiState.value
+        // 방어 가드: UI 가 Error phase 에서만 버튼을 노출하지만 방어적으로 체크한다.
+        if (current.phase != CorrectionUiState.Phase.Error) return
+        Log.d(TAG, "onRetryClicked — lang=${current.selectedLearningLanguage}")
+        triggerGeneration(current)
     }
 
     /**

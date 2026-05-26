@@ -33,10 +33,12 @@ import com.app.umma.domain.model.learningstate.selectedLang
  *    설계 문서의 `Empty(reason)` 표기와 정합. 결손 사유 자체는 [notAvailableReason] 의 logcat 단서로만 추적하고
  *    UiState 표면에는 별도 `reason` 필드를 두지 않는다. 또한 중복 초기화 방지를 위한 generate 트리거 가드는
  *    [shouldTriggerGeneration] pure helper 로 분리해 ViewModel 본문과 동치인 invariant 를 회귀 테스트한다.
+ *  - (COR-002-B) AI 응답이 0 건일 때의 [Phase.EmptyResult] 분기, AI 호출/파싱/필수 필드 누락 실패의 [Phase.Error]
+ *    분기를 [applyGenerationOutcome] pure helper 로 일원화한다. Error 에서는 같은 Session Memory/선택 언어 기준의
+ *    Retry 액션을 [CorrectionViewModel.onRetryClicked] 로 제공한다. 터미널 phase(Empty/EmptyResult/Error) 진입 시
+ *    generationLaunched 가드를 해제해, 다른 경로로 학습 언어가 바뀌면 새 Ready emit 에서 자동 재시도된다.
  *
  * 비범위:
- *  - "Content 상태에서 suggestions 가 0 개인 경우"의 별도 UX 분리(=빈 결과 안내 / Retry 액션) 는 COR-002-B 범위.
- *    COR-001-B 가 다루는 [Phase.Empty] 는 *Ready 게이트 미통과* 케이스만 의미하고, Content 진입 후의 빈 결과는 다르다.
  *  - "전체 선택" 토글은 후속 UI 백로그 범위.
  *  - 완료 실패 → Retry 상태 유지는 COR-006-B 가 [Phase.Retry] 또는 추가 필드와 함께 다룬다.
  *  - 로컬 완료 성공 후 Dashboard 복귀 navigation 은 COR-007-A 가 1회성 이벤트로 다룬다.
@@ -112,18 +114,22 @@ data class CorrectionUiState(
 
         // 위 조건 중 하나라도 누락된 상태. (COR-001-B: 설계 문서의 `Empty(reason)` 표기와 정합.)
         // 화면 레이어가 AI Chat 이동 CTA 와 함께 노출한다.
+        // ※ Ready 게이트 미통과 케이스만 의미한다 — AI 응답 0건은 [EmptyResult] 로 별도 분기한다.
         Empty,
 
         // AI 호출 in-flight. 중복 트리거 방지에도 사용된다.
         Generating,
 
-        // suggestions 가 채워진 정상 상태. 빈 리스트도 Content 로 두며,
-        // 빈 결과 UX 분리는 COR-002-B (Content phase 내부 분기) 범위다.
-        // (COR-001-B 의 [Empty] 와 다른 의미 — Ready 게이트는 통과했지만 AI 가 0건을 돌려준 경우.)
+        // 비어 있지 않은 suggestions 가 있는 정상 상태.
+        // (COR-002-B: 0건은 [EmptyResult] 로 빠지므로 Content 는 suggestions.isNotEmpty() 를 보장한다.)
         Content,
 
+        // COR-002-B: Ready 게이트를 통과해 generate 가 호출됐고, AI 가 0건을 돌려준 경우.
+        // [Empty] (Ready 게이트 미통과) 와 다른 의미 — 화면 레이어가 "다시 시도" + "AI 대화하기" CTA 를 제공한다.
+        EmptyResult,
+
         // candidateId 매칭 실패 / JSON 파싱 실패 / 필수 필드 누락 / AI 호출 자체 실패.
-        // errorReason 필드에 사유 보관.
+        // errorReason 필드에 사유 보관. COR-002-B: 화면 레이어가 Retry 버튼을 제공한다.
         Error,
 
         // COR-006-A: CompleteCorrectionUseCase 가 로컬 완료 성공 결과를 돌려준 직후의 종착 단계.
@@ -371,7 +377,8 @@ internal fun GlobalLangState.toCorrectionUiState(): CorrectionUiState {
  * 실 운영 시점에는 이 로그가 어느 단계에서 떨어졌는지 식별하는 유일한 단서가 된다.
  *
  * 함수명은 의도적으로 `notAvailableReason` 을 유지한다 — logcat grep / 기존 인계 문서 참조 일관성을 위해서이며,
- * 의미는 "Empty 진입 사유" 이다. 본 KDoc 이 그 매핑의 SSOT 다.
+ * 의미는 "Empty(Ready-gate 미통과) 진입 사유" 이다. 본 KDoc 이 그 매핑의 SSOT 다.
+ * AI 응답이 0건인 [CorrectionUiState.Phase.EmptyResult] 는 별도 분기이므로 이 함수와 무관하다.
  */
 internal fun GlobalLangState.notAvailableReason(): String? {
     val lang = selectedLang ?: return "selectedLang == null (userPref absent)"
@@ -382,6 +389,56 @@ internal fun GlobalLangState.notAvailableReason(): String? {
     }
     return null
 }
+
+/**
+ * COR-002-B: generate 흐름 결과를 UiState 에 반영한다.
+ *
+ * [CorrectionViewModel.triggerGeneration] 의 result.fold 본문을 pure function 으로 분리해
+ * ViewModel 인스턴스 / viewModelScope 셋업 없이 모든 분기를 회귀 테스트할 수 있도록 한다.
+ * [applySaveRequestOutcome] / [applyCompletionOutcome] 과 동일한 compute-apply 패턴.
+ *
+ * 분기 표:
+ *  - success([])           → [CorrectionUiState.Phase.EmptyResult] : AI 가 0 건 응답.
+ *  - success(non-empty)    → [CorrectionUiState.Phase.Content]     : 정상 카드 목록.
+ *  - failure(t)            → [CorrectionUiState.Phase.Error]       : 호출/파싱/필수 필드 누락 실패.
+ *
+ * 세 분기 공통으로 정리하는 필드:
+ *  - [CorrectionUiState.selectedSuggestionIds] = ∅  (stale id 잔존 방지)
+ *  - [CorrectionUiState.saveRequest]           = null (직전 시도 stale 방지)
+ *  - [CorrectionUiState.saveErrorReason]       = null
+ */
+internal fun CorrectionUiState.applyGenerationOutcome(
+    result: Result<List<CorrectionSuggestion>>,
+): CorrectionUiState = result.fold(
+    onSuccess = { suggestions ->
+        // 0건 → EmptyResult, 1건 이상 → Content.
+        val nextPhase = if (suggestions.isEmpty()) {
+            CorrectionUiState.Phase.EmptyResult
+        } else {
+            CorrectionUiState.Phase.Content
+        }
+        copy(
+            phase = nextPhase,
+            suggestions = suggestions,
+            selectedSuggestionIds = emptySet(),
+            errorReason = null,
+            saveRequest = null,
+            saveErrorReason = null,
+        )
+    },
+    onFailure = { e ->
+        // message 가 null 이면 class 이름으로 fallback — 현 ViewModel 패턴과 동치.
+        val reason = e.message ?: e.javaClass.simpleName
+        copy(
+            phase = CorrectionUiState.Phase.Error,
+            suggestions = emptyList(),
+            selectedSuggestionIds = emptySet(),
+            errorReason = reason,
+            saveRequest = null,
+            saveErrorReason = null,
+        )
+    },
+)
 
 /**
  * COR-001-B: Ready 게이트 통과 직후의 generateSuggestions 1회 트리거 가드.

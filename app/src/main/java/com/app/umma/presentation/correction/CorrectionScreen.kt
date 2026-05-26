@@ -50,7 +50,9 @@ import com.app.umma.presentation.correction.component.CorrectionResultList
  * 으로 동일 이벤트가 재발화되지 않는다(AC: "완료 성공 이벤트는 한 번만 소비된다").
  * COR-001-B 에서는 [CorrectionUiState.Phase.Empty] (구 NotAvailable) 분기를 [CorrectionEmpty] 컴포저블로
  * 끌어올려 "AI 와 대화하기" CTA 를 노출하고, 클릭 시 [onNavigateToChat] 콜백으로 위임한다.
- * Loading / Generating / Error phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
+ * COR-002-B 에서는 AI 응답 0건([CorrectionUiState.Phase.EmptyResult]) 을 [CorrectionEmptyResult] 로,
+ * 호출/파싱/필수 필드 실패([CorrectionUiState.Phase.Error]) 를 [CorrectionError] + Retry 버튼으로 연결한다.
+ * Loading / Generating phase 의 사용자 노출 디자인은 후속 backlog 에서 다룬다.
  *
  * @param onNavigateToDashboard 완료 파이프라인 성공 후 Dashboard 로 복귀시켜야 할 때 호출되는 1회성 콜백.
  *  실제 navigate 와 backstack 정리(popUpTo<CorrectionGraph> inclusive=true + launchSingleTop) 책임은
@@ -144,6 +146,29 @@ fun CorrectionScreen(
                 )
             }
 
+            // COR-002-B: AI 응답이 0건인 경우. Ready 게이트 미통과([Phase.Empty])와 다른 의미.
+            // "다시 시도" 로 generate 를 재진입하거나, "AI 와 대화하기" 로 대화를 더 이어갈 수 있다.
+            CorrectionUiState.Phase.EmptyResult -> {
+                CorrectionEmptyResult(
+                    onRetry = viewModel::onRetryClicked,
+                    onNavigateToChat = onNavigateToChat,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                )
+            }
+
+            // COR-002-B: AI 호출/파싱/필수 필드 누락 실패. Retry 버튼으로 같은 Session Memory 기준 재시도.
+            CorrectionUiState.Phase.Error -> {
+                CorrectionError(
+                    errorReason = uiState.errorReason,
+                    onRetry = viewModel::onRetryClicked,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                )
+            }
+
             else -> {
                 Column(
                     modifier = Modifier
@@ -171,13 +196,6 @@ fun CorrectionScreen(
                             Text(text = "AI 가 교정 결과를 생성 중…", textAlign = TextAlign.Center)
                         }
 
-                        CorrectionUiState.Phase.Error -> {
-                            Text(text = "교정 결과 생성에 실패했어요", textAlign = TextAlign.Center)
-                            uiState.errorReason?.let { reason ->
-                                Text(text = "사유: $reason", textAlign = TextAlign.Center)
-                            }
-                        }
-
                         CorrectionUiState.Phase.Done -> {
                             // COR-006-A: 완료 파이프라인 성공 안내. Dashboard 복귀 버튼은 COR-007-A 가
                             // 1회성 navigation 이벤트로 잇는다(이 화면에서 머무는 시간은 짧을 예정).
@@ -189,7 +207,7 @@ fun CorrectionScreen(
                             )
                         }
 
-                        // Content / Empty 분기는 위의 when 에서 이미 처리.
+                        // Content / Empty / EmptyResult / Error 분기는 위의 when 에서 이미 처리.
                         else -> Unit
                     }
                 }
@@ -243,6 +261,117 @@ private fun CorrectionEmpty(
                 .padding(horizontal = SpacingL, vertical = SpacingS),
         ) {
             Text(text = "AI 와 대화하기")
+        }
+    }
+}
+
+/**
+ * COR-002-B: AI 응답 0건([CorrectionUiState.Phase.EmptyResult]) UI.
+ *
+ * 노출 조건:
+ *  - Ready 게이트는 통과했으나 AI 가 교정할 부분이 없다고 판단해 빈 목록을 돌려준 경우.
+ *  - [CorrectionUiState.Phase.Empty] (Ready 게이트 미통과) 와 다른 의미.
+ *
+ * AC: "결과가 비어 있으면 Empty 상태를 반환한다" ([COR-002_Suggestion_Generation.md]).
+ *
+ * CTA 두 가지를 제공한다:
+ *  - Primary "다시 시도": [onRetry] 호출 → [CorrectionViewModel.onRetryClicked] →
+ *    같은 Session Memory / 선택 언어 기준으로 generate 재진입.
+ *  - Secondary "AI 와 대화하기": [onNavigateToChat] 호출 → Chat 탭으로 이동해 대화를 더 만든다.
+ */
+@Composable
+private fun CorrectionEmptyResult(
+    onRetry: () -> Unit,
+    onNavigateToChat: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "AI 가 교정할 부분을 찾지 못했어요",
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "다시 시도하거나 대화를 더 이어가 보세요",
+            textAlign = TextAlign.Center,
+        )
+        // Primary CTA: generate 재진입.
+        Button(
+            onClick = onRetry,
+            shape = RoundedCornerShape(ChipCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+            modifier = Modifier
+                .padding(top = SpacingL)
+                .padding(horizontal = SpacingL, vertical = SpacingS),
+        ) {
+            Text(text = "다시 시도")
+        }
+        // Secondary CTA: Chat 탭 이동.
+        Button(
+            onClick = onNavigateToChat,
+            shape = RoundedCornerShape(ChipCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+            modifier = Modifier
+                .padding(top = SpacingS)
+                .padding(horizontal = SpacingL, vertical = SpacingS),
+        ) {
+            Text(text = "AI 와 대화하기")
+        }
+    }
+}
+
+/**
+ * COR-002-B: AI 호출/파싱/필수 필드 누락 실패([CorrectionUiState.Phase.Error]) UI.
+ *
+ * 노출 조건:
+ *  - AI 요청 자체 실패(네트워크 포함)
+ *  - AI 응답 JSON 파싱 실패
+ *  - candidateId 매칭 실패
+ *  - 필수 필드(nativeText / afterText / explanation) 누락
+ *
+ * AC: "AI 요청 실패, 응답 파싱 실패, 필수 필드 누락 시 Error 상태로 전환하고 Retry 액션을 제공한다"
+ * ([COR-002_Suggestion_Generation.md]).
+ *
+ * Retry 는 [CorrectionViewModel.onRetryClicked] 를 통해 같은 Session Memory / 현재 선택 언어 기준으로
+ * [CorrectionViewModel.triggerGeneration] 을 재진입한다.
+ *
+ * @param errorReason [CorrectionUiState.errorReason] — null 이면 사유 텍스트를 표시하지 않는다.
+ */
+@Composable
+private fun CorrectionError(
+    errorReason: String?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "교정 결과 생성에 실패했어요",
+            textAlign = TextAlign.Center,
+        )
+        // 사유는 디버깅 단서로만 병기. 실제 운영에서는 errorReason 이 기술적 메시지일 수 있으므로
+        // UX 디자인이 확정되면 별도 포맷팅을 검토한다.
+        errorReason?.let { reason ->
+            Text(
+                text = "사유: $reason",
+                textAlign = TextAlign.Center,
+            )
+        }
+        Button(
+            onClick = onRetry,
+            shape = RoundedCornerShape(ChipCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+            modifier = Modifier
+                .padding(top = SpacingL)
+                .padding(horizontal = SpacingL, vertical = SpacingS),
+        ) {
+            Text(text = "다시 시도")
         }
     }
 }
