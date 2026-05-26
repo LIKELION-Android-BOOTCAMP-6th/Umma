@@ -47,6 +47,10 @@ import com.app.umma.presentation.correction.component.CorrectionResultList
  * 선택 상태 → 저장 진입점을 연결한다.
  * COR-006-A 에서는 완료 파이프라인 성공 직후 [CorrectionUiState.Phase.Done] 으로 전환되며,
  * 카드 목록과 저장 버튼이 사라지고 안내 텍스트와 저장된 카드 수만 남는다.
+ * COR-006-B 에서는 로컬 완료 실패 시 [CorrectionUiState.Phase.Retry] 로 전환되어
+ * 카드 목록과 저장 버튼은 그대로 유지된 채 상단에 [CorrectionCompletionRetryBanner] 가
+ * 실패 사유와 함께 노출된다. 사용자가 같은 저장 버튼을 다시 누르면 ViewModel 의
+ * [CorrectionViewModel.onSaveClicked] → [CorrectionViewModel.launchCompletion] 이 같은 saveRequest 로 재진입한다.
  * COR-007-A 에서는 ViewModel 이 Done 직후 Channel 로 emit 한
  * [CorrectionEvent.NavigateToDashboard] 를 collect 해 [onNavigateToDashboard] 콜백을 호출,
  * 상위 NavHost 가 backstack 을 정리하며 Dashboard 로 복귀시킨다. Channel 기반이라 회전/recomposition
@@ -140,6 +144,47 @@ fun CorrectionScreen(
                 }
             }
 
+            // COR-006-B: 로컬 완료 실패 → Retry 분기. 화면 구조는 Content 와 동일하게 카드 목록 + 저장 버튼을
+            // 그대로 유지해 사용자가 같은 입력으로 다시 저장 버튼을 누를 수 있게 한다.
+            // 카드 목록 위에 실패 사유를 알리는 [CorrectionCompletionRetryBanner] 를 추가로 띄운다.
+            // saveErrorReason 과 completionErrorReason 은 의미가 다르므로(=변환 단계 vs 완료 단계) 동시에
+            // 채워질 일은 정상 흐름에서 없지만, 방어적으로 둘 다 노출 가능한 구조로 둔다.
+            CorrectionUiState.Phase.Retry -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
+                    uiState.completionErrorReason?.let { reason ->
+                        CorrectionCompletionRetryBanner(
+                            reason = reason,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    uiState.saveErrorReason?.let { reason ->
+                        CorrectionSaveErrorBanner(
+                            reason = reason,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    CorrectionResultList(
+                        suggestions = uiState.suggestions,
+                        selectedIds = uiState.selectedSuggestionIds,
+                        onCardClicked = viewModel::toggleSuggestionSelection,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    )
+                    CorrectionSaveButton(
+                        enabled = uiState.canSave,
+                        onClick = viewModel::onSaveClicked,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = SpacingL, vertical = SpacingM)
+                    )
+                }
+            }
+
             // COR-001-B: 결손 케이스(언어/세션/LangState 없음, correctionAvailable=false)는 단일 Empty 분기로
             // 묶고, 짧은 안내 + AI Chat 이동 CTA 를 함께 노출한다. 어느 필드가 비었는지는 ViewModel 의
             // logcat (notAvailableReason) 으로만 추적하며, UiState 표면에 별도 reason 필드는 두지 않는다.
@@ -190,10 +235,10 @@ fun CorrectionScreen(
                 )
             }
 
-            else -> {
+            CorrectionUiState.Phase.Done -> {
                 // COR-006-A: Done phase — 완료 파이프라인 성공 안내.
                 // Dashboard 복귀는 COR-007-A 가 1회성 navigation 이벤트로 잇는다(이 화면에서 머무는 시간은 짧을 예정).
-                // Content / Empty / EmptyResult / Error / Loading / Ready / Generating 은 위에서 이미 처리.
+                // Content / Retry / Empty / EmptyResult / Error / Loading / Ready / Generating 은 위에서 이미 처리.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -470,6 +515,39 @@ private fun CorrectionSaveErrorBanner(
     ) {
         Text(
             text = "저장 요청을 만들지 못했어요",
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        Text(
+            text = "사유: $reason",
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+}
+
+/**
+ * 완료 파이프라인 실패 → Retry 안내 배너.
+ *
+ * SSOT: COR-006_Completion_Pipeline.md (AC "로컬 완료 실패 결과를 받으면 Retry 상태로 남긴다").
+ *
+ * [CorrectionUiState.Phase.Retry] 진입 시 카드 목록 위에 깔리며, [CorrectionSaveErrorBanner] 와 동일한
+ * errorContainer 색상 토큰을 그대로 쓴다. 두 배너는 의미가 다르다 — saveErrorReason 은 저장 요청 변환
+ * 단계 실패, 본 배너는 완료 파이프라인(Flashcard 저장 / LangState 갱신 등) 단계 실패.
+ *
+ * 첫 줄은 사용자 안내, 둘째 줄은 raw 진단 사유. 사용자가 같은 저장 버튼을 다시 누르면 ViewModel 이
+ * 같은 saveRequest 로 [CorrectionViewModel.launchCompletion] 에 재진입한다.
+ */
+@Composable
+private fun CorrectionCompletionRetryBanner(
+    reason: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = SpacingL, vertical = SpacingM),
+    ) {
+        Text(
+            text = "저장에 실패했어요. 다시 시도해 주세요",
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
         Text(

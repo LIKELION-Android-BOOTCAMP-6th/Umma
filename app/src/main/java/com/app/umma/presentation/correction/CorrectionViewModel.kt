@@ -54,6 +54,14 @@ import javax.inject.Inject
  *    완료 in-flight 윈도우([CorrectionUiState.isCompleting]) 와 [completionJob] 으로 중복 호출을 막는다.
  *    [BuildLangStateUpdateInputUseCase] 로 LangStateUpdateInput 을 조립한 뒤 [CompleteCorrectionUseCase]
  *    에 전달하는 실제 호출이 연결되어 있다. 인계 문서: `docs/handover/LS-008_LANGSTATE_INPUT_READY.md`.
+ *  - (COR-006-B) [CompleteCorrectionUseCase] 가 로컬 완료 실패 결과를 돌려주면
+ *    [CorrectionUiState.Phase.Retry] 로 전환된다. 카드 목록 / 선택 / saveRequest 는 그대로 유지되어
+ *    사용자가 같은 저장 버튼을 다시 누르면 [onSaveClicked] → [launchCompletion] 흐름이 같은 입력으로
+ *    재진입한다 — [PrepareSaveRequestUseCase] 가 deterministic 하게 같은 [CorrectionSaveRequest] 를
+ *    재생성하므로 AC "Retry 시 같은 저장 요청으로 완료 파이프라인을 다시 호출" 이 자연스럽게 충족된다.
+ *    실패 사유는 [CorrectionUiState.completionErrorReason] 에 보관되어 화면 배너로 노출된다.
+ *    Firestore sync / compression / statistics 의 pending 만 발생한 경우는 [CompleteCorrectionUseCase]
+ *    가 `Result.success` 로 흘려보내므로 Retry 가 아니라 Done 으로 이어진다 (회귀: COR-007-B pending 3건).
  *  - (COR-007-A) 완료 파이프라인 성공 직후 [events] 채널로 [CorrectionEvent.NavigateToDashboard] 를
  *    정확히 한 번 방출한다. State(`Phase.Done`) 결정 책임은 [applyCompletionOutcome] 에 그대로 두고,
  *    1회성 navigation 신호만 Channel 로 분리해 회전/recomposition/재진입에 의한 재발화를 막는다.
@@ -74,7 +82,6 @@ import javax.inject.Inject
  * 비범위:
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
- *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
@@ -129,6 +136,11 @@ class CorrectionViewModel @Inject constructor(
      * 학습 언어가 바뀌어 [GlobalLangState][com.app.umma.domain.model.learningstate.GlobalLangState] 가
      * 새 Ready 를 emit 하면 자동으로 새 generate 가 다시 시작될 수 있게 한다.
      * 자동 재시도가 아닌 명시적 버튼 클릭([onRetryClicked]) 도 같은 흐름([triggerGeneration]) 으로 진입한다.
+     *
+     * COR-006-B: [CorrectionUiState.Phase.Retry] 는 의식적으로 본 집합에 포함시키지 않는다.
+     * Retry 는 "완료 실패 후 사용자가 같은 입력으로 명시적 재시도를 기다리는 상태" 이므로 학습 언어 변경
+     * 같은 외부 이벤트로 자동 generate 가 다시 일어나선 안 된다. 사용자가 저장 버튼을 다시 눌렀을 때만
+     * [launchCompletion] 으로 재진입한다.
      */
     private val terminalPhases = setOf(
         CorrectionUiState.Phase.Empty,
@@ -328,9 +340,10 @@ class CorrectionViewModel @Inject constructor(
      * ViewModel 은 그 결과를 logging / state 갱신 두 가지로만 적용한다. 모든 분기 가드는
      * pure function 쪽 회귀 테스트(`CorrectionSaveRequestOutcomeTest`)에서 검증된다.
      *
-     * 비범위 (COR-006-B / COR-007):
-     *  - 완료 실패 → Retry 상태 유지 (COR-006-B).
-     *  - Done 진입 후 Dashboard 복귀 navigation (COR-007-A).
+     * COR-006-B 추가 흐름:
+     *  - [CorrectionUiState.Phase.Retry] 에서도 [CorrectionUiState.canSave] 가 true 이므로 이 진입점이
+     *    그대로 재사용된다. 같은 사용자 선택이 보존되어 있으면 [PrepareSaveRequestUseCase] 가
+     *    deterministic 하게 같은 saveRequest 를 만들어 [launchCompletion] 으로 흘려보낸다.
      */
     fun onSaveClicked() {
         // 가드 판단용 snapshot 은 _uiState 갱신 이전 값으로 잡는다.
@@ -363,7 +376,9 @@ class CorrectionViewModel @Inject constructor(
     /**
      * 완료 파이프라인 호출 진입점.
      *
-     * [onSaveClicked] 의 Prepared 분기 또는 COR-006-B 가 채울 Retry 액션이 호출한다.
+     * [onSaveClicked] 의 Prepared 분기에서 호출된다. COR-006-B 에서는 별도 Retry 액션을 두지 않고,
+     * [CorrectionUiState.Phase.Retry] 에서도 사용자가 같은 저장 버튼을 누르면 [onSaveClicked] 가
+     * 다시 변환 → Prepared → 본 함수로 흘러 들어와 같은 saveRequest 로 재진입한다.
      * 분기 결정은 [computeCompletionLaunch] 가 [CompletionLaunchOutcome] 으로 돌려주고, 본 함수는
      * (a) state 갱신, (b) viewModelScope.launch 진입, (c) 두 UseCase 직렬 호출 결과 적용 세 가지만 책임진다.
      *

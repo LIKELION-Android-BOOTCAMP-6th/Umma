@@ -28,6 +28,12 @@ import com.app.umma.domain.model.learningstate.selectedLang
  *  - (COR-006-A) 저장 요청 변환 성공 후 CompleteCorrectionUseCase 완료 파이프라인 호출까지 이어가고,
  *    완료 in-flight 윈도우([isCompleting])와 완료 결과 보관([completionResult])을 추가한다.
  *    완료 성공 시 [Phase.Done] 으로 전환되어 카드 목록과 저장 버튼이 사라지고 안내 텍스트로 마무리된다.
+ *  - (COR-006-B) 로컬 완료 실패 결과를 받으면 [Phase.Retry] 로 전환한다. 카드 목록 / 선택 /
+ *    [saveRequest] 는 그대로 보존해 사용자가 같은 입력으로 다시 저장 버튼을 누르면 [PrepareSaveRequestUseCase]
+ *    가 deterministic 하게 같은 [CorrectionSaveRequest] 를 재생성해 같은 완료 요청으로 재진입한다.
+ *    실패 사유는 [completionErrorReason] 에 보관하고 화면 배너로 노출한다.
+ *    Firestore sync / Session compression / Statistics history 의 pending 만 발생한 경우는
+ *    [CompleteCorrectionUseCase] 가 `Result.success` 로 흘려보내므로 Retry 가 아니라 Done 으로 이어간다.
  *  - (COR-001-B) 결손 케이스(선택 언어 없음 / SessionSummary 없음 / LangState 없음 / correctionAvailable=false)를
  *    [Phase.Empty] 한 분기로 묶고, 화면 레이어가 AI Chat 이동 CTA 와 함께 노출할 수 있도록 한다.
  *    설계 문서의 `Empty(reason)` 표기와 정합. 결손 사유 자체는 [notAvailableReason] 의 logcat 단서로만 추적하고
@@ -40,7 +46,6 @@ import com.app.umma.domain.model.learningstate.selectedLang
  *
  * 비범위:
  *  - "전체 선택" 토글은 후속 UI 백로그 범위.
- *  - 완료 실패 → Retry 상태 유지는 COR-006-B 가 [Phase.Retry] 또는 추가 필드와 함께 다룬다.
  *  - 로컬 완료 성공 후 Dashboard 복귀 navigation 은 COR-007-A 가 1회성 이벤트로 다룬다.
  *
  * COR-007-B (pending 비차단 정책):
@@ -91,6 +96,12 @@ data class CorrectionUiState(
     // [Phase.Done] 화면에서 "저장된 카드 수" 를 표시하기 위해 [CompleteCorrectionResult.savedFlashcardIds] 를 읽는다.
     // 후속 COR-007-A 가 Dashboard 복귀 navigation 을 붙일 때 이 결과를 참조해 1회성 이벤트로 변환한다.
     val completionResult: CompleteCorrectionResult? = null,
+    // COR-006-B: CompleteCorrectionUseCase 가 로컬 완료 실패 결과를 돌려준 사유.
+    // [Phase.Retry] 화면 상단 배너로 노출하기 위한 진단 텍스트로, 같은 saveRequest 로 재시도가 성공하면
+    // [applyCompletionOutcome] 의 onSuccess 분기에서 null 로 초기화된다.
+    // saveErrorReason 과 의미가 다르다 — saveErrorReason 은 "저장 요청 변환 단계 실패", 본 필드는
+    // "완료 파이프라인 단계 실패" 사유다. 두 필드가 동시에 채워지는 일은 정상 흐름에서는 없다.
+    val completionErrorReason: String? = null,
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.
@@ -136,6 +147,15 @@ data class CorrectionUiState(
         // 카드 목록 / 저장 버튼이 사라지고 안내 텍스트만 노출된다. Dashboard 복귀는 COR-007-A 에서
         // 이 단계 진입 시점을 1회성 이벤트로 소비해 navigation 으로 잇는다.
         Done,
+
+        // COR-006-B: CompleteCorrectionUseCase 가 로컬 완료 실패 결과를 돌려준 직후의 재시도 대기 단계.
+        // 카드 목록 / 선택 상태 / saveRequest 는 그대로 유지되어 사용자가 같은 저장 버튼을 다시 누르면
+        // 같은 saveRequest 로 완료 파이프라인이 재진입된다.
+        // 사용자 입장에서 [Content] 와 거의 동일한 화면이지만, [completionErrorReason] 배너가 상단에
+        // 함께 노출된다.
+        // ※ Firestore sync / compression / statistics 의 pending 만 발생한 경우는 [Done] 으로 빠진다 —
+        //   [CompleteCorrectionUseCase] 가 `Result.success` 로 흘려보내므로 본 분기에 들어오지 않는다.
+        Retry,
     }
 }
 
@@ -246,17 +266,21 @@ internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutco
 /**
  * 저장 버튼 활성 조건.
  *
- * Content 단계이며 한 개 이상 선택되었고, 직전 시도가 어느 단계든 in-flight 가 아닌 경우에만 true.
+ * Content 또는 Retry 단계이며 한 개 이상 선택되었고, 직전 시도가 어느 단계든 in-flight 가 아닌 경우에만 true.
  * - phase 가드: 생성 중 / 에러 / Empty / Done 등에서는 카드 자체가 안 보이므로
  *   잔존 selectedSuggestionIds 가 있어도 저장이 가능해선 안 된다.
  *   특히 [CorrectionUiState.Phase.Done] 진입 후에는 같은 화면에서 재저장이 일어나지 않아야 한다.
+ * - COR-006-B: [CorrectionUiState.Phase.Retry] 도 허용한다. 완료 실패 후 카드 목록 / 선택 / saveRequest 가
+ *   보존된 상태에서 사용자가 같은 저장 버튼을 다시 눌렀을 때 같은 완료 요청으로 재진입할 수 있어야 한다.
+ *   ([PrepareSaveRequestUseCase] 가 같은 입력에 대해 같은 saveRequest 를 deterministic 하게 만들어 주므로
+ *   COR-006 AC "Retry 시 같은 저장 요청으로 완료 파이프라인을 다시 호출" 이 자연스럽게 충족된다.)
  * - 0개 가드: AC "선택 항목이 0개이면 저장 버튼은 비활성화" 의 직접 반영.
  * - 변환 in-flight 가드 (COR-005-B): 저장 요청 준비 중에는 같은 버튼이 한 번 더 활성화되지 않도록 한다.
  * - 완료 in-flight 가드 (COR-006-A): 변환 윈도우가 닫힌 직후 완료 윈도우가 열리는 짧은 구간에도
  *   두 번째 클릭이 들어오지 않도록 [isCompleting] 도 함께 가드한다.
  */
 val CorrectionUiState.canSave: Boolean
-    get() = phase == CorrectionUiState.Phase.Content &&
+    get() = (phase == CorrectionUiState.Phase.Content || phase == CorrectionUiState.Phase.Retry) &&
             selectedSuggestionIds.isNotEmpty() &&
             !isSavePreparing &&
             !isCompleting
@@ -305,11 +329,15 @@ internal fun CorrectionUiState.openCompletionWindow(): CorrectionUiState =
     if (isCompleting) this else copy(isCompleting = true)
 
 /**
- * [CompleteCorrectionUseCase] 호출 결과(또는 placeholder stub 결과) 를 UiState 에 반영한다.
+ * [CompleteCorrectionUseCase] 호출 결과를 UiState 에 반영한다.
  *
  * 성공 → [Phase.Done] 으로 전환하고 [completionResult] 에 결과를 보관한다.
- * 실패 → 완료 in-flight 윈도우만 닫고 다른 필드는 그대로 둔다. COR-006-B 가 Retry 상태를 정의하면서
- * 이 분기를 [Phase.Retry] / 별도 errorReason 으로 확장할 예정이다.
+ *        직전 Retry 진입에서 채워진 [completionErrorReason] 은 명시적으로 null 로 비워 stale 사유가 남지 않게 한다.
+ *
+ * 실패 → COR-006-B: [Phase.Retry] 로 전환하고 [completionErrorReason] 에 진단 메시지를 보관한다.
+ *        카드 목록 / 선택 / [saveRequest] 는 그대로 유지해 사용자가 같은 입력으로 재시도할 수 있게 한다
+ *        (AC "선택 상태와 카드 목록을 유지" 의 직접 반영). [completionResult] 는 명시적으로 null 로
+ *        비워 화면이 stale Done 결과를 잘못 읽지 않도록 한다.
  *
  * COR-007-B: pending 필드(`pendingSyncFlashcardIds` / `sessionCompressionPending` /
  * `statisticsHistoryPending`) 가 채워져 있어도 사용자 실패가 아니므로 동일한 onSuccess 분기로
@@ -324,14 +352,24 @@ internal fun CorrectionUiState.applyCompletionOutcome(
         copy(
             phase = CorrectionUiState.Phase.Done,
             completionResult = value,
+            // 직전 Retry 진입으로 채워졌을 수 있는 사유를 명시적으로 비운다.
+            // Done 화면에서는 안내 텍스트만 노출되므로 stale 메시지가 어디서도 읽히지 않게 한다.
+            completionErrorReason = null,
             isCompleting = false,
         )
     },
-    onFailure = {
-        // COR-006-B 가 Retry 분기를 채우기 전까지는 윈도우만 닫아 다음 시도를 허용한다.
-        // 카드 목록 / 선택 / saveRequest 는 그대로 두어 부팀장이 인프라 보정 후 같은 saveRequest 로
-        // 재시도할 수 있게 한다.
-        copy(isCompleting = false)
+    onFailure = { e ->
+        // COR-006-B: Retry 분기. 카드 목록 / 선택 / saveRequest 는 그대로 둔다.
+        // applyGenerationOutcome 의 reason 채움 패턴(message ?: javaClass.simpleName) 을 그대로 따른다.
+        val reason = e.message ?: e.javaClass.simpleName
+        copy(
+            phase = CorrectionUiState.Phase.Retry,
+            completionErrorReason = reason,
+            // 실패 사유가 도착했으므로 stale Done 결과가 보관되어 있다면 함께 비운다.
+            // (정상 흐름에서 Retry 진입 시 completionResult 는 이미 null 이지만, 명시적으로 못 박는다.)
+            completionResult = null,
+            isCompleting = false,
+        )
     },
 )
 
@@ -342,6 +380,8 @@ internal fun CorrectionUiState.applyCompletionOutcome(
  * Generating/Content/Error 로의 전이는 ViewModel 의 generateCorrection 흐름에서만 이뤄지며,
  * 한 번 그 phase 에 진입한 뒤에는 GlobalLangState 의 추가 emit 이 이 함수를 다시 통과하더라도
  * ViewModel 이 _uiState 를 덮어쓰지 않도록 가드를 둔다.
+ * Done/Retry 도 마찬가지로 ViewModel 의 완료 파이프라인 결과 적용([applyCompletionOutcome]) 에서만
+ * 진입한다 — GlobalLangState 의 refresh 가 본 함수를 다시 통과해도 완료 결과가 덮이지 않는다.
  *
  * AC 매핑:
  *  - "selectedLearningLanguage 확인"        → [GlobalLangState.selectedLang]
