@@ -162,7 +162,7 @@ fun DashboardScreen(
                     //   학습 언어 선택 다이얼로그가 열린다 (다이얼로그 본체는 Scaffold 하단에
                     //   isLanguageDialogOpen 으로 토글). userPref 가 아직 준비되지 않은 시점에도
                     //   selector 자체가 사라지지 않도록 selectedLang 은 LangCode.KO 로 fallback.
-                    val selected = uiState.selectedLearningLanguage ?: LangCode.KO
+                    val selected = uiState.selectedLearningLanguage ?: LangCode.EN
                     LearningLanguageSelector(
                         selectedLang = selected,
                         onClick = {
