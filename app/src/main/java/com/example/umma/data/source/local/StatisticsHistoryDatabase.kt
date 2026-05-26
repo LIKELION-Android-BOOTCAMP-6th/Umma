@@ -45,6 +45,15 @@ interface StatisticsHistoryDao {
     suspend fun insertHistory(history: StatisticsHistoryEntity)
 
     /**
+     * remote refresh로 내려온 history 묶음을 local cache에 한 번에 반영한다.
+     *
+     * REPLACE 전략을 쓰면 같은 history id는 최신 값으로 덮이고,
+     * 아직 remote에 없는 local pending history는 그대로 남는다.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHistories(history: List<StatisticsHistoryEntity>)
+
+    /**
      * local cache 우선 관찰용 조회다.
      *
      * Statistics 화면은 remote sync 를 직접 기다리지 않고,
@@ -60,6 +69,27 @@ interface StatisticsHistoryDao {
         """
     )
     fun observeHistory(userId: String, language: String): Flow<List<StatisticsHistoryEntity>>
+
+    /**
+     * Firestore write-back이 아직 끝나지 않은 history만 오래된 순서로 가져온다.
+     *
+     * pending retry는 사용자 단위로 수행하므로, 현재 화면 언어가 아니어도 같은 사용자의 pending을 함께 정리한다.
+     */
+    @Query(
+        """
+        SELECT *
+        FROM statistics_history
+        WHERE userId = :userId
+          AND syncStatus = :pendingStatus
+        ORDER BY recordedAt ASC, id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getPendingHistories(
+        userId: String,
+        pendingStatus: String,
+        limit: Int
+    ): List<StatisticsHistoryEntity>
 
     /**
      * pending sync가 끝난 history만 SYNCED로 정리한다.
@@ -101,11 +131,29 @@ class StatisticsHistoryLocalDataSource @Inject constructor(
         return dao.observeHistory(userId, language)
     }
 
+    suspend fun getPendingHistories(userId: String, limit: Int): List<StatisticsHistoryEntity> {
+        // retry 대상만 읽어오고, remote write-back 직전에 domain으로 복원한다.
+        return dao.getPendingHistories(
+            userId = userId,
+            pendingStatus = SyncStatus.PENDING.name,
+            limit = limit
+        )
+    }
+
     suspend fun saveHistory(history: StatisticsHistoryEntity) {
         // history 단위 저장은 하나의 트랜잭션으로 묶어,
         // 중간 실패 시 syncStatus 만 남는 부분 완료를 막는다.
         database.withTransaction {
             dao.insertHistory(history)
+        }
+    }
+
+    suspend fun saveHistories(histories: List<StatisticsHistoryEntity>) {
+        if (histories.isEmpty()) return
+        // refresh 결과는 여러 건이 한번에 들어오므로,
+        // local cache 반영도 같은 트랜잭션으로 묶어 중간 상태가 보이지 않게 한다.
+        database.withTransaction {
+            dao.insertHistories(histories)
         }
     }
 
