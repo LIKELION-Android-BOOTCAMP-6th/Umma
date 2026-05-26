@@ -76,7 +76,7 @@ fun SrsStudyScreen(
     Scaffold(
         topBar = {
             UmmaAppBar(
-                title = "복습",
+                title = "학습",
                 isCenterTitle = true
             )
         }

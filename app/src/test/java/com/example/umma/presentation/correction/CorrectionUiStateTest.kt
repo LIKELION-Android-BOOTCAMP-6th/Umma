@@ -297,6 +297,72 @@ class CorrectionUiStateTest {
         assertFalse(next.isCompleting)
     }
 
+    // ─── COR-007-B: pending 비차단 회귀 ──────────────────────────────────────
+    // CompleteCorrectionUseCase 가 Firestore sync / Session compression / Statistics history
+    // pending 케이스에서도 Result.success 로 흘려보낸다는 도메인 계약은
+    // CompleteCorrectionUseCaseTest 의 compression 실패 / statistics 기록 실패 테스트가 이미 보장한다.
+    // 본 3건은 그 success 결과가 presentation 경계에서 사용자 실패로 격하되지 않고
+    // 동일하게 Phase.Done 으로 전환되는지를 못 박는다. pending 별도 UI 표면을 두지 않는 정책이라
+    // applyCompletionOutcome 한 함수만 검증해도 화면 흐름(저장 완료 → Dashboard 복귀) 의 비차단이 보장된다.
+
+    @Test
+    fun `applyCompletionOutcome with pending sync still transitions to Done`() {
+        // COR-007-B AC: "sync pending 상태가 있어도 Dashboard 복귀를 막지 않는다".
+        // pendingSyncFlashcardIds 가 비어있지 않은 success 도 동일 분기로 Done 에 들어가야 한다.
+        val result = sampleCompletionResult(savedIds = listOf("s-1"))
+            .copy(pendingSyncFlashcardIds = listOf("s-1"))
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            isCompleting = true,
+        )
+
+        val next = state.applyCompletionOutcome(Result.success(result))
+
+        assertEquals(CorrectionUiState.Phase.Done, next.phase)
+        assertEquals(result, next.completionResult)
+        assertFalse(next.isCompleting)
+    }
+
+    @Test
+    fun `applyCompletionOutcome with compression pending still transitions to Done`() {
+        // COR-007-B AC: "Session Memory compression pending 상태가 있어도 저장 완료와 Dashboard 복귀를 막지 않는다".
+        // sessionCompressionPending=true + errorMessage 가 채워져 있어도 사용자 흐름은 Done.
+        val result = sampleCompletionResult(savedIds = listOf("s-1"))
+            .copy(
+                sessionCompressionPending = true,
+                sessionCompressionErrorMessage = "compression failed",
+            )
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            isCompleting = true,
+        )
+
+        val next = state.applyCompletionOutcome(Result.success(result))
+
+        assertEquals(CorrectionUiState.Phase.Done, next.phase)
+        // pending 정보는 completionResult 안에 보관되지만 화면 표면(별도 errorReason 등) 으로는 새지 않는다.
+        assertTrue(next.completionResult!!.sessionCompressionPending)
+        assertFalse(next.isCompleting)
+    }
+
+    @Test
+    fun `applyCompletionOutcome with statistics history pending still transitions to Done`() {
+        // COR-007-B: statisticsHistoryPending=true 도 동일 정책. pending 의 종류가 늘어나도
+        // applyCompletionOutcome 단일 분기로 Done 에 진입한다는 invariant 를 명시한다.
+        val result = sampleCompletionResult(savedIds = listOf("s-1"))
+            .copy(statisticsHistoryPending = true)
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            isCompleting = true,
+        )
+
+        val next = state.applyCompletionOutcome(Result.success(result))
+
+        assertEquals(CorrectionUiState.Phase.Done, next.phase)
+        assertTrue(next.completionResult!!.statisticsHistoryPending)
+        assertFalse(next.isCompleting)
+    }
+
     @Test
     fun `applyCompletionOutcome failure only closes in-flight window`() {
         // 실패 분기 — COR-006-B 가 Retry 상태를 채우기 전까지는 윈도우만 닫아 다음 시도를 허용한다.

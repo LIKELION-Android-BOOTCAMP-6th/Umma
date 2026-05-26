@@ -11,7 +11,7 @@ sealed class NavItem(
     // SRS 반복학습 탭
     object SrsStudy: NavItem(
         route = Route.SrsStudy,
-        label = "복습",
+        label = "학습",
         iconRes = R.drawable.import_contacts_24
     )
 

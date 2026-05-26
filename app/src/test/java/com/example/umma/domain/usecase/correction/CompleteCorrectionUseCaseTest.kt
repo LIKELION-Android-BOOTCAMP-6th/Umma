@@ -189,6 +189,10 @@ class CompleteCorrectionUseCaseTest {
         // Statistics 기록 실패는 local completion 실패로 끌어올리지 않는다.
         // Flashcard/LangState 저장은 유지되고, statistics 쪽만 진단 메시지로 남는다.
         // 이 테스트는 correction 완료와 statistics 기록을 서로 다른 책임 경계로 본다.
+        //
+        // COR-007-B 도메인 경계 회귀: 본 success 결과가 presentation 의 applyCompletionOutcome 으로
+        // 흘러갈 때 동일 onSuccess 분기로 Phase.Done 에 진입한다는 정책을 CorrectionUiStateTest 의
+        // `applyCompletionOutcome with statistics history pending still transitions to Done` 가 이어 검증한다.
         assertTrue(completed.savedFlashcardIds.isNotEmpty())
         assertTrue(completed.statisticsHistoryApplied.not())
         assertFalse(completed.statisticsHistoryPending)
@@ -213,6 +217,10 @@ class CompleteCorrectionUseCaseTest {
         // compression 은 RT-003 후속 정리라 실패해도 사용자 저장 결과는 유지한다.
         // 대신 pending flag 로 후속 재시도 대상임을 알려준다.
         // statistics 쪽이 아니라 RT-003 쪽 실패라는 점을 같이 확인한다.
+        //
+        // COR-007-B 도메인 경계 회귀: compression 실패 → success + pending=true 라는 도메인 계약을 본 테스트가 못 박고,
+        // presentation 쪽 비차단(`Phase.Done` + NavigateToDashboard) 은
+        // CorrectionUiStateTest 의 `applyCompletionOutcome with compression pending still transitions to Done` 가 잇는다.
         assertFalse(completed.sessionCompressionApplied)
         assertTrue(completed.sessionCompressionPending)
         assertEquals(listOf("save", "update", "record-history", "compress"), events)

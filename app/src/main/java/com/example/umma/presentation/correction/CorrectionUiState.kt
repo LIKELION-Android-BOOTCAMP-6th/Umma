@@ -28,9 +28,6 @@ import com.example.umma.domain.model.learningstate.selectedLang
  *  - (COR-006-A) 저장 요청 변환 성공 후 CompleteCorrectionUseCase 완료 파이프라인 호출까지 이어가고,
  *    완료 in-flight 윈도우([isCompleting])와 완료 결과 보관([completionResult])을 추가한다.
  *    완료 성공 시 [Phase.Done] 으로 전환되어 카드 목록과 저장 버튼이 사라지고 안내 텍스트로 마무리된다.
- *    ⚠️ 현재 단계에서는 SYS-CORRECTION-INFRA 의 [com.example.umma.domain.model.correction.CompleteCorrectionInput.langStateUpdateInput]
- *    필드가 필수라 ViewModel 이 실제 UseCase 를 호출하지 못한다. 자세한 충돌과 인계 내용은
- *    `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md` 를 참고한다.
  *
  * 비범위:
  *  - Empty 분리 / Retry 액션은 COR-002-B 에서 [Phase.Empty] 와 함께 추가한다.
@@ -38,7 +35,14 @@ import com.example.umma.domain.model.learningstate.selectedLang
  *  - "전체 선택" 토글은 후속 UI 백로그 범위.
  *  - 완료 실패 → Retry 상태 유지는 COR-006-B 가 [Phase.Retry] 또는 추가 필드와 함께 다룬다.
  *  - 로컬 완료 성공 후 Dashboard 복귀 navigation 은 COR-007-A 가 1회성 이벤트로 다룬다.
- *  - Firestore sync / Session compression pending 의 사용자 노출 정책은 COR-007-B 영역.
+ *
+ * COR-007-B (pending 비차단 정책):
+ *  - Firestore sync / Session compression / Statistics history 의 pending 상태가 채워진 success 결과도
+ *    [applyCompletionOutcome] 의 onSuccess 분기 하나로 [Phase.Done] 으로 전환한다.
+ *  - pending 정보는 [completionResult] 안의 필드(`pendingSyncFlashcardIds` /
+ *    `sessionCompressionPending` / `statisticsHistoryPending`) 로 보관만 하고 화면에는 노출하지 않는다.
+ *    사용자 노출은 [CorrectionViewModel.logCompletionResult] 진단 로그가 전담한다.
+ *  - 따라서 본 UiState 는 pending 을 위한 별도 표면(필드/Phase) 을 추가하지 않는다.
  */
 data class CorrectionUiState(
     // 첫 emit 전 (preload 대기) → Ready / NotAvailable / Generating / Content / Error 중 하나로 수렴.
@@ -289,6 +293,12 @@ internal fun CorrectionUiState.openCompletionWindow(): CorrectionUiState =
  * 성공 → [Phase.Done] 으로 전환하고 [completionResult] 에 결과를 보관한다.
  * 실패 → 완료 in-flight 윈도우만 닫고 다른 필드는 그대로 둔다. COR-006-B 가 Retry 상태를 정의하면서
  * 이 분기를 [Phase.Retry] / 별도 errorReason 으로 확장할 예정이다.
+ *
+ * COR-007-B: pending 필드(`pendingSyncFlashcardIds` / `sessionCompressionPending` /
+ * `statisticsHistoryPending`) 가 채워져 있어도 사용자 실패가 아니므로 동일한 onSuccess 분기로
+ * [Phase.Done] 에 진입한다. pending 은 *후속 재시도 대상*이며, 화면 노출 책임은 본 함수가 갖지 않고
+ * [CorrectionViewModel.logCompletionResult] 의 진단 로그가 단일 SSOT 다. 회귀는
+ * `CorrectionUiStateTest` 의 pending 3건이 보장한다.
  */
 internal fun CorrectionUiState.applyCompletionOutcome(
     result: Result<CompleteCorrectionResult>,

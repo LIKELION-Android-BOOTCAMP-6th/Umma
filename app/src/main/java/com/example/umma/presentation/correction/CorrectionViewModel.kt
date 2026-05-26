@@ -3,6 +3,7 @@ package com.example.umma.presentation.correction
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.umma.domain.model.correction.CompleteCorrectionInput
 import com.example.umma.domain.model.correction.CompleteCorrectionResult
 import com.example.umma.domain.model.correction.CorrectionSaveRequest
 import com.example.umma.domain.model.correction.GenerateSuggestionsInput
@@ -11,15 +12,20 @@ import com.example.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.example.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
 import com.example.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.example.umma.domain.usecase.correction.PrepareSaveRequestUseCase
+import com.example.umma.domain.usecase.learningstate.BuildLangStateUpdateInputCommand
+import com.example.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
 import com.example.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.example.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.example.umma.domain.usecase.realtime.GetCorrectionContextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -42,18 +48,24 @@ import javax.inject.Inject
  *  - (COR-006-A) 변환 성공 직후 같은 클릭 흐름에서 완료 파이프라인까지 이어 호출하고, 성공 결과를
  *    [CorrectionUiState.completionResult] 에 보관하면서 [CorrectionUiState.Phase.Done] 으로 전환한다.
  *    완료 in-flight 윈도우([CorrectionUiState.isCompleting]) 와 [completionJob] 으로 중복 호출을 막는다.
- *    ⚠️ 본 단계에서는 [CompleteCorrectionUseCase] 입력의 `langStateUpdateInput` 필드가 필수라
- *    SYS-CORRECTION-INFRA 영역 보정이 선행되어야 실제 호출이 가능하다. 현재 [stubCompletion] 으로
- *    완료 결과만 흉내내며, 진짜 호출로 교체하는 PR 분리 계획은 `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md`
- *    에 인계되어 있다.
+ *    [BuildLangStateUpdateInputUseCase] 로 LangStateUpdateInput 을 조립한 뒤 [CompleteCorrectionUseCase]
+ *    에 전달하는 실제 호출이 연결되어 있다. 인계 문서: `docs/handover/LS-008_LANGSTATE_INPUT_READY.md`.
+ *  - (COR-007-A) 완료 파이프라인 성공 직후 [events] 채널로 [CorrectionEvent.NavigateToDashboard] 를
+ *    정확히 한 번 방출한다. State(`Phase.Done`) 결정 책임은 [applyCompletionOutcome] 에 그대로 두고,
+ *    1회성 navigation 신호만 Channel 로 분리해 회전/recomposition/재진입에 의한 재발화를 막는다.
+ *  - (COR-007-B) Firestore sync / Session compression / Statistics history 의 pending 상태는
+ *    사용자 흐름을 막지 않는다. [CompleteCorrectionUseCase] 가 pending 케이스에서도 `Result.success`
+ *    로 흘려보내므로 [applyCompletionOutcome] 의 success 분기 하나로 [Phase.Done] 진입과
+ *    [CorrectionEvent.NavigateToDashboard] 발화가 동일하게 이뤄진다. pending 자체는 사용자에게
+ *    어떤 UI 로도 노출하지 않고, [logCompletionResult] 진단 로그가 개발 확인의 SSOT 다.
+ *    회귀는 `CorrectionUiStateTest` 의 pending 비차단 3건 + `CompleteCorrectionUseCaseTest` 의
+ *    compression/statistics 실패 비롤백 테스트가 함께 보장한다.
  *
  * 비범위:
  *  - Empty / Retry / 선택 언어 변경 재트리거 → COR-002-B.
  *  - 결과 카드 본격 UI → COR-003-A.
  *  - "전체 선택" 토글 → 후속 UI 백로그.
  *  - 완료 실패 → Retry 상태 유지 → COR-006-B.
- *  - 로컬 완료 성공 후 Dashboard 복귀 navigation, 1회성 이벤트 처리 → COR-007-A.
- *  - sync / compression pending 비차단 처리 → COR-007-B.
  */
 @HiltViewModel
 class CorrectionViewModel @Inject constructor(
@@ -71,17 +83,28 @@ class CorrectionViewModel @Inject constructor(
     private val getCurrentUserUid: GetCurrentUserUidUseCase,
     // COR-005-A: 선택된 CorrectionSuggestion 목록을 SYS-CORRECTION-INFRA 저장 계약으로 변환한다.
     private val prepareSaveRequest: PrepareSaveRequestUseCase,
-    // COR-006-A: 완료 파이프라인 진입점. SYS-CORRECTION-INFRA 보정 전까지는 stubCompletion 으로 흉내내고
-    // 실제 호출은 인계 PR 에서 끼운다. 주입을 미리 받아 두는 이유는 인프라 보정 PR 에서 ViewModel 시그니처가
-    // 다시 흔들리지 않도록 하기 위함이다. handover 문서: docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md
-    @Suppress("UnusedPrivateProperty")
+    // COR-006-A: 완료 파이프라인 진입점. LS-008 에서 제공된 BuildLangStateUpdateInputUseCase 로 입력을
+    // 조립한 뒤 실제 호출한다. 인계 문서: docs/handover/LS-008_LANGSTATE_INPUT_READY.md
     private val completeCorrection: CompleteCorrectionUseCase,
+    // COR-006-A: LS-008 조립 UseCase. caller 확보 domain 값 → LangStateUpdateInput 변환 정책 고정.
+    // @Inject constructor() 라 Hilt 모듈 추가 없이 자동 주입된다.
+    private val buildLangStateUpdateInput: BuildLangStateUpdateInputUseCase,
 ) : ViewModel() {
 
     // 화면이 collect 하는 단일 진실. ViewModel 내부에서만 쓰기 가능.
     private val _uiState = MutableStateFlow(CorrectionUiState())
     // 외부(Composable)로 노출되는 read-only StateFlow. _uiState 를 그대로 비춘다.
     val uiState: StateFlow<CorrectionUiState> = _uiState.asStateFlow()
+
+    // COR-007-A: 1회성 navigation/effect 전달 채널. StateFlow 와 분리한 이유는 navigation 같이
+    // "정확히 한 번만 일어나야 하는 effect" 가 recomposition 마다 상태로 재소비되면 중복 이동이
+    // 발생하기 때문이다. Channel 의 element 는 단일 collector 에 한 번만 전달되므로 회전/재진입
+    // 사이에 동일 이벤트가 두 번 발화되지 않는다. BUFFERED — Compose 측 collect 시점과 emit 시점이
+    // 어긋날 가능성을 흡수한다(Done 직후 화면이 활성이라 보통은 즉시 소비됨).
+    private val _events = Channel<CorrectionEvent>(Channel.BUFFERED)
+    // 외부(Composable)가 collect 하는 read-only 이벤트 스트림. _events 를 receiveAsFlow 로 단방향 expose 해서
+    // 1회성 navigation/effect 신호(NavigateToDashboard 등) 만 화면 레이어로 흘려보낸다.
+    val events: Flow<CorrectionEvent> = _events.receiveAsFlow()
 
     // ensureObservation() 의 collect coroutine 핸들. 이미 active 면 재구독을 막아 중복 collect 를 방지한다.
     private var enterJob: Job? = null
@@ -286,11 +309,12 @@ class CorrectionViewModel @Inject constructor(
      *
      * [onSaveClicked] 의 Prepared 분기 또는 COR-006-B 가 채울 Retry 액션이 호출한다.
      * 분기 결정은 [computeCompletionLaunch] 가 [CompletionLaunchOutcome] 으로 돌려주고, 본 함수는
-     * (a) state 갱신, (b) viewModelScope.launch 진입, (c) [stubCompletion] 결과 적용 세 가지만 책임진다.
+     * (a) state 갱신, (b) viewModelScope.launch 진입, (c) 두 UseCase 직렬 호출 결과 적용 세 가지만 책임진다.
      *
-     * ⚠️ 본 단계에서는 SYS-CORRECTION-INFRA 의 `langStateUpdateInput` 필수 필드 충돌로 실제
-     * [CompleteCorrectionUseCase] 호출이 막혀 있어 [stubCompletion] 으로 성공 결과만 흉내낸다.
-     * 인계 문서: `docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md`.
+     * ViewModel 이 [BuildLangStateUpdateInputCommand] 조립을 직접 수행하는 이유: LS-008 설계에서
+     * [BuildLangStateUpdateInputUseCase] 는 caller 가 이미 확보한 domain 값만 받고, uid 와 RT-003
+     * context 의 출처가 ViewModel 의존성이라 화면 레이어가 가장 가까운 caller 이기 때문이다.
+     * 인계 문서: `docs/handover/LS-008_LANGSTATE_INPUT_READY.md`.
      */
     private fun launchCompletion(request: CorrectionSaveRequest) {
         val snapshot = _uiState.value
@@ -303,35 +327,72 @@ class CorrectionViewModel @Inject constructor(
         _uiState.update { current -> current.openCompletionWindow() }
 
         completionJob = viewModelScope.launch {
-            // TODO(SCI-001): SYS-CORRECTION-INFRA 의 CompleteCorrectionInput.langStateUpdateInput 필드가
-            //  옵셔널화 / UseCase 내부 조립 / 헬퍼 UseCase 신설 중 하나로 보정되는 즉시, 아래 stubCompletion 을
-            //  실제 completeCorrection(input) 호출로 교체한다. 입력 조립 책임은 본 PR 의 범위가 아니므로
-            //  ViewModel 은 saveRequest 만 그대로 넘기는 형태가 되어야 한다. 자세한 결정 옵션은
-            //  docs/handover/COR-006-A_LANGSTATE_INPUT_HANDOVER.md 참조.
-            val result = stubCompletion(launch.saveRequest)
+            // 1. uid — sessionMemoryKey / analysisEventId 의 최상위 키. 없으면 이후 조립 전체가 무의미하다.
+            val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() }
+            if (uid == null) {
+                val err = Result.failure<CompleteCorrectionResult>(
+                    IllegalStateException("uid unavailable at completion")
+                )
+                logCompletionResult(err)
+                _uiState.update { current -> current.applyCompletionOutcome(err) }
+                return@launch
+            }
+
+            // 2. 선택 카드 — Command 의 stableEventParts(analysisEventId fingerprint 재료) 이자
+            //    CompleteCorrectionInput 의 selectedSuggestions 이다. snapshot 은 launch 진입 시점에 고정한다.
+            val stateSnapshot = _uiState.value
+            val lang = launch.saveRequest.lang
+            val selectedSuggestions = stateSnapshot.suggestions.filter { it.id in stateSnapshot.selectedSuggestionIds }
+
+            // 3. RT-003 correction context — BuildLangStateUpdateInputCommand 의 correctionContextTurns 출처.
+            //    Flow 의 첫 emit 만 사용하며, 조회 실패는 완료 실패로 처리한다.
+            val contextTurns = runCatching { getCorrectionContext(lang).first() }.getOrElse { e ->
+                val err = Result.failure<CompleteCorrectionResult>(e)
+                logCompletionResult(err)
+                _uiState.update { current -> current.applyCompletionOutcome(err) }
+                return@launch
+            }
+
+            // 4. LangStateUpdateInput 조립 — LS-008 정책에 따라 sessionMemoryKey / analysisEventId /
+            //    recentUserTurns 를 결정한다. 조립 실패는 완료 실패로 처리한다(Done 으로 보내지 않음).
+            val command = BuildLangStateUpdateInputCommand(
+                uid = uid,
+                lang = lang,
+                selectedLang = stateSnapshot.selectedLearningLanguage ?: lang,
+                currentState = stateSnapshot.langStateSnapshot,
+                correctionContextTurns = contextTurns,
+                stableEventParts = selectedSuggestions.map { it.id },
+                analyzedAt = launch.saveRequest.requestedAt,
+                correctionResult = null,
+                correctionAvailableOverride = false,
+            )
+            val langStateInput = buildLangStateUpdateInput(command).getOrElse { e ->
+                val err = Result.failure<CompleteCorrectionResult>(e)
+                logCompletionResult(err)
+                _uiState.update { current -> current.applyCompletionOutcome(err) }
+                return@launch
+            }
+
+            // 5. 완료 파이프라인 호출 — Flashcard 저장 + LangState 갱신 + Statistics + Session compression.
+            val result = completeCorrection(
+                CompleteCorrectionInput(
+                    selectedSuggestions = selectedSuggestions,
+                    langStateUpdateInput = langStateInput,
+                    requestedAt = launch.saveRequest.requestedAt,
+                )
+            )
             logCompletionResult(result)
             _uiState.update { current -> current.applyCompletionOutcome(result) }
+
+            // COR-007-A: 완료 성공 경로에서만 Dashboard 복귀 1회성 이벤트를 발화한다.
+            // 1~4단계 실패와 5단계 호출 실패 분기는 각자 위에서 applyCompletionOutcome(err) + return@launch
+            // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
+            // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
+            if (result.isSuccess) {
+                _events.send(CorrectionEvent.NavigateToDashboard)
+            }
         }
     }
-
-    /**
-     * SYS-CORRECTION-INFRA 보정 전까지 사용하는 임시 완료 결과 생성기.
-     *
-     * 실제 [CompleteCorrectionUseCase] 호출이 막혀 있어, 변환된 [CorrectionSaveRequest] 의 suggestionId 들을
-     * 그대로 `savedFlashcardIds` 로 흉내내 화면 흐름(Phase.Done / completionResult.savedFlashcardIds.size) 을
-     * 끝까지 검증할 수 있게 한다. Firestore sync / Session compression / Statistics 등 후속 상태는 모두 기본값.
-     *
-     * 부팀장이 인프라 보정 후 [launchCompletion] 의 TODO 자리만 실제 호출로 교체하면 본 함수는 제거된다.
-     */
-    private fun stubCompletion(request: CorrectionSaveRequest): Result<CompleteCorrectionResult> =
-        Result.success(
-            CompleteCorrectionResult(
-                savedFlashcardIds = request.flashcards.map { it.suggestionId },
-                pendingSyncFlashcardIds = emptyList(),
-                sessionMemoryKey = "",
-                completedAt = request.requestedAt,
-            )
-        )
 
     /**
      * onSaveClicked 의 분기별 진단 로그.
@@ -394,16 +455,35 @@ class CorrectionViewModel @Inject constructor(
     /**
      * COR-006-A: 완료 파이프라인 결과 진단 로그.
      *
-     * 본 단계에서는 [stubCompletion] 이 항상 success 를 돌려주지만, 인프라 보정 후 실제 호출에서는
-     * failure 분기가 의미를 가지므로 미리 두 갈래로 나눠 둔다.
+     * uid 미확보 / RT-003 context 조회 실패 / [BuildLangStateUpdateInputUseCase] 조립 실패 /
+     * [CompleteCorrectionUseCase] 자체 실패 가 모두 failure 로 흘러온다.
+     *
+     * COR-007-B: success 분기에는 Firestore sync / Session compression / Statistics history 의
+     * pending 3종이 포함되어 흘러올 수 있다. pending 은 사용자 실패가 아니라 *후속 재시도 대상*
+     * 이므로 화면에는 노출하지 않고, 본 로그가 개발 확인의 단일 SSOT 다. 각 단계의 errorMessage
+     * 도 함께 남겨 어떤 단계가 pending 으로 떨어졌는지 logcat 만으로 식별 가능하게 한다.
      */
     private fun logCompletionResult(result: Result<CompleteCorrectionResult>) {
         result.fold(
             onSuccess = { value ->
+                // COR-007-B: pending 3종(sync / compression / statistics) 와 진단 메시지를 한 줄에 모은다.
+                // 한 줄로 모으는 이유: "어느 단계가 pending 인가"를 grep 한 번으로 식별하기 위함.
                 Log.d(
                     TAG,
-                    "completion success — savedFlashcardIds=${value.savedFlashcardIds.size}, " +
-                            "pendingSync=${value.pendingSyncFlashcardIds.size}",
+                    buildString {
+                        append("completion success — saved=${value.savedFlashcardIds.size}")
+                        append(", pendingSync=${value.pendingSyncFlashcardIds.size}")
+                        append(", compressionApplied=${value.sessionCompressionApplied}")
+                        append(", compressionPending=${value.sessionCompressionPending}")
+                        value.sessionCompressionErrorMessage?.let {
+                            append(", compressionErr=$it")
+                        }
+                        append(", statsApplied=${value.statisticsHistoryApplied}")
+                        append(", statsPending=${value.statisticsHistoryPending}")
+                        value.statisticsHistoryErrorMessage?.let {
+                            append(", statsErr=$it")
+                        }
+                    },
                 )
             },
             onFailure = { e ->
@@ -412,7 +492,9 @@ class CorrectionViewModel @Inject constructor(
         )
     }
 
+    // 클래스 내부 진단 로그 전용 상수 묶음. ViewModel 외부에서 참조할 일이 없어 private companion 으로 격리한다.
     private companion object {
+        // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
     }
 }
