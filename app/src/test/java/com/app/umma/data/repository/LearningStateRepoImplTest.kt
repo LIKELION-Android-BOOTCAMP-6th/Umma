@@ -5,6 +5,7 @@ import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -109,6 +111,127 @@ class LearningStateRepoImplTest {
 
         assertEquals(LangCode.JA, selectedLang)
         assertEquals("ja", remoteDataSource.lastUpdate?.userPref?.selectedLearningLanguage)
+    }
+
+    @Test
+    fun `updateCorrectionSignal updates session and dashboard summaries and dedupes duplicate event`() = runBlocking {
+        val remoteDataSource = RecordingLearningStateRemoteDataSource()
+        val repo = createRepository(remoteDataSource)
+
+        repo.createInitial(
+            userUid = USER_UID,
+            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+            dashSummary = DashSummary.initial(LangCode.EN),
+            sessionSummary = SessionSummary.initial(LangCode.EN),
+            flashcardSummary = FlashcardSummary.initial(LangCode.EN)
+        ).getOrThrow()
+
+        repo.sync().getOrThrow()
+
+        val input = CorrectionSignalUpdateInput(
+            uid = USER_UID,
+            lang = LangCode.EN,
+            sessionMemoryKey = "session-en",
+            sourceEventId = "turn-1",
+            recentMinutes = 9,
+            recentTopic = "Travel",
+            updatedAt = 2_000L
+        )
+
+        val first = repo.updateCorrectionSignal(input).getOrThrow()
+        val state = repo.observeLearningState().first()
+
+        // correction signal 은 LangState 를 건드리지 않고 session/dash summary 만 함께 바꿔야 한다.
+        // 이 경계가 흔들리면 Chat turn 신호가 분석 상태를 건드리는 부작용이 생긴다.
+        assertTrue(first.applied)
+        assertTrue(state.sessionSummaries[LangCode.EN]?.correctionAvailable == true)
+        assertTrue(state.dashSummaries[LangCode.EN]?.correctionAvailable == true)
+        assertEquals(9, state.sessionSummaries[LangCode.EN]?.recentMinutes)
+        assertEquals("Travel", state.dashSummaries[LangCode.EN]?.recentTopic)
+
+        repo.sync().getOrThrow()
+
+        // pending marker 가 남아 있던 session/dash summary 가 remote write-back payload 에도 들어가야 한다.
+        // local-first 상태가 remote 복구 후에도 동일하게 재현되는지 확인하는 부분이다.
+        assertEquals(2, remoteDataSource.syncCalls)
+        assertEquals("en", remoteDataSource.lastUpdate?.sessionSummaries?.single()?.language)
+        assertEquals("en", remoteDataSource.lastUpdate?.dashSummaries?.single()?.language)
+
+        val duplicate = repo.updateCorrectionSignal(input).getOrThrow()
+        assertFalse(duplicate.applied)
+    }
+
+    @Test
+    fun `updateCorrectionSignal fails when input language does not match selected language`() = runBlocking {
+        val remoteDataSource = RecordingLearningStateRemoteDataSource()
+        val repo = createRepository(remoteDataSource)
+
+        repo.createInitial(
+            userUid = USER_UID,
+            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+            dashSummary = DashSummary.initial(LangCode.EN),
+            sessionSummary = SessionSummary.initial(LangCode.EN),
+            flashcardSummary = FlashcardSummary.initial(LangCode.EN)
+        ).getOrThrow()
+
+        val result = repo.updateCorrectionSignal(
+            CorrectionSignalUpdateInput(
+                uid = USER_UID,
+                lang = LangCode.JA,
+                sessionMemoryKey = "session-ja",
+                sourceEventId = "turn-ja-1",
+                updatedAt = 2_000L
+            )
+        )
+
+        // Chat 쪽에서 stale language 신호를 보내면 현재 선택 언어의 summary를 오염시키지 않아야 한다.
+        assertTrue(result.isFailure)
+        assertEquals(
+            "correction signal lang must match selected learning language",
+            result.exceptionOrNull()?.message
+        )
+    }
+
+    @Test
+    fun `updateCorrectionSignal fails when current summaries are missing`() = runBlocking {
+        val remoteDataSource = RecordingLearningStateRemoteDataSource()
+        val repo = createRepository(remoteDataSource)
+
+        repo.createInitial(
+            userUid = USER_UID,
+            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+            dashSummary = DashSummary.initial(LangCode.EN),
+            sessionSummary = SessionSummary.initial(LangCode.EN),
+            flashcardSummary = FlashcardSummary.initial(LangCode.EN)
+        ).getOrThrow()
+        repo.sync().getOrThrow()
+
+        remoteDataSource.lastUpdate = LearningStateRemoteUpdate(
+            userPref = remoteDataSource.lastUpdate?.userPref,
+            langStates = remoteDataSource.lastUpdate?.langStates.orEmpty(),
+            dashSummaries = emptyList(),
+            sessionSummaries = emptyList(),
+            flashcardSummaries = remoteDataSource.lastUpdate?.flashcardSummaries.orEmpty()
+        )
+        repo.sync().getOrThrow()
+
+        val result = repo.updateCorrectionSignal(
+            CorrectionSignalUpdateInput(
+                uid = USER_UID,
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                sourceEventId = "turn-1",
+                updatedAt = 2_000L
+            )
+        )
+
+        // LS-009는 summary 초기화 흐름이 아니라 기존 summary에 신호를 전파하는 경로다.
+        // summary가 빠진 상태를 조용히 복구하면 Initial Setup/Sync 결손이 숨겨진다.
+        assertTrue(result.isFailure)
+        assertEquals("session summary is missing for lang=en", result.exceptionOrNull()?.message)
     }
 
     @Test

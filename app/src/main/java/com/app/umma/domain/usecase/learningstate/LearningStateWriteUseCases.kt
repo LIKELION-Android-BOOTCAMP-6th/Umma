@@ -1,6 +1,8 @@
 package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.InternalMetrics
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
@@ -66,6 +68,39 @@ class ApplyFlashcardSummaryUpdateUseCase @Inject constructor(
             )
         }
         return repo.updateFlashcardSummary(input)
+    }
+}
+
+class ApplyCorrectionSignalUpdateUseCase @Inject constructor(
+    private val repo: LearningStateRepo
+) {
+    /**
+     * Chat final turn 이후 correctionAvailable 만 빠르게 갱신한다.
+     *
+     * full LangState 분석 batch 를 다시 돌리지 않고, 세션/대시보드 요약만
+     * 같은 의미로 맞춰두는 경계다.
+     *
+     * 이 UseCase는 "신호를 받을 자격이 있는 입력인가"만 먼저 확인하고,
+     * 실제 summary 반영은 repository 계약으로 넘긴다.
+     */
+    suspend operator fun invoke(
+        input: CorrectionSignalUpdateInput
+    ): Result<CorrectionSignalUpdateResult> {
+        // uid / scope / event key 가 비어 있으면 idempotent 판단 자체가 불가능하다.
+        if (input.uid.isBlank()) {
+            return Result.failure(IllegalArgumentException("uid must not be blank"))
+        }
+        if (input.sessionMemoryKey.isBlank()) {
+            return Result.failure(IllegalArgumentException("sessionMemoryKey must not be blank"))
+        }
+        if (input.sourceEventId.isBlank()) {
+            return Result.failure(IllegalArgumentException("sourceEventId must not be blank"))
+        }
+        if (input.recentMinutes != null && input.recentMinutes < 0) {
+            return Result.failure(IllegalArgumentException("recentMinutes must not be negative"))
+        }
+
+        return repo.updateCorrectionSignal(input)
     }
 }
 
