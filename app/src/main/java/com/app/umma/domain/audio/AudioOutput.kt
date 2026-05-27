@@ -1,12 +1,18 @@
 package com.app.umma.domain.audio
 
+import kotlinx.coroutines.flow.StateFlow
 
 /**
- * 오디오 재생 추상화 계층 인터페이스
- *  */
+ * 오디오 출력 재생기 인터페이스입니다.
+ */
 interface AudioOutput {
+    val outputLevel: StateFlow<Float>
+
     fun startPlaying()
+
     fun playAudioChunk(audio: ByteArray)
+
     fun stopPlaying()
+
     fun release()
 }

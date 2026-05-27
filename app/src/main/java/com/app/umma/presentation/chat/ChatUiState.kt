@@ -30,6 +30,8 @@ import com.app.umma.domain.model.user.Topic
  * @property errorMessage 세션 오류 메시지
  */
 data class ChatUiState(
+    val entryStage: ChatEntryStage = ChatEntryStage.IDLE,
+    val blockedReason: ChatBlockedReason? = null,
     val sessionState: SessionState = SessionState.IDLE,
     val aiState: AIState = AIState.IDLE,
     val activeSessionId: String? = null,
@@ -79,6 +81,22 @@ data class ChatUiState(
      * */
     val canEndUserTurn: Boolean
         get() = isRecording
+}
+
+enum class ChatEntryStage {
+    IDLE,
+    GUARDING,
+    RESTORING,
+    STARTING_NEW,
+    BLOCKED_NETWORK,
+    READY,
+    ERROR
+}
+
+enum class ChatBlockedReason {
+    MISSING_LANG,
+    OFFLINE,
+    UNRECOVERABLE
 }
 
 /**

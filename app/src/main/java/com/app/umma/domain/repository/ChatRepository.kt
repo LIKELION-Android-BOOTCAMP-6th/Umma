@@ -87,5 +87,5 @@ interface ChatRepository {
      *
      * 구현체는 세션 close, 내부 coroutine 정리, 버퍼 초기화 등을 수행해야 합니다.
      */
-    suspend fun stopSession()
+    suspend fun stopSession(clearAppSession: Boolean = true)
 }

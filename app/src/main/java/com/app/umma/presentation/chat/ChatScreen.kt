@@ -11,14 +11,16 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -26,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,9 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -59,12 +62,12 @@ import com.app.umma.R
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
+import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
-import com.app.umma.core.theme.TextSecondary
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
@@ -104,24 +107,35 @@ fun ChatScreen(
             viewModel.startUserTurn(hasRecordAudioPermission = true)
         } else {
             val permanentlyDenied = activity != null &&
-                    hasRequestedMicPermission &&
-                    !ActivityCompat.shouldShowRequestPermissionRationale(
-                        activity,
-                        Manifest.permission.RECORD_AUDIO
-                    )
+                hasRequestedMicPermission &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    Manifest.permission.RECORD_AUDIO
+                )
             viewModel.onMicPermissionDenied(permanently = permanentlyDenied)
         }
     }
 
     LaunchedEffect(Unit) {
         viewModel.checkInterestTopics()
-        viewModel.startChat()
+        viewModel.enterChat()
     }
 
     DisposableEffect(Unit) {
         onDispose {
             viewModel.stopChat()
         }
+    }
+
+    val showMainChat = uiState.entryStage == ChatEntryStage.READY &&
+        uiState.sessionState == SessionState.READY
+
+    if (!showMainChat) {
+        ChatEntryGuardScreen(
+            uiState = uiState,
+            onRetry = { viewModel.enterChat() }
+        )
+        return
     }
 
     Scaffold(
@@ -144,15 +158,11 @@ fun ChatScreen(
                             ),
                             modifier = Modifier.size(50.dp),
                             contentDescription = if (uiState.showSubtitle) {
-                                "자막 숨기기"
+                                "자막 끄기"
                             } else {
                                 "자막 보기"
                             },
-                            tint = if (uiState.showSubtitle) {
-                                ThemePrimary
-                            } else {
-                                BackgroundDeactivated
-                            }
+                            tint = if (uiState.showSubtitle) ThemePrimary else BackgroundDeactivated
                         )
                     }
                 }
@@ -165,23 +175,12 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(horizontal = SpacingL)
         ) {
-            Box(
+            ChatCenterVisual(
+                uiState = uiState,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 72.dp)
-                    .size(192.dp)
-                    .border(width = 8.dp, color = Color.White, shape = CircleShape)
-                    .shadow(12.dp, CircleShape)
-                    .background(ThemePrimary, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.baseline_record_voice_over_24),
-                    contentDescription = "중앙 비주얼",
-                    tint = Color.White,
-                    modifier = Modifier.size(86.dp)
-                )
-            }
+                    .padding(top = 40.dp)
+            )
 
             if (uiState.showSubtitle) {
                 Column(
@@ -200,7 +199,11 @@ fun ChatScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(Color.White)
-                                .border(width = 1.5.dp, color = ThemePrimary, shape = RoundedCornerShape(8.dp))
+                                .border(
+                                    width = 1.5.dp,
+                                    color = ThemePrimary,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
@@ -213,7 +216,7 @@ fun ChatScreen(
                             modifier = Modifier
                                 .padding(top = 22.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(color = BackgroundSecondary)
+                                .background(BackgroundSecondary)
                                 .padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Text(
@@ -252,7 +255,11 @@ fun ChatScreen(
                                 .align(Alignment.BottomEnd)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(ThemePrimary)
-                                .border(width = 2.dp, color = Color.White, shape = RoundedCornerShape(8.dp))
+                                .border(
+                                    width = 2.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
@@ -280,10 +287,9 @@ fun ChatScreen(
                     .clickable(enabled = micEnabled) {
                         when {
                             uiState.canEndUserTurn -> viewModel.endUserTurn()
-                            hasRecordAudioPermission() -> viewModel.startUserTurn(
-                                hasRecordAudioPermission = true
-                            )
-
+                            hasRecordAudioPermission() -> {
+                                viewModel.startUserTurn(hasRecordAudioPermission = true)
+                            }
                             uiState.microphonePermissionPermanentlyDenied -> openAppSettings()
                             else -> {
                                 hasRequestedMicPermission = true
@@ -331,6 +337,23 @@ fun ChatScreen(
                     }
                 }
 
+                if (uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK) {
+                    Text(
+                        text = uiState.errorMessage ?: "Network connection is required.",
+                        color = TextLogout,
+                        style = TextAnalysisR,
+                        textAlign = TextAlign.Center
+                    )
+                    Button(
+                        onClick = { viewModel.enterChat() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = SpacingS)
+                    ) {
+                        Text(text = "Retry")
+                    }
+                }
+
                 if (uiState.isRecoverableError) {
                     Text(
                         text = buildStatusText(uiState),
@@ -339,7 +362,7 @@ fun ChatScreen(
                         modifier = Modifier.padding(top = SpacingS)
                     )
                     Button(
-                        onClick = { viewModel.retryConnection() },
+                        onClick = { viewModel.enterChat() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = SpacingS)
@@ -394,11 +417,140 @@ fun ChatScreen(
     }
 }
 
+@Composable
+private fun ChatCenterVisual(
+    uiState: ChatUiState,
+    modifier: Modifier = Modifier
+) {
+    val inputSignal = uiState.inputLevel.coerceIn(0f, 1f)
+    val outputSignal = uiState.outputLevel.coerceIn(0f, 1f)
+    val innerHaloScale by animateFloatAsState(
+        targetValue = if (inputSignal > 0.01f) 1f + (inputSignal * 0.16f) else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 240f),
+        label = "chat-inner-halo-scale"
+    )
+    val innerHaloAlpha by animateFloatAsState(
+        targetValue = if (inputSignal > 0.01f) (0.18f + inputSignal * 0.34f).coerceAtMost(0.56f) else 0f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 220f),
+        label = "chat-inner-halo-alpha"
+    )
+    val outerHaloScale by animateFloatAsState(
+        targetValue = if (outputSignal > 0.01f) 1f + (outputSignal * 0.2f) else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 180f),
+        label = "chat-outer-halo-scale"
+    )
+    val outerHaloAlpha by animateFloatAsState(
+        targetValue = if (outputSignal > 0.01f) (0.10f + outputSignal * 0.26f).coerceAtMost(0.42f) else 0f,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = 180f),
+        label = "chat-outer-halo-alpha"
+    )
+
+    Box(
+        modifier = modifier.size(320.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (outerHaloAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .size(320.dp)
+                    .scale(outerHaloScale)
+                    .background(ThemePrimary.copy(alpha = outerHaloAlpha), CircleShape)
+            )
+        }
+
+        if (innerHaloAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .size(256.dp)
+                    .scale(innerHaloScale)
+                    .background(ThemePrimary.copy(alpha = innerHaloAlpha), CircleShape)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(192.dp)
+                .border(width = 8.dp, color = Color.White, shape = CircleShape)
+                .shadow(12.dp, CircleShape)
+                .background(ThemePrimary, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_record_voice_over_24),
+                contentDescription = "Central visual",
+                tint = Color.White,
+                modifier = Modifier.size(86.dp)
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun ChatEntryGuardScreen(
+    uiState: ChatUiState,
+    onRetry: () -> Unit
+) {
+    val canRetryFromGuard = uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK ||
+        uiState.entryStage == ChatEntryStage.ERROR ||
+        uiState.isRecoverableError ||
+        uiState.sessionState == SessionState.ERROR ||
+        uiState.aiState == AIState.ERROR
+
+    Scaffold(
+        topBar = {
+            UmmaAppBar(
+                title = "대화",
+                isCenterTitle = true
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .background(BackgroundPrimary)
+                .padding(horizontal = SpacingL),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(SpacingS)
+            ) {
+                CircularProgressIndicator(color = ThemePrimary)
+
+                Text(
+                    text = buildStatusText(uiState).ifBlank { "Preparing session..." },
+                    textAlign = TextAlign.Center
+                )
+
+                if (canRetryFromGuard) {
+                    Button(
+                        onClick = onRetry,
+                        shape = RoundedCornerShape(ChipCornerRadius),
+                        colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+                        modifier = Modifier
+                            .padding(top = SpacingL)
+                            .padding(horizontal = SpacingL, vertical = SpacingS)
+                    ) {
+                        Text(text = "다시 시도")
+                    }
+                }
+            }
+        }
+    }
+}
+
 internal fun buildStatusText(uiState: ChatUiState): String {
     uiState.errorMessage?.let { return it }
 
     return when {
-        uiState.sessionState == SessionState.LOADING -> "Preparing session..."
+        uiState.entryStage == ChatEntryStage.GUARDING -> "요구사항 확인중.."
+        uiState.entryStage == ChatEntryStage.RESTORING -> "이전 대화 복구중.."
+        uiState.entryStage == ChatEntryStage.STARTING_NEW -> "새로운 세션 시작중.."
+        uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK ->
+            "네트워크에 연결할 수 없습니다.\n wifi 또는 모바일 데이터를 확인해주세요."
+        uiState.sessionState == SessionState.LOADING -> "세션 준비중..."
         uiState.sessionState == SessionState.RECONNECTING ->
             "Reconnecting ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
         uiState.aiState == AIState.RECONNECTING -> "Response was interrupted."
