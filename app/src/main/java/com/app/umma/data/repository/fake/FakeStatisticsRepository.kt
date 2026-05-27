@@ -28,11 +28,12 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
         listOf(
         // Statistics 화면을 실제 실행에서 바로 확인할 수 있도록
         // 여러 언어와 여러 시점의 history를 기본으로 깔아 둔다.
+        // 날짜를 분산해 둔 이유는 x축이 1/1로 뭉개지는지 바로 확인하기 위해서다.
         StatisticsHistory(
             id = "stats-en-1",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 1_000L,
+            recordedAt = JAN_01_2025_KST,
             vocabularyLevel = VocabLevel.A1,
             grammarAccuracy = 0.41,
             expressionRange = 2,
@@ -45,7 +46,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-2",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 2_000L,
+            recordedAt = JAN_07_2025_KST,
             vocabularyLevel = VocabLevel.A2,
             grammarAccuracy = 0.53,
             expressionRange = 3,
@@ -58,7 +59,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-3",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 3_000L,
+            recordedAt = JAN_14_2025_KST,
             vocabularyLevel = VocabLevel.B1,
             grammarAccuracy = 0.64,
             expressionRange = 5,
@@ -71,7 +72,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-4",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 4_000L,
+            recordedAt = JAN_21_2025_KST,
             vocabularyLevel = VocabLevel.B2,
             grammarAccuracy = 0.71,
             expressionRange = 6,
@@ -84,7 +85,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-5",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 5_000L,
+            recordedAt = JAN_28_2025_KST,
             vocabularyLevel = VocabLevel.C1,
             grammarAccuracy = 0.88,
             expressionRange = 8,
@@ -97,7 +98,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-6",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 6_000L,
+            recordedAt = FEB_04_2025_KST,
             vocabularyLevel = VocabLevel.C1,
             grammarAccuracy = 0.89,
             expressionRange = 8,
@@ -110,7 +111,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-7",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 7_000L,
+            recordedAt = FEB_11_2025_KST,
             vocabularyLevel = VocabLevel.C1,
             grammarAccuracy = 0.90,
             expressionRange = 9,
@@ -123,7 +124,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-8",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 8_000L,
+            recordedAt = FEB_18_2025_KST,
             vocabularyLevel = VocabLevel.C1,
             grammarAccuracy = 0.91,
             expressionRange = 9,
@@ -136,7 +137,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-9",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 9_000L,
+            recordedAt = FEB_25_2025_KST,
             vocabularyLevel = VocabLevel.C2,
             grammarAccuracy = 0.92,
             expressionRange = 9,
@@ -149,7 +150,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-en-10",
             userId = "user-1",
             language = LangCode.EN,
-            recordedAt = 10_000L,
+            recordedAt = MAR_04_2025_KST,
             vocabularyLevel = VocabLevel.C1,
             grammarAccuracy = 0.88,
             expressionRange = 8,
@@ -162,7 +163,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-ko-1",
             userId = "user-1",
             language = LangCode.KO,
-            recordedAt = 1_500L,
+            recordedAt = JAN_03_2025_KST,
             vocabularyLevel = VocabLevel.A1,
             grammarAccuracy = 0.44,
             expressionRange = 3,
@@ -175,7 +176,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-ko-2",
             userId = "user-1",
             language = LangCode.KO,
-            recordedAt = 2_500L,
+            recordedAt = JAN_10_2025_KST,
             vocabularyLevel = VocabLevel.A2,
             grammarAccuracy = 0.58,
             expressionRange = 4,
@@ -188,7 +189,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-ko-3",
             userId = "user-1",
             language = LangCode.KO,
-            recordedAt = 3_500L,
+            recordedAt = JAN_17_2025_KST,
             vocabularyLevel = VocabLevel.A2,
             grammarAccuracy = 0.64,
             expressionRange = 5,
@@ -201,7 +202,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-ja-1",
             userId = "user-1",
             language = LangCode.JA,
-            recordedAt = 1_200L,
+            recordedAt = JAN_05_2025_KST,
             vocabularyLevel = VocabLevel.B1,
             grammarAccuracy = 0.66,
             expressionRange = 5,
@@ -214,7 +215,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-ja-2",
             userId = "user-1",
             language = LangCode.JA,
-            recordedAt = 2_200L,
+            recordedAt = JAN_12_2025_KST,
             vocabularyLevel = VocabLevel.B1,
             grammarAccuracy = 0.70,
             expressionRange = 5,
@@ -227,7 +228,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-es-1",
             userId = "user-1",
             language = LangCode.ES,
-            recordedAt = 1_700L,
+            recordedAt = JAN_08_2025_KST,
             vocabularyLevel = VocabLevel.A2,
             grammarAccuracy = 0.51,
             expressionRange = 4,
@@ -240,7 +241,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-es-2",
             userId = "user-1",
             language = LangCode.ES,
-            recordedAt = 2_700L,
+            recordedAt = JAN_15_2025_KST,
             vocabularyLevel = VocabLevel.B1,
             grammarAccuracy = 0.60,
             expressionRange = 5,
@@ -253,7 +254,7 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
             id = "stats-user-2-ja",
             userId = "user-2",
             language = LangCode.JA,
-            recordedAt = 3_000L,
+            recordedAt = FEB_01_2025_KST,
             vocabularyLevel = VocabLevel.A1,
             grammarAccuracy = 0.30,
             expressionRange = 2,
@@ -390,5 +391,27 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
         }
 
         return Result.success(syncedCount)
+    }
+
+    private companion object {
+        private const val DAY = 24 * 60 * 60 * 1_000L
+        private const val JAN_01_2025_KST = 1_735_657_200_000L
+        private const val JAN_03_2025_KST = JAN_01_2025_KST + 2 * DAY
+        private const val JAN_05_2025_KST = JAN_01_2025_KST + 4 * DAY
+        private const val JAN_07_2025_KST = JAN_01_2025_KST + 6 * DAY
+        private const val JAN_08_2025_KST = JAN_01_2025_KST + 7 * DAY
+        private const val JAN_10_2025_KST = JAN_01_2025_KST + 9 * DAY
+        private const val JAN_12_2025_KST = JAN_01_2025_KST + 11 * DAY
+        private const val JAN_14_2025_KST = JAN_01_2025_KST + 13 * DAY
+        private const val JAN_15_2025_KST = JAN_01_2025_KST + 14 * DAY
+        private const val JAN_17_2025_KST = JAN_01_2025_KST + 16 * DAY
+        private const val JAN_21_2025_KST = JAN_01_2025_KST + 20 * DAY
+        private const val JAN_28_2025_KST = JAN_01_2025_KST + 27 * DAY
+        private const val FEB_01_2025_KST = JAN_01_2025_KST + 31 * DAY
+        private const val FEB_04_2025_KST = JAN_01_2025_KST + 34 * DAY
+        private const val FEB_11_2025_KST = JAN_01_2025_KST + 41 * DAY
+        private const val FEB_18_2025_KST = JAN_01_2025_KST + 48 * DAY
+        private const val FEB_25_2025_KST = JAN_01_2025_KST + 55 * DAY
+        private const val MAR_04_2025_KST = JAN_01_2025_KST + 62 * DAY
     }
 }
