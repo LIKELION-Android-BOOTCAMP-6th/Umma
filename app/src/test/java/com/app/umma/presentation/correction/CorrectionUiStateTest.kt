@@ -371,13 +371,43 @@ class CorrectionUiStateTest {
         assertFalse(next.isCompleting)
     }
 
+    // ─── COR-006-B: 로컬 완료 실패 → Retry phase 회귀 ────────────────────────
+    // CompleteCorrectionUseCase 가 Result.failure 로 돌려준 경우(Flashcard 저장 실패, LangState 갱신
+    // 실패) 가 사용자에게 어떻게 노출되어야 하는지를 두 invariant 로 나눠 못 박는다.
+    //  1. 상태 표면: Phase.Retry + completionErrorReason 채움 + isCompleting=false + completionResult=null.
+    //  2. 보존 invariant: 카드 목록 / 선택 / saveRequest 가 그대로 유지되어 같은 입력으로 재시도 가능.
+    // 둘을 같은 fixture 에서 분리해 테스트해야 한 invariant 가 깨졌을 때 다른 invariant 도 함께 죽지 않는다.
+
     @Test
-    fun `applyCompletionOutcome failure only closes in-flight window`() {
-        // 실패 분기 — COR-006-B 가 Retry 상태를 채우기 전까지는 윈도우만 닫아 다음 시도를 허용한다.
-        // 카드 목록 / 선택 / saveRequest 는 그대로 두어 같은 saveRequest 로 재시도가 가능하게 한다.
-        val previousRequest = sampleSaveRequest()
+    fun `applyCompletionOutcome failure transitions to Retry with errorReason`() {
+        // AC: "로컬 완료 실패 결과를 받으면 Retry 상태로 남긴다."
         val state = CorrectionUiState(
             phase = CorrectionUiState.Phase.Content,
+            selectedSuggestionIds = setOf("s-1"),
+            saveRequest = sampleSaveRequest(),
+            isCompleting = true,
+        )
+
+        val next = state.applyCompletionOutcome(Result.failure(RuntimeException("local save failed")))
+
+        assertEquals(CorrectionUiState.Phase.Retry, next.phase)
+        assertEquals("local save failed", next.completionErrorReason)
+        assertFalse(next.isCompleting)
+        // 직전 시도에서 보관됐을 수 있는 Done 결과는 stale 이므로 비워야 한다.
+        assertNull(next.completionResult)
+    }
+
+    @Test
+    fun `applyCompletionOutcome failure preserves selectedIds suggestions saveRequest`() {
+        // AC: "실패 시 선택 상태와 카드 목록을 유지한다."
+        // 같은 saveRequest 로 재시도가 가능해야 하므로, 카드 / 선택 / saveRequest 셋 모두 그대로 보존되는지
+        // invariant 회귀로 못 박는다. 이 테스트는 Phase / reason 검증과 분리되어 있어, 어느 invariant 가
+        // 깨졌는지 즉시 식별 가능하다.
+        val previousRequest = sampleSaveRequest()
+        val previousSuggestions = CorrectionSuggestionFixtures.contentSuggestions()
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            suggestions = previousSuggestions,
             selectedSuggestionIds = setOf("s-1"),
             saveRequest = previousRequest,
             isCompleting = true,
@@ -385,11 +415,88 @@ class CorrectionUiStateTest {
 
         val next = state.applyCompletionOutcome(Result.failure(RuntimeException("local save failed")))
 
-        assertFalse(next.isCompleting)
-        assertEquals(CorrectionUiState.Phase.Content, next.phase)
-        assertEquals(previousRequest, next.saveRequest)
+        assertEquals(previousSuggestions, next.suggestions)
         assertEquals(setOf("s-1"), next.selectedSuggestionIds)
-        assertNull(next.completionResult)
+        assertEquals(previousRequest, next.saveRequest)
+    }
+
+    @Test
+    fun `applyCompletionOutcome failure with null message falls back to class simpleName`() {
+        // applyGenerationOutcome 의 reason 채움 패턴과 동치 — message 가 null 이면 class simpleName 사용.
+        val throwable = object : Throwable() {
+            override val message: String? = null
+        }
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            isCompleting = true,
+        )
+
+        val next = state.applyCompletionOutcome(Result.failure(throwable))
+
+        assertEquals(CorrectionUiState.Phase.Retry, next.phase)
+        // anonymous object 의 simpleName 은 빈 문자열일 수 있으므로 null 이 아닌 것만 확인.
+        assertNotNull(next.completionErrorReason)
+    }
+
+    @Test
+    fun `applyCompletionOutcome success on Retry transitions to Done and clears errorReason`() {
+        // Retry → 재시도 성공 시 Done 으로 가고 직전에 채워졌던 completionErrorReason 이 비워지는 invariant.
+        // 사용자 흐름: 첫 시도 실패 → Phase.Retry + 사유 표시 → 두 번째 시도 성공 → Phase.Done + 사유 비움.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Retry,
+            selectedSuggestionIds = setOf("s-1"),
+            saveRequest = sampleSaveRequest(),
+            completionErrorReason = "local save failed",
+            isCompleting = true,
+        )
+        val expected = sampleCompletionResult(savedIds = listOf("s-1"))
+
+        val next = state.applyCompletionOutcome(Result.success(expected))
+
+        assertEquals(CorrectionUiState.Phase.Done, next.phase)
+        assertEquals(expected, next.completionResult)
+        // 직전 Retry 진입에서 채워진 사유는 명시적으로 비워져야 한다.
+        assertNull(next.completionErrorReason)
+        assertFalse(next.isCompleting)
+    }
+
+    // ─── COR-006-B: canSave 재시도 허용 회귀 ─────────────────────────────────
+
+    @Test
+    fun `canSave is true on Phase Retry with selection`() {
+        // AC "Retry 시 같은 저장 요청으로 완료 파이프라인을 다시 호출" 의 화면 가드.
+        // canSave 가 false 라면 사용자는 저장 버튼을 다시 누를 수 없어 재시도가 막힌다.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Retry,
+            selectedSuggestionIds = setOf("s-1"),
+        )
+
+        assertTrue(state.canSave)
+    }
+
+    @Test
+    fun `canSave is false on Phase Retry without selection`() {
+        // Retry phase 에서 사용자가 모든 카드를 다시 해제한 경우 — 저장은 막혀야 한다.
+        // 0개 가드는 Content 와 동일한 invariant.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Retry,
+            selectedSuggestionIds = emptySet(),
+        )
+
+        assertFalse(state.canSave)
+    }
+
+    @Test
+    fun `canSave is false while isCompleting on Phase Retry`() {
+        // Retry → 재시도 클릭 → completion in-flight 중에는 다시 비활성화되어야 한다.
+        // AC "Retry 중 중복 완료 요청이 발생하는 경우" 의 1차 차단.
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Retry,
+            selectedSuggestionIds = setOf("s-1"),
+            isCompleting = true,
+        )
+
+        assertFalse(state.canSave)
     }
 
     // ─── COR-001-B: 중복 방어 가드 회귀 ───────────────────────────────────────
@@ -419,9 +526,11 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `shouldTriggerGeneration returns false on Loading Generating Content EmptyResult Error Done`() {
+    fun `shouldTriggerGeneration returns false on Loading Generating Content EmptyResult Error Done Retry`() {
         // Ready 이외의 모든 phase 는 generate 진입 자격이 없다는 invariant. enum 분기 완전성 회귀.
         // COR-002-B 에서 추가된 EmptyResult 도 포함 — launched 와 무관하게 false.
+        // COR-006-B 에서 추가된 Retry 도 포함 — Retry 는 "사용자 명시 재시도 대기" 상태라
+        // GlobalLangState refresh 로 자동 generate 가 다시 일어나면 안 된다(terminalPhases 미포함과 동치).
         listOf(
             CorrectionUiState.Phase.Loading,
             CorrectionUiState.Phase.Generating,
@@ -429,6 +538,7 @@ class CorrectionUiStateTest {
             CorrectionUiState.Phase.EmptyResult,
             CorrectionUiState.Phase.Error,
             CorrectionUiState.Phase.Done,
+            CorrectionUiState.Phase.Retry,
         ).forEach { phase ->
             assertFalse(
                 "$phase 에서는 generate 트리거가 일어나면 안 됨 (launched=false)",
@@ -544,6 +654,59 @@ class CorrectionUiStateTest {
         assertTrue(afterError.selectedSuggestionIds.isEmpty())
         assertNull(afterError.saveRequest)
         assertNull(afterError.saveErrorReason)
+    }
+
+    // ─── COR-003-B: 카드 화면 상태 렌더링 invariant 회귀 ────────────────────────
+    // 이슈 #134 엣지 케이스 "Empty / Error 상태인데 이전 카드가 남아 보이는 경우" 를 못 박는다.
+    // [applyGenerationOutcome] 이 모든 비-Content outcome 에서 suggestions 를 비운다는
+    // 계약을 COR-003-B SSOT 회귀로 명시한다. [applyGenerationOutcome clears stale ...] 테스트와
+    // 의미가 겹치지만, 이 두 건은 *카드 화면 상태 구분* 관점의 invariant 를 독립적으로 못 박는다.
+    // (하나가 깨져도 나머지가 살아 어느 invariant 가 깨졌는지 즉시 식별 가능하게 한다.)
+
+    @Test
+    fun `applyGenerationOutcome on EmptyResult clears suggestions to prevent leftover cards`() {
+        // COR-003-B 엣지: "Empty 상태인데 이전 카드가 남아 보이는 경우".
+        // Generating 직전까지 suggestions 가 채워진 Content 상태(=Retry 흐름)에서도
+        // EmptyResult outcome 적용 후 suggestions 가 완전히 비워져야 한다.
+        val staleContent = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Generating,
+            suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
+        )
+
+        val next = staleContent.applyGenerationOutcome(Result.success(emptyList()))
+
+        // EmptyResult 로 전환됐는지 확인.
+        assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)
+        // 이전 카드가 남지 않아야 한다 — 카드 화면이 비어 있어야 하는 상태의 핵심 invariant.
+        assertTrue(
+            "EmptyResult 상태에서 이전 suggestions 가 잔존하면 안 됨",
+            next.suggestions.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `applyGenerationOutcome on Error clears suggestions to prevent leftover cards`() {
+        // COR-003-B 엣지: "Error 상태인데 Content UI(카드 목록)가 함께 노출되는 경우".
+        // AI 호출/파싱 실패로 Error 로 전환될 때, 직전 Content phase 의 suggestions 가
+        // 남아 있으면 화면 분기는 CorrectionError 를 그리지만 stale 카드 데이터가 UiState 에
+        // 잔존해 이후 phase 전환 시 렌더링 이상이 생길 수 있다.
+        val staleContent = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Generating,
+            suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
+        )
+
+        val next = staleContent.applyGenerationOutcome(
+            Result.failure(CorrectionSuggestionFixtures.generateFailure("candidateId mismatch")),
+        )
+
+        // Error 로 전환됐는지 확인.
+        assertEquals(CorrectionUiState.Phase.Error, next.phase)
+        assertEquals("candidateId mismatch", next.errorReason)
+        // 이전 카드가 남지 않아야 한다 — Error UI 와 Content 카드 UI 가 동시에 노출되는 경우를 차단.
+        assertTrue(
+            "Error 상태에서 이전 suggestions 가 잔존하면 안 됨",
+            next.suggestions.isEmpty(),
+        )
     }
 
     /**
