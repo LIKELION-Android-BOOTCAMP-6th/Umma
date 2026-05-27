@@ -254,12 +254,19 @@ class CorrectionViewModel @Inject constructor(
             val result = runCatching {
                 // RT-003 read model 은 Flow 라 추가 emit 이 흘러도 첫 snapshot 만 본다.
                 val sessionTurns = getCorrectionContext(lang).first()
+                Log.d(
+                    TAG,
+                    "correction context loaded lang=${lang.code}, turns=${sessionTurns.size}, turnIds=${sessionTurns.joinToString(separator = ",") { it.turnId }}"
+                )
                 val candidates = extractSessionCandidates(
                     selectedLang = lang,
                     sessionLang = lang,
                     sessionTurns = sessionTurns,
                 )
-                Log.d(TAG, "Generating — candidates=${candidates.size}")
+                Log.d(
+                    TAG,
+                    "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
+                )
 
                 val input = GenerateSuggestionsInput(
                     candidates = candidates,

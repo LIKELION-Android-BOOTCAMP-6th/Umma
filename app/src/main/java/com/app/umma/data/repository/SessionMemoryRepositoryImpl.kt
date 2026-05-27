@@ -1,5 +1,6 @@
 package com.app.umma.data.repository
 
+import android.util.Log
 import com.app.umma.data.source.local.RemoteSyncStatus
 import com.app.umma.data.source.local.SessionMemoryLocalDataSource
 import com.app.umma.data.source.local.SessionMetadataEntity
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import javax.inject.Inject
@@ -52,9 +54,19 @@ class SessionMemoryRepositoryImpl @Inject constructor(
                 language = command.language.code
             )
 
+            Log.d(
+                SESSION_MEMORY_TAG,
+                "append requested userId=$userId, lang=${command.language.code}, turnId=${command.turn.turnId}, role=${command.turn.role}, textLength=${command.turn.text.length}"
+            )
+
             val appendResult = localDataSource.appendTurn(
                 turn = entity,
                 maxRecentTurns = maxRecentTurns
+            )
+
+            Log.d(
+                SESSION_MEMORY_TAG,
+                "append local result inserted=${appendResult.inserted}, lang=${command.language.code}, turnId=${command.turn.turnId}, role=${command.turn.role}"
             )
 
             if (appendResult.inserted) {
@@ -135,7 +147,16 @@ class SessionMemoryRepositoryImpl @Inject constructor(
     }
 
     override fun getCorrectionContext(language: LangCode): Flow<List<SessionTurn>> {
-        return observeRecentFullContext(language).map(::buildCorrectionContext)
+        return observeRecentFullContext(language)
+            .map(::buildCorrectionContext)
+            .onEach { turns ->
+                val userTurnCount = turns.count { it.role == TurnSpeaker.USER }
+                val assistantTurnCount = turns.count { it.role == TurnSpeaker.AI }
+                Log.d(
+                    SESSION_MEMORY_TAG,
+                    "correction context emitted lang=${language.code}, turns=${turns.size}, userTurns=$userTurnCount, assistantTurns=$assistantTurnCount, turnIds=${turns.joinToString(separator = ",") { it.turnId }}"
+                )
+            }
     }
 
     override fun getFlashcardContext(language: LangCode): Flow<List<SessionTurn>> {
@@ -148,6 +169,10 @@ class SessionMemoryRepositoryImpl @Inject constructor(
         return try {
             val userId = requireUserId()
             val snapshot = buildSessionMemory(userId, language)
+            Log.d(
+                SESSION_MEMORY_TAG,
+                "sync pending turns requested userId=$userId, lang=${language.code}, recentFullContextSize=${snapshot.recentFullContext.size}, pendingTurnSync=${snapshot.isPendingTurnSync}, pendingCompressionSync=${snapshot.isPendingCompressionSync}"
+            )
             val syncResult = remoteDataSource.syncSessionMemorySnapshot(snapshot)
 
             if (syncResult.isSuccess) {
@@ -172,8 +197,26 @@ class SessionMemoryRepositoryImpl @Inject constructor(
                 }
             }
 
+            syncResult.onSuccess {
+                Log.d(
+                    SESSION_MEMORY_TAG,
+                    "sync pending turns succeeded userId=$userId, lang=${language.code}"
+                )
+            }.onFailure { error ->
+                Log.w(
+                    SESSION_MEMORY_TAG,
+                    "sync pending turns failed userId=$userId, lang=${language.code}, reason=${error.message ?: error.javaClass.simpleName}",
+                    error
+                )
+            }
+
             syncResult
         } catch (e: Exception) {
+            Log.w(
+                SESSION_MEMORY_TAG,
+                "sync pending turns failed before remote sync lang=${language.code}, reason=${e.message ?: e.javaClass.simpleName}",
+                e
+            )
             Result.failure(e)
         }
     }
@@ -208,9 +251,16 @@ class SessionMemoryRepositoryImpl @Inject constructor(
             includedTurnIds += turn.turnId
         }
 
-        return turns
+        val contextTurns = turns
             .filter { it.turnId in includedTurnIds }
             .sortedBy { it.createdAt }
+
+        Log.d(
+            SESSION_MEMORY_TAG,
+            "build correction context sourceTurns=${turns.size}, contextTurns=${contextTurns.size}, sourceTurnIds=${turns.joinToString(separator = ",") { it.turnId }}, contextTurnIds=${contextTurns.joinToString(separator = ",") { it.turnId }}"
+        )
+
+        return contextTurns
     }
 
     /**
@@ -326,4 +376,7 @@ class SessionMemoryRepositoryImpl @Inject constructor(
         }
     }
 
+    private companion object {
+        const val SESSION_MEMORY_TAG = "SessionMemoryFlow"
+    }
 }

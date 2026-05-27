@@ -1,16 +1,20 @@
 package com.app.umma.presentation.chat
 
 import android.annotation.SuppressLint
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.audio.AudioInputFrame
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.realtime.AppendTurnCommand
 import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.ObserveAIEventUseCase
@@ -48,6 +52,7 @@ class ChatViewModel @Inject constructor(
     private val saveInterestTopicsUseCase: SaveInterestTopicsUseCase,
     private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
+    private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
     private val audioRecorder: AudioInput,
     private val audioPlayer: AudioOutput
 ) : ViewModel() {
@@ -445,8 +450,22 @@ class ChatViewModel @Inject constructor(
      * @param event final transcript 이벤트
      */
     private fun handleFinalTranscription(event: AIEvent.FinalTranscription) {
-        if (event.text.isBlank()) return
-        if (_uiState.value.lastHandledFinalTurnId == event.turnId) return
+        if (event.text.isBlank()) {
+            Log.d(CHAT_FLOW_TAG, "skip final transcription because text is blank")
+            return
+        }
+        if (_uiState.value.lastHandledFinalTurnId == event.turnId) {
+            Log.d(
+                CHAT_FLOW_TAG,
+                "skip duplicate final transcription turnId=${event.turnId}, role=${event.role}, sessionId=${event.sessionId}"
+            )
+            return
+        }
+
+        Log.d(
+            CHAT_FLOW_TAG,
+            "final transcription received turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}, sessionId=${event.sessionId}, textLength=${event.text.length}"
+        )
 
         _uiState.update {
             when (event.role) {
@@ -476,6 +495,11 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             beginTurnSave()
 
+            Log.d(
+                CHAT_FLOW_TAG,
+                "append turn requested turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}, sessionId=${event.sessionId}"
+            )
+
             val command = AppendTurnCommand(
                 language = event.sessionLang,
                 turn = SessionTurn(
@@ -492,11 +516,21 @@ class ChatViewModel @Inject constructor(
 
             appendTurnUseCase(command)
                 .onSuccess {
+                    Log.d(
+                        CHAT_FLOW_TAG,
+                        "append turn succeeded turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}"
+                    )
+                    handoverCorrectionAvailableSignal(event)
                     _uiState.update {
                         it.copy(saveErrorMessage = null)
                     }
                 }
                 .onFailure { error ->
+                    Log.w(
+                        CHAT_FLOW_TAG,
+                        "append turn failed turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}, reason=${error.message ?: error.javaClass.simpleName}",
+                        error
+                    )
                     _uiState.update {
                         it.copy(saveErrorMessage = error.message ?: "Turn 저장 실패")
                     }
@@ -504,6 +538,43 @@ class ChatViewModel @Inject constructor(
 
             endTurnSave()
         }
+    }
+
+    private suspend fun handoverCorrectionAvailableSignal(event: AIEvent.FinalTranscription) {
+        if (event.role != TurnSpeaker.USER) return
+
+        val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+        if (uid.isNullOrBlank()) {
+            Log.w(
+                CHAT_FLOW_TAG,
+                "skip correction signal handover because uid is missing turnId=${event.turnId}, lang=${event.sessionLang.code}"
+            )
+            return
+        }
+
+        val input = CorrectionSignalUpdateInput(
+            uid = uid,
+            lang = event.sessionLang,
+            sessionMemoryKey = buildSessionMemoryKey(uid, event.sessionLang),
+            sourceEventId = event.turnId,
+            correctionAvailable = true,
+            updatedAt = event.createdAt
+        )
+
+        applyCorrectionSignalUpdateUseCase(input)
+            .onSuccess {
+                Log.d(
+                    CHAT_FLOW_TAG,
+                    "correction signal handover succeeded turnId=${event.turnId}, lang=${event.sessionLang.code}"
+                )
+            }
+            .onFailure { error ->
+                Log.w(
+                    CHAT_FLOW_TAG,
+                    "correction signal handover failed turnId=${event.turnId}, lang=${event.sessionLang.code}, reason=${error.message ?: error.javaClass.simpleName}",
+                    error
+                )
+            }
     }
 
     /**
@@ -749,6 +820,12 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private companion object {
+        const val CHAT_FLOW_TAG = "ChatTurnFlow"
+
+        fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }
 // 재시도 commit

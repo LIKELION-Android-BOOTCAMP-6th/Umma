@@ -221,10 +221,10 @@ class ChatRepositoryImpl @Inject constructor(
         message.inputTranscription?.text
             ?.takeIf { it.isNotBlank() }
             ?.let { text ->
-                Log.d("ChatRepository", "USER partial text=$text")
-                Log.d("ChatRepository", "USER partial previousBuffer=$userTranscriptBuffer")
+                /*Log.d("ChatRepository", "USER partial text=$text")
+                Log.d("ChatRepository", "USER partial previousBuffer=$userTranscriptBuffer")*/
                 userTranscriptBuffer += text
-                Log.d("ChatRepository", "USER partial updatedBuffer=$userTranscriptBuffer")
+                /*Log.d("ChatRepository", "USER partial updatedBuffer=$userTranscriptBuffer")*/
                 _events.emit(
                     AIEvent.PartialTranscription(
                         text = text,
@@ -237,12 +237,12 @@ class ChatRepositoryImpl @Inject constructor(
         message.outputTranscription?.text
             ?.takeIf { it.isNotBlank() }
             ?.let { text ->
-                Log.d("ChatRepository", "AI partial incoming=$text")
-                Log.d("ChatRepository", "AI partial previousBuffer=$aiTranscriptionBuffer")
+                /*Log.d("ChatRepository", "AI partial incoming=$text")
+                Log.d("ChatRepository", "AI partial previousBuffer=$aiTranscriptionBuffer")*/
 
                 aiTranscriptionBuffer += text
 
-                Log.d("ChatRepository", "AI partial updatedBuffer=$aiTranscriptionBuffer")
+                /*Log.d("ChatRepository", "AI partial updatedBuffer=$aiTranscriptionBuffer")*/
                 _events.emit(
                     AIEvent.PartialTranscription(
                         text = text,
@@ -277,10 +277,10 @@ class ChatRepositoryImpl @Inject constructor(
         val sessionLang = currentLang ?: return
 
         if (userTranscriptBuffer.isNotBlank()) {
-            Log.d(
+            /*Log.d(
                 "ChatRepository",
                 "turnComplete userBuffer=$userTranscriptBuffer aiBuffer=$aiTranscriptionBuffer"
-            )
+            )*/
             emitFinalTranscript(
                 sessionId = sessionId,
                 text = userTranscriptBuffer,
