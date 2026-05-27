@@ -6,5 +6,6 @@ import javax.inject.Inject
 class StopSessionUseCase @Inject constructor(
     private val repository: ChatRepository
 ) {
-    suspend operator fun invoke() = repository.stopSession()
+    suspend operator fun invoke(clearAppSession: Boolean = true) =
+        repository.stopSession(clearAppSession = clearAppSession)
 }

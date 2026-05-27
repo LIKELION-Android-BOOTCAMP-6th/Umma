@@ -17,7 +17,7 @@ interface NetworkConnectivityMonitor {
 }
 
 class NetworkConnectivityMonitorImpl @Inject constructor(
-    @field:ApplicationContext private val context: Context,
+    @ApplicationContext private val context: Context,
 ): NetworkConnectivityMonitor{
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 

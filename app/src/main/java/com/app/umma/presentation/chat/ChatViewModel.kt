@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.audio.AudioInputFrame
@@ -27,12 +28,14 @@ import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.app.umma.domain.usecase.user.GetUserProfileUseCase
 import com.app.umma.domain.usecase.user.GetUserNicknameUseCase
 import com.app.umma.domain.usecase.user.SaveInterestTopicsUseCase
-import com.app.umma.presentation.util.calculateLevel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -53,9 +56,11 @@ class ChatViewModel @Inject constructor(
     private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
     private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
+    private val networkConnectivityMonitor: NetworkConnectivityMonitor,
     private val audioRecorder: AudioInput,
     private val audioPlayer: AudioOutput
 ) : ViewModel() {
+    private val entryStageDelayMs = 350L
 
     /**
      * 화면에서 구독하는 단일 UI 상태입니다.
@@ -82,37 +87,106 @@ class ChatViewModel @Inject constructor(
      */
     private var pendingTurnSaveCount: Int = 0
     private var stopChatJob: Job? = null
+    private var enterChatJob: Job? = null
+    private var outputLevelJob: Job? = null
+
+    init {
+        observeAudioOutputLevel()
+    }
 
     /**
      * 채팅 세션을 시작합니다.
      */
-    fun startChat() {
-        viewModelScope.launch {
+    fun enterChat() {
+        if (enterChatJob?.isActive == true) return
+
+        enterChatJob = viewModelScope.launch {
             stopChatJob?.join()
-
-            if (_uiState.value.sessionState == SessionState.LOADING) return@launch
-
             startObservingAIEvents()
+            logEntry("enterChat start")
 
             _uiState.update {
                 it.copy(
+                    entryStage = ChatEntryStage.GUARDING,
+                    blockedReason = null,
                     sessionState = SessionState.LOADING,
+                    aiState = AIState.IDLE,
                     showSubtitle = false,
+                    isRecoverableError = false,
                     errorMessage = null
                 )
             }
+            delay(entryStageDelayMs)
+
+            if (!networkConnectivityMonitor.isConnected.first()) {
+                _uiState.update {
+                    it.copy(
+                        entryStage = ChatEntryStage.BLOCKED_NETWORK,
+                        blockedReason = ChatBlockedReason.OFFLINE,
+                        sessionState = SessionState.ERROR,
+                        aiState = AIState.ERROR,
+                        isRecoverableError = false,
+                        errorMessage = "네트워크에 연결할 수 없습니다.\nwifi 또는 모바일 데이터를 확인해주세요."
+                    )
+                }
+                logEntry("blocked offline")
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    entryStage = ChatEntryStage.RESTORING,
+                    blockedReason = null,
+                    sessionState = SessionState.LOADING,
+                    aiState = AIState.RECONNECTING,
+                    isRecoverableError = false,
+                    errorMessage = null
+                )
+            }
+            logEntry("restoring")
+            delay(entryStageDelayMs)
+            when (val restoreResult = retryConnectionUseCase()) {
+                is RetryConnectionResult.Reconnected -> {
+                    logEntry("restore success sessionId=${restoreResult.sessionId}")
+                    handleSessionStarted(restoreResult.sessionId)
+                    return@launch
+                }
+                is RetryConnectionResult.Failed -> Unit
+                is RetryConnectionResult.RequireNewSession -> Unit
+            }
+            logEntry("restore failed, fallback to new session")
+
+            _uiState.update {
+                it.copy(
+                    entryStage = ChatEntryStage.STARTING_NEW,
+                    blockedReason = null,
+                    sessionState = SessionState.LOADING,
+                    aiState = AIState.IDLE,
+                    isRecoverableError = false,
+                    errorMessage = null
+                )
+            }
+            delay(entryStageDelayMs)
 
             startSessionUseCase()
                 .onSuccess { sessionId ->
+                    logEntry("start new session success sessionId=$sessionId")
                     handleSessionStarted(sessionId)
                     audioPlayer.startPlaying()
                 }
                 .onFailure { error ->
+                    logEntry("start new session failed reason=${error.message}")
                     _uiState.update {
                         it.copy(
+                            entryStage = ChatEntryStage.ERROR,
+                            blockedReason = ChatBlockedReason.UNRECOVERABLE,
                             sessionState = SessionState.ERROR,
                             aiState = AIState.ERROR,
-                            errorMessage = error.message ?: "대화를 시작할 수 없습니다."
+                            isRecoverableError = true,
+                            errorMessage = toUserFacingErrorMessage(
+                                rawMessage = error.message,
+                                fallback = "대화를 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                            )
                         )
                     }
                 }
@@ -125,8 +199,11 @@ class ChatViewModel @Inject constructor(
      * Initialized 이벤트를 늦게 받거나 놓쳐도 UI가 LOADING에 남지 않도록 합니다.
      */
     private fun handleSessionStarted(sessionId: String) {
+        logEntry("ready sessionId=$sessionId")
         _uiState.update {
             it.copy(
+                entryStage = ChatEntryStage.READY,
+                blockedReason = null,
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = sessionId,
@@ -200,6 +277,10 @@ class ChatViewModel @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                val userMessage = toUserFacingErrorMessage(
+                    rawMessage = error.message,
+                    fallback = "녹음 중 문제가 발생했습니다.\n네트워크 연결 후 다시 시도해주세요."
+                )
                 _uiState.update {
                     it.copy(
                         isRecording = false,
@@ -207,7 +288,7 @@ class ChatViewModel @Inject constructor(
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
                         isRecoverableError = false,
-                        errorMessage = error.message ?: "Failed to record audio"
+                        errorMessage = userMessage
                     )
                 }
             }
@@ -238,6 +319,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
+                    entryStage = ChatEntryStage.RESTORING,
+                    blockedReason = null,
                     sessionState = SessionState.RECONNECTING,
                     aiState = AIState.RECONNECTING,
                     isRecoverableError = false,
@@ -251,6 +334,8 @@ class ChatViewModel @Inject constructor(
                 is RetryConnectionResult.Reconnected -> {
                     _uiState.update {
                         it.copy(
+                            entryStage = ChatEntryStage.READY,
+                            blockedReason = null,
                             sessionState = SessionState.READY,
                             aiState = AIState.IDLE,
                             activeSessionId = result.sessionId,
@@ -267,12 +352,17 @@ class ChatViewModel @Inject constructor(
                 is RetryConnectionResult.Failed -> {
                     _uiState.update {
                         it.copy(
+                            entryStage = ChatEntryStage.ERROR,
+                            blockedReason = null,
                             sessionState = SessionState.ERROR,
                             aiState = AIState.ERROR,
                             isRecoverableError = true,
                             didFallbackToNewSession = false,
                             fallbackMessage = null,
-                            errorMessage = result.message
+                            errorMessage = toUserFacingErrorMessage(
+                                rawMessage = result.message,
+                                fallback = "연결이 불안정합니다. 다시 시도해 주세요."
+                            )
                         )
                     }
                 }
@@ -293,6 +383,8 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
+                entryStage = ChatEntryStage.STARTING_NEW,
+                blockedReason = null,
                 sessionState = SessionState.LOADING,
                 aiState = AIState.IDLE,
                 isRecoverableError = false,
@@ -307,6 +399,8 @@ class ChatViewModel @Inject constructor(
                 audioPlayer.startPlaying()
                 _uiState.update {
                     it.copy(
+                        entryStage = ChatEntryStage.READY,
+                        blockedReason = null,
                         sessionState = SessionState.READY,
                         aiState = AIState.IDLE,
                         activeSessionId = sessionId,
@@ -322,12 +416,17 @@ class ChatViewModel @Inject constructor(
             .onFailure { error ->
                 _uiState.update {
                     it.copy(
+                        entryStage = ChatEntryStage.ERROR,
+                        blockedReason = ChatBlockedReason.UNRECOVERABLE,
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
                         isRecoverableError = false,
                         didFallbackToNewSession = false,
                         fallbackMessage = null,
-                        errorMessage = error.message ?: reason
+                        errorMessage = toUserFacingErrorMessage(
+                            rawMessage = error.message,
+                            fallback = "세션을 다시 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                        )
                     )
                 }
             }
@@ -356,6 +455,7 @@ class ChatViewModel @Inject constructor(
     fun stopChat() {
         stopChatJob?.cancel()
         stopChatJob = viewModelScope.launch {
+            logEntry("stopChat start")
             eventJob?.cancel()
             eventJob = null
 
@@ -363,10 +463,11 @@ class ChatViewModel @Inject constructor(
             recordJob = null
 
             audioPlayer.stopPlaying()
-            stopSessionUseCase()
+            stopSessionUseCase(clearAppSession = false)
 
             _uiState.value = ChatUiState()
             pendingTurnSaveCount = 0
+            logEntry("stopChat done")
         }
     }
 
@@ -414,6 +515,8 @@ class ChatViewModel @Inject constructor(
     private fun handleInitialized(event: AIEvent.Initialized) {
         _uiState.update {
             it.copy(
+                entryStage = ChatEntryStage.READY,
+                blockedReason = null,
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
@@ -614,7 +717,6 @@ class ChatViewModel @Inject constructor(
                     it.aiState != AIState.RECONNECTING &&
                     it.aiState != AIState.ERROR
                 ) AIState.SPEAKING else it.aiState,
-                outputLevel = calculateLevel(event.audio)
             )
         }
         audioPlayer.playAudioChunk(event.audio)
@@ -644,8 +746,7 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
-                aiState = event.state,
-                outputLevel = if (event.state == AIState.IDLE) 0f else it.outputLevel
+                aiState = event.state
             )
         }
     }
@@ -673,7 +774,10 @@ class ChatViewModel @Inject constructor(
                 maxReconnectAttempts = event.maxAttempts,
                 isRecoverableError = false,
                 fallbackMessage = null,
-                errorMessage = event.message
+                errorMessage = toUserFacingErrorMessage(
+                    rawMessage = event.message,
+                    fallback = "연결이 일시적으로 끊겼어요. 자동으로 다시 연결 중입니다."
+                )
             )
         }
     }
@@ -686,6 +790,8 @@ class ChatViewModel @Inject constructor(
     private fun handleReconnected(event: AIEvent.Reconnected) {
         _uiState.update {
             it.copy(
+                entryStage = ChatEntryStage.READY,
+                blockedReason = null,
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
@@ -710,6 +816,7 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
+                entryStage = ChatEntryStage.ERROR,
                 isRecording = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
@@ -719,7 +826,10 @@ class ChatViewModel @Inject constructor(
                 aiState = AIState.ERROR,
                 isRecoverableError = event.recoverable,
                 fallbackMessage = null,
-                errorMessage = event.message
+                errorMessage = toUserFacingErrorMessage(
+                    rawMessage = event.message,
+                    fallback = "네트워크 연결이 끊겼습니다. 다시 시도해 주세요."
+                )
             )
         }
     }
@@ -735,6 +845,7 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
+                entryStage = ChatEntryStage.ERROR,
                 isRecording = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
@@ -742,7 +853,10 @@ class ChatViewModel @Inject constructor(
                 aiState = AIState.ERROR,
                 isRecoverableError = false,
                 fallbackMessage = null,
-                errorMessage = event.message
+                errorMessage = toUserFacingErrorMessage(
+                    rawMessage = event.message,
+                    fallback = "문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
+                )
             )
         }
     }
@@ -752,8 +866,34 @@ class ChatViewModel @Inject constructor(
      */
     override fun onCleared() {
         super.onCleared()
+        outputLevelJob?.cancel()
         audioPlayer.stopPlaying()
     }
+
+    /**
+     * 출력 오디오 레벨을 즉시 0으로 떨구지 않도록 attack/decay 형태로 완화합니다.
+     */
+
+    /**
+     * 마지막 오디오 청크 이후에는 짧게 유지했다가 점진적으로 감쇠시킵니다.
+     */
+
+    /**
+     * 출력 레벨 감쇠 루프를 정리합니다.
+     */
+    private fun observeAudioOutputLevel() {
+        if (outputLevelJob?.isActive == true) return
+
+        outputLevelJob = viewModelScope.launch {
+            audioPlayer.outputLevel.collectLatest { level ->
+                _uiState.update { it.copy(outputLevel = level.coerceIn(0f, 1f)) }
+            }
+        }
+    }
+
+    /**
+     * 로컬 재생 버퍼에 쌓인 출력 오디오 길이를 누적해 실제 재생 tail을 추정합니다.
+     */
 
     /**
      * 자막 토클
@@ -820,6 +960,44 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun resolveBlockedReason(message: String): ChatBlockedReason {
+        val normalized = message.lowercase()
+        return if (
+            normalized.contains("preference") ||
+            normalized.contains("selected") ||
+            normalized.contains("language") ||
+            normalized.contains("lang")
+        ) {
+            ChatBlockedReason.MISSING_LANG
+        } else {
+            ChatBlockedReason.UNRECOVERABLE
+        }
+    }
+
+    private fun toUserFacingErrorMessage(rawMessage: String?, fallback: String): String {
+        val normalized = rawMessage.orEmpty().lowercase()
+        if (normalized.isBlank()) return fallback
+
+        val isNetworkRelated = normalized.contains("network") ||
+            normalized.contains("offline") ||
+            normalized.contains("timeout") ||
+            normalized.contains("timed out") ||
+            normalized.contains("socket") ||
+            normalized.contains("ioexception") ||
+            normalized.contains("unable to resolve host") ||
+            normalized.contains("connection")
+
+        return if (isNetworkRelated) {
+            "네트워크가 불안정해 연결이 끊겼습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요."
+        } else {
+            fallback
+        }
+    }
+
+    private fun logEntry(message: String) {
+        Log.d(CHAT_FLOW_TAG, "[ENTRY] $message")
     }
 
     private companion object {
