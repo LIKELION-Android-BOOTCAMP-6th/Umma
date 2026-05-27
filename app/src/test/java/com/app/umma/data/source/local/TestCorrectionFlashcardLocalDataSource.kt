@@ -117,6 +117,14 @@ class TestCorrectionFlashcardLocalDataSource : CorrectionFlashcardLocalDataSourc
         }
     }
 
+    /**
+     * dirty=true 인 카드 모두 반환
+     * @return emptyList()
+     */
+    override suspend fun getDirtyFlashcards(uid: String): List<CorrectionFlashcardDto> {
+        return emptyList()
+    }
+
     override suspend fun rollbackFlashcards(
         uid: String,
         flashcardIds: List<String>

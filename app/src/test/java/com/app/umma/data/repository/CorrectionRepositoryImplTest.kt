@@ -394,5 +394,13 @@ class CorrectionRepositoryImplTest {
             deletedIds += flashcardIds
             return Result.success(Unit)
         }
+
+        override suspend fun syncReviewSchedule(
+            flashcardId: String,
+            nextReviewAt: Long,
+            interval: Int,
+            easeFactor: Double,
+            updatedAt: Long
+        ): Result<Unit> = Result.success(Unit)
     }
 }

@@ -7,6 +7,8 @@ import com.app.umma.R
 import com.app.umma.core.ui.UiText
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.isEffectivelyEmpty
+import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
@@ -40,6 +42,8 @@ class DashboardViewModel @Inject constructor(
     private val observeLearningState: ObserveLearningStateUseCase,
     private val syncLearningState: SyncLearningStateUseCase,
     private val changeSelectedLang: ChangeSelectedLangUseCase,
+    private val getCurrentUserUid: GetCurrentUserUidUseCase,
+    private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase,
 ) : ViewModel() {
 
     // UI state 의 단일 source of truth (쓰기 가능). _ prefix = 외부 비공개 컨벤션.
@@ -167,7 +171,8 @@ class DashboardViewModel @Inject constructor(
                     Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
                     if (!skeletonGateApplied) {
                         skeletonGateApplied = true
-                        val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                        val remaining =
+                            SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
                         if (remaining > 0) delay(remaining)
                     }
                     _uiState.update {
@@ -219,7 +224,8 @@ class DashboardViewModel @Inject constructor(
 
                 if (!skeletonGateApplied) {
                     skeletonGateApplied = true
-                    val remaining = SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                    val remaining =
+                        SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
                     if (remaining > 0) delay(remaining)
                 }
                 _uiState.update {
@@ -260,7 +266,8 @@ class DashboardViewModel @Inject constructor(
                 Log.d(TAG, "triggerSync() — Firebase background sync start")
                 // 재진입 시 이전 에러 클리어. 새 시도니까.
                 _uiState.update { it.copy(errorMessage = null) }
-
+                val uid = getCurrentUserUid.getCurrentUserUid()
+                if (uid != null) syncDirtyFlashcards(uid)
                 syncLearningState()
                     .onSuccess {
                         Log.d(TAG, "sync success — observe collect 가 새 emit 처리")

@@ -12,6 +12,7 @@ import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.flashcardreview.ApplyReviewDecisionUseCase
 import com.app.umma.domain.usecase.flashcardreview.ObserveReviewDeckUseCase
 import com.app.umma.domain.usecase.flashcardreview.StartReviewSessionUseCase
+import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +34,8 @@ class SrsStudyViewModel @Inject constructor(
     private val observeReviewDeck: ObserveReviewDeckUseCase,
     private val getCurrentUserUid: GetCurrentUserUidUseCase,
     private val applyReviewDecision: ApplyReviewDecisionUseCase,
-    private val ttsController: TextToSpeechController
+    private val ttsController: TextToSpeechController,
+    private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SrsStudyUiState())
@@ -57,6 +59,8 @@ class SrsStudyViewModel @Inject constructor(
             _uiState.update {
                 it.copy(isLoading = true, hasInitError = false, cards = emptyList())
             }
+            val uid = getCurrentUserUid.getCurrentUserUid()
+            if (uid != null) launch { syncDirtyFlashcards(uid) }
 
             // 현재 학습 언어 가져오는 UseCase
             startReviewSession().onSuccess { lang ->

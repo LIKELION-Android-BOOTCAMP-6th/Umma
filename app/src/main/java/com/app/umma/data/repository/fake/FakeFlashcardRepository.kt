@@ -52,6 +52,7 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
                 val filtered = current.cards.filter { it.language == language }
                 if (filtered.isEmpty()) ReviewDeckState.Empty else ReviewDeckState.Content(filtered)
             }
+
             else -> current
         }
 
@@ -99,5 +100,14 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
                 savedFlashcards = languageCards.size
             )
         )
+    }
+
+    /**
+     * dirty 상태로 남은 카드를 Firestore에 일괄 재시도 sync
+     * 성공: 카드 수 반환
+     * 실패: Result.failure
+     */
+    override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
+        return Result.success(0)
     }
 }

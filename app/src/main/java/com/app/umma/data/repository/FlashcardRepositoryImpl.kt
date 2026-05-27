@@ -2,9 +2,10 @@ package com.app.umma.data.repository
 
 import com.app.umma.data.model.correction.CorrectionFlashcardDto
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
+import com.app.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.app.umma.domain.model.flashcard.Flashcard
-import com.app.umma.domain.model.flashcard.FlashcardSchedule
 import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
+import com.app.umma.domain.model.flashcard.FlashcardSchedule
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
@@ -19,7 +20,8 @@ import javax.inject.Singleton
 /** Correction이 제공한 local source를 감싸는 FlashcardRepository 구현체입니다. */
 @Singleton
 class FlashcardRepositoryImpl @Inject constructor(
-    private val localDataSource: CorrectionFlashcardLocalDataSource
+    private val localDataSource: CorrectionFlashcardLocalDataSource,
+    private val remoteDataSource: CorrectionFlashcardRemoteDataSource
 ) : FlashcardRepository {
 
     override fun observeDueFlashcards(userId: String, language: LangCode): Flow<ReviewDeckState> {
@@ -50,26 +52,50 @@ class FlashcardRepositoryImpl @Inject constructor(
         result: ReviewScheduleResult
     ): Result<FlashcardUpdateResult> {
         return try {
-            // review 정책에서 계산된 값만 받아 저장소 계층이 로컬 원본을 갱신한다.
+            val updatedAt = System.currentTimeMillis()
+
+            // 복습 평가 결과를 로컬 DB에 먼저 저장한다.
             val success = localDataSource.updateReviewSchedule(
                 uid = userId,
                 flashcardId = cardId,
                 nextReviewAt = result.nextReviewAt,
                 interval = result.interval,
                 easeFactor = result.easeFactor,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = updatedAt
             )
 
-            if (success) {
-                // local save 성공은 곧바로 sync 완료가 아니므로 pending 으로 남긴다.
+            if (!success) {
+                return Result.failure(
+                    NoSuchElementException("Flashcard cardId : $cardId  userId : $userId")
+                )
+            }
+
+            val syncResult = remoteDataSource.syncReviewSchedule(
+                flashcardId = cardId,
+                nextReviewAt = result.nextReviewAt,
+                interval = result.interval,
+                easeFactor = result.easeFactor,
+                updatedAt = updatedAt
+            )
+
+
+            if (syncResult.isSuccess) {
+                // Firestore sync 성공 -> 로컬 pending 표시 제거, isSyncPending=false 반환
+                localDataSource.markSynced(uid = userId, flashcardIds = listOf(cardId))
+                Result.success(
+                    FlashcardUpdateResult(
+                        cardId = cardId,
+                        isSyncPending = false
+                    )
+                )
+            } else {
+                // Firestore sync 실패 -> 로컬 저장은 완료, isSyncPending=true로 나중에 재시도
                 Result.success(
                     FlashcardUpdateResult(
                         cardId = cardId,
                         isSyncPending = true
                     )
                 )
-            } else {
-                Result.failure(NoSuchElementException("Flashcard $cardId not found for user $userId"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -103,6 +129,32 @@ class FlashcardRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
+
+    /**
+     * dirty 상태로 남은 카드를 Firestore에 일괄 재시도 sync
+     * 성공: 카드 수 반환
+     * 실패: Result.failure
+     */
+    override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
+        return try {
+            val dirtyCards = localDataSource.getDirtyFlashcards(uid = userId)
+            // dirty 카드 없으면 Firestore 바로 반환
+            if (dirtyCards.isEmpty()) return Result.success(0)
+
+            // syncFlashcards는 batch set이라 문서 없으면 새로 생성
+            // 이미 있으면 전체 필드 덮어씀
+            val syncedIds = remoteDataSource.syncFlashcards(dirtyCards)
+                .getOrElse { emptyList() }
+            // sync 성공한 카드만 dirty=false 로 전환
+            if (syncedIds.isNotEmpty()) {
+                localDataSource.markSynced(uid = userId, flashcardIds = syncedIds)
+            }
+            Result.success(syncedIds.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
 
     private fun CorrectionFlashcardDto.toDomain(): Flashcard {
         // correction 이 저장한 원본 필드를 SRS 용 domain 모델로만 변환한다.

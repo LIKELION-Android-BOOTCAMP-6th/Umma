@@ -19,6 +19,19 @@ interface CorrectionFlashcardRemoteDataSource {
     suspend fun syncFlashcards(flashcards: List<CorrectionFlashcardDto>): Result<List<String>>
 
     suspend fun deleteFlashcards(flashcardIds: List<String>): Result<Unit>
+
+    /**
+     * 복습 평가 결과(nextReviewAt / interval / easeFactor)를 Firestore에 업데이트한다.
+     * 카드 내용은 건드리지 않고 스케줄 값만 바꾼다.
+     * 실패하면 로컬에 pending 상태로 남겨 나중에 재시도할 수 있게 한다.
+     */
+    suspend fun syncReviewSchedule(
+        flashcardId: String,
+        nextReviewAt: Long,
+        interval: Int,
+        easeFactor: Double,
+        updatedAt: Long
+    ): Result<Unit>
 }
 
 @Singleton
@@ -71,6 +84,37 @@ class FirestoreCorrectionFlashcardRemoteDataSource @Inject constructor(
             }
 
             batch.commit().await()
+        }
+    }
+
+    override suspend fun syncReviewSchedule(
+        flashcardId: String,
+        nextReviewAt: Long,
+        interval: Int,
+        easeFactor: Double,
+        updatedAt: Long
+    ): Result<Unit> {
+        val uid = firebaseAuth.currentUser?.uid
+            ?: return Result.failure(IllegalStateException("signed-in user is required"))
+
+        return safeFirestoreCall {
+            // update()는 문서가 없으면 실패한다.
+            // 실패 시 Repository에서 isSyncPending=true로 처리해 나중에 재시도한다.
+            firestore
+                .collection("users")
+                .document(uid)
+                .collection("flashcards")
+                .document(flashcardId)
+                .update(
+                    mapOf(
+                        "nextReviewAt" to nextReviewAt,
+                        "interval" to interval,
+                        "easeFactor" to easeFactor,
+                        "updatedAt" to updatedAt,
+                        "dirty" to false
+                    )
+                )
+                .await()
         }
     }
 }
