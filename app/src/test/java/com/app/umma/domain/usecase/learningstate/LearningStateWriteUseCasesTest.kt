@@ -1,6 +1,8 @@
 package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.CorrectionResult
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.FlashcardSummary
@@ -12,7 +14,9 @@ import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
+import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.repository.LearningStateRepo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -76,6 +80,109 @@ class LearningStateWriteUseCasesTest {
         assertEquals(3, result.flashcardSummary.dueFlashcards)
         assertEquals(3, result.dashSummary.dueFlashcards)
         assertEquals(1, repo.flashcardSummaryUpdateCalls)
+    }
+
+    @Test
+    fun `calculates vocabulary and expression metrics from correction batch`() = runBlocking {
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo)
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        )
+
+        val result = useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "analysis-vocab-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "I planned a weekend trip because the museum exhibition looked inspiring.",
+                        tokenCount = 11,
+                        durationMs = 5_000L
+                    ),
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "The neighborhood cafe was quiet, so I practiced describing the atmosphere.",
+                        tokenCount = 11,
+                        durationMs = 5_500L
+                    )
+                ),
+                correctionResult = CorrectionResult(
+                    correctedText = "I planned a weekend trip because the museum exhibition looked inspiring.",
+                    correctionCount = 1,
+                    notes = "One expression was corrected for natural wording."
+                ),
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        ).getOrThrow()
+
+        val savedState = result.savedState
+
+        // user turn 기반으로 계산 가능한 값은 repository가 아니라 UseCase에서 preparedState로 만든다.
+        // 이 값들이 채워져야 StatisticsHistory가 LearningState snapshot을 그대로 저장해도 real 데이터처럼 보인다.
+        assertTrue(savedState.internal.vocabularyAppropriateness > 0.0)
+        assertTrue(savedState.internal.lexicalDiversity > 0.0)
+        assertTrue(savedState.internal.sentenceComplexity > 0.0)
+        assertTrue(savedState.internal.avgUtteranceLength > 0.0)
+        assertTrue(savedState.internal.naturalExpressionUsage > 0.0)
+        assertTrue(savedState.internal.errorRecurrence > 0.0)
+        assertEquals(VocabLevel.A2, savedState.internal.vocabularyLevel)
+        assertEquals(VocabLevel.A2, savedState.external.vocabularyLevel)
+        assertTrue(savedState.external.expressionRange > 0)
+        assertTrue(savedState.external.fluencyScore > 0.0)
+        assertTrue(savedState.external.naturalnessScore > 0.0)
+        assertEquals(1, repo.languageStateUpdateCalls)
+    }
+
+    @Test
+    fun `keeps expression range when repeated batch has fewer unique tokens`() = runBlocking {
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo)
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        ).copy(
+            external = LangState.initial(LangCode.EN).external.copy(
+                expressionRange = 30
+            )
+        )
+
+        val result = useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "analysis-repeat-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "I visited a museum and the museum was quiet.",
+                        tokenCount = 9,
+                        durationMs = 4_000L
+                    )
+                ),
+                correctionResult = CorrectionResult(
+                    correctedText = "I visited a museum, and it was quiet.",
+                    correctionCount = 1
+                ),
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        ).getOrThrow()
+
+        // 별도 expression signature 저장소가 생기기 전에는 반복 단어를 "신규 표현"처럼 누적하지 않는다.
+        // 현재 batch의 고유 token 수가 이전 expressionRange보다 작으면 기존 표현 폭을 유지한다.
+        assertEquals(30, result.savedState.external.expressionRange)
+        assertEquals(1, repo.languageStateUpdateCalls)
     }
 
     @Test
