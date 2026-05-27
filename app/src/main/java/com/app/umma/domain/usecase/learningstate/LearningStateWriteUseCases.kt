@@ -3,6 +3,7 @@ package com.app.umma.domain.usecase.learningstate
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
+import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.InternalMetrics
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
@@ -14,6 +15,7 @@ import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.UserLangPref
+import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.repository.LearningStateRepo
 import javax.inject.Inject
 
@@ -134,27 +136,81 @@ class ClearLearningStateUseCase @Inject constructor(
     suspend operator fun invoke(): Result<Unit> = repo.clear()
 }
 
+/**
+ * LangState의 다음 snapshot을 계산한다.
+ *
+ * Repository는 저장만 담당해야 하므로, 교정 결과와 세션 turn에서 유도할 수 있는
+ * 학습 지표 계산은 이 domain UseCase 경계에 둔다. 여기의 계산은 AI 정밀 분석이
+ * 붙기 전까지 사용할 MVP 휴리스틱이며, 값이 없으면 기존 상태를 유지한다.
+ */
 private fun prepareNextState(input: LangStateUpdateInput): LangState {
     val current = input.currentState
     val now = input.analyzedAt
 
     // 이번 배치에서 추정 가능한 측정값만 뽑는다.
     val measuredGrammarAccuracy = measureGrammarAccuracy(input)
+    val measuredVocabularyAppropriateness = measureVocabularyAppropriateness(input)
+    val measuredLexicalDiversity = measureLexicalDiversity(input)
+    val measuredSentenceComplexity = measureSentenceComplexity(input)
     val measuredSpeechRate = measureSpeechRate(input)
+    val measuredAvgUtteranceLength = measureAvgUtteranceLength(input)
     val measuredReviewRetention = measureReviewRetention(input)
     val measuredNaturalness = measureNaturalness(input)
+    val measuredNaturalExpressionUsage = measureNaturalExpressionUsage(
+        input = input,
+        measuredNaturalness = measuredNaturalness,
+        measuredVocabularyAppropriateness = measuredVocabularyAppropriateness
+    )
+    val measuredErrorRecurrence = measureErrorRecurrence(input)
+    val nextExpressionRange = calculateExpressionRange(
+        previous = current.external.expressionRange,
+        input = input
+    )
+    val measuredVocabularyLevel = estimateVocabularyLevel(
+        expressionRange = nextExpressionRange,
+        lexicalDiversity = measuredLexicalDiversity,
+        sentenceComplexity = measuredSentenceComplexity
+    )
+    val nextVocabularyLevel = moveVocabularyLevelOneStep(
+        previous = current.internal.vocabularyLevel,
+        measured = measuredVocabularyLevel
+    )
 
     // 기존 값에서 급격히 흔들리지 않도록 이동 평균을 적용한다.
     val nextInternal = current.internal.copy(
         grammarAccuracy = smoothMetric(current.internal.grammarAccuracy, measuredGrammarAccuracy),
+        vocabularyAppropriateness = smoothMetric(
+            current.internal.vocabularyAppropriateness,
+            measuredVocabularyAppropriateness
+        ),
+        lexicalDiversity = smoothMetric(
+            current.internal.lexicalDiversity,
+            measuredLexicalDiversity
+        ),
+        vocabularyLevel = nextVocabularyLevel,
+        sentenceComplexity = smoothMetric(
+            current.internal.sentenceComplexity,
+            measuredSentenceComplexity
+        ),
         speechRate = smoothMetric(current.internal.speechRate, measuredSpeechRate),
+        avgUtteranceLength = smoothMetric(
+            current.internal.avgUtteranceLength,
+            measuredAvgUtteranceLength
+        ),
         reviewRetention = smoothMetric(current.internal.reviewRetention, measuredReviewRetention),
-        spokenNaturalness = smoothMetric(current.internal.spokenNaturalness, measuredNaturalness)
+        spokenNaturalness = smoothMetric(current.internal.spokenNaturalness, measuredNaturalness),
+        naturalExpressionUsage = smoothMetric(
+            current.internal.naturalExpressionUsage,
+            measuredNaturalExpressionUsage
+        ),
+        errorRecurrence = smoothMetric(current.internal.errorRecurrence, measuredErrorRecurrence)
     )
 
     // 외부 노출용 점수는 내부 지표를 다시 묶어서 계산한다.
     val nextExternal = current.external.copy(
+        vocabularyLevel = nextInternal.vocabularyLevel,
         grammarAccuracy = nextInternal.grammarAccuracy,
+        expressionRange = nextExpressionRange,
         fluencyScore = calculateFluencyScore(nextInternal),
         naturalnessScore = calculateNaturalnessScore(nextInternal)
     )
@@ -178,6 +234,43 @@ private fun measureGrammarAccuracy(input: LangStateUpdateInput): Double? {
     return clamp01(rawScore)
 }
 
+private fun measureVocabularyAppropriateness(input: LangStateUpdateInput): Double? {
+    // 현재 별도 Type C AI 점수가 없으므로, 어휘 다양성과 교정 밀도를 함께 본다.
+    // 교정이 적고 표현 폭이 넓을수록 문맥에 맞는 어휘 선택으로 간주하는 MVP 근사치다.
+    val lexicalDiversity = measureLexicalDiversity(input) ?: return null
+    val userTurns = input.analyzableUserTurns()
+    if (userTurns.isEmpty()) return null
+
+    val correctionCount = input.correctionResult?.correctionCount ?: 0
+    val correctionPenalty = correctionCount.toDouble() / (userTurns.size.toDouble() * 2.0)
+    val correctionScore = 1.0 - correctionPenalty
+    return clamp01((lexicalDiversity * 0.6) + (correctionScore * 0.4))
+}
+
+private fun measureLexicalDiversity(input: LangStateUpdateInput): Double? {
+    // lexical diversity는 "고유 token 수 / 전체 token 수"로 계산한다.
+    // SessionMemory에 정교한 형태소 정보가 없기 때문에 텍스트 tokenization은 domain 내부의 단순 규칙으로 제한한다.
+    val tokens = input.userWordTokens()
+    if (tokens.isEmpty()) return null
+
+    return clamp01(tokens.toSet().size.toDouble() / tokens.size.toDouble())
+}
+
+private fun measureSentenceComplexity(input: LangStateUpdateInput): Double? {
+    // 복잡도는 긴 발화와 접속/절 단서를 함께 본다.
+    // 문법 파서가 아직 없으므로, 데모/초기 real 데이터에서 0으로 고정되지 않게 만드는 안정적인 근사치다.
+    val userTurns = input.analyzableUserTurns()
+    if (userTurns.isEmpty()) return null
+
+    val averageTokenCount = userTurns.averageTokenCount()
+    val lengthScore = averageTokenCount / SENTENCE_COMPLEXITY_TARGET_TOKENS
+    val structureHints = userTurns.sumOf { turn ->
+        CONNECTOR_REGEX.findAll(turn.text).count() + CLAUSE_PUNCTUATION_REGEX.findAll(turn.text).count()
+    }
+    val structureScore = structureHints.toDouble() / (userTurns.size.toDouble() * STRUCTURE_HINTS_TARGET)
+    return clamp01((lengthScore * 0.65) + (structureScore * 0.35))
+}
+
 private fun measureSpeechRate(input: LangStateUpdateInput): Double? {
     // 발화 토큰 수와 지속 시간을 이용해 대략적인 속도를 만든다.
     val totalTokens = input.recentUserTurns.sumOf { it.tokenCount ?: 0 }
@@ -186,6 +279,15 @@ private fun measureSpeechRate(input: LangStateUpdateInput): Double? {
 
     val tokensPerSecond = totalTokens.toDouble() / (totalDurationMs.toDouble() / 1_000.0)
     return clamp01(tokensPerSecond / 4.0)
+}
+
+private fun measureAvgUtteranceLength(input: LangStateUpdateInput): Double? {
+    // 내부 지표는 raw token count가 아니라 0~1 점수로 저장한다.
+    // 평균 14 token 정도를 안정적인 발화 길이 기준으로 보고 normalize한다.
+    val userTurns = input.analyzableUserTurns()
+    if (userTurns.isEmpty()) return null
+
+    return clamp01(userTurns.averageTokenCount() / AVG_UTTERANCE_TARGET_TOKENS)
 }
 
 private fun measureReviewRetention(input: LangStateUpdateInput): Double? {
@@ -207,10 +309,80 @@ private fun measureNaturalness(input: LangStateUpdateInput): Double? {
     return clamp01(rawScore)
 }
 
+private fun measureNaturalExpressionUsage(
+    input: LangStateUpdateInput,
+    measuredNaturalness: Double?,
+    measuredVocabularyAppropriateness: Double?
+): Double? {
+    // Type C AI가 아직 naturalExpressionUsage를 직접 주지 않으므로,
+    // 교정 결과가 있는 batch에서는 자연스러움과 어휘 적절성을 결합해 최소 값을 만든다.
+    if (input.analyzableUserTurns().isEmpty()) return null
+
+    val naturalness = measuredNaturalness ?: return measuredVocabularyAppropriateness
+    val vocabularyAppropriateness = measuredVocabularyAppropriateness ?: return naturalness
+    return clamp01((naturalness * 0.7) + (vocabularyAppropriateness * 0.3))
+}
+
+private fun measureErrorRecurrence(input: LangStateUpdateInput): Double? {
+    // 진짜 "반복 오류"는 이전 correction signature와 현재 오류를 비교해야 한다.
+    // 현재 모델에는 signature 저장소가 없으므로, correction density를 낮은 신뢰도의 proxy로만 저장한다.
+    val userTurns = input.analyzableUserTurns()
+    if (userTurns.isEmpty() || input.correctionResult == null) return null
+
+    val correctionCount = input.correctionResult.correctionCount
+    return clamp01(correctionCount.toDouble() / (userTurns.size.toDouble() * 2.0))
+}
+
+private fun calculateExpressionRange(
+    previous: Int,
+    input: LangStateUpdateInput
+): Int {
+    // expressionRange는 외부 통계에 직접 노출되는 표현 폭 지표다.
+    // 별도 signature 저장소가 생기기 전까지는 "누적 신규 단어 수"로 계산하지 않는다.
+    // 대신 현재까지 관찰된 batch-level 고유 token 수의 최대값으로 관리해 반복 표현이 값을 계속 부풀리지 않게 한다.
+    val uniqueTokenCount = input.userWordTokens().toSet().size
+    if (uniqueTokenCount <= 0) return previous.coerceAtLeast(0)
+
+    return maxOf(previous, uniqueTokenCount).coerceAtLeast(0)
+}
+
+private fun estimateVocabularyLevel(
+    expressionRange: Int,
+    lexicalDiversity: Double?,
+    sentenceComplexity: Double?
+): VocabLevel {
+    // CEFR 사전 매핑이 붙기 전까지는 표현 폭을 중심으로 등급 후보를 만든다.
+    // 다양성과 문장 복잡도는 표현 폭만으로 과소평가되는 경우를 보정하는 보조 신호다.
+    val diversity = lexicalDiversity ?: 0.0
+    val complexity = sentenceComplexity ?: 0.0
+    return when {
+        expressionRange >= 80 || complexity >= 0.85 -> VocabLevel.C2
+        expressionRange >= 55 || complexity >= 0.72 -> VocabLevel.C1
+        expressionRange >= 35 || complexity >= 0.58 -> VocabLevel.B2
+        expressionRange >= 20 || complexity >= 0.44 -> VocabLevel.B1
+        expressionRange >= 8 || diversity >= 0.45 -> VocabLevel.A2
+        else -> VocabLevel.A1
+    }
+}
+
+private fun moveVocabularyLevelOneStep(
+    previous: VocabLevel,
+    measured: VocabLevel
+): VocabLevel {
+    // 문서 정책상 vocabularyLevel은 한 번의 분석으로 급격히 뛰지 않는다.
+    // 측정 후보가 여러 단계 차이 나더라도 update 1회당 최대 1단계만 이동시킨다.
+    val delta = measured.ordinal - previous.ordinal
+    return when {
+        delta > 0 -> VocabLevel.entries[previous.ordinal + 1]
+        delta < 0 -> VocabLevel.entries[previous.ordinal - 1]
+        else -> previous
+    }
+}
+
 private fun smoothMetric(previous: Double, measured: Double?): Double {
     // 측정값이 없으면 기존 값을 유지한다.
     if (measured == null) return previous
-    return (previous * 0.8) + (measured * 0.2)
+    return (previous * 0.8) + (clamp01(measured) * 0.2)
 }
 
 private fun calculateFluencyScore(metrics: InternalMetrics): Double {
@@ -227,3 +399,39 @@ private fun calculateNaturalnessScore(metrics: InternalMetrics): Double {
 }
 
 private fun clamp01(value: Double): Double = value.coerceIn(0.0, 1.0)
+
+private fun LangStateUpdateInput.analyzableUserTurns(): List<ConversationTurn> {
+    // AI turn은 문맥용이고, 능력 측정은 사용자 발화만 기준으로 삼는다.
+    return recentUserTurns.filter { turn ->
+        turn.speaker == TurnSpeaker.USER && turn.text.isNotBlank()
+    }
+}
+
+private fun LangStateUpdateInput.userWordTokens(): List<String> {
+    // 언어별 형태소 분석기는 아직 없으므로, Unicode letter/number token만 공통 추출한다.
+    return analyzableUserTurns().flatMap { turn ->
+        WORD_TOKEN_REGEX.findAll(turn.text.lowercase()).map { match -> match.value }.toList()
+    }
+}
+
+private fun List<ConversationTurn>.averageTokenCount(): Double {
+    // AI Chat에서 tokenCount를 주면 그 값을 우선하고, 없으면 텍스트 token 수로 fallback한다.
+    val counts = map { turn ->
+        turn.tokenCount?.takeIf { it > 0 }
+            ?: WORD_TOKEN_REGEX.findAll(turn.text).count()
+    }.filter { it > 0 }
+    if (counts.isEmpty()) return 0.0
+
+    return counts.average()
+}
+
+private const val AVG_UTTERANCE_TARGET_TOKENS = 14.0
+private const val SENTENCE_COMPLEXITY_TARGET_TOKENS = 18.0
+private const val STRUCTURE_HINTS_TARGET = 2.0
+
+private val WORD_TOKEN_REGEX = Regex("[\\p{L}\\p{N}']+")
+private val CLAUSE_PUNCTUATION_REGEX = Regex("[,;:]")
+private val CONNECTOR_REGEX = Regex(
+    pattern = "\\b(and|but|because|when|while|if|although|though|that|which|who|where|so|however|therefore)\\b",
+    option = RegexOption.IGNORE_CASE
+)
