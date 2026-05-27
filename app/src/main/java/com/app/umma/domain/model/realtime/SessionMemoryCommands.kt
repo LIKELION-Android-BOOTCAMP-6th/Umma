@@ -14,6 +14,17 @@ data class AppendTurnCommand(
 )
 
 /**
+ * 교정 완료 직후 최근 세션 주제 요약 저장을 요청하기 위한 입력 모델입니다.
+ *
+ * @property language 요약 대상 학습 언어
+ * @property requestedAt 요청 시각 (저장 기준 시각)
+ */
+data class SummarizeTopicsCommand(
+    val language: LangCode,
+    val requestedAt: Long
+)
+
+/**
  * Session Memory 원문 버퍼를 압축 결과로 교체하기 위한 입력 모델입니다.
  *
  * @property language 압축 대상 학습 언어

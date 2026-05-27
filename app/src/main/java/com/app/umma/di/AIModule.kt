@@ -2,6 +2,8 @@ package com.app.umma.di
 
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.GeminiCorrectionAiClient
+import com.app.umma.data.repository.realtime.GeminiTopicSummaryAiClient
+import com.app.umma.data.repository.realtime.TopicSummaryAiClient
 import com.google.firebase.Firebase
 import com.google.firebase.ai.FirebaseAI
 import com.google.firebase.ai.ai
@@ -50,4 +52,20 @@ abstract class CorrectionAiBindings {
     abstract fun bindCorrectionAiClient(
         impl: GeminiCorrectionAiClient
     ): CorrectionAiClient
+}
+
+/**
+ * 세션 주제 요약 AI 호출 어댑터 바인딩.
+ *
+ * [CorrectionAiBindings] 와 같은 이유로 [AIModule] 과 별도 abstract class 로 분리한다.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class TopicSummaryAiBindings {
+
+    @Binds
+    @Singleton
+    abstract fun bindTopicSummaryAiClient(
+        impl: GeminiTopicSummaryAiClient
+    ): TopicSummaryAiClient
 }

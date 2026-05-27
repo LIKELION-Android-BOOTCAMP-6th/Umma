@@ -18,12 +18,20 @@ import com.app.umma.domain.model.realtime.AppendTurnCommand
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
+import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
+import com.app.umma.domain.model.flashcard.ReviewDeckState
+import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.repository.CorrectionRepository
+import com.app.umma.domain.repository.FlashcardRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.StatisticsRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
+import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
+import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
+import com.app.umma.domain.usecase.realtime.SummarizeRecentTopicsUseCase
 import com.app.umma.domain.usecase.statistics.BuildStatisticsHistoryUseCase
 import com.app.umma.domain.usecase.statistics.RecordStatisticsHistoryUseCase
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +53,7 @@ class CompleteCorrectionUseCaseTest {
     private val learningStateRepo = RecordingLearningStateRepo(events)
     private val statisticsRepository = RecordingStatisticsRepository(events)
     private val sessionMemoryRepository = RecordingSessionMemoryRepository(events)
+    private val flashcardRepository = RecordingFlashcardRepository()
     private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(learningStateRepo)
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
@@ -55,7 +64,10 @@ class CompleteCorrectionUseCaseTest {
             statisticsRepository = statisticsRepository
         ),
         buildSessionCompressionPayloadUseCase = BuildSessionCompressionPayloadUseCase(),
-        compressSessionMemoryUseCase = CompressSessionMemoryUseCase(sessionMemoryRepository)
+        compressSessionMemoryUseCase = CompressSessionMemoryUseCase(sessionMemoryRepository),
+        flashcardRepository = flashcardRepository,
+        applyFlashcardSummaryUpdateUseCase = ApplyFlashcardSummaryUpdateUseCase(learningStateRepo),
+        summarizeRecentTopicsUseCase = SummarizeRecentTopicsUseCase(sessionMemoryRepository)
     )
 
     @Test
@@ -99,7 +111,8 @@ class CompleteCorrectionUseCaseTest {
 
         assertTrue(result.isSuccess)
         val completed = result.getOrThrow()
-        // 성공 경로는 local save -> LangState/Summary update -> Statistics 기록 -> RT compression 순서를 지켜야 한다.
+        // 성공 경로는 local save -> Flashcard Summary 갱신 -> LangState/Summary update
+        //   -> Statistics 기록 -> RT compression 순서를 지켜야 한다.
         // 이 순서가 깨지면 저장되지 않은 교정을 완료 처리하거나, 처리 전 대화를 압축할 수 있다.
         assertEquals(listOf("s-1"), completed.savedFlashcardIds)
         assertEquals(listOf("s-1"), completed.pendingSyncFlashcardIds)
@@ -108,7 +121,15 @@ class CompleteCorrectionUseCaseTest {
         assertFalse(completed.sessionCompressionPending)
         assertTrue(completed.statisticsHistoryApplied)
         assertFalse(completed.statisticsHistoryPending)
-        assertEquals(listOf("save", "update", "record-history", "compress"), events)
+        // (#162-D) Flashcard Summary 갱신이 성공 경로에서 반영되어야 한다.
+        assertTrue(completed.flashcardSummaryApplied)
+        assertFalse(completed.flashcardSummaryPending)
+        // (#162-D) saveFlashcards 직후, LangState 갱신(update) 직전에 update-flashcard-summary 가 위치해야 한다.
+        // (#162-C) summarize-topics 는 record-history 직후, compression 직전에 위치해야 한다.
+        assertEquals(
+            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            events
+        )
 
         assertNotNull(learningStateRepo.lastUpdateInput)
         // 완료된 세션이 다시 Correction 대기 상태로 보이지 않도록 correctionAvailable 을 false 로 내린다.
@@ -145,7 +166,12 @@ class CompleteCorrectionUseCaseTest {
         assertTrue(result.isFailure)
         // LangState 갱신 실패는 local completion 실패다.
         // 이미 저장한 Flashcard 는 보상 rollback 으로 되돌려 부분 완료 상태를 남기지 않는다.
-        assertEquals(listOf("save", "update", "rollback-save"), events)
+        // Flashcard Summary 갱신(update-flashcard-summary)은 LangState 갱신 실패 전에 발생하므로
+        // rollback 대상이 아니다 — Summary 는 롤백하지 않는다는 정책과 일치한다.
+        assertEquals(
+            listOf("save", "update-flashcard-summary", "update", "rollback-save"),
+            events
+        )
     }
 
     @Test
@@ -169,7 +195,10 @@ class CompleteCorrectionUseCaseTest {
             assertTrue(result.isFailure)
             // 중복 저장으로 새로 생성된 카드가 없으면 이번 완료 흐름이 만든 local 변경도 없다.
             // 이때 rollback을 호출하면 이미 존재하던 Flashcard를 지울 수 있으므로 호출하지 않는다.
-        assertEquals(listOf("save", "update"), events)
+            assertEquals(
+                listOf("save", "update-flashcard-summary", "update"),
+                events
+            )
     }
 
     @Test
@@ -197,7 +226,10 @@ class CompleteCorrectionUseCaseTest {
         assertTrue(completed.statisticsHistoryApplied.not())
         assertFalse(completed.statisticsHistoryPending)
         assertNotNull(completed.statisticsHistoryErrorMessage)
-        assertEquals(listOf("save", "update", "record-history", "compress"), events)
+        assertEquals(
+            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            events
+        )
     }
 
     @Test
@@ -223,7 +255,10 @@ class CompleteCorrectionUseCaseTest {
         // CorrectionUiStateTest 의 `applyCompletionOutcome with compression pending still transitions to Done` 가 잇는다.
         assertFalse(completed.sessionCompressionApplied)
         assertTrue(completed.sessionCompressionPending)
-        assertEquals(listOf("save", "update", "record-history", "compress"), events)
+        assertEquals(
+            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            events
+        )
     }
 
     private fun baseUpdateInput(): LangStateUpdateInput {
@@ -353,6 +388,9 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun updateFlashcardSummary(
             input: FlashcardSummaryUpdateInput
         ): Result<FlashcardSummaryUpdateResult> {
+            // Flashcard Summary 갱신 호출 순서를 파이프라인 이벤트 목록에 기록한다.
+            // (#162-D) 파이프라인에서 saveFlashcards 직후, applyLanguageStateUpdateUseCase 직전 위치를 검증한다.
+            events += "update-flashcard-summary"
             val flashcardSummary =
                 com.app.umma.domain.model.learningstate.FlashcardSummary(
                     lang = input.lang,
@@ -427,6 +465,7 @@ class CompleteCorrectionUseCaseTest {
         private val events: MutableList<String>
     ) : SessionMemoryRepository {
         var failCompression: Boolean = false
+        var failSummarize: Boolean = false
         var lastCompressionCommand: CompressSessionMemoryCommand? = null
 
         override suspend fun appendTurn(command: AppendTurnCommand): Result<Unit> {
@@ -465,6 +504,98 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun syncPendingTurns(language: LangCode): Result<Unit> {
             return Result.success(Unit)
         }
+
+        override suspend fun summarizeAndSaveTopics(
+            command: SummarizeTopicsCommand
+        ): Result<Unit> {
+            // 이벤트를 기록해 파이프라인에서 compression 직전 위치를 검증할 수 있게 한다. (#162-C)
+            events += "summarize-topics"
+            return if (failSummarize) {
+                Result.failure(IllegalStateException("topic summary failed"))
+            } else {
+                Result.success(Unit)
+            }
+        }
+    }
+
+    /**
+     * FlashcardRepository Fake.
+     *
+     * getReviewSummary 실패 주입으로 (#162-D) pending-only 실패 정책을 검증한다.
+     * 이벤트를 공유 목록에 기록하지 않는다 — 순서 검증은 LearningStateRepo.updateFlashcardSummary 이벤트로 충분하다.
+     */
+    private class RecordingFlashcardRepository : FlashcardRepository {
+        var failGetReviewSummary: Boolean = false
+
+        override fun observeDueFlashcards(userId: String, language: LangCode): Flow<ReviewDeckState> =
+            emptyFlow()
+
+        override suspend fun updateFlashcardSchedule(
+            userId: String,
+            cardId: String,
+            result: ReviewScheduleResult
+        ): Result<FlashcardUpdateResult> = Result.failure(UnsupportedOperationException("not used"))
+
+        override suspend fun getReviewSummary(
+            userId: String,
+            language: LangCode,
+            now: Long
+        ): Result<FlashcardReviewSummary> {
+            if (failGetReviewSummary) {
+                return Result.failure(IllegalStateException("getReviewSummary failed"))
+            }
+            return Result.success(FlashcardReviewSummary(dueFlashcards = 1, savedFlashcards = 1))
+        }
+    }
+
+    @Test
+    fun `flashcard summary pending when getReviewSummary fails`() = kotlinx.coroutines.runBlocking {
+        // getReviewSummary 실패 시 Done 흐름은 계속 진행되고 flashcardSummaryPending=true 로만 남는다.
+        flashcardRepository.failGetReviewSummary = true
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val completed = result.getOrThrow()
+        // summary 갱신 실패가 Done 흐름을 막지 않아야 한다.
+        assertFalse(completed.flashcardSummaryApplied)
+        assertTrue(completed.flashcardSummaryPending)
+        // update-flashcard-summary 이벤트가 없는 것으로 getReviewSummary 실패 후 summary 반영이 스킵됐음을 확인한다.
+        // summarize-topics 는 flashcard summary 와 독립적으로 동작하므로 여전히 실행된다.
+        assertEquals(
+            listOf("save", "update", "record-history", "summarize-topics", "compress"),
+            events
+        )
+    }
+
+    @Test
+    fun `topic summaries pending when summarizeRecentTopics fails`() = kotlinx.coroutines.runBlocking {
+        // AI 요약 실패 시 Done 흐름은 계속 진행되고 topicSummariesPending=true 로만 남는다.
+        // 기존 topicSummaries 는 변경하지 않는다. (#162-C)
+        sessionMemoryRepository.failSummarize = true
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val completed = result.getOrThrow()
+        // AI 요약 실패가 Done 흐름을 막지 않아야 한다.
+        assertFalse(completed.topicSummariesApplied)
+        assertTrue(completed.topicSummariesPending)
+        // summarize-topics 이벤트가 발화됐고, compression 은 그 뒤에 여전히 실행됐음을 확인한다.
+        assertEquals(
+            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            events
+        )
     }
 
 }

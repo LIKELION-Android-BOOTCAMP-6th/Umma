@@ -152,6 +152,44 @@ class SessionMemoryLocalDataSource @Inject constructor(
     }
 
     /**
+     * topicSummariesJson 만 교체합니다.
+     *
+     * 교정 완료 직후 AI 로 요약된 주제 목록을 기존 메타데이터를 파괴하지 않고 보강한다. (#162-C)
+     * 메타데이터가 없으면 기본값으로 새로 생성한다.
+     *
+     * @param userId 사용자 UID
+     * @param language 학습 언어 코드
+     * @param summariesJson JSON 배열 문자열 (`["...", "..."]` 형태)
+     * @param updatedAt 갱신 시각
+     */
+    suspend fun updateTopicSummaries(
+        userId: String,
+        language: String,
+        summariesJson: String,
+        updatedAt: Long
+    ) {
+        val metaId = "${userId}_${language}"
+        val current = metadataDao.getMetadata(userId, language)
+        val updated = (current ?: SessionMetadataEntity(
+            id = metaId,
+            userId = userId,
+            language = language,
+            recentTopicsJson = "[]",
+            topicSummariesJson = "[]",
+            topicKeySentencesJson = "[]",
+            correctionAvailable = false,
+            lastCompressedAt = null,
+            updatedAt = updatedAt,
+            isPendingTurnSync = false,
+            isPendingCompressionSync = false
+        )).copy(
+            topicSummariesJson = summariesJson,
+            updatedAt = updatedAt
+        )
+        metadataDao.insertOrUpdateMetadata(updated)
+    }
+
+    /**
      * 오래된 turn 을 삭제해 recent turn 개수를 제한합니다.
      *
      * @param userId 사용자 UID

@@ -6,10 +6,15 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.CorrectionResult
+import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
+import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.repository.CorrectionRepository
+import com.app.umma.domain.repository.FlashcardRepository
+import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import com.app.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
+import com.app.umma.domain.usecase.realtime.SummarizeRecentTopicsUseCase
 import com.app.umma.domain.usecase.statistics.RecordStatisticsHistoryUseCase
 import javax.inject.Inject
 
@@ -29,7 +34,14 @@ class CompleteCorrectionUseCase @Inject constructor(
     private val applyLanguageStateUpdateUseCase: ApplyLanguageStateUpdateUseCase,
     private val recordStatisticsHistoryUseCase: RecordStatisticsHistoryUseCase,
     private val buildSessionCompressionPayloadUseCase: BuildSessionCompressionPayloadUseCase,
-    private val compressSessionMemoryUseCase: CompressSessionMemoryUseCase
+    private val compressSessionMemoryUseCase: CompressSessionMemoryUseCase,
+    // Flashcard 저장 직후 dueFlashcards / savedFlashcards 를 즉시 재계산해 DashSummary 에 반영한다.
+    // SRS 의 ApplyReviewDecisionUseCase 와 동일 패턴을 차용하되, 실패 시 rollback 없이 pending only 로 처리한다.
+    private val flashcardRepository: FlashcardRepository,
+    private val applyFlashcardSummaryUpdateUseCase: ApplyFlashcardSummaryUpdateUseCase,
+    // 교정 완료 후 최근 5개 세션 주제를 AI 로 요약해 Session Memory 에 저장한다. (#162-C)
+    // 실패해도 Done 흐름을 막지 않으며 기존 topicSummaries 는 변경하지 않는다.
+    private val summarizeRecentTopicsUseCase: SummarizeRecentTopicsUseCase
 ) {
 
     suspend operator fun invoke(
@@ -62,6 +74,12 @@ class CompleteCorrectionUseCase @Inject constructor(
             // 이 단계가 실패하면 사용자가 기대한 저장 결과가 없으므로 전체 완료를 실패로 본다.
             saveResult = correctionRepository.saveFlashcards(saveRequest).getOrThrow()
 
+            // 1.5) Flashcard 저장 직후 dueFlashcards / savedFlashcards 를 즉시 재계산해 DashSummary 에 반영한다.
+            // LangState 갱신과 의존이 없는 이 위치에서 호출하면, LS 업데이트가 실패해도
+            // 카드 카운트만은 정확한 상태로 남는다.
+            // 실패 시에는 Flashcard 저장이 이미 commit 되었으므로 rollback 없이 pending only 로 처리한다.
+            val flashcardSummaryResult = applyFlashcardSummaryIfPossible(input)
+
             // 2) 저장 성공 후에는 같은 완료 흐름 안에서 Session/Dashboard 요약도 닫는다.
             // correctionAvailable 을 false 로 내려야 Dashboard 와 Correction 진입 판단이 같은 상태를 본다.
             val learningStateUpdateResult = applyLanguageStateUpdateUseCase(
@@ -79,7 +97,11 @@ class CompleteCorrectionUseCase @Inject constructor(
                 updateResult = learningStateUpdateResult
             )
 
-            // 4) 앞의 세 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
+            // 4) 최근 세션 주제를 AI 로 요약해 Session Memory topicSummaries 에 저장한다.
+            // 실패해도 Flashcard / LangState / Statistics 결과는 이미 확정 상태이므로 pending only 처리한다.
+            val topicSummaryResult = summarizeRecentTopicsIfPossible(input)
+
+            // 5) 앞의 네 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
             // 압축은 RT-003 소유 저장소에 대한 후속 정리라 실패해도 저장 완료를 rollback 하지 않는다.
             val compressionResult = compressSessionMemoryIfPossible(input)
 
@@ -94,6 +116,10 @@ class CompleteCorrectionUseCase @Inject constructor(
                     statisticsHistoryApplied = statisticsHistoryResult.applied,
                     statisticsHistoryPending = statisticsHistoryResult.pending,
                     statisticsHistoryErrorMessage = statisticsHistoryResult.errorMessage,
+                    flashcardSummaryApplied = flashcardSummaryResult.applied,
+                    flashcardSummaryPending = flashcardSummaryResult.pending,
+                    topicSummariesApplied = topicSummaryResult.applied,
+                    topicSummariesPending = topicSummaryResult.pending,
                     completedAt = input.requestedAt
                 )
             )
@@ -206,9 +232,12 @@ class CompleteCorrectionUseCase @Inject constructor(
     private fun buildCorrectionResult(
         selectedSuggestions: List<CorrectionSuggestion>
     ): CorrectionResult {
-        val firstSuggestion = selectedSuggestions.first()
+        // 이전 구현은 selectedSuggestions.first().afterText 만 correctedText 로 흘려보냈다.
+        // N개 카드를 선택했을 때 첫 번째 카드만 반영되는 문제를 수정한다. (#162-B)
+        // correctedText 는 LS 메트릭 계산(correctionCount 기반)이 아닌 저장/표시 목적 필드이므로
+        // 모델 구조 변경 없이 줄바꿈으로 합치는 방식을 택한다.
         return CorrectionResult(
-            correctedText = firstSuggestion.afterText,
+            correctedText = selectedSuggestions.joinToString(separator = "\n") { it.afterText },
             correctionCount = selectedSuggestions.size,
             // LangState 에는 화면 카드 전체가 아니라 학습 상태 갱신에 필요한 설명 요약만 전달한다.
             notes = selectedSuggestions.joinToString(separator = "\n") { suggestion ->
@@ -216,6 +245,78 @@ class CompleteCorrectionUseCase @Inject constructor(
             }
         )
     }
+
+    /**
+     * 최근 5개 세션 주제를 AI 로 요약해 Session Memory 에 저장한다.
+     *
+     * 실패 시 기존 topicSummaries 는 변경하지 않으며 Done 흐름을 계속 진행한다. (#162-C)
+     */
+    private suspend fun summarizeRecentTopicsIfPossible(
+        input: CompleteCorrectionInput
+    ): TopicSummaryStepResult {
+        val result = summarizeRecentTopicsUseCase(
+            SummarizeTopicsCommand(
+                language = input.langStateUpdateInput.lang,
+                requestedAt = input.requestedAt
+            )
+        )
+        return TopicSummaryStepResult(applied = result.applied, pending = result.pending)
+    }
+
+    /**
+     * Flashcard 저장 직후 카드 카운트를 재계산해 DashSummary / FlashcardSummary 에 즉시 반영한다.
+     *
+     * SRS 의 ApplyReviewDecisionUseCase 패턴을 차용한다. 차이점:
+     * - SRS 는 review schedule 실패 시 rollback 보상 트랜잭션을 수행한다.
+     * - Correction 완료 파이프라인은 Flashcard 저장과 LangState 가 이미 commit 상태이므로
+     *   보상 없이 pending only 로 처리하고 Done 흐름을 계속 진행한다.
+     */
+    private suspend fun applyFlashcardSummaryIfPossible(
+        input: CompleteCorrectionInput
+    ): FlashcardSummaryResult {
+        // getReviewSummary 로 현재 시점 카드 수를 새로 계산한다.
+        // null 반환(실패)이면 applyFlashcardSummaryUpdateUseCase 호출 자체를 건너뛴다.
+        val snapshot = flashcardRepository.getReviewSummary(
+            userId = input.langStateUpdateInput.uid,
+            language = input.langStateUpdateInput.lang,
+            now = input.requestedAt
+        ).getOrNull() ?: return FlashcardSummaryResult(
+            applied = false,
+            pending = true
+        )
+
+        // summary 반영 실패도 Done 흐름을 막지 않는다. runCatching 으로 swallow 한다.
+        val summaryResult = runCatching {
+            applyFlashcardSummaryUpdateUseCase(
+                FlashcardSummaryUpdateInput(
+                    uid = input.langStateUpdateInput.uid,
+                    lang = input.langStateUpdateInput.lang,
+                    dueFlashcards = snapshot.dueFlashcards,
+                    savedFlashcards = snapshot.savedFlashcards,
+                    // sourceEventId 는 중복 반영 방지용 이벤트 식별자다.
+                    // analysisEventId 는 LangState 갱신에 쓰이므로, Flashcard Summary 전용 prefix 를 붙여 분리한다.
+                    sourceEventId = "correction-save:${input.langStateUpdateInput.analysisEventId}",
+                    updatedAt = input.requestedAt
+                )
+            )
+        }
+
+        return if (summaryResult.isSuccess && summaryResult.getOrNull()?.isSuccess == true) {
+            FlashcardSummaryResult(applied = true, pending = false)
+        } else {
+            FlashcardSummaryResult(applied = false, pending = true)
+        }
+    }
+
+    private data class FlashcardSummaryResult(
+        val applied: Boolean,
+        val pending: Boolean
+    )
+
+    private data class TopicSummaryStepResult(
+        val applied: Boolean,
+        val pending: Boolean
+    )
 
     private data class SessionCompressionResult(
         val applied: Boolean,

@@ -43,6 +43,16 @@ data class CompleteCorrectionResult(
     val statisticsHistoryPending: Boolean = false,
     // history 기록 실패 또는 pending 사유를 사용자 흐름에서 확인할 수 있게 남기는 메시지.
     val statisticsHistoryErrorMessage: String? = null,
+    // Flashcard 저장 직후 dueFlashcards / savedFlashcards 갱신이 이번 완료 흐름에서 반영되었는지 여부.
+    // DashSummary 와 FlashcardSummary 를 함께 업데이트하므로 Dashboard 가 즉시 최신 카드 수를 표시한다. (#162-D)
+    val flashcardSummaryApplied: Boolean = false,
+    // getReviewSummary 또는 applyFlashcardSummaryUpdateUseCase 실패 시 pending 으로만 남기고 Done 진행.
+    // Flashcard 저장과 LangState 는 이미 commit 상태이므로 보상 없이 후속 재시도 대상으로 처리한다.
+    val flashcardSummaryPending: Boolean = false,
+    // 최근 5개 세션 주제 AI 요약이 이번 완료 흐름에서 Session Memory 에 저장되었는지 여부. (#162-C)
+    val topicSummariesApplied: Boolean = false,
+    // AI 요약 실패 시 pending 으로만 남기고 Done 진행. 기존 topicSummaries 는 변경하지 않는다.
+    val topicSummariesPending: Boolean = false,
     // 완료 시각.
     val completedAt: Long
 )

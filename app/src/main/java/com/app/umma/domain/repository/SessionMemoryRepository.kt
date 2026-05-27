@@ -5,6 +5,7 @@ import com.app.umma.domain.model.realtime.AppendTurnCommand
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -67,4 +68,16 @@ interface SessionMemoryRepository {
      * @return 성공/실패 결과
      */
     suspend fun syncPendingTurns(language: LangCode): Result<Unit>
+
+    /**
+     * 최근 대화 세션(최대 5개)의 주제를 AI로 요약해 Session Memory 의 topicSummaries 에 저장합니다.
+     *
+     * SYS-LEARNING-STATE-INFRA Session Memory 필드 정의(topicSummaries: 교정 이후 남기는 주제별 압축 요약)에 근거한다.
+     * 저장 대상 칼럼은 SessionMetadataEntity.topicSummariesJson (마이그레이션 없이 재사용).
+     * 실패 시 기존 topicSummaries 는 변경하지 않으며 호출자(CompleteCorrectionUseCase)가 pending 으로만 처리한다. (#162-C)
+     *
+     * @param command 요약 대상 언어와 요청 시각
+     * @return 성공/실패 결과
+     */
+    suspend fun summarizeAndSaveTopics(command: SummarizeTopicsCommand): Result<Unit>
 }
