@@ -83,6 +83,9 @@ data class LangStateUpdateInput(
     val correctionResult: CorrectionResult?,
     // 교정 완료처럼 correctionAvailable 값을 명시적으로 덮어써야 하는 경우 사용한다.
     val correctionAvailableOverride: Boolean? = null,
+    // 교정 완료 흐름에서 dash/session summary 의 recentTopic 을 함께 갱신할 때 사용한다.
+    // null 이면 Repository 가 이전 값을 보존한다 — 부분 갱신 호출자가 주제를 지우지 않도록.
+    val recentTopic: String? = null,
     // 플래시카드 복습 이벤트 묶음.
     val flashcardReviewEvents: List<FlashcardReviewEvent>,
     // 분석이 끝난 시각.

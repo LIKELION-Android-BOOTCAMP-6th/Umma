@@ -67,6 +67,15 @@ class CompleteCorrectionUseCase @Inject constructor(
         // 화면 카드용 CorrectionSuggestion 을 LearningState 모델로 직접 저장하지 않기 위한 분리다.
         val correctionResult = buildCorrectionResult(input.selectedSuggestions)
 
+        // 0) compression payload 를 단계 진입 직후 한 번만 계산해 캐시한다.
+        // 같은 payload 의 recentTopics 1순위 키워드를 step 2 LangState 갱신 (DashSummary.recentTopic)
+        // 과 step 5 Session Memory 압축에 동시에 사용하기 위해서다.
+        // 두 곳에서 따로 계산하면 입력은 같아도 값이 어긋날 위험이 있고, 같은 결정 함수를 두 번
+        // 돌리는 낭비도 생긴다.
+        val compressionCommandResult = buildCompressionCommand(input)
+        val cachedCompressionCommand = compressionCommandResult.getOrNull()
+        val derivedRecentTopic = cachedCompressionCommand?.recentTopics?.firstOrNull()
+
         var saveResult: CorrectionSaveResult? = null
 
         return try {
@@ -82,10 +91,13 @@ class CompleteCorrectionUseCase @Inject constructor(
 
             // 2) 저장 성공 후에는 같은 완료 흐름 안에서 Session/Dashboard 요약도 닫는다.
             // correctionAvailable 을 false 로 내려야 Dashboard 와 Correction 진입 판단이 같은 상태를 본다.
+            // recentTopic 은 step 0 에서 추출한 키워드를 그대로 흘려보내 Dashboard ConversationCard
+            // "주제" 칩이 real 데이터로 채워지게 한다. null 이면 Repository 가 이전 값을 보존한다.
             val learningStateUpdateResult = applyLanguageStateUpdateUseCase(
                 input.langStateUpdateInput.copy(
                     correctionResult = correctionResult,
                     correctionAvailableOverride = false,
+                    recentTopic = derivedRecentTopic,
                     analyzedAt = input.requestedAt
                 )
             ).getOrThrow()
@@ -103,7 +115,11 @@ class CompleteCorrectionUseCase @Inject constructor(
 
             // 5) 앞의 네 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
             // 압축은 RT-003 소유 저장소에 대한 후속 정리라 실패해도 저장 완료를 rollback 하지 않는다.
-            val compressionResult = compressSessionMemoryIfPossible(input)
+            // step 0 에서 만든 동일 payload 를 그대로 재사용한다.
+            val compressionResult = compressSessionMemoryIfPossible(
+                buildResult = compressionCommandResult,
+                command = cachedCompressionCommand
+            )
 
             Result.success(
                 CompleteCorrectionResult(
@@ -160,21 +176,26 @@ class CompleteCorrectionUseCase @Inject constructor(
     }
 
     private suspend fun compressSessionMemoryIfPossible(
-        input: CompleteCorrectionInput
+        buildResult: Result<CompressSessionMemoryCommand?>,
+        command: CompressSessionMemoryCommand?
     ): SessionCompressionResult {
         // payload 생성 자체가 실패한 경우에도 Flashcard 저장은 이미 완료된 상태다.
         // 따라서 사용자 흐름은 성공으로 유지하고, compression 만 pending 으로 알려준다.
-        val command = buildCompressionCommand(input).getOrElse { error ->
+        // step 0 에서 이미 build 결과를 받아 두므로 같은 Result 를 그대로 검사한다.
+        buildResult.exceptionOrNull()?.let { error ->
             return SessionCompressionResult(
                 applied = false,
                 pending = true,
                 errorMessage = error.message
             )
-        } ?: return SessionCompressionResult(
-            applied = false,
-            pending = false,
-            errorMessage = null
-        )
+        }
+        if (command == null) {
+            return SessionCompressionResult(
+                applied = false,
+                pending = false,
+                errorMessage = null
+            )
+        }
 
         return compressSessionMemoryUseCase(command).fold(
             onSuccess = {

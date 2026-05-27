@@ -574,6 +574,57 @@ class CompleteCorrectionUseCaseTest {
     }
 
     @Test
+    fun `passes derived recentTopic to LangState update from compression payload`() = kotlinx.coroutines.runBlocking {
+        // (#162-recentTopic) Dashboard ConversationCard "주제" 칩이 real 데이터로 채워지는지를 검증한다.
+        // step 0 의 BuildSessionCompressionPayloadUseCase 가 추출한 recentTopics 의 1순위 키워드가
+        // step 2 LangState 갱신 입력의 recentTopic 으로 그대로 흘러가야 한다.
+        // baseSuggestion + baseUpdateInput 입력 기준 추출 결과: 빈도 1 동률에서 알파벳 순 → "hello".
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        assertNotNull(learningStateRepo.lastUpdateInput)
+        assertEquals("hello", learningStateRepo.lastUpdateInput!!.recentTopic)
+        // step 5 compression command 의 recentTopics 1순위도 같은 값이어야 한다 — payload 캐시 정합.
+        assertEquals("hello", sessionMemoryRepository.lastCompressionCommand!!.recentTopics.firstOrNull())
+    }
+
+    @Test
+    fun `passes null recentTopic when all tokens are filtered out`() = kotlinx.coroutines.runBlocking {
+        // (#162-recentTopic) 모든 토큰이 STOP_WORDS 거나 MIN_TOPIC_LENGTH 미만이라 키워드가 비는 경우,
+        // recentTopic 은 null 로 전달돼 Repository 가 이전 값을 보존해야 한다.
+        val stopWordSuggestion = baseSuggestion().copy(
+            beforeText = "is on",
+            nativeText = "of at"
+        )
+        val stopWordInput = baseUpdateInput().copy(
+            recentUserTurns = listOf(
+                ConversationTurn(
+                    speaker = TurnSpeaker.USER,
+                    text = "is on",
+                    tokenCount = 2,
+                    durationMs = 500L
+                )
+            )
+        )
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(stopWordSuggestion),
+                langStateUpdateInput = stopWordInput
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        assertNotNull(learningStateRepo.lastUpdateInput)
+        assertEquals(null, learningStateRepo.lastUpdateInput!!.recentTopic)
+    }
+
+    @Test
     fun `topic summaries pending when summarizeRecentTopics fails`() = kotlinx.coroutines.runBlocking {
         // AI 요약 실패 시 Done 흐름은 계속 진행되고 topicSummariesPending=true 로만 남는다.
         // 기존 topicSummaries 는 변경하지 않는다. (#162-C)
