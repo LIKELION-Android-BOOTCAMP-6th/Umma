@@ -35,7 +35,8 @@ class FakeCorrectionRepositoryTest {
         // 토글이 비어 있으면 super 의 실제 AI 호출이 아니라 fixture builder 결과를 그대로 사용한다는 회귀 가드.
         val repository = newRepository()
 
-        val result = repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
+        val result =
+            repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
 
         assertTrue(result.isSuccess)
         val suggestion = result.getOrThrow().single()
@@ -51,7 +52,8 @@ class FakeCorrectionRepositoryTest {
             suggestionsOverride = content
         }
 
-        val result = repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
+        val result =
+            repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
 
         // override 가 설정되면 super 의 fixture builder 가 아니라 화면에서 지정한 카드 목록이 그대로 나온다.
         assertEquals(content, result.getOrThrow())
@@ -63,7 +65,8 @@ class FakeCorrectionRepositoryTest {
             suggestionsOverride = CorrectionSuggestionFixtures.emptySuggestions()
         }
 
-        val result = repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
+        val result =
+            repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
 
         // Empty 상태도 토글 한 줄로 재현 가능해야 화면 Empty CTA 분기를 검증할 수 있다.
         assertTrue(result.getOrThrow().isEmpty())
@@ -76,7 +79,8 @@ class FakeCorrectionRepositoryTest {
             generateFailure = cause
         }
 
-        val result = repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
+        val result =
+            repository.generateSuggestions(CorrectionSuggestionFixtures.sampleGenerateInput())
 
         assertTrue(result.isFailure)
         assertEquals(cause, result.exceptionOrNull())
@@ -84,7 +88,8 @@ class FakeCorrectionRepositoryTest {
 
     @Test
     fun `saveResultOverride reproduces pending sync state`() = runBlocking {
-        val pending = CorrectionSuggestionFixtures.pendingSyncSaveResult(savedIds = listOf("corr-en-1-def"))
+        val pending =
+            CorrectionSuggestionFixtures.pendingSyncSaveResult(savedIds = listOf("corr-en-1-def"))
         val repository = newRepository().apply {
             saveResultOverride = pending
         }
@@ -146,6 +151,14 @@ class FakeCorrectionRepositoryTest {
 
         override suspend fun deleteFlashcards(flashcardIds: List<String>): Result<Unit> =
             Result.success(Unit)
+
+        override suspend fun syncReviewSchedule(
+            flashcardId: String,
+            nextReviewAt: Long,
+            interval: Int,
+            easeFactor: Double,
+            updatedAt: Long
+        ): Result<Unit> = Result.success(Unit)
     }
 
     /**

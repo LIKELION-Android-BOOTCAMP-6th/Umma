@@ -89,6 +89,11 @@ interface CorrectionFlashcardLocalDataSource {
     ): Int
 
     /**
+     * dirty=true 인 카드 모두 반환
+     */
+    suspend fun getDirtyFlashcards(uid: String): List<CorrectionFlashcardDto>
+
+    /**
      * 완료 파이프라인 실패 시 이번 요청에서 새로 저장한 local 카드만 되돌린다.
      *
      * 중복 요청으로 이미 존재하던 카드는 이 rollback 대상에 포함되면 안 된다.
@@ -239,6 +244,23 @@ interface CorrectionFlashcardDao {
     ): Int
 
     /**
+     * 로컬 DB에서 아직 Firestore로 업로드되지 않은 카드들 전부 가져옴
+     * dirty = 1: 최소 저장 또는 스케줄 갱신 후 서버 동기화가 누락된 상태
+     */
+    @Query(
+        """
+        SELECT *
+        FROM correction_flashcards
+        WHERE userId = :userId AND dirty = 1
+        """
+    )
+    suspend fun getDirtyFlashcards(userId: String): List<CorrectionFlashcardEntity>
+
+    /**
+     *
+     */
+
+    /**
      * 완료 파이프라인 보상 작업에서만 사용한다.
      * userId 조건을 함께 걸어 다른 계정의 같은 card id를 지우지 않도록 한다.
      */
@@ -355,6 +377,13 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
             language = language,
             now = now
         )
+    }
+
+    /**
+     * // DAO 에서 dirty=1 인 Entity 목록을 가져와 DTO 로 변환해서 반환
+     */
+    override suspend fun getDirtyFlashcards(uid: String): List<CorrectionFlashcardDto> {
+        return dao.getDirtyFlashcards(userId = uid).map { it.toDto() }
     }
 
     override suspend fun rollbackFlashcards(

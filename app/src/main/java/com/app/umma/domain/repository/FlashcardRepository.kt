@@ -1,7 +1,7 @@
 package com.app.umma.domain.repository
 
-import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
+import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.model.learningstate.LangCode
@@ -31,4 +31,11 @@ interface FlashcardRepository {
         language: LangCode,
         now: Long
     ): Result<FlashcardReviewSummary>
+
+    /**
+     * dirty 상태로 남은 카드를 Firestore에 일괄 재시도 sync
+     * 성공: 카드 수 반환
+     * 실패: Result.failure
+     */
+    suspend fun syncDirtyFlashcards(userId: String): Result<Int>
 }

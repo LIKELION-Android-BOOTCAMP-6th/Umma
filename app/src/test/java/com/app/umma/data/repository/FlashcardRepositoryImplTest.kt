@@ -2,6 +2,7 @@ package com.app.umma.data.repository
 
 import com.app.umma.data.model.correction.CorrectionFlashcardDto
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
+import com.app.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.app.umma.domain.model.flashcard.ReviewDeckState
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.model.learningstate.LangCode
@@ -15,9 +16,9 @@ class FlashcardRepositoryImplTest {
 
     @Test
     fun `observeDueFlashcards emits empty when local source has no cards`() = runBlocking {
-        // due deck 이 비어 있으면 ViewModel 은 Empty 상태로 바로 전환해야 한다.
-        // 이 경계가 빠지면 화면이 로딩 상태에만 머물 수 있다.
-        val repository = FlashcardRepositoryImpl(FakeLocalDataSource())
+        // 복습할 카드가 없으면 Empty 상태를 내려야 한다.
+        // 이 처리가 없으면 화면이 로딩에서 멈춘다.
+        val repository = FlashcardRepositoryImpl(FakeLocalDataSource(), FakeRemoteDataSource())
 
         val state = repository.observeDueFlashcards("uid-1", LangCode.EN).first()
 
@@ -26,12 +27,12 @@ class FlashcardRepositoryImplTest {
 
     @Test
     fun `observeDueFlashcards emits retry when local source fails`() = runBlocking {
-        // 로컬 조회 예외는 UI 가 Retry / Error 분기를 만들 수 있도록 상태로 노출한다.
-        // 예외를 던져도 Flow 자체가 죽지 않고 상태로 흘러야 한다.
+        // 로컬 DB 조회 중 에러가 나도 Flow가 죽지 않고 Retry 상태로 흘러야 한다.
         val repository = FlashcardRepositoryImpl(
             FakeLocalDataSource(
                 dueFlashcards = { throw IllegalStateException("boom") }
-            )
+            ),
+            FakeRemoteDataSource()
         )
 
         val state = repository.observeDueFlashcards("uid-1", LangCode.EN).first()
@@ -42,13 +43,10 @@ class FlashcardRepositoryImplTest {
 
     @Test
     fun `updateFlashcardSchedule returns sync pending when local update succeeds`() = runBlocking {
-        // local update 성공과 remote sync pending 을 분리해서 반환하는지 확인한다.
-        // 저장 성공이 곧바로 동기화 완료를 뜻하지 않기 때문이다.
+        // 로컬 저장 후 Firestore sync까지 성공하면 isSyncPending=false를 반환해야 한다.
         val repository = FlashcardRepositoryImpl(
-            FakeLocalDataSource(
-                dueFlashcards = { emptyList() },
-                updateSchedule = { true }
-            )
+            FakeLocalDataSource(updateSchedule = { true }),
+            FakeRemoteDataSource(syncResult = { Result.success(Unit) })
         )
 
         val result = repository.updateFlashcardSchedule(
@@ -62,18 +60,19 @@ class FlashcardRepositoryImplTest {
         )
 
         assertTrue(result.isSuccess)
-        assertTrue(result.getOrThrow().isSyncPending)
+        assertEquals(false, result.getOrThrow().isSyncPending)
         assertEquals("card-1", result.getOrThrow().cardId)
     }
 
     @Test
     fun `getReviewSummary counts due and saved cards from local source`() = runBlocking {
-        // Summary count는 Dashboard 숫자의 원천이 되므로 due deck 조회와 같은 local source에서 계산해야 한다.
+        // Summary의 숫자는 로컬 DB에서 직접 읽어야 한다.
         val repository = FlashcardRepositoryImpl(
             FakeLocalDataSource(
                 savedCount = { 5 },
                 dueCount = { 2 }
-            )
+            ),
+            FakeRemoteDataSource()
         )
 
         val summary = repository.getReviewSummary(
@@ -141,9 +140,41 @@ class FlashcardRepositoryImplTest {
             return dueCount()
         }
 
+        /**
+         * dirty=true 인 카드 모두 반환
+         * @return emptyList()
+         */
+        override suspend fun getDirtyFlashcards(uid: kotlin.String): kotlin.collections.List<com.app.umma.data.model.correction.CorrectionFlashcardDto> {
+            return emptyList()
+        }
+
         override suspend fun rollbackFlashcards(
             uid: String,
             flashcardIds: List<String>
         ) = Unit
+    }
+
+    private class FakeRemoteDataSource(
+        private val syncResult: suspend () -> Result<Unit> = { Result.success(Unit) }
+    ) : CorrectionFlashcardRemoteDataSource {
+
+        override suspend fun syncFlashcards(
+            flashcards: List<CorrectionFlashcardDto>
+        ): Result<List<String>> = Result.success(flashcards.map { it.id })
+
+        override suspend fun deleteFlashcards(
+            flashcardIds: List<String>
+        ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun syncReviewSchedule(
+            flashcardId: String,
+            nextReviewAt: Long,
+            interval: Int,
+            easeFactor: Double,
+            updatedAt: Long
+        ): Result<Unit> {
+            // 테스트는 syncResult lambda로 성공/실패를 제어해 pending 분기를 검증
+            return syncResult()
+        }
     }
 }

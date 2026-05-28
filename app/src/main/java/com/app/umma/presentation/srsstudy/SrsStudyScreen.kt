@@ -20,6 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SentimentNeutral
+import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
+import androidx.compose.material.icons.filled.SentimentVerySatisfied
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,11 +42,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.ButtonScreenB
 import com.app.umma.core.theme.PercentageDialogB
 import com.app.umma.core.theme.SpacingL
@@ -313,7 +319,7 @@ private fun SrsRatingButtons(
     selectedRating: ReviewRating?,
     onRatingSelected: (ReviewRating) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -324,6 +330,8 @@ private fun SrsRatingButtons(
                 "1m",
                 TextPrimary,
                 isSelected = selectedRating == ReviewRating.AGAIN,
+                icon = Icons.Default.Refresh,
+                isFlipped = isFlipped,
                 onClick = {
                     onRatingSelected(ReviewRating.AGAIN)
                 }
@@ -334,6 +342,8 @@ private fun SrsRatingButtons(
                 "2h",
                 TextPrimary,
                 isSelected = selectedRating == ReviewRating.HARD,
+                icon = Icons.Default.SentimentNeutral,
+                isFlipped = isFlipped,
                 onClick = {
                     onRatingSelected(ReviewRating.HARD)
                 }
@@ -350,6 +360,8 @@ private fun SrsRatingButtons(
                 "4h",
                 TextPrimary,
                 isSelected = selectedRating == ReviewRating.GOOD,
+                icon = Icons.Default.SentimentSatisfiedAlt,
+                isFlipped = isFlipped,
                 onClick = {
                     onRatingSelected(
                         ReviewRating.GOOD
@@ -362,6 +374,8 @@ private fun SrsRatingButtons(
                 "Tomorrow",
                 TextPrimary,
                 isSelected = selectedRating == ReviewRating.EASY,
+                icon = Icons.Default.SentimentVerySatisfied,
+                isFlipped = isFlipped,
                 onClick = {
                     onRatingSelected(ReviewRating.EASY)
                 }
@@ -376,15 +390,16 @@ private fun SrsRatingButton(
     label: String,
     time: String,
     iconColor: Color,
+    icon: ImageVector,
     isSelected: Boolean,
-    onClick: () -> Unit
+    isFlipped: Boolean,
+    onClick: () -> Unit,
 ) {
     Card(
         modifier = modifier.clickable { onClick() },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFEDE8)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = if (isSelected) BorderStroke(2.dp, iconColor) else null
+        border = if (isSelected) BorderStroke(2.dp, iconColor) else null,
+        colors = CardDefaults.cardColors(containerColor = if (isFlipped) Color.White else BackgroundDeactivated)
     ) {
         Column(
             modifier = Modifier
@@ -396,8 +411,15 @@ private fun SrsRatingButton(
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .background(color = iconColor, shape = CircleShape)
-            )
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .align(Alignment.Center)
+                )
+            }
             Text(
                 text = label,
                 fontWeight = ButtonScreenB.fontWeight,
