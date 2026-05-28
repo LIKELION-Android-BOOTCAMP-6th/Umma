@@ -1,9 +1,7 @@
 package com.app.umma.di
 
 import com.app.umma.data.repository.fake.FakeStatisticsRepository
-import com.app.umma.data.repository.fake.FakeFlashcardRepository
 import com.app.umma.domain.repository.StatisticsRepository
-import com.app.umma.domain.repository.FlashcardRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -11,23 +9,15 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * mock variant에서는 화면 검증용 fake 저장소를 사용한다.
- *
- * mockDebug에서는 화면 검증이 필요한 repository만 fake 구현체로 바꾼다.
+ * mock variant는 Statistics 데모/QA preset을 가진 fake 저장소를 사용한다.
  */
 @Module
 @InstallIn(SingletonComponent::class)
-object VariantRepositoryModule {
+object MockStatisticsRepositoryModule {
 
     @Provides
     @Singleton
     fun provideStatisticsRepository(
         fake: FakeStatisticsRepository
     ): StatisticsRepository = fake
-
-    @Provides
-    @Singleton
-    fun provideFlashcardRepository(
-        fake: FakeFlashcardRepository
-    ): FlashcardRepository = fake
 }
