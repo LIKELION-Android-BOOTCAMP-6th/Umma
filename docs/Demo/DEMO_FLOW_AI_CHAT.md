@@ -1,143 +1,379 @@
-# Demo Scenario — FLOW-AI-CHAT
+# Demo Scenario - FLOW-AI-CHAT
 
-> 2차 스프린트 종료 시점에 시연 가능해야 할 흐름. 사용자 여정 관점으로 묶어 애자일 스프린트 작업 배정 단위로도 사용.
-> 이슈 단위(CHAT-001~008) AC 체크리스트는 `docs/User_FlowDB/FLOW_AI_CHAT/` 의 이슈 문서를 참조한다.
->
-> 각 시나리오 = 한 명(또는 한 페어)이 스프린트 안에 완결할 수 있는 유저 가치 한 덩어리.
-> 시나리오는 의존성 순서로 배열되어 있어 위에서 아래로 차곡차곡 쌓아 올릴 수 있다.
->
-> **사전 준비 사항 (스프린트 작업 항목)**
-> - Real 계정: AI Chat 카드까지 진입 가능한 시드 계정 (Initial Setup 완료 + `selectedLearningLanguage` 존재)
-> - Mock 토글: `ChatRepository` / `RealtimeRepository` fake 구현 — fixture 가 partial / final transcript 와 `AIEvent.StateChanged` 를 시뮬레이션 (현재 미존재, DASH 스타일 `RepositoryModule` 토글 추가 필요)
-> - Mock fixture 가 필요한 분기: 시나리오 5(견고화) 의 모든 분기, 시나리오 1·3·4 의 실패 분기. happy path 는 Real 로 시연
-> - 발표 후 Real 바인딩으로 원복
+이 문서는 AI Chat 화면을 데모/QA하는 기준이다.
 
----
+현재 Chat 검증은 두 갈래로 나눈다.
 
-## 시나리오 1 — 한 번 말하고 한 번 듣기 (단일 턴 MVP)
+- Real 정상 대화: `devDebug`에서 Firebase Live API 기반으로 확인한다.
+- 재현성 있는 상태 전이/장애/handoff: `mockDebug`에서 `ChatDemoPreset`을 바꿔 확인한다.
 
-> **무엇을 하는가** — AI Chat 화면에 들어가서 마이크 버튼을 한 번 눌러 말하면, AI가 음성으로 한 번 답해준다.
-> **유저 가치** — "이 앱이랑 진짜 말이 된다"를 사용자가 처음 체감하는 가장 작은 단위. 이게 동작하지 않으면 뒤 시나리오는 의미가 없다.
+`mockDebug` preset은 real AI 응답 품질 검증용이 아니다. preset은 화면 상태 전이, Correction handoff, 장애/cleanup을 안정적으로 재현하기 위한 도구다.
 
-**포함 이슈**
-- `CHAT-001` — AI Chat 진입 + 초기 상태 구성 (selectedLearningLanguage / LangState 로드, 자막 Off 기본값)
-- `CHAT-002` — 마이크 권한 확인 + PTT 버튼 활성화
-- `CHAT-003` — Push-to-Talk 음성 입력 (press / release)
-- `CHAT-004` — 중앙 비주얼 피드백 (Idle / Recording / Speaking)
-- `CHAT-005` — AI 응답 음성 출력 (Thinking → Speaking → Ready)
+관련 코드:
 
-**의존성**: 없음. FLOW-AI-CHAT에서 가장 먼저 만들 수 있는 단위.
-**예상 규모**: L — 마이크 캡처 / Firebase Live API 연결 / AI 응답 재생이 한 사이클로 돌아야 하므로 RT-001 · RT-002 인프라까지 함께 붙어야 한다.
+- `app/src/main/java/com/app/umma/data/repository/ChatRepositoryImpl.kt`
+- `app/src/main/java/com/app/umma/presentation/chat/ChatViewModel.kt`
+- `app/src/main/java/com/app/umma/presentation/chat/ChatScreen.kt`
+- `app/src/main/java/com/app/umma/data/repository/fake/demo/chat/ChatDemoPreset.kt`
+- `app/src/main/java/com/app/umma/data/repository/fake/demo/chat/ChatDemoFixtures.kt`
+- `app/src/main/java/com/app/umma/data/repository/fake/FakeChatRepository.kt`
+- `docs/Demo/TestSheet/TEST_FLOW_CHAT.md`
 
-**데모 흐름**
-1. Dashboard에서 AI 대화 카드 클릭 → AI Chat 화면 진입 (Loading)
-2. 진입 직후 자막 Off / 중앙 비주얼 Idle / PTT 버튼 대기 상태 확인
-3. PTT 버튼 첫 탭 → OS 마이크 권한 다이얼로그 → "허용" 선택
-4. PTT press → 중앙 비주얼이 Recording 으로 전환되고, 음성 입력 강도(0.0~1.0)가 비주얼에 반영됨
-5. PTT release → AI 응답 대기 (Thinking) → AI 음성 출력 (Speaking) → Idle 복귀
+## 1. 실행 기준
 
-**핵심 분기**
-- **성공**: 진입 → 권한 허용 → PTT → AI 응답 → Idle 의 한 사이클이 깨끗하게 닫힌다.
-- **권한 거부 (`CHAT-002` Error)**: PTT 버튼이 비활성화되고, 권한 안내 UI + 시스템 설정 진입 경로가 제공된다. 앱은 크래시하지 않는다.
-- **응답 실패 (`CHAT-005` Error)**: Error 상태 + Retry 버튼. 재시도 시 같은 turn 기준으로 다시 요청.
+Real 정상 대화는 `devDebug` variant에서 확인한다.
 
----
+- 실제 Firebase Live API 연결
+- 실제 음성 인식/AI 응답/음성 재생
+- Dashboard/Correction으로 이어지는 실제 handoff
+- Android Studio에서는 `Build Variants > :app > devDebug`를 선택한 뒤 실행한다.
 
-## 시나리오 2 — 여러 턴 이어가며 자막 보기
+재현성 있는 상태 전이 데모는 `mockDebug` variant에서 확인한다.
 
-> **무엇을 하는가** — 한 세션 안에서 사용자가 여러 턴 대화를 이어가고, 필요할 때 자막을 켜서 마지막 확정 턴 한 줄을 본다.
-> **유저 가치** — 1회성 데모를 넘어 "실제 대화가 흘러간다"는 체감을 만든다. 자막은 보조 도구이지 누적 로그가 아니다.
+```bash
+./gradlew :app:installMockDebug
+```
 
-**포함 이슈**
-- `CHAT-005` — AI 응답 출력 반복 (turn 누적)
-- `CHAT-006` — 자막 토글 + 마지막 확정 턴만 표시 (partial transcript 누적 금지)
+Android Studio에서는 `Build Variants > :app > mockDebug`를 선택한 뒤 실행한다.
 
-**의존성**: 시나리오 1
-**예상 규모**: S~M — 단일 턴 사이클이 안정적이라면 자막 표시 정책과 토글 UI 추가 정도.
+데모에서 real 품질이 중요하면 `devDebug`, 특정 상태 재현성이 중요하면 `mockDebug`를 사용한다.
 
-**데모 흐름**
-1. 시나리오 1 종료 후 자막이 Off 인 기본 상태 확인
-2. PTT 로 추가 2~3 턴 대화. 매 턴마다 Recording → Speaking → Idle 사이클이 흔들림 없이 동작
-3. 자막 토글 On → 마지막 확정 턴(user 또는 assistant) 한 줄만 표시
-4. 다음 턴 진행 → 자막이 새 마지막 턴으로 교체 (직전 턴은 사라짐, 누적되지 않음)
-5. 자막 Off → 자막 영역 숨김. 다시 On → 직전 마지막 자막 복원
+## 2. 현재 구현 상태
 
-**핵심 분기**
-- **성공**: 자막은 항상 직전 확정 턴 1개만 노출. partial transcript 가 화면에 누적되지 않는다.
-- **자막 지연 (`CHAT-006` Edge)**: final transcript 가 늦게 와도 화면이 깜빡이지 않고, 도착 전까지 이전 마지막 자막을 유지한다.
-- **빠른 토글 반복 (`CHAT-006` Edge)**: 토글을 빠르게 켰다/껐다 해도 화면이 흔들리거나 재구성되지 않는다.
+- Real Chat은 Firebase Live API에서 내려오는 `inputTranscription`, `outputTranscription`, `AudioResponse`를 사용한다.
+- PTT release 직후 별도의 `AIState.THINKING` 화면을 필수로 보지 않는다.
+- 현재 기준은 release 후 녹음 상태와 input animation이 종료되고, AI 응답 수신 시 음성 재생과 output animation이 표시되는 것이다.
+- USER final turn이 저장되면 `correctionAvailable=true` handoff가 발생한다.
+- Correction suggestion 생성 품질은 Chat 데모 범위가 아니라 Correction 데모 범위다.
+- 화면 이탈 시 `stopChat()` 경로로 녹음과 재생을 정리한다.
+- Mock preset 확인 로그는 logcat `ChatMockPreset` 태그를 사용한다.
 
----
+## 3. Real 정상 대화 흐름
 
-## 시나리오 3 — 대화 내용이 다음 학습으로 이어지도록 저장
+Variant: `devDebug`
 
-> **무엇을 하는가** — 확정된 user / assistant turn 을 Session Memory 에 저장해서, AI Chat 을 떠난 뒤에도 Correction 흐름에서 같은 대화 맥락을 다시 쓸 수 있게 한다.
-> **유저 가치** — AI Chat → Correction 으로 이어지는 핵심 다리. 이게 없으면 교정 입력 자체가 없다.
+1. Dashboard에서 AI Chat으로 진입한다.
+2. Chat 화면이 세션 준비 완료 상태가 되는지 확인한다.
+3. 최초 진입 사용자라면 `Pick 5 Topics` 다이얼로그에서 관심 주제 5개를 선택한다.
+4. 마이크 권한 요청이 표시되면 허용한다.
+5. PTT 버튼을 눌러 사용자 발화를 시작한다.
+6. 사용자 발화 중 input animation이 표시되는지 확인한다.
+7. PTT 버튼을 다시 눌러 발화를 종료한다.
+8. 녹음 상태와 input animation이 종료되는지 확인한다.
+9. AI 음성 응답이 재생되는지 확인한다.
+10. AI 발화 중 output animation이 표시되는지 확인한다.
+11. 자막 버튼을 켜 마지막 확정 User/AI turn이 표시되는지 확인한다.
+12. 1~2턴 추가 대화 후 Dashboard로 복귀한다.
+13. Dashboard에서 교정 대기 카드가 교정 가능 상태인지 확인한다.
+14. Correction 화면으로 진입 가능한지 확인한다.
 
-**포함 이슈**
-- `CHAT-007` — 확정 turn 저장 연동 (final user / final assistant turn 만 저장, partial transcript 필터링)
+합격 기준:
 
-**의존성**: 시나리오 2. 동시에 RT-003 (Session Memory append) 과 SYS-LEARNING-STATE-INFRA 의 계약이 준비되어 있어야 함.
-**예상 규모**: M — UI 작업보다 인프라 계약과의 정확한 연결이 핵심.
+- 실제 음성 입력이 Live session으로 전송된다.
+- AI 음성 응답이 재생된다.
+- 응답 종료 후 다시 대화 가능한 상태로 돌아온다.
+- USER final turn 저장 후 Correction handoff가 반영된다.
+- `PTT release 후 AI 응답 대기 상태`는 필수 판정 항목이 아니다.
 
-**데모 흐름**
-1. 시나리오 2 흐름으로 user / assistant 확정 턴 2~3개 누적
-2. logcat 또는 디버그 영역에서 턴이 끝날 때마다 `append user` / `append assistant` 로그가 1회씩 찍히는지 확인
-3. partial transcript 이벤트는 저장 호출 흐름에 흘러들지 않는 것 확인
-4. AI Chat 종료 후 Correction 진입 시 동일 turn 맥락이 후보 추출 입력으로 보이는지 후속 시나리오에서 확인
+AC/QA 시트:
 
-**핵심 분기**
-- **성공**: final user / final assistant turn 만 정확히 저장되고, Correction 의 `recentFullContext` 가 채워진다.
-- **저장 실패 (`CHAT-007` PendingSync)**: 화면은 크래시 없이 정상 동작하고, 해당 turn 은 local pending 상태로 남는다.
-- **같은 turn 중복 도착 (`CHAT-007` Edge)**: assistant final turn 이 중복으로 와도 두 번 저장되지 않는다.
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-01 | CHAT-001 AC1·3·4 | Dashboard에서 AI 대화 카드 클릭 | Chat 화면 진입, guard/loading 후 대화 가능 상태 | | |
+| TC-CH-02 | CHAT-001 AC2 | Dashboard 언어 변경 후 Chat 진입 | 변경된 학습 언어 기준으로 대화 컨텍스트 반영 | | |
+| TC-CH-03 | CHAT-001 AC4 | 관심 주제 미설정 계정으로 Chat 최초 진입 | `Pick 5 Topics` 표시, 5개 선택 후 `Done` 가능 | | |
+| TC-CH-04 | CHAT-002 AC1·2 | 최초 PTT 입력 후 마이크 권한 허용 | 권한 허용 후 녹음 시작 가능 | | |
+| TC-CH-07 | CHAT-003 AC1·2·4 / CHAT-004 AC1 | PTT 입력 중 발화 | 녹음 상태, OS mic indicator, input animation 표시 | | |
+| TC-CH-08 | CHAT-003 AC3 | PTT release 또는 재클릭 | 녹음 종료, input animation 정지, OS mic indicator 내려감 | | |
+| TC-CH-09 | CHAT-004 AC2·3·5 | USER 발화 후 AI 응답 수신 | AI 음성 재생, output animation, 응답 후 Ready/IDLE 복귀 | | |
+| TC-CH-10 | CHAT-004 AC4 | 자막 버튼 On | 마지막 확정 User/AI turn 표시 | | |
+| TC-CH-12 | CHAT-005 AC1·2·3·4 | Chat 후 Dashboard/Correction 확인 | 교정 대기 카드 활성, Correction 진입 가능 | | |
 
----
+## 4. Mock preset 선택
 
-## 시나리오 4 — 잠시 끊고 돌아와도 이어 쓰기
+활성 preset은 `ChatDemoPresetConfig.activePreset` 하나로 결정한다.
 
-> **무엇을 하는가** — 사용자가 AI Chat 을 떠났다가 다시 들어오거나, 백그라운드에 갔다가 돌아왔을 때 안전하게 정리되고 자연스럽게 재개된다.
-> **유저 가치** — 일상에서는 알람·전화·다른 앱으로 화면을 떠나는 일이 흔하다. 이걸 못 견디면 실제 사용에서 신뢰가 깨진다.
+```kotlin
+object ChatDemoPresetConfig {
+    val activePreset: ChatDemoPreset = ChatDemoPreset.HandoffSuccess
+}
+```
 
-**포함 이슈**
-- `CHAT-008` — 종료 시 녹음/재생 정리, 재진입 시 앱 상태 복원 또는 새 LiveSession 전환, 저장 중 상태 보호
+값을 바꾼 뒤 앱을 다시 빌드/실행한다.
 
-**의존성**: 시나리오 3 (저장 흐름이 있어야 "저장 중 이탈" 보호가 의미를 가짐)
-**예상 규모**: M — 종료 cleanup 과 복원 로직, 새 LiveSession 전환을 분리해서 다뤄야 한다.
+## 5. Preset 목록
 
-**데모 흐름**
-1. 시나리오 2~3 흐름을 진행 중 뒤로가기로 화면 이탈 → 녹음과 AI 음성 재생이 즉시 중지되는지 확인 (`cleanup` 로그)
-2. Dashboard 경유 후 다시 AI Chat 진입
-3. 같은 선택 언어 기준으로 앱 상태 복원 시도 → 직전 자막 / turn 컨텍스트가 자연스럽게 이어지는지 확인 (Success)
-4. 네트워크 변동 등으로 복원이 어려운 상황 시뮬레이션 → 새 LiveSession 으로 자연스럽게 전환 (Fallback)
-5. 진행 중이던 final turn 저장 요청이 누락되거나 화면을 깨뜨리지 않는지 확인
+| Preset | 목적 | 트리거 | 기대 결과 |
+| --- | --- | --- | --- |
+| `HandoffSuccess` | Chat에서 Correction으로 넘어갈 수 있는 신호 생성 | Chat 진입 후 마이크 버튼 입력 | user partial/final 표시, turn 저장, `correctionAvailable=true` |
+| `SaveSignalOnly` | Correction 진입 신호만 빠르게 확인 | Chat 진입 후 마이크 버튼 입력 | user final만 발생, Correction 신호 전달 |
+| `HandoffDuplicateFinal` | 같은 final turn 중복 방어 확인 | Chat 진입 후 마이크 버튼 입력 | 같은 `turnId` final 2회 emit, 저장/신호는 1회만 처리되어야 함 |
+| `RecordingInterrupted` | 녹음 중 장애와 마이크 cleanup 확인 | Chat 진입 후 마이크 버튼 입력 | recording 중단, retry 가능한 error 상태 |
+| `SilentInputNoFinal` | 입력은 있었지만 final transcript가 없는 케이스 확인 | Chat 진입 후 마이크 버튼 입력 | partial만 발생, Correction 신호 없음 |
+| `ReconnectSuccess` | 세션 중 장애 후 자동 복구 상태 확인 | Chat 진입 후 마이크 버튼 입력 | `RECONNECTING` 진입 후 `READY/IDLE` 복귀 |
+| `ReconnectFailed` | 세션 중 장애 후 복구 실패 UI 확인 | Chat 진입 후 마이크 버튼 입력 | retry 가능한 error 상태 유지 |
+| `FatalError` | 복구 불가 일반 에러 확인 | Chat 진입 | non-recoverable error 상태 |
 
-**핵심 분기**
-- **성공**: 복원 OK 또는 새 세션 OK — 사용자 입장에선 어느 쪽이든 자연스러운 재개로 보인다.
-- **복구 실패 반복 (`CHAT-008` Edge)**: 재연결 실패가 반복되더라도 앱이 멈추지 않고 안전한 fallback 안내가 유지된다.
-- **저장 중 이탈 (`CHAT-007` × `CHAT-008`)**: 저장이 끝나거나 pending 으로 보호된 뒤에야 화면이 정리된다.
+## 6. Mock 기본 데모 흐름
 
----
+### Scenario A - Chat에서 Correction 신호까지
 
-## 시나리오 5 — 외부 조건이 망가져도 앱이 안 깨짐 (견고화 패스)
+Preset: `HandoffSuccess`
 
-> **무엇을 하는가** — 권한 영구 거부 / 네트워크 끊김 / 언어 컨텍스트 누락 / 응답 실패 / 저장 실패 같은 외부 문제 상황 전반을 견고하게 처리한다.
-> **유저 가치** — happy path 만 있는 데모를 넘어 "실패해도 안 깨지는 앱" 이라는 기본 신뢰를 만든다. 분기별로 작게 나눠 분산 작업 가능.
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.HandoffSuccess`로 설정한다.
+2. `mockDebug`로 앱을 실행한다.
+3. Dashboard에서 AI Chat으로 진입한다.
+4. Chat 화면이 `READY` 상태인지 확인한다.
+5. 마이크 버튼을 눌러 입력을 트리거한다.
+6. user partial text가 표시되는지 확인한다.
+7. user final text가 표시되는지 확인한다.
+8. logcat에서 `ChatMockPreset` 태그의 `handoff_success emitting final user turn`과 `final user turn emitted` 로그를 확인한다.
+9. Dashboard 또는 Correction 진입 경로에서 교정 가능 상태가 반영되는지 확인한다.
 
-**포함 이슈**
-- `CHAT-001` Error — selectedLearningLanguage 가 없을 때 안전한 Error 화면
-- `CHAT-002` Error — 마이크 권한 영구 거부 시 안내 + 시스템 설정 진입 경로
-- `CHAT-005` Error / Retry — AI 응답 실패 시 Error 상태와 같은 turn 기준 재시도
-- `CHAT-007` PendingSync — 저장 실패 시 local pending 보호와 화면 크래시 방지
+합격 기준:
 
-**의존성**: 시나리오 1~4 의 happy path 가 먼저 깔려 있어야 의미를 가진다.
-**예상 규모**: S~M — 이슈별로 분산해서 작업 가능. 페어 한 명이 한두 분기를 잡는 식으로 쪼개기 좋다.
+- Chat 화면이 멈추지 않는다.
+- user final turn이 1회 저장된다.
+- `correctionAvailable=true` 신호가 올라간다.
+- AI 응답 재생까지 포함한 real happy path 검증은 `devDebug`에서 확인한다.
+- Correction suggestion 생성 자체는 이 시나리오의 검증 범위가 아니다.
 
-**데모 흐름**
-1. selectedLearningLanguage 가 없는 상태로 진입 → Error 안내 + Dashboard 복귀 경로 표시
-2. 마이크 권한이 영구 거부된 상태에서 PTT 시도 → 권한 안내 UI + 시스템 설정 진입 경로 노출
-3. AI 응답 진행 도중 네트워크를 끊음 → Error 상태 + 재시도 액션, 재시도 성공 시 정상 복구
-4. final turn 저장이 실패하는 상태로 진입 → 화면은 정상 동작하고, turn 은 local pending 으로 남음
+AC/QA 시트:
 
-**핵심 분기**
-- **1차 합격선**: 모든 외부 실패가 앱 크래시로 이어지지 않는다.
-- **2차 합격선**: 각 실패 상황에서 사용자가 다음에 무엇을 할 수 있는지(Retry / 설정 이동 / 새 세션 / 닫기)가 화면에서 명확히 보인다.
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-15 | CHAT-005 AC1·2·3·4 | `HandoffSuccess`에서 마이크 버튼 입력 | user partial/final 표시 | | |
+| TC-CH-15 | CHAT-005 AC1·2 | logcat `ChatMockPreset` 확인 | `handoff_success emitting final user turn`, `final user turn emitted` 로그 | | |
+| TC-CH-15 | CHAT-005 AC3·4 | Dashboard/Correction 경로 확인 | 교정 가능 상태 반영, Correction 진입 가능 | | |
+
+### Scenario B - Correction 신호만 빠르게 확인
+
+Preset: `SaveSignalOnly`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.SaveSignalOnly`로 설정한다.
+2. `mockDebug`로 앱을 실행한다.
+3. Chat 화면에 진입한다.
+4. 마이크 버튼을 눌러 입력을 트리거한다.
+5. partial 없이 user final만 발생하는지 확인한다.
+6. logcat에서 `ChatMockPreset` 태그의 `save_signal_only emitting final user turn for correction signal` 로그를 확인한다.
+7. Dashboard 또는 Correction 진입 경로에서 교정 가능 상태가 반영되는지 확인한다.
+
+합격 기준:
+
+- AI 응답 없이도 user final turn 저장과 Correction 신호 전달이 완료된다.
+- 데모에서 "Chat 이후 Correction으로 넘어갈 수 있는 상태"만 빠르게 만들 수 있다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-16 | CHAT-005 AC2·3·4 | `SaveSignalOnly`에서 마이크 버튼 입력 | partial 없이 user final 발생 | | |
+| TC-CH-16 | CHAT-005 AC2 | logcat `ChatMockPreset` 확인 | `save_signal_only emitting final user turn for correction signal` 로그 | | |
+| TC-CH-16 | CHAT-005 AC3·4 | Dashboard/Correction 경로 확인 | 교정 가능 상태 반영 | | |
+
+### Scenario C - 중복 final turn 방어
+
+Preset: `HandoffDuplicateFinal`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.HandoffDuplicateFinal`로 설정한다.
+2. Chat 화면에 진입한다.
+3. 마이크 버튼을 눌러 입력을 트리거한다.
+4. logcat에서 `ChatMockPreset` 태그의 `handoff_duplicate_final emitting duplicate final events` 로그를 확인한다.
+5. logcat에서 `duplicate final emitted`와 `final user turn emitted` 로그가 같은 `turnId` 기준으로 남는지 확인한다.
+6. Dashboard 또는 Correction 진입 경로에서 교정 가능 상태가 중복 없이 유지되는지 확인한다.
+
+합격 기준:
+
+- 같은 `turnId` final event가 2회 들어와도 turn 저장은 1회만 일어난다.
+- Correction 신호도 같은 turn 기준으로 중복 처리되지 않는다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-17 | CHAT-005 AC5 | `HandoffDuplicateFinal`에서 마이크 버튼 입력 | 같은 `turnId` final 2회 emit | | |
+| TC-CH-17 | CHAT-005 AC5 | logcat `ChatMockPreset` 확인 | `duplicate final emitted`, `final user turn emitted` 로그 | | |
+| TC-CH-17 | CHAT-005 AC5 | Dashboard/Correction 경로 확인 | 교정 가능 상태가 중복 없이 유지 | | |
+
+## 7. Mock 장애 데모 흐름
+
+### Scenario D - 장애 후 자동 복구
+
+Preset: `ReconnectSuccess`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.ReconnectSuccess`로 설정한다.
+2. Chat 화면에 진입한다.
+3. 화면이 `READY`가 된 뒤 마이크 버튼을 눌러 장애를 트리거한다.
+4. `RECONNECTING` 상태가 잠깐 반영되는지 확인한다.
+5. 다시 `READY/IDLE` 상태로 복귀하는지 확인한다.
+
+합격 기준:
+
+- 세션 시작 직후 장애가 발생하지 않는다.
+- 사용자가 입력을 트리거한 뒤 장애 이벤트가 발생한다.
+- 복구 성공 후 화면은 정상 대화 가능 상태로 돌아온다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-19 | CHAT-006 AC1·2 | `ReconnectSuccess`에서 READY 후 마이크 버튼 입력 | `RECONNECTING` 후 READY/IDLE 복귀 | | |
+| TC-CH-19 | CHAT-006 AC1·2 | logcat `ChatMockPreset` 확인 | `reconnect_success emitted SessionInterrupted -> Reconnected -> IDLE` 로그 | | |
+
+주의:
+
+- 현재 mock은 지연 없이 이벤트를 emit하므로 `RECONNECTING` 상태는 짧게 보일 수 있다.
+- 화면 체감보다 `ChatMockPreset` 로그의 `reconnect_success emitted SessionInterrupted -> Reconnected -> IDLE` 확인이 더 안정적인 검증 기준이다.
+
+### Scenario E - 녹음 중 장애와 cleanup
+
+Preset: `RecordingInterrupted`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.RecordingInterrupted`로 설정한다.
+2. Chat 화면에 진입한다.
+3. 화면이 `READY`가 된 뒤 마이크 버튼을 눌러 녹음을 시작한다.
+4. `SessionInterrupted` 이후 retry 가능한 error 상태로 전환되는지 확인한다.
+5. OS 마이크 표시가 내려가는지 확인한다.
+6. 화면의 input level이 0으로 돌아오는지 확인한다.
+
+합격 기준:
+
+- 녹음 중 장애가 발생해도 `isRecording=false`가 된다.
+- `AudioInput.stopRecording()` 또는 record job cancellation 경로로 마이크가 정리된다.
+- final user turn이 없으므로 Correction 신호가 올라가지 않는다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-21 | CHAT-006 AC5 | `RecordingInterrupted`에서 READY 후 마이크 버튼 입력 | 녹음 중단, retry 가능한 error UI 표시 | | |
+| TC-CH-21 | CHAT-006 AC5 | OS mic indicator / input level 확인 | mic indicator 내려감, input level 0 복귀 | | |
+| TC-CH-21 | CHAT-006 AC5 | logcat `ChatMockPreset` 확인 | `recording_interrupted emitted LISTENING -> SessionInterrupted -> ReconnectFailed` 로그 | | |
+
+### Scenario F - final transcript 없는 입력
+
+Preset: `SilentInputNoFinal`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.SilentInputNoFinal`로 설정한다.
+2. Chat 화면에 진입한다.
+3. 마이크 버튼을 눌러 입력을 트리거한다.
+4. user partial만 잠깐 반영되고 final transcript가 없는지 확인한다.
+5. logcat에서 `ChatMockPreset` 태그의 `silent_input_no_final completed without final transcription` 로그를 확인한다.
+6. Dashboard 또는 Correction 진입 경로에서 교정 가능 상태가 새로 생기지 않는지 확인한다.
+
+합격 기준:
+
+- partial transcript만으로 SessionMemory 저장이 발생하지 않는다.
+- Correction 신호가 올라가지 않는다.
+- 화면은 에러 없이 `READY/IDLE`로 유지된다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-18 | CHAT-005 AC1·2 | `SilentInputNoFinal`에서 마이크 버튼 입력 | user partial만 표시, final 없음 | | |
+| TC-CH-18 | CHAT-005 AC1·2 | logcat `ChatMockPreset` 확인 | `silent_input_no_final completed without final transcription` 로그 | | |
+| TC-CH-18 | CHAT-005 AC2 | Dashboard/Correction 경로 확인 | 새 교정 가능 신호 없음 | | |
+
+### Scenario G - 장애 후 복구 실패
+
+Preset: `ReconnectFailed`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.ReconnectFailed`로 설정한다.
+2. Chat 화면에 진입한다.
+3. 화면이 `READY`가 된 뒤 마이크 버튼을 눌러 장애를 트리거한다.
+4. error 화면 또는 retry 가능한 error 상태가 유지되는지 확인한다.
+5. `isRecoverableError=true`에 해당하는 retry UI가 보이는지 확인한다.
+
+합격 기준:
+
+- `SessionInterrupted` 이후 `ReconnectFailed`가 반영된다.
+- 화면이 다시 `READY`로 덮이지 않는다.
+- 사용자가 재시도 액션을 인지할 수 있다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-20 | CHAT-006 AC1·3 | `ReconnectFailed`에서 READY 후 마이크 버튼 입력 | retry 가능한 error UI 표시 | | |
+| TC-CH-20 | CHAT-006 AC3 | retry UI 확인 | 사용자가 재시도 액션을 인지 가능 | | |
+| TC-CH-20 | CHAT-006 AC1·3 | logcat `ChatMockPreset` 확인 | `reconnect_failed emitted SessionInterrupted -> ReconnectFailed` 로그 | | |
+
+### Scenario H - 복구 불가 일반 에러
+
+Preset: `FatalError`
+
+1. `ChatDemoPresetConfig.activePreset = ChatDemoPreset.FatalError`로 설정한다.
+2. Chat 화면에 진입한다.
+3. 진입 직후 일반 error 상태로 전환되는지 확인한다.
+
+합격 기준:
+
+- `isRecoverableError=false` 상태로 처리된다.
+- retry 가능한 reconnect 실패와 구분된다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-22 | CHAT-006 AC4 | `FatalError`에서 Chat 진입 | non-recoverable error 상태 표시 | | |
+| TC-CH-22 | CHAT-006 AC4 | retry UI 여부 확인 | recoverable retry UI와 구분됨 | | |
+| TC-CH-22 | CHAT-006 AC4 | logcat `ChatMockPreset` 확인 | `fatal_error emitted on startSession` 로그 | | |
+
+## 8. 화면 이탈 정리 확인
+
+Real과 mock 모두에서 확인한다.
+
+1. Chat 화면에서 마이크 입력 중 뒤로 가기 또는 다른 탭 이동을 수행한다.
+2. OS 마이크 표시가 즉시 내려가는지 확인한다.
+3. AI 음성 재생 중 화면을 이탈했을 때 재생이 멈추는지 확인한다.
+4. 다시 Chat에 진입했을 때 이전 녹음/재생 상태가 남아 있지 않은지 확인한다.
+
+합격 기준:
+
+- `stopChat()`이 호출되어 녹음과 재생이 정리된다.
+- `AudioInput.stopRecording()`으로 활성 `AudioRecord`가 즉시 stop/release 된다.
+- `AudioOutput.stopPlaying()`으로 queue와 `AudioTrack` buffer가 clear 된다.
+
+AC/QA 시트:
+
+| Test ID | AC | 확인 방법 | 기대 결과 | Pass/Fail | 비고 |
+| --- | --- | --- | --- | --- | --- |
+| TC-CH-13 | CHAT-006 AC6 | 녹음 중 뒤로가기 또는 다른 화면 이동 | OS mic indicator 즉시 내려감, 재진입 시 녹음 상태 없음 | | |
+| TC-CH-14 | CHAT-006 AC6 | AI 음성 재생 중 뒤로가기 또는 다른 화면 이동 | 재생 즉시 중지, 재진입 시 이전 queue 없음 | | |
+
+## 9. 데모 선택 가이드
+
+Real 통합 데모:
+
+- `devDebug`
+- `DEMO_REAL_INTEGRATED_FLOW.md` 기준으로 진행한다.
+- 실제 AI 응답 품질, latency, 음성 재생, 자막을 확인한다.
+
+Mock 발표용 기본 preset:
+
+- `HandoffSuccess`
+
+Correction 신호만 빠르게 만들 때:
+
+- `SaveSignalOnly`
+
+장애 화면을 확실히 보여줄 때:
+
+- `ReconnectFailed`
+
+녹음 cleanup을 QA할 때:
+
+- `RecordingInterrupted`
+
+Correction 신호 오발행을 QA할 때:
+
+- `SilentInputNoFinal`
+
+중복 방어를 QA할 때:
+
+- `HandoffDuplicateFinal`
+
+테스트 체크리스트:
+
+- `docs/Demo/TestSheet/TEST_FLOW_CHAT.md`를 기준으로 Pass/Fail을 기록한다.
