@@ -37,6 +37,8 @@ class AudioPlayer @Inject constructor() : AudioOutput {
     private val _outputLevel = MutableStateFlow(0f)
     override val outputLevel: StateFlow<Float> = _outputLevel.asStateFlow()
     private var pendingChunkCount: Int = 0
+    private var currentPlaybackStartedAtMs: Long? = null
+    private var currentPlaybackEndedAtMs: Long? = null
     private val audioQueue = Channel<ByteArray>(
         capacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -89,11 +91,20 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         }
     }
 
+    override fun consumeLastPlaybackDurationMs(): Long? {
+        val startedAt = currentPlaybackStartedAtMs ?: return null
+        val endedAt = currentPlaybackEndedAtMs ?: return null
+        currentPlaybackStartedAtMs = null
+        currentPlaybackEndedAtMs = null
+        return (endedAt - startedAt).coerceAtLeast(0L)
+    }
+
     override fun stopPlaying() {
         playbackJob?.cancel()
         playbackJob = null
         clearAudioQueue()
         _outputLevel.value = 0f
+        resetPlaybackMetrics()
         audioTrack?.stop()
         audioTrack?.flush()
     }
@@ -103,6 +114,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         playbackJob = null
         clearAudioQueue()
         _outputLevel.value = 0f
+        resetPlaybackMetrics()
         playerScope.cancel()
         audioTrack?.release()
         audioTrack = null
@@ -113,6 +125,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
 
         playbackJob = playerScope.launch {
             for (chunk in audioQueue) {
+                if (currentPlaybackStartedAtMs == null) {
+                    currentPlaybackStartedAtMs = System.currentTimeMillis()
+                    currentPlaybackEndedAtMs = null
+                }
                 _outputLevel.value = calculateLevel(chunk)
                 pendingChunkCount = (pendingChunkCount - 1).coerceAtLeast(0)
 
@@ -125,6 +141,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                 if (pendingChunkCount == 0) {
                     delay(calculateChunkDurationMs(chunk.size))
                     if (pendingChunkCount == 0) {
+                        currentPlaybackEndedAtMs = System.currentTimeMillis()
                         _outputLevel.value = 0f
                     }
                 }
@@ -144,5 +161,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         val sampleCount = byteSize / BYTES_PER_SAMPLE
         if (sampleCount <= 0) return 0L
         return ((sampleCount * 1000L) / SAMPLE_RATE).coerceAtLeast(1L)
+    }
+
+    private fun resetPlaybackMetrics() {
+        currentPlaybackStartedAtMs = null
+        currentPlaybackEndedAtMs = null
     }
 }

@@ -45,6 +45,7 @@ data class ChatUiState(
     val showSubtitle: Boolean = false,
     val inputLevel: Float = 0f,
     val outputLevel: Float = 0f,
+    val entryMessageOverride: String? = null,
     val errorMessage: String? = null,
     val reconnectAttempt: Int = 0,
     val maxReconnectAttempts: Int = 0,
