@@ -228,6 +228,11 @@ class ApplyReviewDecisionUseCaseTest {
             // UseCase가 review 후 Summary count를 요청하는지 확인한다.
             return summaryResult
         }
+
+        override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
+            // ApplyReviewDecisionUseCase는 단일 카드 schedule 저장과 summary 갱신만 검증한다.
+            return Result.success(0)
+        }
     }
 
     private class RecordingLearningStateRepo(

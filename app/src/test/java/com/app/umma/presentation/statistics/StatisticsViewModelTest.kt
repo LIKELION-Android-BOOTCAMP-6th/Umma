@@ -49,9 +49,12 @@ class StatisticsViewModelTest {
     fun `overview load retries pending histories for current user`() = runTest {
         // 화면 진입 시 overview가 준비되면 local PENDING history를 Firestore로 재시도해야 한다.
         // 이 테스트는 실제 저장 결과가 아니라 ViewModel이 retry usecase를 연결했는지를 검증한다.
+        // LearningState는 selected language와 LangState.external을 제공하는 최소 정상 상태로 둔다.
         val learningRepo = FakeLearningStateRepo(initialState = statisticsState(LangCode.EN))
+        // Statistics repository는 syncPendingHistories 호출 기록을 남기는 controlled fake다.
         val statisticsRepo = ControlledStatisticsRepository()
 
+        // ViewModel init에서 observeContext()가 실행되고, overview 로딩 후 pending sync가 자동 호출된다.
         StatisticsViewModel(
             observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
             preloadLearningStateUseCase = PreloadLearningStateUseCase(learningRepo),
@@ -65,15 +68,19 @@ class StatisticsViewModelTest {
             getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
         )
 
+        // init에서 시작된 coroutine들이 모두 끝날 때까지 진행시켜 pending sync 호출 여부를 확정한다.
         advanceUntilIdle()
 
+        // 현재 로그인 사용자 user-1에 대해서만 pending sync retry가 요청되어야 한다.
         assertEquals(listOf("user-1"), statisticsRepo.syncedUserIds)
     }
 
     @Test
     fun `old chart result does not overwrite latest language state`() = runTest {
         // 언어 변경 중 오래 걸린 chart 응답이 늦게 도착해도 최신 선택 언어 상태를 덮지 않는지 본다.
+        // 시작 상태는 EN으로 두어 EN chart 요청을 먼저 발생시킨다.
         val learningRepo = FakeLearningStateRepo(initialState = statisticsState(LangCode.EN))
+        // chart history 응답을 수동 release할 수 있게 controlled fake를 사용한다.
         val statisticsRepo = ControlledStatisticsRepository()
         val viewModel = StatisticsViewModel(
             observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
@@ -88,25 +95,79 @@ class StatisticsViewModelTest {
             getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
         )
 
+        // ViewModel은 init 직후 EN selected language 기준으로 overview를 준비해야 한다.
         assertEquals(LangCode.EN, viewModel.uiState.value.selectedLearningLanguage)
 
         // EN chart 요청은 아직 완료되지 않은 상태에서 언어를 KO로 바꿔, 오래된 결과가 최신 화면을 덮지 않는지 본다.
+        // GrammarAccuracy 클릭으로 chart dialog를 Loading 상태까지 열어 둔다.
         viewModel.onMetricClick(StatisticsMetricType.GrammarAccuracy)
         assertTrue(viewModel.uiState.value.metricChartState is StatisticsMetricChartState.Loading)
 
+        // LearningState emit은 실제 언어 선택 변경처럼 ViewModel의 context reload를 유발한다.
         learningRepo.emit(statisticsState(LangCode.KO))
+        // 최신 language context는 KO여야 한다.
         assertEquals(LangCode.KO, viewModel.uiState.value.selectedLearningLanguage)
+        // language reload 시 기존 chart dialog는 닫혀야 오래된 EN 결과가 보이지 않는다.
         assertTrue(viewModel.uiState.value.metricChartState is StatisticsMetricChartState.Hidden)
 
         // 늦게 도착한 EN 결과를 풀어도, 이미 KO로 전환된 화면을 되돌리면 안 된다.
+        // release는 이전 EN observeHistory 요청을 완료시키는 역할이다.
         statisticsRepo.release(LangCode.EN)
 
+        // release 이후에도 selected language가 KO로 유지되어야 한다.
         assertEquals(LangCode.KO, viewModel.uiState.value.selectedLearningLanguage)
+        // 오래된 EN chart 결과가 Hidden 상태를 다시 Ready로 바꾸면 안 된다.
         assertTrue(viewModel.uiState.value.metricChartState is StatisticsMetricChartState.Hidden)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `old chart result does not overwrite latest metric selection`() = runTest {
+        // 빠른 지표 전환 중 이전 chart 요청이 늦게 끝나도 마지막으로 누른 metric만 dialog에 남아야 한다.
+        // language는 고정하고 metric만 빠르게 바꾸어 chart requestVersion 방어만 분리해서 검증한다.
+        val learningRepo = FakeLearningStateRepo(initialState = statisticsState(LangCode.EN))
+        // 모든 chart 요청은 같은 EN history stream을 기다리도록 만들어 race 상황을 단순화한다.
+        val statisticsRepo = ControlledStatisticsRepository()
+        val viewModel = StatisticsViewModel(
+            observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+            preloadLearningStateUseCase = PreloadLearningStateUseCase(learningRepo),
+            observeStatisticsHistoryUseCase = ObserveStatisticsHistoryUseCase(statisticsRepo),
+            refreshStatisticsHistoryUseCase = RefreshStatisticsHistoryUseCase(statisticsRepo),
+            syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
+            getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
+                getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+            ),
+            getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
+        )
+
+        // 각 클릭은 새 chart requestVersion을 만들고 이전 chart job을 취소한다.
+        // 테스트 repository는 같은 history 응답을 늦게 풀어 오래된 요청들이 동시에 완료될 수 있는 상황을 만든다.
+        // 첫 클릭은 곧 stale이 될 요청이다.
+        viewModel.onMetricClick(StatisticsMetricType.GrammarAccuracy)
+        // 두 번째 클릭도 마지막 클릭이 아니므로 stale 후보가 된다.
+        viewModel.onMetricClick(StatisticsMetricType.FluencyScore)
+        // 마지막 클릭만 최종 dialog 상태로 남아야 한다.
+        viewModel.onMetricClick(StatisticsMetricType.NaturalnessScore)
+
+        // 응답이 오기 전에는 마지막 선택 metric 기준 Loading 상태여야 한다.
+        val loading = viewModel.uiState.value.metricChartState as StatisticsMetricChartState.Loading
+        assertEquals(StatisticsMetricType.NaturalnessScore, loading.metricType)
+
+        // 늦게 도착한 history 응답을 풀었을 때도 마지막 선택인 NaturalnessScore만 Ready 상태로 반영되어야 한다.
+        // 이전 요청이 살아 있었다면 같은 release에서 앞선 metric이 화면을 덮을 수 있다.
+        statisticsRepo.release(LangCode.EN)
+        // release 이후 chart 변환 coroutine까지 마무리한다.
+        advanceUntilIdle()
+
+        // 최종 Ready metric이 마지막 클릭과 같아야 빠른 지표 전환 방어가 성립한다.
+        val ready = viewModel.uiState.value.metricChartState as StatisticsMetricChartState.Ready
+        assertEquals(StatisticsMetricType.NaturalnessScore, ready.metricType)
     }
 
     private fun statisticsState(lang: LangCode): GlobalLangState {
         // lang 별로 서로 다른 external snapshot을 만들어, selected language 전환이 화면에 반영되는지 검증한다.
+        // EN은 시작 상태, KO는 언어 변경 이후 상태로 사용한다.
         val selectedExternal = if (lang == LangCode.EN) {
             ExternalMetrics(
                 vocabularyLevel = VocabLevel.B2,
@@ -125,6 +186,7 @@ class StatisticsViewModelTest {
             )
         }
 
+        // ViewModel은 selectedLang과 currentLangState.updatedAt을 signature로 삼아 reload 여부를 판단한다.
         return GlobalLangState(
             userPref = UserLangPref.initial(
                 nativeLang = LangCode.KO,
@@ -134,6 +196,7 @@ class StatisticsViewModelTest {
                 learningLangs = listOf(LangCode.EN, LangCode.KO)
             ),
             langStates = mapOf(
+                // EN state는 최초 화면 진입과 이전 chart 요청의 기준이다.
                 LangCode.EN to LangState.initial(LangCode.EN).copy(
                     external = ExternalMetrics(
                         vocabularyLevel = VocabLevel.B2,
@@ -144,12 +207,14 @@ class StatisticsViewModelTest {
                     ),
                     updatedAt = 1_000L
                 ),
+                // KO state는 언어 전환 이후 최신 context를 만들기 위한 입력이다.
                 LangCode.KO to LangState.initial(LangCode.KO).copy(
                     external = selectedExternal,
                     updatedAt = 2_000L
                 )
             ),
             dashSummaries = mapOf(
+                // Statistics 테스트에서 직접 읽지는 않지만 GlobalLangState 정합성을 위해 summary를 채운다.
                 LangCode.EN to DashSummary.initial(LangCode.EN),
                 LangCode.KO to DashSummary.initial(LangCode.KO)
             ),
@@ -168,6 +233,7 @@ class StatisticsViewModelTest {
     private class FakeLearningStateRepo(
         initialState: GlobalLangState
     ) : LearningStateRepo {
+        // MutableStateFlow를 사용해 실제 repository observe처럼 새 GlobalLangState emit을 만들 수 있다.
         private val state = MutableStateFlow(initialState)
 
         fun emit(next: GlobalLangState) {
@@ -186,11 +252,13 @@ class StatisticsViewModelTest {
         override suspend fun updateLanguageState(
             input: com.app.umma.domain.model.learningstate.LangStateUpdateInput
         ): Result<com.app.umma.domain.model.learningstate.LearningStateUpdateResult> =
+            // 이 ViewModel 테스트는 update 경로를 쓰지 않으므로 호출되면 테스트 설계가 잘못된 것이다.
             Result.failure(UnsupportedOperationException())
 
         override suspend fun updateFlashcardSummary(
             input: com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
         ): Result<com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult> =
+            // Flashcard summary 갱신도 StatisticsViewModel의 관심사가 아니므로 사용을 금지한다.
             Result.failure(UnsupportedOperationException())
 
         override suspend fun createInitial(
@@ -209,6 +277,7 @@ class StatisticsViewModelTest {
     private class FakeAuthRepository(
         private val uid: String?
     ) : AuthRepository {
+        // GetCurrentUserUidUseCase가 읽을 현재 로그인 사용자 snapshot이다.
         override val currentUserUid: Flow<String?> = MutableStateFlow(uid)
 
         override suspend fun signInWithGoogle(idToken: String): Result<String> =
@@ -222,7 +291,9 @@ class StatisticsViewModelTest {
 
     private class ControlledStatisticsRepository : StatisticsRepository {
         // language별로 다른 completion 시점을 만들어, 오래된 결과가 늦게 도착하는 상황을 재현한다.
+        // CompletableDeferred를 잡아두면 테스트가 원하는 시점에 observeHistory 결과를 release할 수 있다.
         private val pendingResults = mutableMapOf<LangCode, CompletableDeferred<StatisticsHistoryState>>()
+        // pending sync 호출 여부는 side effect 기록만으로 검증한다.
         val syncedUserIds = mutableListOf<String>()
 
         override fun observeHistory(
@@ -236,6 +307,7 @@ class StatisticsViewModelTest {
         override suspend fun recordHistory(
             history: StatisticsHistory
         ): Result<com.app.umma.domain.model.statistics.StatisticsHistoryRecordResult> {
+            // StatisticsViewModel은 기록을 만들지 않지만 interface 구현을 위해 성공 결과를 제공한다.
             return Result.success(
                 com.app.umma.domain.model.statistics.StatisticsHistoryRecordResult(
                     historyId = history.id,
@@ -250,7 +322,9 @@ class StatisticsViewModelTest {
         override suspend fun refreshHistory(
             userId: String,
             language: LangCode
-        ): Result<Unit> = Result.success(Unit)
+        ): Result<Unit> =
+            // refresh 자체는 이번 ViewModel 테스트의 관심사가 아니므로 항상 성공시킨다.
+            Result.success(Unit)
 
         override suspend fun syncPendingHistories(userId: String): Result<Int> {
             // ViewModel이 화면 진입 시 현재 userId로 pending retry를 호출했는지 확인할 수 있도록 기록한다.
@@ -265,6 +339,7 @@ class StatisticsViewModelTest {
         }
 
         private fun content(language: LangCode): StatisticsHistoryState {
+            // 두 점 이상이 있어야 chart mapper가 Empty가 아니라 Ready를 만들 수 있다.
             return StatisticsHistoryState.Content(
                 listOf(
                     StatisticsHistory(

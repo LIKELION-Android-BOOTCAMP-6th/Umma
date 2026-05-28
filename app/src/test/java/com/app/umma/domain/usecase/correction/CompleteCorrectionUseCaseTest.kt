@@ -546,6 +546,11 @@ class CompleteCorrectionUseCaseTest {
             }
             return Result.success(FlashcardReviewSummary(dueFlashcards = 1, savedFlashcards = 1))
         }
+
+        override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
+            // CompleteCorrectionUseCase는 저장 직후 summary 경계만 검증하므로 dirty sync는 이 테스트 범위가 아니다.
+            return Result.success(0)
+        }
     }
 
     @Test

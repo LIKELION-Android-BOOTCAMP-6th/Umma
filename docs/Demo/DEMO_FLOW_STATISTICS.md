@@ -12,7 +12,7 @@
 기본 실행 순서:
 
 1. 테스트할 시나리오의 preset을 확인한다.
-2. fake repository에서 해당 preset을 활성화한다.
+2. `StatisticsDemoPresetConfig.activePreset`을 해당 preset으로 변경한다.
 3. Android Studio에서 Build Variant를 `mockDebug`로 변경한다.
 4. 앱을 다시 빌드/실행한다.
 5. Dashboard에서 통계 카드로 진입한다.
@@ -40,10 +40,21 @@ Preset은 테스트 상태를 한 번에 바꾸기 위한 묶음이다.
 
 Preset 전환 방법:
 
-- 활성 preset은 fake repository의 preset 선택 지점에서 하나만 선택한다.
+- 활성 preset은 `app/src/main/java/com/app/umma/data/repository/fake/demo/statistics/StatisticsDemoPreset.kt`의 `StatisticsDemoPresetConfig.activePreset`에서 하나만 선택한다.
 - 한 번의 앱 실행에서는 하나의 preset만 활성화한다.
 - preset을 바꾼 뒤에는 앱을 다시 빌드/실행한다.
 - 확인 후에는 활성 preset을 기본값으로 되돌린다.
+
+예시:
+
+```kotlin
+object StatisticsDemoPresetConfig {
+    val activePreset: StatisticsDemoPreset = StatisticsDemoPreset.NormalStatistics
+}
+```
+
+`지표별 축/라벨 확인`, `Statistics overview 구성 실패`처럼 두 개 이상의 preset을 확인하는 시나리오는
+각 preset마다 값을 바꾸고 앱을 다시 실행해 별도 회차로 확인한다.
 
 ---
 
@@ -64,7 +75,7 @@ Preset 전환 방법:
 | 9 | `InitialExternalMetrics` | `FakeLearningStateRepo` | `ExternalMetrics.initial()` state | 지표 값 초기 상태에서도 카드 영역이 깨지지 않는지 확인 |
 | 10-A | `MissingSelectedLanguage` | `FakeLearningStateRepo` | selected language 없음 state | overview 조립 실패가 Error UI로 처리되는지 확인 |
 | 10-B | `MissingCurrentLangState` | `FakeLearningStateRepo` | 현재 언어 LangState 없음 state | overview 조립 실패가 Error UI로 처리되는지 확인 |
-| 11 | `DelayedMetricSwitch` | `FakeStatisticsRepository` | metric별 delayed flow | 빠른 지표 전환 시 이전 지표 결과가 마지막 선택을 덮지 않는지 확인 |
+| 11 | `DelayedMetricSwitch` | `FakeStatisticsRepository` | 이전 chart 요청이 늦게 완료되는 delayed history flow | 빠른 지표 전환 시 이전 지표 결과가 마지막 선택을 덮지 않는지 확인 |
 
 ---
 
@@ -341,7 +352,7 @@ Fake 준비:
 Fake 준비:
 
 - 활성 preset: `DelayedMetricSwitch`
-- 포함 설정: metric별 delayed flow
+- 포함 설정: 이전 chart 요청이 늦게 완료되는 delayed history flow
 - 실행 방법: `DelayedMetricSwitch` preset 활성화 후 여러 지표 카드를 빠르게 연속 클릭
 
 1. Statistics 화면 진입
