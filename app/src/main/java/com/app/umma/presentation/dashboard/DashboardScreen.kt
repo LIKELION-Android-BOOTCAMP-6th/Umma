@@ -393,8 +393,8 @@ private fun DashboardContent(
  *
  * Empty 정책 (별도 Empty 화면을 두지 않고 카드 단위로 표현):
  *  - 대화 카드: 항상 ThemePrimary 유지. 데이터 없으면 우측 상단에 점(isEmpty=true) 만 표시.
- *  - 학습/교정/통계 카드: 데이터 없으면 회색(TextWrong) + 안내 토스트 후 본 화면으로 이동.
- *    각 본 화면의 자체 Empty UI 가 후속 안내를 담당한다.
+ *  - 학습/교정/통계 카드: 데이터 없으면 회색(TextWrong) 으로 표시하고 해당 화면으로 이동한다.
+ *    각 본 화면의 자체 Empty UI 가 사용자 안내를 담당한다. (AC: 카드 진입 토스트 제거)
  */
 @Composable
 private fun DashboardCardGrid(
@@ -404,8 +404,6 @@ private fun DashboardCardGrid(
     onNavigateToCorrection: () -> Unit,
     onNavigateToStatistics: () -> Unit
 ) {
-    val context = LocalContext.current
-
     // 각 카드별 데이터 유무 판정 — 카드 내부 칩/배지 hide 조건과 동일 기준.
     val isConversationEmpty = summary?.recentTopic == null && (summary?.recentMinutes ?: 0) == 0
     val isStudyEmpty = (summary?.dueFlashcards ?: 0) == 0 && (summary?.savedFlashcards ?: 0) == 0
@@ -435,12 +433,7 @@ private fun DashboardCardGrid(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
                 savedFlashcards = summary?.savedFlashcards ?: 0,
                 accentColor = if (isStudyEmpty) TextWrong else null,
-                onClick = {
-                    if (isStudyEmpty) {
-                        Toast.makeText(context, "저장된 카드 없음", Toast.LENGTH_SHORT).show()
-                    }
-                    onNavigateToSrsStudy()
-                },
+                onClick = onNavigateToSrsStudy,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -458,12 +451,7 @@ private fun DashboardCardGrid(
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
                 accentColor = if (isFeedbackEmpty) TextWrong else null,
-                onClick = {
-                    if (isFeedbackEmpty) {
-                        Toast.makeText(context, "교정 가능 데이터 없음", Toast.LENGTH_SHORT).show()
-                    }
-                    onNavigateToCorrection()
-                },
+                onClick = onNavigateToCorrection,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -474,12 +462,7 @@ private fun DashboardCardGrid(
                 fluencyScoreDelta = summary?.fluencyDelta ?: 0,
                 naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
                 accentColor = if (isStatisticsEmpty) TextWrong else null,
-                onClick = {
-                    if (isStatisticsEmpty) {
-                        Toast.makeText(context, "데이터 부족", Toast.LENGTH_SHORT).show()
-                    }
-                    onNavigateToStatistics()
-                },
+                onClick = onNavigateToStatistics,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()

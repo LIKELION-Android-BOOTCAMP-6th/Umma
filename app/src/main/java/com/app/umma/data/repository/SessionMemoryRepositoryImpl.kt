@@ -1,6 +1,7 @@
 package com.app.umma.data.repository
 
 import android.util.Log
+import com.app.umma.data.repository.realtime.TopicSummaryAiClient
 import com.app.umma.data.source.local.RemoteSyncStatus
 import com.app.umma.data.source.local.SessionMemoryLocalDataSource
 import com.app.umma.data.source.local.SessionMetadataEntity
@@ -12,8 +13,10 @@ import com.app.umma.domain.model.realtime.AppendTurnCommand
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,7 +36,9 @@ import javax.inject.Inject
 class SessionMemoryRepositoryImpl @Inject constructor(
     private val localDataSource: SessionMemoryLocalDataSource,
     private val remoteDataSource: SessionMemoryRemoteDataSource,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    // 세션 주제 요약 AI 호출 어댑터. 교정 완료 직후 topicSummaries 갱신에만 사용한다. (#162-C)
+    private val topicSummaryAiClient: TopicSummaryAiClient
 ) : SessionMemoryRepository {
 
     /**
@@ -221,6 +226,93 @@ class SessionMemoryRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun summarizeAndSaveTopics(command: SummarizeTopicsCommand): Result<Unit> {
+        return try {
+            val userId = requireUserId()
+            val turns = localDataSource.getTurns(userId, command.language.code)
+
+            // turn 이 없으면 AI 호출 없이 바로 성공으로 처리한다.
+            if (turns.isEmpty()) return Result.success(Unit)
+
+            // sessionId 별로 그룹핑하고, 각 세션의 마지막 turn createdAt 기준 내림차순 정렬 후 최근 5개 선정.
+            // session_turns 테이블에 sessionId 별 MAX(createdAt) 쿼리가 없으므로 Kotlin 에서 처리한다.
+            val recentSessions = turns
+                .groupBy { it.sessionId }
+                .entries
+                .sortedByDescending { (_, sessionTurns) -> sessionTurns.maxOf { it.createdAt } }
+                .take(RECENT_SESSION_COUNT)
+
+            // 각 세션을 대화 텍스트 블록으로 변환한다. 내용이 없는 세션은 제외한다.
+            val sessionTexts = recentSessions.mapNotNull { (_, sessionTurns) ->
+                val block = sessionTurns
+                    .filter { it.text.isNotBlank() && it.text.trim().length > MIN_MEANINGFUL_TURN_LENGTH }
+                    .takeLast(MAX_TURNS_PER_SESSION) // 토큰 제한: 세션 당 최대 턴 수 제한
+                    .joinToString("\n") { "${it.role}: ${it.text}" }
+                block.ifBlank { null }
+            }
+
+            if (sessionTexts.isEmpty()) return Result.success(Unit)
+
+            val prompt = buildTopicSummaryPrompt(sessionTexts)
+            val jsonResponse = topicSummaryAiClient.generateJson(prompt)
+            val summaries = parseTopicSummaries(jsonResponse)
+
+            // 요약이 파싱되지 않으면 기존 topicSummaries 를 덮어쓰지 않는다.
+            if (summaries.isEmpty()) return Result.success(Unit)
+
+            val summariesJson = JSONArray(summaries).toString()
+            localDataSource.updateTopicSummaries(
+                userId = userId,
+                language = command.language.code,
+                summariesJson = summariesJson,
+                updatedAt = command.requestedAt
+            )
+
+            Log.d(SESSION_MEMORY_TAG, "topic summaries saved lang=${command.language.code}, count=${summaries.size}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w(SESSION_MEMORY_TAG, "summarizeAndSaveTopics failed lang=${command.language.code}, reason=${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 세션 텍스트 목록으로 주제 요약 프롬프트를 만듭니다.
+     *
+     * @param sessionTexts 세션별 대화 텍스트 블록 목록
+     * @return AI 에 전달할 프롬프트 문자열
+     */
+    private fun buildTopicSummaryPrompt(sessionTexts: List<String>): String {
+        val sessionsBlock = sessionTexts.mapIndexed { i, text ->
+            "Session ${i + 1}:\n$text"
+        }.joinToString("\n\n")
+
+        return """
+            Summarize the main topic of each conversation session in 1-2 sentences.
+            Return ONLY a JSON object with a "summaries" array — no markdown, no explanation.
+
+            Format: {"summaries": ["summary of session 1", "summary of session 2", ...]}
+
+            Conversations:
+            $sessionsBlock
+        """.trimIndent()
+    }
+
+    /**
+     * AI 응답 JSON 을 요약 문자열 목록으로 파싱합니다.
+     *
+     * @param json `{"summaries": [...]}` 형태의 JSON 문자열
+     * @return 요약 목록. 파싱 실패 시 빈 리스트를 반환해 기존 데이터를 보호한다.
+     */
+    private fun parseTopicSummaries(json: String): List<String> {
+        return try {
+            val array = JSONObject(json).getJSONArray("summaries")
+            List(array.length()) { array.getString(it) }.filter { it.isNotBlank() }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     /**
      * 현재 로그인된 사용자 UID 를 조회합니다.
      *
@@ -378,5 +470,14 @@ class SessionMemoryRepositoryImpl @Inject constructor(
 
     private companion object {
         const val SESSION_MEMORY_TAG = "SessionMemoryFlow"
+
+        /** 요약할 최근 세션 최대 개수. (#162-C) */
+        const val RECENT_SESSION_COUNT = 5
+
+        /** 세션 당 프롬프트에 포함할 최대 turn 수 (토큰 제한). (#162-C) */
+        const val MAX_TURNS_PER_SESSION = 20
+
+        /** 의미 있는 발화로 판단할 최소 텍스트 길이 (문자 수). (#162-C) */
+        const val MIN_MEANINGFUL_TURN_LENGTH = 2
     }
 }

@@ -18,12 +18,15 @@ class BuildPromptUseCase @Inject constructor() {
      * @param langCode 현재 학습 중인 언어
      * @param langState 해당 언어의 장기 학습 데이터 (어휘 수준 포함)
      * @param recentFullContext 저장 완료된 최근 대화 context
+     * @param recentTopicSummaries 최근 5개 세션 주제 요약 목록. 존재 시 AI 에 전달해 대화 연속성을 높인다. (#162-C)
+     *   현재 호출처 wiring 은 후속 PR 에서 완성된다 — 이번 PR 에서는 시그니처와 주입 hook 만 추가.
      * @return Gemini Live API에 전달할 시스템 지침 문자열
      */
     operator fun invoke(
         langCode: LangCode,
         langState: LangState?,
-        recentFullContext: List<SessionTurn> = emptyList()
+        recentFullContext: List<SessionTurn> = emptyList(),
+        recentTopicSummaries: List<String> = emptyList()
     ): String {
         val languageName = when(langCode) {
             LangCode.EN -> "English"
@@ -52,10 +55,19 @@ class BuildPromptUseCase @Inject constructor() {
             """.trimIndent()
         }
 
+        // 최근 세션 주제 요약이 있으면 AI 가 대화 방향을 자연스럽게 이어갈 수 있도록 주입한다.
+        // 호출처가 emptyList() 를 전달할 경우 이 블록은 프롬프트에 포함되지 않는다. (#162-C)
+        val topicsInstruction = if (recentTopicSummaries.isNotEmpty()) {
+            val topicsList = recentTopicSummaries.joinToString(separator = "\n") { "- $it" }
+            "\nRecent topics the student has discussed:\n$topicsList"
+        } else {
+            ""
+        }
+
         return """
-            You are Umma, a friendly $languageName tutor. 
-            The student's level is $level. 
-            $contextInstruction
+            You are Umma, a friendly $languageName tutor.
+            The student's level is $level.
+            $contextInstruction$topicsInstruction
             Lead a natural conversation, and adapt your complexity to the student.
             Keep responses conversational and concise.
         """.trimIndent()

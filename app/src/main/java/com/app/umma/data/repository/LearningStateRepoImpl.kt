@@ -172,11 +172,17 @@ class LearningStateRepoImpl @Inject constructor(
             val updatedSession = current.sessionSummaries[lang]
                 ?: SessionSummary.initial(lang)
 
+            // 교정 완료 흐름이 새 주제를 넘겨준 경우에만 갱신하고, 그 외 부분 갱신 호출은 이전 값을 보존한다.
+            // updateCorrectionSignal 의 같은 패턴(L336)을 따라 dash/session 양쪽에 같은 값을 기록해
+            //   Dashboard 카드와 Chat 진입 시 주제가 어긋나지 않게 한다.
+            val nextTopic = input.recentTopic ?: updatedSession.recentTopic ?: updatedDash.recentTopic
+
             val nextState = current.copy(
                 langStates = current.langStates + (lang to preparedState),
                 dashSummaries = current.dashSummaries + (
                         lang to updatedDash.copy(
                             recentMinutes = measuredMinutes,
+                            recentTopic = nextTopic,
                             correctionAvailable = correctionAvailable,
                             grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
                             fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
@@ -188,6 +194,7 @@ class LearningStateRepoImpl @Inject constructor(
                 sessionSummaries = current.sessionSummaries + (
                         lang to updatedSession.copy(
                             recentMinutes = measuredMinutes,
+                            recentTopic = nextTopic,
                             correctionAvailable = correctionAvailable,
                             updatedAt = input.analyzedAt
                         )
