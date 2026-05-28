@@ -543,6 +543,7 @@ private fun ChatEntryGuardScreen(
 
 internal fun buildStatusText(uiState: ChatUiState): String {
     uiState.errorMessage?.let { return it }
+    uiState.entryMessageOverride?.let { return it }
 
     return when {
         uiState.entryStage == ChatEntryStage.GUARDING -> "요구사항 확인중.."

@@ -19,6 +19,7 @@ import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseC
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.ObserveAIEventUseCase
+import com.app.umma.domain.usecase.chat.NewSessionReason
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
 import com.app.umma.domain.usecase.chat.RetryConnectionUseCase
 import com.app.umma.domain.usecase.chat.SendAudioDataUseCase
@@ -114,6 +115,7 @@ class ChatViewModel @Inject constructor(
                 it.copy(
                     entryStage = ChatEntryStage.GUARDING,
                     blockedReason = null,
+                    entryMessageOverride = null,
                     sessionState = SessionState.LOADING,
                     aiState = AIState.IDLE,
                     showSubtitle = false,
@@ -128,6 +130,7 @@ class ChatViewModel @Inject constructor(
                     it.copy(
                         entryStage = ChatEntryStage.BLOCKED_NETWORK,
                         blockedReason = ChatBlockedReason.OFFLINE,
+                        entryMessageOverride = null,
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
                         isRecoverableError = false,
@@ -142,6 +145,7 @@ class ChatViewModel @Inject constructor(
                 it.copy(
                     entryStage = ChatEntryStage.RESTORING,
                     blockedReason = null,
+                    entryMessageOverride = null,
                     sessionState = SessionState.LOADING,
                     aiState = AIState.RECONNECTING,
                     isRecoverableError = false,
@@ -150,14 +154,17 @@ class ChatViewModel @Inject constructor(
             }
             logEntry("restoring")
             delay(entryStageDelayMs)
-            when (val restoreResult = retryConnectionUseCase()) {
+            val restoreResult = retryConnectionUseCase()
+            when (restoreResult) {
                 is RetryConnectionResult.Reconnected -> {
                     logEntry("restore success sessionId=${restoreResult.sessionId}")
                     handleSessionStarted(restoreResult.sessionId)
                     return@launch
                 }
                 is RetryConnectionResult.Failed -> Unit
-                is RetryConnectionResult.RequireNewSession -> Unit
+                is RetryConnectionResult.RequireNewSession -> {
+                    logEntry("restore skipped reason=${restoreResult.reason}")
+                }
             }
             logEntry("restore failed, fallback to new session")
 
@@ -165,6 +172,14 @@ class ChatViewModel @Inject constructor(
                 it.copy(
                     entryStage = ChatEntryStage.STARTING_NEW,
                     blockedReason = null,
+                    entryMessageOverride = when (restoreResult) {
+                        is RetryConnectionResult.RequireNewSession ->
+                            buildEntryMessageForNewSession(
+                                reason = restoreResult.reason,
+                                targetLang = restoreResult.targetLang
+                            )
+                        else -> null
+                    },
                     sessionState = SessionState.LOADING,
                     aiState = AIState.IDLE,
                     isRecoverableError = false,
@@ -209,6 +224,7 @@ class ChatViewModel @Inject constructor(
             it.copy(
                 entryStage = ChatEntryStage.READY,
                 blockedReason = null,
+                entryMessageOverride = null,
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = sessionId,
@@ -331,6 +347,7 @@ class ChatViewModel @Inject constructor(
                 it.copy(
                     entryStage = ChatEntryStage.RESTORING,
                     blockedReason = null,
+                    entryMessageOverride = null,
                     sessionState = SessionState.RECONNECTING,
                     aiState = AIState.RECONNECTING,
                     isRecoverableError = false,
@@ -346,6 +363,7 @@ class ChatViewModel @Inject constructor(
                         it.copy(
                             entryStage = ChatEntryStage.READY,
                             blockedReason = null,
+                            entryMessageOverride = null,
                             sessionState = SessionState.READY,
                             aiState = AIState.IDLE,
                             activeSessionId = result.sessionId,
@@ -364,6 +382,7 @@ class ChatViewModel @Inject constructor(
                         it.copy(
                             entryStage = ChatEntryStage.ERROR,
                             blockedReason = null,
+                            entryMessageOverride = null,
                             sessionState = SessionState.ERROR,
                             aiState = AIState.ERROR,
                             isRecoverableError = true,
@@ -378,7 +397,10 @@ class ChatViewModel @Inject constructor(
                 }
 
                 is RetryConnectionResult.RequireNewSession -> {
-                    fallbackToNewSession(result.reason)
+                    fallbackToNewSession(
+                        reason = result.reason,
+                        targetLang = result.targetLang
+                    )
                 }
             }
         }
@@ -388,13 +410,18 @@ class ChatViewModel @Inject constructor(
     /**
      * 같은 앱 세션 복구가 불가능할 때 새 세션으로 전환합니다.
      * */
-    private suspend fun fallbackToNewSession(reason: String) {
+    private suspend fun fallbackToNewSession(
+        reason: NewSessionReason,
+        targetLang: LangCode?
+    ) {
         stopSessionUseCase()
+        logEntry("fallback to new session reason=$reason")
 
         _uiState.update {
             it.copy(
                 entryStage = ChatEntryStage.STARTING_NEW,
                 blockedReason = null,
+                entryMessageOverride = buildEntryMessageForNewSession(reason, targetLang),
                 sessionState = SessionState.LOADING,
                 aiState = AIState.IDLE,
                 isRecoverableError = false,
@@ -411,6 +438,7 @@ class ChatViewModel @Inject constructor(
                     it.copy(
                         entryStage = ChatEntryStage.READY,
                         blockedReason = null,
+                        entryMessageOverride = null,
                         sessionState = SessionState.READY,
                         aiState = AIState.IDLE,
                         activeSessionId = sessionId,
@@ -428,6 +456,7 @@ class ChatViewModel @Inject constructor(
                     it.copy(
                         entryStage = ChatEntryStage.ERROR,
                         blockedReason = ChatBlockedReason.UNRECOVERABLE,
+                        entryMessageOverride = null,
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
                         isRecoverableError = false,
@@ -531,6 +560,7 @@ class ChatViewModel @Inject constructor(
             it.copy(
                 entryStage = ChatEntryStage.READY,
                 blockedReason = null,
+                entryMessageOverride = null,
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
@@ -806,6 +836,7 @@ class ChatViewModel @Inject constructor(
             it.copy(
                 entryStage = ChatEntryStage.READY,
                 blockedReason = null,
+                entryMessageOverride = null,
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
@@ -831,6 +862,7 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 entryStage = ChatEntryStage.ERROR,
+                entryMessageOverride = null,
                 isRecording = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
@@ -860,6 +892,7 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 entryStage = ChatEntryStage.ERROR,
+                entryMessageOverride = null,
                 isRecording = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
@@ -1017,6 +1050,29 @@ class ChatViewModel @Inject constructor(
             "네트워크가 불안정해 연결이 끊겼습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요."
         } else {
             fallback
+        }
+    }
+
+    private fun buildEntryMessageForNewSession(
+        reason: NewSessionReason,
+        targetLang: LangCode?
+    ): String? {
+        return when (reason) {
+            NewSessionReason.LANG_CHANGED -> {
+                val languageName = targetLang?.toDisplayName() ?: "선택한 언어"
+                "$languageName 세션으로 전환 중..."
+            }
+            NewSessionReason.NO_ACTIVE_SESSION,
+            NewSessionReason.RESTORE_UNAVAILABLE -> null
+        }
+    }
+
+    private fun LangCode.toDisplayName(): String {
+        return when (this) {
+            LangCode.KO -> "한국어"
+            LangCode.EN -> "영어"
+            LangCode.JA -> "일본어"
+            else -> code.uppercase()
         }
     }
 

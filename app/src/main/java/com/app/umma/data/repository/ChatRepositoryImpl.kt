@@ -605,6 +605,8 @@ class ChatRepositoryImpl @Inject constructor(
 
     override fun getActiveSessionId(): String? = activeSessionId
 
+    override fun getCurrentSessionLang(): LangCode? = currentLang
+
     override suspend fun stopSession(clearAppSession: Boolean) = sessionMutex.withLock {
         stopInternal(clearAppSession = clearAppSession)
     }

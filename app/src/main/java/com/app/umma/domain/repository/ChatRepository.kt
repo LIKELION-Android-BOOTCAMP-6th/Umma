@@ -52,6 +52,8 @@ interface ChatRepository {
      */
     fun getActiveSessionId(): String?
 
+    fun getCurrentSessionLang(): LangCode?
+
     /**
      * 사용자의 오디오 chunk를 실시간 세션으로 전송합니다.
      *
