@@ -477,9 +477,22 @@ class CorrectionViewModel @Inject constructor(
             // 1~4단계 실패와 5단계 호출 실패 분기는 각자 위에서 applyCompletionOutcome(err) + return@launch
             // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
             // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
-            if (result.isSuccess) {
-                _events.send(CorrectionEvent.NavigateToDashboard)
+            result.getOrNull()?.let { completion ->
+                _events.send(
+                    CorrectionEvent.NavigateToDashboard(
+                        message = completion.toDashboardToastMessage(),
+                    )
+                )
             }
+        }
+    }
+
+    private fun CompleteCorrectionResult.toDashboardToastMessage(): String {
+        val savedCount = savedFlashcardIds.size
+        return if (savedCount > 0) {
+            "학습 카드 ${savedCount}개가 저장되었어요"
+        } else {
+            "학습 카드가 저장되었어요"
         }
     }
 

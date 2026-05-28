@@ -29,5 +29,7 @@ sealed interface CorrectionEvent {
      * 소비 위치: [CorrectionScreen] 의 LaunchedEffect collect 블록 → 상위 NavHost 가 정의한
      * Dashboard 복귀 콜백(CorrectionGraph 통째로 pop + launchSingleTop) 호출.
      */
-    data object NavigateToDashboard : CorrectionEvent
+    data class NavigateToDashboard(
+        val message: String,
+    ) : CorrectionEvent
 }

@@ -26,10 +26,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +49,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
+import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
@@ -71,6 +74,7 @@ import com.app.umma.presentation.dashboard.component.FeedbackCard
 import com.app.umma.presentation.dashboard.component.LearningLanguageSelector
 import com.app.umma.presentation.dashboard.component.StatisticsCard
 import com.app.umma.presentation.dashboard.component.StudyCard
+import kotlinx.coroutines.delay
 
 /**
  * 대시보드(홈) 화면.
@@ -94,6 +98,8 @@ fun DashboardScreen(
     onNavigateToCorrection: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToMyPage: () -> Unit,
+    correctionCompletionMessage: String? = null,
+    onCorrectionCompletionMessageConsumed: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
 ) {
@@ -125,6 +131,7 @@ fun DashboardScreen(
     // 다이얼로그 안에서의 임시 선택 lang. 다이얼로그 진입 시 selectedLearningLanguage 로
     //   초기화, 사용자가 다른 항목을 누르면 갱신, "선택" 확인 시 실제 ViewModel 에 반영.
     var dialogSelectedLang by remember { mutableStateOf<LangCode?>(null) }
+    var correctionToastMessage by remember { mutableStateOf<String?>(null) }
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
@@ -147,6 +154,22 @@ fun DashboardScreen(
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg.asString(context))
+        }
+    }
+
+    LaunchedEffect(correctionCompletionMessage) {
+        correctionCompletionMessage?.let { message ->
+            correctionToastMessage = message
+            onCorrectionCompletionMessageConsumed()
+        }
+    }
+
+    LaunchedEffect(correctionToastMessage) {
+        correctionToastMessage?.let { message ->
+            delay(CORRECTION_COMPLETION_TOAST_DURATION_MS)
+            if (correctionToastMessage == message) {
+                correctionToastMessage = null
+            }
         }
     }
 
@@ -200,6 +223,15 @@ fun DashboardScreen(
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
                     onNavigateToSrsStudy = onNavigateToSrsStudy
+                )
+            }
+            correctionToastMessage?.let { message ->
+                DashboardCorrectionCompletionToast(
+                    message = message,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = SpacingL)
+                        .padding(bottom = CORRECTION_COMPLETION_TOAST_BOTTOM_PADDING)
                 )
             }
         }
@@ -385,16 +417,45 @@ private fun DashboardContent(
 }
 
 /**
- * 2x2 카드 그리드. (대화 / 학습) (교정 / 통계).
+ * Correction 완료 후 Dashboard 위에 잠깐 노출하는 one-shot 안내 토스트.
  *
- * 모든 카드는 [summary] 의 필드를 받아 표시 — null 인 경우 합리적 기본값으로 매핑.
- *  - non-null 필드(Int/Boolean): ?: 0 / ?: false 로 fallback
- *  - nullable 필드(topic): 그대로 null 전달 — 카드 내부에서 표시 분기.
+ * 기존 Snackbar 는 sync 실패처럼 사용자가 따로 확인해야 하는 transient error 를 맡고 있으므로,
+ * 저장 완료 안내는 별도 overlay 로 띄워 두 메시지가 동시에 발생해도 서로 덮지 않게 한다.
+ */
+@Composable
+private fun DashboardCorrectionCompletionToast(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(ChipCornerRadius),
+        color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = SpacingM, vertical = SpacingS),
+            horizontalArrangement = Arrangement.spacedBy(SpacingS),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = message,
+                style = TextAnalysisR,
+            )
+        }
+    }
+}
+
+/**
+ * 2x2 카드 그리드. 모든 카드는 [summary] 필드만 받아 Dashboard SSOT 경계를 유지한다.
  *
- * Empty 정책 (별도 Empty 화면을 두지 않고 카드 단위로 표현):
- *  - 대화 카드: 항상 ThemePrimary 유지. 데이터 없으면 우측 상단에 점(isEmpty=true) 만 표시.
- *  - 학습/교정/통계 카드: 데이터 없으면 회색(TextWrong) 으로 표시하고 해당 화면으로 이동한다.
- *    각 본 화면의 자체 Empty UI 가 사용자 안내를 담당한다. (AC: 카드 진입 토스트 제거)
+ * 데이터가 없는 카드도 각 기능 화면의 Empty UI 로 진입할 수 있도록 클릭 동선은 유지한다.
  */
 @Composable
 private fun DashboardCardGrid(
@@ -533,6 +594,9 @@ private val dashboardLanguageOptions = listOf(
  *  - 학습 중인 항목([isLearning]) 은 텍스트 우측에 TextCorrect 색 체크 아이콘
  *  - selectedLang 이면서 학습 중인 경우 두 표시(보더 + 체크) 가 함께 노출됨 — 의도된 동작
  */
+private const val CORRECTION_COMPLETION_TOAST_DURATION_MS = 1_500L
+private val CORRECTION_COMPLETION_TOAST_BOTTOM_PADDING = 88.dp
+
 @Composable
 private fun DashboardLanguageButton(
     text: String,

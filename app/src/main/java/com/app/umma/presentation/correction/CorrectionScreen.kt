@@ -81,7 +81,7 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CorrectionScreen(
-    onNavigateToDashboard: () -> Unit,
+    onNavigateToDashboard: (String) -> Unit,
     onNavigateToChat: () -> Unit,
     viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
@@ -99,7 +99,7 @@ fun CorrectionScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard()
+                is CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard(event.message)
             }
         }
     }
