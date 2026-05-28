@@ -27,7 +27,10 @@ data class SrsStudyUiState(
     // 저장 실패 시 true -> 화면에 안내 표시
     val hasSaveError: Boolean = false,
     // 발음 재생 중일 때 true -> 버튼 색상 변경
-    val isSpeaking: Boolean = false
+    val isSpeaking: Boolean = false,
+    // 완료 화면에 표시할 학습 카드 수
+    // 덱이 처음 로드된 시점의 카드 수로 고정, Again 은 포함하지 않음
+    val studiedCardCount: Int = 0,
 ) {
     /** 지금 보고 있는 카드, 없으면 null */
     val currentCard: Flashcard?

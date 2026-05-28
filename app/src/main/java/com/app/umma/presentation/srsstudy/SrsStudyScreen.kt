@@ -66,11 +66,13 @@ import com.app.umma.core.theme.TitleDialogSB
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.flashcard.ReviewRating
+import com.app.umma.presentation.srsstudy.component.SrsStudyCompletion
 
 /** SRS 반복학습 화면입니다. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SrsStudyScreen(
+    onNavigateToDashboard: () -> Unit,
     viewModel: SrsStudyViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -96,7 +98,12 @@ fun SrsStudyScreen(
             when {
                 uiState.isLoading -> SrsLoadingContent(Modifier.align(Alignment.Center))
                 uiState.hasInitError -> SrsErrorContent(Modifier.align(Alignment.Center)) { viewModel.onRetry() }
-                uiState.isDone -> SrsDoneContent(Modifier.align(Alignment.Center))
+                uiState.isDone -> SrsStudyCompletion(
+                    studiedCardCount = uiState.studiedCardCount,
+                    onNavigateToDashboard = onNavigateToDashboard,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+
                 uiState.cards.isEmpty() -> SrsEmptyContent(Modifier.align(Alignment.Center))
                 else -> SrsStudyContent(
                     uiState = uiState,
@@ -478,17 +485,3 @@ private fun SrsEmptyContent(modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-private fun SrsDoneContent(modifier: Modifier = Modifier) {
-    Log.d("ummaDev", "SrsDoneContent -----")
-
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(SpacingS)
-    ) {
-        Text("완료")
-        Text("학습 완료")
-        Text("오늘의 복습 완료")
-    }
-}
