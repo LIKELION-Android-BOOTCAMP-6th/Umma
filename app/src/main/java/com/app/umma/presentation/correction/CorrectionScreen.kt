@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -20,8 +22,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
@@ -136,6 +140,7 @@ fun CorrectionScreen(
                     )
                     CorrectionSaveButton(
                         enabled = uiState.canSave,
+                        isLoading = uiState.isSavePreparing || uiState.isCompleting,
                         onClick = viewModel::onSaveClicked,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -177,6 +182,7 @@ fun CorrectionScreen(
                     )
                     CorrectionSaveButton(
                         enabled = uiState.canSave,
+                        isLoading = uiState.isSavePreparing || uiState.isCompleting,
                         onClick = viewModel::onSaveClicked,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -469,13 +475,12 @@ private fun CorrectionError(
  *
  * 활성/비활성 기준은 [CorrectionUiState.canSave] (= Content phase + 1개 이상 선택). 호출자가 그대로 전달한다.
  * 비활성 상태에서는 [BackgroundDeactivated] 회색으로 떨어지고, 활성 상태에서는 [ThemePrimary] 주황으로 표시된다.
- *
- * 비범위:
- *  - 실제 Flashcard 저장 호출 — COR-004 다음 백로그에서 ViewModel.onSaveClicked 본문을 채우는 방식으로 연결.
+ * 저장 진행 중([isLoading]=true)에는 CircularProgressIndicator 와 "저장 중…" 텍스트를 함께 표시한다.
  */
 @Composable
 private fun CorrectionSaveButton(
     enabled: Boolean,
+    isLoading: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -490,7 +495,21 @@ private fun CorrectionSaveButton(
         ),
         modifier = modifier,
     ) {
-        Text(text = "저장")
+        if (isLoading) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(SpacingS),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+                Text(text = "저장 중…")
+            }
+        } else {
+            Text(text = "저장")
+        }
     }
 }
 

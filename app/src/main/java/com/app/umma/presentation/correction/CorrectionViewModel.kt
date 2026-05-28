@@ -20,6 +20,7 @@ import com.app.umma.domain.usecase.realtime.GetCorrectionContextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -466,7 +467,9 @@ class CorrectionViewModel @Inject constructor(
             // 1~4단계 실패와 5단계 호출 실패 분기는 각자 위에서 applyCompletionOutcome(err) + return@launch
             // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
             // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
+            // 800ms 대기: Phase.Done 완료 안내 문구를 사용자가 인지할 시간을 확보한다.
             if (result.isSuccess) {
+                delay(800)
                 _events.send(CorrectionEvent.NavigateToDashboard)
             }
         }
