@@ -67,6 +67,8 @@ class StatisticsViewModel @Inject constructor(
     private var lastObservedSignature: StatisticsContextSignature? = null
     private var latestHistoryState: StatisticsHistoryState? = null
     private var pendingHistoryStateDuringRefresh: StatisticsHistoryState? = null
+    // 언어 변경 중 오래된 overview 조립 결과가 최신 카드 값을 덮지 못하게 막는다.
+    private var overviewRequestVersion: Long = 0L
     // 빠르게 여러 카드를 누르거나 dialog를 닫을 때, 오래된 응답이 최신 상태를 덮지 못하게 막는다.
     private var chartRequestVersion: Long = 0L
 
@@ -136,10 +138,26 @@ class StatisticsViewModel @Inject constructor(
     }
 
     private fun loadOverview() {
+        // context 변경마다 version을 먼저 올려, 이미 실행 중인 이전 overview 결과를 stale로 만든다.
+        val requestVersion = overviewRequestVersion + 1L
+        overviewRequestVersion = requestVersion
         if (loadJob?.isActive == true) {
             Log.d(TAG, "loadOverview() skipped — already loading")
             // 이미 준비 중인 상태에서 또 들어온 요청은 끝난 뒤 한 번만 다시 수행한다.
+            // 다만 이전 언어 카드가 남아 보이면 안 되므로 현재 카드/차트는 즉시 비운다.
             pendingReload = true
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    overview = null,
+                    metricSummaryCards = emptyList(),
+                    selectedMetricType = null,
+                    metricChartState = StatisticsMetricChartState.Hidden,
+                    syncState = StatisticsSyncState.Idle,
+                    errorMessage = null,
+                    isRetryable = false
+                )
+            }
             return
         }
 
@@ -181,6 +199,8 @@ class StatisticsViewModel @Inject constructor(
             // 후속 카드와 차트가 받을 초기 입력 스냅샷을 만든다.
             getStatisticsOverviewUseCase()
                 .onSuccess { overview ->
+                    // 더 최신 언어/context 요청이 들어왔다면 이 결과는 화면에 반영하지 않는다.
+                    if (requestVersion != overviewRequestVersion) return@onSuccess
                     // overview 자체는 화면 진입의 핵심 입력이므로,
                     // 카드 데이터 변환은 여기서 한 번만 수행해 uiState에 넣는다.
                     val metricCards = overview.toMetricSummaryItems()
@@ -199,6 +219,8 @@ class StatisticsViewModel @Inject constructor(
                     refreshHistory(overview.historyQueryState)
                 }
                 .onFailure { error ->
+                    // 실패도 오래된 요청이면 최신 언어 상태를 덮지 않는다.
+                    if (requestVersion != overviewRequestVersion) return@onFailure
                     // 준비해야 할 컨텍스트가 하나라도 비어 있으면 retry 가능한 Error 상태로 보낸다.
                     _uiState.update {
                         it.copy(

@@ -122,6 +122,40 @@ class StatisticsViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun `language change updates metric summary cards`() = runTest {
+        // 차트 query뿐 아니라 overview 카드도 selected language 변경을 따라가야 한다.
+        val learningRepo = FakeLearningStateRepo(initialState = statisticsState(LangCode.EN))
+        val statisticsRepo = ControlledStatisticsRepository()
+        val viewModel = StatisticsViewModel(
+            observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+            preloadLearningStateUseCase = PreloadLearningStateUseCase(learningRepo),
+            observeStatisticsHistoryUseCase = ObserveStatisticsHistoryUseCase(statisticsRepo),
+            refreshStatisticsHistoryUseCase = RefreshStatisticsHistoryUseCase(statisticsRepo),
+            syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
+            getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
+                getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+            ),
+            getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
+        )
+
+        // 최초 EN 카드 값이 준비될 때까지 init coroutine을 진행한다.
+        advanceUntilIdle()
+        assertEquals(LangCode.EN, viewModel.uiState.value.selectedLearningLanguage)
+        assertEquals("B2", viewModel.uiState.value.metricSummaryCards.first().valueText)
+
+        // LearningState emit으로 selected language를 KO로 바꾸면 overview를 다시 조립해야 한다.
+        learningRepo.emit(statisticsState(LangCode.KO))
+        advanceUntilIdle()
+
+        // 언어 label과 카드 값이 모두 KO snapshot 기준으로 바뀌어야 한다.
+        assertEquals(LangCode.KO, viewModel.uiState.value.selectedLearningLanguage)
+        assertEquals("B1", viewModel.uiState.value.metricSummaryCards.first().valueText)
+        assertEquals("74%", viewModel.uiState.value.metricSummaryCards[1].valueText)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun `old chart result does not overwrite latest metric selection`() = runTest {
         // 빠른 지표 전환 중 이전 chart 요청이 늦게 끝나도 마지막으로 누른 metric만 dialog에 남아야 한다.
         // language는 고정하고 metric만 빠르게 바꾸어 chart requestVersion 방어만 분리해서 검증한다.

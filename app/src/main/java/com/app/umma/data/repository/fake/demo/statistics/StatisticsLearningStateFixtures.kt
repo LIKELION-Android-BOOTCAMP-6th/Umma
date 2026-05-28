@@ -20,6 +20,18 @@ object StatisticsLearningStateFixtures {
 
     fun forPreset(preset: StatisticsDemoPreset): GlobalLangState {
         return when (preset) {
+            StatisticsDemoPreset.ExpressionRangeOverflow -> {
+                val state = normal()
+                val english = state.langStates.getValue(LangCode.EN)
+                // overflow preset은 차트 y축 확장이 목적이지만, 카드 현재값도 최신 history와 같은 snapshot처럼 보여야 한다.
+                state.copy(
+                    langStates = state.langStates + (
+                        LangCode.EN to english.copy(
+                            external = english.external.copy(expressionRange = 13)
+                        )
+                    )
+                )
+            }
             StatisticsDemoPreset.InitialExternalMetrics -> normal().copy(
                 langStates = normal().langStates + (
                     LangCode.EN to LangState.initial(LangCode.EN).copy(updatedAt = STALE_TIMESTAMP)

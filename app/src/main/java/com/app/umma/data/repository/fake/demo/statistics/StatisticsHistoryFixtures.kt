@@ -28,8 +28,11 @@ object StatisticsHistoryFixtures {
             history("stats-ko-1", "user-1", LangCode.KO, JAN_03_2025_KST, VocabLevel.A1, 0.44, 3, 0.39, 0.41, "event-ko-1"),
             history("stats-ko-2", "user-1", LangCode.KO, JAN_10_2025_KST, VocabLevel.A2, 0.58, 4, 0.52, 0.49, "event-ko-2"),
             history("stats-ko-3", "user-1", LangCode.KO, JAN_17_2025_KST, VocabLevel.A2, 0.64, 5, 0.57, 0.55, "event-ko-3", SyncStatus.PENDING),
-            history("stats-ja-1", "user-1", LangCode.JA, JAN_05_2025_KST, VocabLevel.B1, 0.66, 5, 0.57, 0.59, "event-ja-1"),
-            history("stats-ja-2", "user-1", LangCode.JA, JAN_12_2025_KST, VocabLevel.B1, 0.70, 5, 0.61, 0.64, "event-ja-2"),
+            history("stats-ja-1", "user-1", LangCode.JA, JAN_05_2025_KST, VocabLevel.A2, 0.54, 3, 0.45, 0.47, "event-ja-1"),
+            history("stats-ja-2", "user-1", LangCode.JA, JAN_12_2025_KST, VocabLevel.A2, 0.60, 4, 0.51, 0.53, "event-ja-2"),
+            history("stats-ja-3", "user-1", LangCode.JA, JAN_19_2025_KST, VocabLevel.B1, 0.65, 4, 0.56, 0.58, "event-ja-3"),
+            history("stats-ja-4", "user-1", LangCode.JA, JAN_26_2025_KST, VocabLevel.B1, 0.68, 5, 0.59, 0.61, "event-ja-4"),
+            history("stats-ja-5", "user-1", LangCode.JA, FEB_02_2025_KST, VocabLevel.B1, 0.70, 5, 0.61, 0.64, "event-ja-5"),
             history("stats-es-1", "user-1", LangCode.ES, JAN_08_2025_KST, VocabLevel.A2, 0.51, 4, 0.46, 0.43, "event-es-1", SyncStatus.PENDING),
             history("stats-es-2", "user-1", LangCode.ES, JAN_15_2025_KST, VocabLevel.B1, 0.60, 5, 0.52, 0.50, "event-es-2"),
             history("stats-user-2-ja", "user-2", LangCode.JA, FEB_01_2025_KST, VocabLevel.A1, 0.30, 2, 0.25, 0.20, "event-user2-ja")
@@ -93,9 +96,12 @@ object StatisticsHistoryFixtures {
     private const val JAN_14_2025_KST = JAN_01_2025_KST + 13 * DAY
     private const val JAN_15_2025_KST = JAN_01_2025_KST + 14 * DAY
     private const val JAN_17_2025_KST = JAN_01_2025_KST + 16 * DAY
+    private const val JAN_19_2025_KST = JAN_01_2025_KST + 18 * DAY
     private const val JAN_21_2025_KST = JAN_01_2025_KST + 20 * DAY
+    private const val JAN_26_2025_KST = JAN_01_2025_KST + 25 * DAY
     private const val JAN_28_2025_KST = JAN_01_2025_KST + 27 * DAY
     private const val FEB_01_2025_KST = JAN_01_2025_KST + 31 * DAY
+    private const val FEB_02_2025_KST = JAN_01_2025_KST + 32 * DAY
     private const val FEB_04_2025_KST = JAN_01_2025_KST + 34 * DAY
     private const val FEB_11_2025_KST = JAN_01_2025_KST + 41 * DAY
     private const val FEB_18_2025_KST = JAN_01_2025_KST + 48 * DAY
