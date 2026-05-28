@@ -4,6 +4,7 @@ import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
 import com.app.umma.data.repository.ChatRepositoryImpl
+import com.app.umma.data.repository.CorrectionRepositoryImpl
 import com.app.umma.data.repository.SessionMemoryRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
@@ -16,6 +17,7 @@ import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.ChatRepository
+import com.app.umma.domain.repository.CorrectionRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
 import com.app.umma.domain.repository.UserProfileRepository
 import dagger.Binds

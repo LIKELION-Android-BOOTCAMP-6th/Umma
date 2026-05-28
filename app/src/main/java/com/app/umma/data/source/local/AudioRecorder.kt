@@ -5,46 +5,47 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.annotation.RequiresPermission
-import com.app.umma.presentation.util.calculateLevel
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.model.audio.AudioInputFrame
+import com.app.umma.presentation.util.calculateLevel
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
-import javax.inject.Inject
-import javax.inject.Singleton
 
+/**
+ * Microphone recorder that emits PCM frames for live chat.
+ */
 @Singleton
 class AudioRecorder @Inject constructor() : AudioInput {
 
-    // 오디오 레코더 규격 정의
-    companion object {
-        // 샘플링 레이트
-        private const val SAMPLE_RATE = 16000
-
-        // 오디오 레코더 채널
+    private companion object {
+        private const val SAMPLE_RATE = 16_000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
-
-        // 오디오 레코더 인코딩 포맷 (샘플링 레이트와 동일 규격 포맷)
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-
-        // 버퍼 사이즈
         private const val BUFFER_SIZE_FACTOR = 2
     }
 
-    // 최소 버퍼 사이즈
     private val minBufferSize = AudioRecord.getMinBufferSize(
         SAMPLE_RATE,
         CHANNEL_CONFIG,
         AUDIO_FORMAT
     ) * BUFFER_SIZE_FACTOR
 
-    // 레코딩 시작
+    @Volatile
+    private var activeAudioRecord: AudioRecord? = null
+
+    /**
+     * Starts recording from the microphone.
+     *
+     * Throws if the microphone cannot be initialized or started.
+     */
     @SuppressLint("MissingPermission")
-    @RequiresPermission(value = "android.permission.RECORD_AUDIO")
+    @RequiresPermission("android.permission.RECORD_AUDIO")
     override fun startRecording(): Flow<AudioInputFrame> = flow {
         val audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
@@ -53,24 +54,23 @@ class AudioRecorder @Inject constructor() : AudioInput {
             AUDIO_FORMAT,
             minBufferSize
         )
-        // 예외처리: 마이크 초기화 실패 시
+        activeAudioRecord = audioRecord
+
         if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
-            throw IllegalStateException("마이크 초기화에 실패했습니다.")
+            activeAudioRecord = null
+            releaseAudioRecord(audioRecord)
+            throw IllegalStateException("Microphone initialization failed.")
         }
 
-        // 오디오 버퍼
         val buffer = ByteArray(minBufferSize)
 
         try {
-            // 레코딩 시작
             audioRecord.startRecording()
 
-            // 예외 처리: 시작 시 녹음 불가 시
             if (audioRecord.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-                throw IllegalStateException("녹음을 시작할 수 없습니다.")
+                throw IllegalStateException("Microphone recording did not start.")
             }
 
-            // 오디오 바이트 플로우
             while (currentCoroutineContext().isActive) {
                 val readBytes = audioRecord.read(
                     buffer,
@@ -79,10 +79,18 @@ class AudioRecorder @Inject constructor() : AudioInput {
                 )
 
                 when (readBytes) {
-                    AudioRecord.ERROR_INVALID_OPERATION -> throw IllegalStateException("잘못된 녹음 동작입니다.")
-                    AudioRecord.ERROR_BAD_VALUE -> throw IllegalStateException("잘못된 버퍼 값입니다.")
-                    AudioRecord.ERROR_DEAD_OBJECT -> throw IllegalStateException("오디오 객체가 소멸되었습니다.")
-                    AudioRecord.ERROR -> throw IllegalStateException("알 수 없는 오류입니다.")
+                    AudioRecord.ERROR_INVALID_OPERATION ->
+                        throw IllegalStateException("Invalid recording operation.")
+
+                    AudioRecord.ERROR_BAD_VALUE ->
+                        throw IllegalStateException("Invalid recording buffer value.")
+
+                    AudioRecord.ERROR_DEAD_OBJECT ->
+                        throw IllegalStateException("Microphone recorder is no longer available.")
+
+                    AudioRecord.ERROR ->
+                        throw IllegalStateException("Unknown microphone error.")
+
                     else -> {
                         if (readBytes > 0) {
                             val chunk = buffer.copyOfRange(0, readBytes)
@@ -95,19 +103,38 @@ class AudioRecorder @Inject constructor() : AudioInput {
                         }
                     }
                 }
-
             }
-        } catch (e: Exception) {
-            throw e
         } finally {
-            try {
-                if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                    audioRecord.stop()
-                }
-            } catch (e: Exception) {
+            if (activeAudioRecord === audioRecord) {
+                activeAudioRecord = null
             }
-
-            audioRecord.release()
+            releaseAudioRecord(audioRecord)
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Stops the active microphone recording immediately.
+     */
+    override fun stopRecording() {
+        val audioRecord = activeAudioRecord ?: return
+        activeAudioRecord = null
+        releaseAudioRecord(audioRecord)
+    }
+
+    /**
+     * Stops and releases the given [audioRecord] safely.
+     */
+    private fun releaseAudioRecord(audioRecord: AudioRecord) {
+        try {
+            if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                audioRecord.stop()
+            }
+        } catch (_: Exception) {
+        }
+
+        try {
+            audioRecord.release()
+        } catch (_: Exception) {
+        }
+    }
 }
