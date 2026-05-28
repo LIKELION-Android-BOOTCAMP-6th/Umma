@@ -1,90 +1,358 @@
-# Demo Scenario — FLOW-STATISTICS
+# Demo Scenario — FLOW-STATISTICS — FakeRepository 테스트
 
-> 2차 스프린트 종료 시점에 시연 가능해야 할 흐름. 사용자 여정 관점으로 묶어 애자일 스프린트 작업 배정 단위로도 사용.
-> 이슈 단위(STAT-001~004) AC 체크리스트는 `docs/User_FlowDB/FLOW_STATISTICS/` 의 이슈 문서를 참조한다.
->
-> 각 시나리오 = 한 명(또는 한 페어)이 스프린트 안에 완결할 수 있는 유저 가치 한 덩어리.
-> 시나리오는 의존성 순서로 배열되어 있어 위에서 아래로 차곡차곡 쌓아 올릴 수 있다.
->
-> **사전 준비 사항 (스프린트 작업 항목)**
-> - Real 계정: 현재 선택 언어 기준으로 최소 한 지표(`grammarAccuracy` 권장) 에 history point 5개 이상 누적된 상태. 다른 지표는 history 부족 상태로 두면 Empty chart 도 자연스럽게 시연 가능
-> - Mock 토글: `StatisticsRepository` fake 구현 + `FakeFixtures` (Empty / FetchFailure / PendingSync / LangMismatch) — 현재 미존재, DASH 스타일 `RepositoryModule` 토글 추가 필요
-> - Mock fixture 가 필요한 분기: 시나리오 1·2 의 Empty / Error 분기, 시나리오 3 의 offline / 언어 변경 분기
-> - 발표 후 Real 바인딩으로 원복
+> Real 통합 데모에서 만들기 어려운 통계 화면의 방어로직을 `mockDebug` + FakeRepository로 확인하기 위한 데모 시나리오.
+> 각 시나리오는 발표 순서가 아니라 QA 확인 단위이며, AC는 화면에서 확인 가능한 결과만 적는다.
 
 ---
 
-## 시나리오 1 — 내 학습 지표 한눈에 보기
+## 사전 준비
 
-> **무엇을 하는가** — Dashboard 언어 성취율 카드에서 Statistics 로 들어가면, 현재 선택 언어 기준의 5개 ExternalMetrics 요약 카드가 한 화면에 보인다.
-> **유저 가치** — 사용자가 자기 성장 상태를 처음으로 한눈에 가시화하는 단위. "지금 내가 어디쯤 있는가" 라는 가장 기본 질문에 답한다.
+테스트는 `mockDebug`에서 FakeRepository preset을 바꿔가며 진행한다.
 
-**포함 이슈**
-- `STAT-001` — Statistics 화면 진입 + 언어 컨텍스트 (selectedLearningLanguage observe, `GetStatisticsOverviewUseCase` 초기 상태)
-- `STAT-002` — 학습 지표 요약 카드 표시 (Vocabulary Level / Grammar Accuracy / Expression Range / Fluency Score / Naturalness Score, Empty 값 처리)
+기본 실행 순서:
 
-**의존성**: 없음. FLOW-DASHBOARD 가 깔려 있으면 병행 가능. 단, history 가 비어 있어도 카드 자체는 그려진다는 전제.
-**예상 규모**: M — 5개 카드 컴포넌트 + ExternalMetrics → UI state 변환 + Empty 값 처리.
+1. 테스트할 시나리오의 preset을 확인한다.
+2. fake repository에서 해당 preset을 활성화한다.
+3. Android Studio에서 Build Variant를 `mockDebug`로 변경한다.
+4. 앱을 다시 빌드/실행한다.
+5. Dashboard에서 통계 카드로 진입한다.
+6. 시나리오별 AC를 화면에서 확인한다.
+7. 확인이 끝나면 활성 preset을 기본값으로 되돌린다.
 
-**데모 흐름**
-1. Dashboard "언어 성취율" 카드 클릭 → Statistics 화면 진입 (Loading skeleton)
-2. `GetStatisticsOverviewUseCase` 결과 수신 → 5개 카드 표시 (Content)
-   - 예: `vocabularyLevel = A2` / `grammarAccuracy = 72%` / `expressionRange = 34 expressions` / `fluencyScore = 68` / `naturalnessScore = 61`
-3. AppBar 또는 헤더에 현재 선택 언어가 명확히 표시되는지 확인
-4. 각 카드가 클릭 가능한 상태로 렌더링되는지(시각적 affordance) 확인
+사용 repository:
 
-**핵심 분기**
-- **성공**: 5개 카드가 현재 선택 언어 기준으로 모두 정상 렌더링.
-- **지표 값 부족 (`STAT-002` Empty)**: 일부 / 전체 지표가 비어 있어도 전체 화면이 실패하지 않고, 해당 카드에만 Empty 값이 표시된다.
-- **진입 실패 / 언어 컨텍스트 없음 (`STAT-001` Error)**: Error 상태 + Retry. 정상 복구 시 시나리오 흐름 정상 진입.
+- `StatisticsRepository` → `FakeStatisticsRepository`
+- `LearningStateRepo` → `FakeLearningStateRepo`
 
----
+Repository 역할:
 
-## 시나리오 2 — 특정 지표 골라 변화 추이 차트로 확인
+| Repository | 테스트 역할 |
+| --- | --- |
+| `FakeStatisticsRepository` | history seed, chart source, pending sync, refresh, 조회 실패 재현 |
+| `FakeLearningStateRepo` | selected language 없음, LangState 없음, `ExternalMetrics.initial()` 등 overview 분기 재현 |
 
-> **무엇을 하는가** — 사용자가 관심 있는 지표 카드를 클릭하면 해당 지표의 시간별 변화가 line chart 로 표시된다. 다른 지표로 자유롭게 전환 가능.
-> **유저 가치** — 단순 현재값에서 "성장 추적" 으로 한 단계 깊어지는 경험. "내가 어디서 어디로 왔는가" 라는 변화 인식을 만든다.
+Preset은 테스트 상태를 한 번에 바꾸기 위한 묶음이다.
 
-**포함 이슈**
-- `STAT-003` — 지표 카드 클릭 + line chart 표시 (선택 지표 상태 관리, `StatisticsHistory` → `MetricHistoryPoint` 변환, line chart Composable, `vocabularyLevel` ordinal 변환)
+- 단순 데이터 케이스: seed만 포함
+- 실패 케이스: seed + failure hook 포함
+- 지연 케이스: seed + delayed flow 포함
+- overview 케이스: LearningState fake state 포함
 
-**의존성**: 시나리오 1
-**예상 규모**: M — line chart 컴포넌트 + history 변환 UseCase + ordinal/label 분리 처리.
+Preset 전환 방법:
 
-**데모 흐름**
-1. 시나리오 1 상태에서 `Grammar Accuracy` 카드 클릭 → ChartLoading
-2. `StatisticsHistory` 에서 해당 지표만 `MetricHistoryPoint` 목록으로 변환 → line chart 렌더링 (x축 `recordedAt`, y축 metric 값)
-3. `Fluency Score` 카드 클릭 → 차트가 새 지표 기준으로 재렌더링
-4. 빠른 연속 클릭으로 여러 지표를 번갈아 탭 → 마지막 선택 지표만 표시되고 이전 fetch 결과가 덮어쓰지 않음 (`stale fetch dropped` 로그)
-5. `Vocabulary Level` 카드 클릭 → 화면 라벨은 A1~C2 그대로 유지, 차트 내부 값은 1~6 ordinal 로 그려지는지 확인
-
-**핵심 분기**
-- **성공**: 지표 전환 + ordinal 변환 + stale fetch drop 까지 안정적으로 동작.
-- **history 부족 (`STAT-003` Empty)**: history point 가 2개 미만이면 선이 그려지지 않고 Empty chart 상태가 표시된다.
-- **chart 조회 실패 (`STAT-003` Error)**: ChartError 상태 + 재시도 가능.
+- 활성 preset은 fake repository의 preset 선택 지점에서 하나만 선택한다.
+- 한 번의 앱 실행에서는 하나의 preset만 활성화한다.
+- preset을 바꾼 뒤에는 앱을 다시 빌드/실행한다.
+- 확인 후에는 활성 preset을 기본값으로 되돌린다.
 
 ---
 
-## 시나리오 3 — 다시 들어와도 빠르고, 끊겨도 안 망가짐 (재진입 / 동기화 견고화)
+## Preset 구성 기준
 
-> **무엇을 하는가** — 화면을 떠났다 다시 들어와도 local cache 기반으로 즉시 렌더링되고, background sync 로 새 데이터가 자연스럽게 반영된다. 네트워크가 끊겨도, 언어를 바꿔도 사용자 입장에선 매끄러운 경험.
-> **유저 가치** — Statistics 는 Dashboard 보다 preload 우선순위가 낮기 때문에 "빠르게 보여주고 뒤에서 보정" 이라는 정책이 사용자 신뢰의 핵심이다.
+아래 표는 데모 시나리오 순서대로 정렬되어 있다.
 
-**포함 이슈**
-- `STAT-004` — 통계 데이터 동기화 / 재진입 처리 (local cache 우선 렌더링, background sync 결과 반영, pending sync 비차단, 언어 변경 시 stale fetch drop)
+| 순서 | Preset | 적용 repository | 포함 설정 | 검증 목적 |
+| --- | --- | --- | --- | --- |
+| 1 | `NormalStatistics` | `FakeStatisticsRepository` | `normalHistories()` | 기본 진입, 지표 카드, 일반 차트 표시 |
+| 2 | `ExpressionRangeOverflow` | `FakeStatisticsRepository` | `expressionRangeOverflowHistories()` | 표현 폭 값이 10을 넘어도 y축이 확장되는지 확인 |
+| 3 | `DelayedLanguageSwitch` | `FakeStatisticsRepository` + `FakeLearningStateRepo` | EN delayed flow + JA empty history + selected language 변경 | 이전 언어의 늦은 응답이 새 언어 화면을 덮지 않는지 확인 |
+| 4 | `ShortHistory` | `FakeStatisticsRepository` | 현재 사용자/현재 언어 history 1건 | history 1건일 때 Empty chart 방어 확인 |
+| 5 | `EmptyHistory` | `FakeStatisticsRepository` | `seedHistories(emptyList())` | history가 없을 때 Empty chart 방어 확인 |
+| 6 | `PendingSyncFailure` | `FakeStatisticsRepository` | `pendingHistories()` + `setPendingSyncFailure(...)` + refresh no-op | pending sync 실패가 화면을 차단하지 않는지 확인 |
+| 7 | `FetchFailure` | `FakeStatisticsRepository` | `normalHistories()` + `setFetchFailure(...)` | history 조회 실패가 Error UI로 처리되는지 확인 |
+| 8 | `RefreshFailure` | `FakeStatisticsRepository` | `normalHistories()` + `setRefreshFailure(...)` | background refresh 실패가 기존 화면을 지우지 않는지 확인 |
+| 9 | `InitialExternalMetrics` | `FakeLearningStateRepo` | `ExternalMetrics.initial()` state | 지표 값 초기 상태에서도 카드 영역이 깨지지 않는지 확인 |
+| 10-A | `MissingSelectedLanguage` | `FakeLearningStateRepo` | selected language 없음 state | overview 조립 실패가 Error UI로 처리되는지 확인 |
+| 10-B | `MissingCurrentLangState` | `FakeLearningStateRepo` | 현재 언어 LangState 없음 state | overview 조립 실패가 Error UI로 처리되는지 확인 |
+| 11 | `DelayedMetricSwitch` | `FakeStatisticsRepository` | metric별 delayed flow | 빠른 지표 전환 시 이전 지표 결과가 마지막 선택을 덮지 않는지 확인 |
 
-**의존성**: 시나리오 2
-**예상 규모**: M — cache 정책 + background fetch + 언어 변경 시 mismatch 처리.
+---
 
-**데모 흐름**
-1. 시나리오 2 상태에서 뒤로가기로 Dashboard 복귀
-2. 다시 언어 성취율 카드 클릭 → Statistics 재진입 → local cache 로 카드 / 차트 영역 즉시 렌더링 (remote fetch 대기 없음)
-3. background sync 로 새 point 가 도착하면 차트가 자동 갱신 (`history merged` 로그)
-4. Dashboard 에서 학습 언어를 변경한 뒤 Statistics 재진입 → 새 언어 기준으로 카드 / 차트 재구성, 이전 언어 데이터는 화면에 남지 않음 (`lang mismatch dropped` 로그)
-5. 비행기 모드 / 네트워크 끊긴 상태로 진입 → local 데이터로 정상 표시, background fetch 실패는 사용자에게 차단되지 않음
+## 시나리오 — 통계 화면 기본 진입
 
-**핵심 분기**
-- **성공**: local cache 즉시 표시 + background sync 반영 + 언어 컨텍스트 정합이 모두 매끄럽게 동작.
-- **offline (`STAT-004` Non-blocking)**: 기존 차트가 사라지지 않고, sync 상태는 작은 표시기로만 노출된다.
-- **언어 변경 직후 stale fetch 도착 (`STAT-004` Edge)**: 새 언어 화면에 이전 언어 결과가 반영되지 않는다.
-- **local cache 없음 + remote 도 실패 (`STAT-004` FatalError)**: 매우 드문 경우만 FatalError 로 분기된다.
+Fake 준비:
+
+- 활성 preset: `NormalStatistics`
+- 포함 설정: `normalHistories()`
+- 실행 방법: `NormalStatistics` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Dashboard에서 통계 카드 클릭
+2. Statistics 화면 진입 확인
+3. 현재 선택 언어 표시 확인
+4. 지표 요약 카드 5개 확인
+
+**AC**
+
+- [ ] Statistics 화면에 정상 진입한다.
+- [ ] 현재 선택 언어가 화면에 표시된다.
+- [ ] 어휘 레벨, 문법 정확도, 표현 폭, 유창성, 자연스러움 카드가 표시된다.
+
+---
+
+## 시나리오 — 지표 차트 표시
+
+Fake 준비:
+
+- 활성 preset: `NormalStatistics`
+- 포함 설정: `normalHistories()`
+- 실행 방법: `NormalStatistics` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Statistics 화면에서 표현 폭 카드 클릭
+2. 차트 다이얼로그 표시 확인
+3. 차트 요약 정보 확인
+4. line chart 표시 확인
+5. 차트 포인트 클릭
+6. marker 정보 표시 확인
+7. 차트 닫기
+
+**AC**
+
+- [ ] 지표 카드 클릭 시 차트 다이얼로그가 열린다.
+- [ ] 선택한 지표명이 차트에 반영된다.
+- [ ] 처음, 지금, 총성장, 히스토리 요약 정보가 표시된다.
+- [ ] history가 2개 이상이면 line chart가 표시된다.
+- [ ] 포인트 클릭 시 해당 포인트의 값과 변화량 marker가 표시된다.
+- [ ] 닫기 버튼으로 차트 다이얼로그를 닫을 수 있다.
+
+---
+
+## 시나리오 — 지표별 축/라벨 확인
+
+Fake 준비:
+
+- 1차 활성 preset: `NormalStatistics`
+- 2차 활성 preset: `ExpressionRangeOverflow`
+- 포함 설정: `normalHistories()` / `expressionRangeOverflowHistories()`
+- 실행 방법: 기본 축 확인 후 `ExpressionRangeOverflow` preset으로 앱을 다시 실행해 표현 폭 확장 상태 확인
+
+1. `NormalStatistics` 상태에서 어휘 레벨 카드 클릭
+2. y축 label이 `A1 ~ C2` 기준으로 표시되는지 확인
+3. 차트 닫기
+4. 문법 정확도 카드 클릭
+5. y축 label이 `%` 기준으로 표시되는지 확인
+6. 차트 닫기
+7. 표현 폭 카드 클릭
+8. y축 label이 숫자 기준으로 표시되는지 확인
+9. `ExpressionRangeOverflow` preset으로 앱 재실행
+10. 표현 폭 카드 클릭
+11. 표현 폭 차트의 y축 상한이 최대값에 맞게 확장되는지 확인
+
+**AC**
+
+- [ ] 어휘 레벨 차트는 사용자가 `A1 ~ C2` 단계로 읽을 수 있다.
+- [ ] 문법 정확도 차트는 `%` 기준으로 읽을 수 있다.
+- [ ] 표현 폭 차트는 숫자 기준으로 읽을 수 있다.
+- [ ] 표현 폭 값이 기본 범위를 넘어도 차트 선이 잘리지 않는다.
+- [ ] 표현 폭 y축 상한이 데이터 최대값에 맞게 확장된다.
+- [ ] 같은 차트 UI에서 지표별 label 정책이 섞이지 않는다.
+
+---
+
+## 시나리오 — 학습 언어 변경 시 이전 언어 통계가 남지 않음
+
+Fake 준비:
+
+- 활성 preset: `DelayedLanguageSwitch`
+- 포함 설정: EN delayed flow + JA empty history + LearningState selected language 변경 가능 상태
+- 실행 방법: `DelayedLanguageSwitch` preset 활성화 후 EN 차트 요청 중 학습 언어를 JA로 변경
+
+1. EN 기준 Statistics 화면 진입
+2. 지표 카드 클릭 후 EN 차트 요청
+3. EN history 응답이 지연되는 동안 Dashboard로 복귀
+4. 학습 언어 selector에서 JA 선택
+5. Statistics 화면 재진입
+6. 현재 선택 언어가 JA로 표시되는지 확인
+7. 늦게 도착한 EN 차트 결과가 JA 화면을 덮어쓰지 않는지 확인
+8. JA 기준 Empty 상태가 표시되는지 확인
+
+**AC**
+
+- [ ] 언어 변경 후 Statistics 화면의 현재 선택 언어가 갱신된다.
+- [ ] 언어 변경 후 이전 언어의 지표 카드 값이 남지 않는다.
+- [ ] 이전 언어의 지연된 차트 결과가 새 언어 화면을 덮어쓰지 않는다.
+- [ ] 새 언어의 Empty 상태가 표시된다.
+
+---
+
+## 시나리오 — history 부족 Empty chart
+
+Fake 준비:
+
+- 활성 preset: `ShortHistory`
+- 포함 설정: 현재 사용자/현재 언어 history 1건
+- 실행 방법: `ShortHistory` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Statistics 화면 진입
+2. 지표 카드 클릭
+3. 차트 다이얼로그 표시 확인
+4. Empty chart 안내 확인
+
+**AC**
+
+- [ ] Statistics 화면 자체는 실패하지 않는다.
+- [ ] 지표 카드는 표시된다.
+- [ ] history가 2개 미만이면 line chart 대신 Empty chart 상태가 표시된다.
+- [ ] Empty chart 상태에서도 다이얼로그를 닫을 수 있다.
+
+---
+
+## 시나리오 — 통계 history 없음
+
+Fake 준비:
+
+- 활성 preset: `EmptyHistory`
+- 포함 설정: `seedHistories(emptyList())`
+- 실행 방법: `EmptyHistory` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Statistics 화면 진입
+2. 지표 요약 카드 표시 확인
+3. 지표 카드 클릭
+4. 차트 Empty 상태 확인
+
+**AC**
+
+- [ ] history가 없어도 Statistics 화면 진입은 실패하지 않는다.
+- [ ] 지표 요약 카드 영역은 유지된다.
+- [ ] chart source가 없으면 Empty chart 상태가 표시된다.
+- [ ] 앱이 크래시 없이 유지된다.
+
+---
+
+## 시나리오 — pending sync 실패
+
+Fake 준비:
+
+- 활성 preset: `PendingSyncFailure`
+- 포함 설정: `pendingHistories()` + `setPendingSyncFailure(IllegalStateException("pending sync 실패"))` + refresh no-op
+- 실행 방법: `PendingSyncFailure` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. pending history가 있는 상태로 Statistics 화면 진입
+2. 지표 카드와 차트 표시 확인
+3. pending sync 실패 후 화면 유지 확인
+4. 다시 화면에 진입했을 때 pending 상태가 계속 보이는지 확인
+
+**AC**
+
+- [ ] pending sync 실패가 발생해도 Statistics 화면은 차단되지 않는다.
+- [ ] 기존 지표 카드와 차트는 계속 표시된다.
+- [ ] pending 상태는 사라진 것처럼 표시되지 않는다.
+- [ ] 사용자는 차트 열기/닫기 등 기본 조작을 계속할 수 있다.
+
+---
+
+## 시나리오 — history 조회 실패
+
+Fake 준비:
+
+- 활성 preset: `FetchFailure`
+- 포함 설정: `normalHistories()` + `setFetchFailure(IllegalStateException("history 조회 실패"))`
+- 실행 방법: `FetchFailure` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Statistics 화면 진입
+2. 동기화 보조 영역에 history 조회 실패 문구가 표시되는지 확인
+3. 지표 카드 클릭
+4. 차트 Error dialog 표시 확인
+5. 차트 Error dialog의 다시 시도 버튼 확인
+
+**AC**
+
+- [ ] history 조회 실패 시 앱이 크래시되지 않는다.
+- [ ] 사용자가 실패 상태를 인지할 수 있는 문구가 표시된다.
+- [ ] 차트 Error dialog에서 다시 시도 버튼이 표시된다.
+- [ ] 실패 상태에서도 화면 이동이 막히지 않는다.
+
+---
+
+## 시나리오 — background refresh 실패
+
+Fake 준비:
+
+- 활성 preset: `RefreshFailure`
+- 포함 설정: `normalHistories()` + `setRefreshFailure(IllegalStateException("refresh 실패"))`
+- 실행 방법: `RefreshFailure` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Statistics 화면 진입
+2. local history 기반 지표 카드 표시 확인
+3. 지표 카드 클릭
+4. local history 기반 차트 표시 확인
+5. refresh 실패 후에도 기존 화면 유지 확인
+
+**AC**
+
+- [ ] refresh 실패가 발생해도 기존 지표 카드가 사라지지 않는다.
+- [ ] refresh 실패가 발생해도 기존 차트가 사라지지 않는다.
+- [ ] 실패는 차단 화면이 아니라 보조 상태로만 표현된다.
+- [ ] 사용자는 Statistics 화면을 계속 조작할 수 있다.
+
+---
+
+## 시나리오 — Statistics overview Empty 상태
+
+Fake 준비:
+
+- 활성 preset: `InitialExternalMetrics`
+- 포함 설정: `FakeLearningStateRepo`의 `ExternalMetrics.initial()` state
+- 실행 방법: `InitialExternalMetrics` preset 활성화 후 `mockDebug` 앱 재실행
+
+1. Dashboard에서 통계 카드 클릭
+2. Statistics 화면 진입
+3. 지표 카드 값 확인
+4. 지표 카드 클릭
+
+**AC**
+
+- [ ] overview 값이 초기 상태여도 Statistics 화면은 진입된다.
+- [ ] 5개 지표 카드 영역은 유지된다.
+- [ ] 값이 없는 지표는 Empty 상태로 표시된다.
+- [ ] Empty 값 상태에서도 지표 카드 클릭이 앱 크래시로 이어지지 않는다.
+
+---
+
+## 시나리오 — Statistics overview 구성 실패
+
+Fake 준비:
+
+- Case A 활성 preset: `MissingSelectedLanguage`
+- Case A 포함 설정: selected language 없음 state
+- Case B 활성 preset: `MissingCurrentLangState`
+- Case B 포함 설정: 현재 언어 LangState 없음 state
+- 실행 방법: Case A와 Case B를 각각 한 번씩 활성화해 `mockDebug` 앱 재실행
+
+1. Case A preset으로 앱 실행
+2. Dashboard에서 통계 카드 클릭
+3. Statistics 화면의 Error 상태 확인
+4. 다시 시도 버튼 확인
+5. Case B preset으로 앱 재실행
+6. Dashboard에서 통계 카드 클릭
+7. Statistics 화면의 Error 상태 확인
+8. 다시 시도 버튼 확인
+
+**AC**
+
+- [ ] overview를 구성할 수 없으면 Error 상태가 표시된다.
+- [ ] 사용자가 실패 상태를 인지할 수 있는 문구가 표시된다.
+- [ ] 다시 시도 버튼이 표시된다.
+- [ ] 앱이 크래시 없이 유지된다.
+
+---
+
+## 시나리오 — 빠른 지표 전환
+
+Fake 준비:
+
+- 활성 preset: `DelayedMetricSwitch`
+- 포함 설정: metric별 delayed flow
+- 실행 방법: `DelayedMetricSwitch` preset 활성화 후 여러 지표 카드를 빠르게 연속 클릭
+
+1. Statistics 화면 진입
+2. 문법 정확도 카드 클릭
+3. 곧바로 유창성 카드 클릭
+4. 곧바로 자연스러움 카드 클릭
+5. 마지막으로 선택한 지표의 차트가 표시되는지 확인
+
+**AC**
+
+- [ ] 여러 지표를 빠르게 눌러도 앱이 크래시되지 않는다.
+- [ ] 마지막으로 선택한 지표명이 차트 다이얼로그에 표시된다.
+- [ ] 이전 지표의 늦은 결과가 마지막 선택 지표 화면을 덮어쓰지 않는다.
+- [ ] 차트 닫기 후 다시 지표를 선택할 수 있다.
