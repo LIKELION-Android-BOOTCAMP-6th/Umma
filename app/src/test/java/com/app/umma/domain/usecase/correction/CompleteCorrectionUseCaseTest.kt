@@ -22,6 +22,7 @@ import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
+import com.app.umma.domain.model.realtime.TopicSummarySaveResult
 import com.app.umma.domain.repository.CorrectionRepository
 import com.app.umma.domain.repository.FlashcardRepository
 import com.app.umma.domain.repository.LearningStateRepo
@@ -125,9 +126,9 @@ class CompleteCorrectionUseCaseTest {
         assertTrue(completed.flashcardSummaryApplied)
         assertFalse(completed.flashcardSummaryPending)
         // (#162-D) saveFlashcards 직후, LangState 갱신(update) 직전에 update-flashcard-summary 가 위치해야 한다.
-        // (#162-C) summarize-topics 는 record-history 직후, compression 직전에 위치해야 한다.
+        // (#173) summarize-topics 는 Dashboard title 을 update 에 전달해야 하므로 update 직전에 위치한다.
         assertEquals(
-            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            listOf("save", "update-flashcard-summary", "summarize-topics", "update", "record-history", "compress"),
             events
         )
 
@@ -167,9 +168,9 @@ class CompleteCorrectionUseCaseTest {
         // LangState 갱신 실패는 local completion 실패다.
         // 이미 저장한 Flashcard 는 보상 rollback 으로 되돌려 부분 완료 상태를 남기지 않는다.
         // Flashcard Summary 갱신(update-flashcard-summary)은 LangState 갱신 실패 전에 발생하므로
-        // rollback 대상이 아니다 — Summary 는 롤백하지 않는다는 정책과 일치한다.
+        // rollback 대상이 아니다. topic summary 도 RT-003 소유 저장소라 rollback 하지 않는다.
         assertEquals(
-            listOf("save", "update-flashcard-summary", "update", "rollback-save"),
+            listOf("save", "update-flashcard-summary", "summarize-topics", "update", "rollback-save"),
             events
         )
     }
@@ -196,7 +197,7 @@ class CompleteCorrectionUseCaseTest {
             // 중복 저장으로 새로 생성된 카드가 없으면 이번 완료 흐름이 만든 local 변경도 없다.
             // 이때 rollback을 호출하면 이미 존재하던 Flashcard를 지울 수 있으므로 호출하지 않는다.
             assertEquals(
-                listOf("save", "update-flashcard-summary", "update"),
+                listOf("save", "update-flashcard-summary", "summarize-topics", "update"),
                 events
             )
     }
@@ -227,7 +228,7 @@ class CompleteCorrectionUseCaseTest {
         assertFalse(completed.statisticsHistoryPending)
         assertNotNull(completed.statisticsHistoryErrorMessage)
         assertEquals(
-            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            listOf("save", "update-flashcard-summary", "summarize-topics", "update", "record-history", "compress"),
             events
         )
     }
@@ -256,7 +257,7 @@ class CompleteCorrectionUseCaseTest {
         assertFalse(completed.sessionCompressionApplied)
         assertTrue(completed.sessionCompressionPending)
         assertEquals(
-            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            listOf("save", "update-flashcard-summary", "summarize-topics", "update", "record-history", "compress"),
             events
         )
     }
@@ -467,6 +468,7 @@ class CompleteCorrectionUseCaseTest {
         var failCompression: Boolean = false
         var failSummarize: Boolean = false
         var lastCompressionCommand: CompressSessionMemoryCommand? = null
+        var nextTopicSummaryResult: TopicSummarySaveResult? = null
 
         override suspend fun appendTurn(command: AppendTurnCommand): Result<Unit> {
             return Result.success(Unit)
@@ -507,13 +509,23 @@ class CompleteCorrectionUseCaseTest {
 
         override suspend fun summarizeAndSaveTopics(
             command: SummarizeTopicsCommand
-        ): Result<Unit> {
-            // 이벤트를 기록해 파이프라인에서 compression 직전 위치를 검증할 수 있게 한다. (#162-C)
+        ): Result<TopicSummarySaveResult> {
+            // 이벤트를 기록해 파이프라인에서 LangState update 직전 위치를 검증할 수 있게 한다. (#173)
             events += "summarize-topics"
             return if (failSummarize) {
                 Result.failure(IllegalStateException("topic summary failed"))
             } else {
-                Result.success(Unit)
+                val result = nextTopicSummaryResult ?: TopicSummarySaveResult(
+                    applied = true,
+                    displayTitle = "여행 계획"
+                )
+                nextTopicSummaryResult = null
+                Result.success(
+                    TopicSummarySaveResult(
+                        applied = result.applied,
+                        displayTitle = result.displayTitle
+                    )
+                )
             }
         }
     }
@@ -573,17 +585,17 @@ class CompleteCorrectionUseCaseTest {
         // update-flashcard-summary 이벤트가 없는 것으로 getReviewSummary 실패 후 summary 반영이 스킵됐음을 확인한다.
         // summarize-topics 는 flashcard summary 와 독립적으로 동작하므로 여전히 실행된다.
         assertEquals(
-            listOf("save", "update", "record-history", "summarize-topics", "compress"),
+            listOf("save", "summarize-topics", "update", "record-history", "compress"),
             events
         )
     }
 
     @Test
-    fun `passes derived recentTopic to LangState update from compression payload`() = kotlinx.coroutines.runBlocking {
-        // (#162-recentTopic) Dashboard ConversationCard "주제" 칩이 real 데이터로 채워지는지를 검증한다.
-        // step 0 의 BuildSessionCompressionPayloadUseCase 가 추출한 recentTopics 의 1순위 키워드가
-        // step 2 LangState 갱신 입력의 recentTopic 으로 그대로 흘러가야 한다.
-        // baseSuggestion + baseUpdateInput 입력 기준 추출 결과: 빈도 1 동률에서 알파벳 순 → "hello".
+    fun `passes AI summary title to LangState update instead of compression keyword`() = kotlinx.coroutines.runBlocking {
+        // (#173) Dashboard ConversationCard "주제" 칩은 compression keyword 가 아니라
+        // 세션 요약 AI 가 만든 표시용 title 을 사용해야 한다.
+        // baseSuggestion + baseUpdateInput 의 compression keyword 는 "hello" 이지만,
+        // recentTopic 으로는 fake AI title 인 "여행 계획" 만 전달한다.
         val result = useCase(
             CompleteCorrectionInput(
                 selectedSuggestions = listOf(baseSuggestion()),
@@ -593,34 +605,24 @@ class CompleteCorrectionUseCaseTest {
 
         assertTrue(result.isSuccess)
         assertNotNull(learningStateRepo.lastUpdateInput)
-        assertEquals("hello", learningStateRepo.lastUpdateInput!!.recentTopic)
-        // step 5 compression command 의 recentTopics 1순위도 같은 값이어야 한다 — payload 캐시 정합.
+        assertEquals("여행 계획", learningStateRepo.lastUpdateInput!!.recentTopic)
+        // compression command 의 recentTopics 는 압축 메타데이터로만 남고 Dashboard recentTopic 에 쓰이지 않는다.
         assertEquals("hello", sessionMemoryRepository.lastCompressionCommand!!.recentTopics.firstOrNull())
     }
 
     @Test
-    fun `passes null recentTopic when all tokens are filtered out`() = kotlinx.coroutines.runBlocking {
-        // (#162-recentTopic) 모든 토큰이 STOP_WORDS 거나 MIN_TOPIC_LENGTH 미만이라 키워드가 비는 경우,
-        // recentTopic 은 null 로 전달돼 Repository 가 이전 값을 보존해야 한다.
-        val stopWordSuggestion = baseSuggestion().copy(
-            beforeText = "is on",
-            nativeText = "of at"
-        )
-        val stopWordInput = baseUpdateInput().copy(
-            recentUserTurns = listOf(
-                ConversationTurn(
-                    speaker = TurnSpeaker.USER,
-                    text = "is on",
-                    tokenCount = 2,
-                    durationMs = 500L
-                )
-            )
+    fun `passes null recentTopic when AI summary title is empty`() = kotlinx.coroutines.runBlocking {
+        // (#173) AI 요약은 성공했지만 표시용 title 이 비어 있으면,
+        // compression keyword 로 fallback 하지 않고 null 을 전달해 기존 recentTopic 을 보존한다.
+        sessionMemoryRepository.nextTopicSummaryResult = TopicSummarySaveResult(
+            applied = true,
+            displayTitle = null
         )
 
         val result = useCase(
             CompleteCorrectionInput(
-                selectedSuggestions = listOf(stopWordSuggestion),
-                langStateUpdateInput = stopWordInput
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
             )
         )
 
@@ -647,9 +649,10 @@ class CompleteCorrectionUseCaseTest {
         // AI 요약 실패가 Done 흐름을 막지 않아야 한다.
         assertFalse(completed.topicSummariesApplied)
         assertTrue(completed.topicSummariesPending)
-        // summarize-topics 이벤트가 발화됐고, compression 은 그 뒤에 여전히 실행됐음을 확인한다.
+        assertEquals(null, learningStateRepo.lastUpdateInput!!.recentTopic)
+        // summarize-topics 이벤트가 발화됐고, update/compression 은 그 뒤에 여전히 실행됐음을 확인한다.
         assertEquals(
-            listOf("save", "update-flashcard-summary", "update", "record-history", "summarize-topics", "compress"),
+            listOf("save", "update-flashcard-summary", "summarize-topics", "update", "record-history", "compress"),
             events
         )
     }

@@ -2,6 +2,7 @@ package com.app.umma.data.repository
 
 import android.util.Log
 import com.app.umma.data.repository.realtime.TopicSummaryAiClient
+import com.app.umma.data.repository.realtime.TopicSummaryJsonParser
 import com.app.umma.data.source.local.RemoteSyncStatus
 import com.app.umma.data.source.local.SessionMemoryLocalDataSource
 import com.app.umma.data.source.local.SessionMetadataEntity
@@ -14,9 +15,9 @@ import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
+import com.app.umma.domain.model.realtime.TopicSummarySaveResult
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
-import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -226,13 +227,17 @@ class SessionMemoryRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun summarizeAndSaveTopics(command: SummarizeTopicsCommand): Result<Unit> {
+    override suspend fun summarizeAndSaveTopics(
+        command: SummarizeTopicsCommand
+    ): Result<TopicSummarySaveResult> {
         return try {
             val userId = requireUserId()
             val turns = localDataSource.getTurns(userId, command.language.code)
 
             // turn 이 없으면 AI 호출 없이 바로 성공으로 처리한다.
-            if (turns.isEmpty()) return Result.success(Unit)
+            if (turns.isEmpty()) {
+                return Result.success(TopicSummarySaveResult(applied = false, displayTitle = null))
+            }
 
             // sessionId 별로 그룹핑하고, 각 세션의 마지막 turn createdAt 기준 내림차순 정렬 후 최근 5개 선정.
             // session_turns 테이블에 sessionId 별 MAX(createdAt) 쿼리가 없으므로 Kotlin 에서 처리한다.
@@ -245,22 +250,30 @@ class SessionMemoryRepositoryImpl @Inject constructor(
             // 각 세션을 대화 텍스트 블록으로 변환한다. 내용이 없는 세션은 제외한다.
             val sessionTexts = recentSessions.mapNotNull { (_, sessionTurns) ->
                 val block = sessionTurns
-                    .filter { it.text.isNotBlank() && it.text.trim().length > MIN_MEANINGFUL_TURN_LENGTH }
+                    .filter {
+                        it.text.isNotBlank() &&
+                            it.text.trim().length > MIN_MEANINGFUL_TURN_LENGTH
+                    }
                     .takeLast(MAX_TURNS_PER_SESSION) // 토큰 제한: 세션 당 최대 턴 수 제한
                     .joinToString("\n") { "${it.role}: ${it.text}" }
                 block.ifBlank { null }
             }
 
-            if (sessionTexts.isEmpty()) return Result.success(Unit)
+            if (sessionTexts.isEmpty()) {
+                return Result.success(TopicSummarySaveResult(applied = false, displayTitle = null))
+            }
 
             val prompt = buildTopicSummaryPrompt(sessionTexts)
             val jsonResponse = topicSummaryAiClient.generateJson(prompt)
-            val summaries = parseTopicSummaries(jsonResponse)
+            val parsed = TopicSummaryJsonParser.parse(jsonResponse)
 
             // 요약이 파싱되지 않으면 기존 topicSummaries 를 덮어쓰지 않는다.
-            if (summaries.isEmpty()) return Result.success(Unit)
+            // title 도 null 로 돌려 LearningStateRepo 의 기존 recentTopic 보존 정책을 태운다. (#173)
+            if (parsed.summaries.isEmpty()) {
+                return Result.success(TopicSummarySaveResult(applied = false, displayTitle = null))
+            }
 
-            val summariesJson = JSONArray(summaries).toString()
+            val summariesJson = JSONArray(parsed.summaries).toString()
             localDataSource.updateTopicSummaries(
                 userId = userId,
                 language = command.language.code,
@@ -268,8 +281,17 @@ class SessionMemoryRepositoryImpl @Inject constructor(
                 updatedAt = command.requestedAt
             )
 
-            Log.d(SESSION_MEMORY_TAG, "topic summaries saved lang=${command.language.code}, count=${summaries.size}")
-            Result.success(Unit)
+            Log.d(
+                SESSION_MEMORY_TAG,
+                "topic summaries saved lang=${command.language.code}, " +
+                    "count=${parsed.summaries.size}, hasTitle=${parsed.titles.isNotEmpty()}"
+            )
+            Result.success(
+                TopicSummarySaveResult(
+                    applied = true,
+                    displayTitle = parsed.titles.firstOrNull()
+                )
+            )
         } catch (e: Exception) {
             Log.w(SESSION_MEMORY_TAG, "summarizeAndSaveTopics failed lang=${command.language.code}, reason=${e.message}", e)
             Result.failure(e)
@@ -288,29 +310,16 @@ class SessionMemoryRepositoryImpl @Inject constructor(
         }.joinToString("\n\n")
 
         return """
-            Summarize the main topic of each conversation session in 1-2 sentences.
-            Return ONLY a JSON object with a "summaries" array — no markdown, no explanation.
+            Summarize each conversation session and create a short Dashboard topic title.
+            Titles must be natural display labels, not one-word keywords. Prefer 2-5 Korean eojeol/words
+            that represent the session topic, such as "여행 계획", "카페 주문 연습", or "주말 일정 이야기".
+            Return ONLY a JSON object with "titles" and "summaries" arrays — no markdown, no explanation.
 
-            Format: {"summaries": ["summary of session 1", "summary of session 2", ...]}
+            Format: {"titles": ["title of session 1", "title of session 2", ...], "summaries": ["summary of session 1", "summary of session 2", ...]}
 
             Conversations:
             $sessionsBlock
         """.trimIndent()
-    }
-
-    /**
-     * AI 응답 JSON 을 요약 문자열 목록으로 파싱합니다.
-     *
-     * @param json `{"summaries": [...]}` 형태의 JSON 문자열
-     * @return 요약 목록. 파싱 실패 시 빈 리스트를 반환해 기존 데이터를 보호한다.
-     */
-    private fun parseTopicSummaries(json: String): List<String> {
-        return try {
-            val array = JSONObject(json).getJSONArray("summaries")
-            List(array.length()) { array.getString(it) }.filter { it.isNotBlank() }
-        } catch (_: Exception) {
-            emptyList()
-        }
     }
 
     /**

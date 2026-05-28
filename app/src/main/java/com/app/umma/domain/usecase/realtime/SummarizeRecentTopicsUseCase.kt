@@ -22,9 +22,14 @@ class SummarizeRecentTopicsUseCase @Inject constructor(
     suspend operator fun invoke(command: SummarizeTopicsCommand): TopicSummaryResult {
         val result = repository.summarizeAndSaveTopics(command)
         return if (result.isSuccess) {
-            TopicSummaryResult(applied = true, pending = false)
+            val saveResult = result.getOrThrow()
+            TopicSummaryResult(
+                applied = saveResult.applied,
+                pending = false,
+                displayTitle = saveResult.displayTitle
+            )
         } else {
-            TopicSummaryResult(applied = false, pending = true)
+            TopicSummaryResult(applied = false, pending = true, displayTitle = null)
         }
     }
 }
@@ -34,8 +39,11 @@ class SummarizeRecentTopicsUseCase @Inject constructor(
  *
  * @property applied AI 요약이 실제로 저장되었으면 true
  * @property pending 저장에 실패해 재시도가 필요하면 true
+ * @property displayTitle Dashboard 최근 대화 카드의 주제 칩에 표시할 짧은 제목.
+ *                        null 이면 기존 recentTopic 을 보존한다.
  */
 data class TopicSummaryResult(
     val applied: Boolean,
-    val pending: Boolean
+    val pending: Boolean,
+    val displayTitle: String?
 )

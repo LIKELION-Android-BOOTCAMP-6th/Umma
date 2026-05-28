@@ -2,6 +2,13 @@ package com.app.umma.data.repository.realtime
 
 import com.google.firebase.ai.FirebaseAI
 import com.google.firebase.ai.type.generationConfig
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,7 +25,7 @@ interface TopicSummaryAiClient {
      * 세션 텍스트 목록을 받아 각 세션의 주제 요약 JSON 을 반환합니다.
      *
      * @param prompt 세션별 turn 텍스트를 포함한 프롬프트
-     * @return `{"summaries": ["...", ...]}` 형태의 JSON 문자열
+     * @return `{"titles": ["...", ...], "summaries": ["...", ...]}` 형태의 JSON 문자열
      */
     suspend fun generateJson(prompt: String): String
 }
@@ -51,3 +58,67 @@ class GeminiTopicSummaryAiClient @Inject constructor(
         const val MODEL_NAME = "gemini-2.5-flash"
     }
 }
+
+/**
+ * Topic summary AI 응답을 Session Memory 저장값과 Dashboard 표시 제목으로 분리해 파싱합니다.
+ *
+ * malformed JSON 이나 빈 title 을 null/empty 로 낮춰, Dashboard recentTopic 이 이상한 fallback
+ * 단어로 덮이지 않게 하는 보호막입니다. (#173)
+ */
+internal object TopicSummaryJsonParser {
+    fun parse(json: String): ParsedTopicSummaryResponse {
+        return try {
+            val root = parser.parseToJsonElement(json).jsonObject
+            ParsedTopicSummaryResponse(
+                titles = root.stringArray("titles")
+                    .mapNotNull(::sanitizeTitle),
+                summaries = root.stringArray("summaries")
+                    .map(::normalizeText)
+                    .filter { it.isNotBlank() }
+            )
+        } catch (_: Exception) {
+            ParsedTopicSummaryResponse()
+        }
+    }
+
+    private fun JsonObject.stringArray(key: String): List<String> {
+        val array = this[key] as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            (element as? JsonPrimitive)?.jsonPrimitive?.contentOrNull
+        }
+    }
+
+    private fun sanitizeTitle(raw: String): String? {
+        val normalized = normalizeText(raw)
+        if (normalized.isBlank()) return null
+
+        val words = normalized.split(" ").filter { it.isNotBlank() }
+        val compact = if (words.size > MAX_TITLE_WORDS) {
+            words.take(MAX_TITLE_WORDS).joinToString(" ")
+        } else {
+            normalized
+        }
+        if (compact.length > MAX_TITLE_CHARS) return compact.take(MAX_TITLE_CHARS).trim()
+        return compact
+    }
+
+    private fun normalizeText(raw: String): String {
+        return raw
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .trim('"', '\'', '“', '”', '‘', '’')
+    }
+
+    private const val MAX_TITLE_WORDS = 5
+    private const val MAX_TITLE_CHARS = 40
+
+    private val parser = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+}
+
+internal data class ParsedTopicSummaryResponse(
+    val titles: List<String> = emptyList(),
+    val summaries: List<String> = emptyList()
+)
