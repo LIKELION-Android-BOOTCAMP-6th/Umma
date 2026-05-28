@@ -68,13 +68,10 @@ class CompleteCorrectionUseCase @Inject constructor(
         val correctionResult = buildCorrectionResult(input.selectedSuggestions)
 
         // 0) compression payload 를 단계 진입 직후 한 번만 계산해 캐시한다.
-        // 같은 payload 의 recentTopics 1순위 키워드를 step 2 LangState 갱신 (DashSummary.recentTopic)
-        // 과 step 5 Session Memory 압축에 동시에 사용하기 위해서다.
-        // 두 곳에서 따로 계산하면 입력은 같아도 값이 어긋날 위험이 있고, 같은 결정 함수를 두 번
-        // 돌리는 낭비도 생긴다.
+        // 이 payload 의 recentTopics 는 Session Memory 압축용 키워드로만 사용한다.
+        // Dashboard 주제 칩(recentTopic)은 단어 키워드가 아니라 AI 세션 요약 title 로만 갱신한다. (#173)
         val compressionCommandResult = buildCompressionCommand(input)
         val cachedCompressionCommand = compressionCommandResult.getOrNull()
-        val derivedRecentTopic = cachedCompressionCommand?.recentTopics?.firstOrNull()
 
         var saveResult: CorrectionSaveResult? = null
 
@@ -89,29 +86,30 @@ class CompleteCorrectionUseCase @Inject constructor(
             // 실패 시에는 Flashcard 저장이 이미 commit 되었으므로 rollback 없이 pending only 로 처리한다.
             val flashcardSummaryResult = applyFlashcardSummaryIfPossible(input)
 
-            // 2) 저장 성공 후에는 같은 완료 흐름 안에서 Session/Dashboard 요약도 닫는다.
+            // 2) 최근 세션 주제를 AI 로 요약해 Session Memory topicSummaries 에 저장하고,
+            // Dashboard 표시용 짧은 topic title 을 얻는다.
+            // 실패/빈 title 은 recentTopic=null 로 내려 기존 Dashboard topic 을 보존한다. (#173)
+            val topicSummaryResult = summarizeRecentTopicsIfPossible(input)
+
+            // 3) 저장 성공 후에는 같은 완료 흐름 안에서 Session/Dashboard 요약도 닫는다.
             // correctionAvailable 을 false 로 내려야 Dashboard 와 Correction 진입 판단이 같은 상태를 본다.
-            // recentTopic 은 step 0 에서 추출한 키워드를 그대로 흘려보내 Dashboard ConversationCard
-            // "주제" 칩이 real 데이터로 채워지게 한다. null 이면 Repository 가 이전 값을 보존한다.
+            // recentTopic 은 AI summary title 이 있을 때만 갱신한다.
+            // null 이면 Repository 가 이전 값을 보존하므로 "hello" 같은 키워드 fallback 이 덮어쓰지 못한다.
             val learningStateUpdateResult = applyLanguageStateUpdateUseCase(
                 input.langStateUpdateInput.copy(
                     correctionResult = correctionResult,
                     correctionAvailableOverride = false,
-                    recentTopic = derivedRecentTopic,
+                    recentTopic = topicSummaryResult.displayTitle,
                     analyzedAt = input.requestedAt
                 )
             ).getOrThrow()
 
-            // 3) LS 저장 결과가 확정되면 Statistics history를 local-first로 기록한다.
+            // 4) LS 저장 결과가 확정되면 Statistics history를 local-first로 기록한다.
             // history 실패는 교정 완료 자체를 되돌리지 않고, pending/error 상태로만 남긴다.
             val statisticsHistoryResult = recordStatisticsHistoryIfPossible(
                 userId = input.langStateUpdateInput.uid,
                 updateResult = learningStateUpdateResult
             )
-
-            // 4) 최근 세션 주제를 AI 로 요약해 Session Memory topicSummaries 에 저장한다.
-            // 실패해도 Flashcard / LangState / Statistics 결과는 이미 확정 상태이므로 pending only 처리한다.
-            val topicSummaryResult = summarizeRecentTopicsIfPossible(input)
 
             // 5) 앞의 네 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
             // 압축은 RT-003 소유 저장소에 대한 후속 정리라 실패해도 저장 완료를 rollback 하지 않는다.
@@ -281,7 +279,11 @@ class CompleteCorrectionUseCase @Inject constructor(
                 requestedAt = input.requestedAt
             )
         )
-        return TopicSummaryStepResult(applied = result.applied, pending = result.pending)
+        return TopicSummaryStepResult(
+            applied = result.applied,
+            pending = result.pending,
+            displayTitle = result.displayTitle
+        )
     }
 
     /**
@@ -336,7 +338,8 @@ class CompleteCorrectionUseCase @Inject constructor(
 
     private data class TopicSummaryStepResult(
         val applied: Boolean,
-        val pending: Boolean
+        val pending: Boolean,
+        val displayTitle: String?
     )
 
     private data class SessionCompressionResult(

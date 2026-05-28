@@ -65,13 +65,19 @@ fun UmmaNavHost(
 
         // 홈 그래프 (마이페이지 포함)
         navigation<Route.HomeGraph>(startDestination = Route.Dashboard) {
-            composable<Route.Dashboard> {
+            composable<Route.Dashboard> { backStackEntry ->
+                val correctionCompletionMessage =
+                    backStackEntry.savedStateHandle.get<String>(CorrectionCompletionMessageKey)
                 DashboardScreen(
                     onNavigateToChat = { navController.navigate(Route.Chat) },
                     onNavigateToStatistics = { navController.navigate(Route.Statistics) },
                     onNavigateToSrsStudy = { navController.navigate(Route.SrsStudy) },
                     onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
-                    onNavigateToMyPage = { navController.navigate(Route.MyPage) }
+                    onNavigateToMyPage = { navController.navigate(Route.MyPage) },
+                    correctionCompletionMessage = correctionCompletionMessage,
+                    onCorrectionCompletionMessageConsumed = {
+                        backStackEntry.savedStateHandle.remove<String>(CorrectionCompletionMessageKey)
+                    },
                 )
 
             }
@@ -120,13 +126,14 @@ fun UmmaNavHost(
         navigation<Route.CorrectionGraph>(startDestination = Route.CorrectionList) {
             composable<Route.CorrectionList> {
                 CorrectionScreen(
-                    onNavigateToDashboard = {
+                    onNavigateToDashboard = { message ->
                         // COR-007-A: 완료 파이프라인 성공 직후 Dashboard 로 복귀.
                         // - popUpTo<CorrectionGraph>{inclusive=true}: CorrectionGraph 를 backstack 에서 통째로
                         //   제거해, 비정상 진입 경로(Dashboard 없이 Correction 으로 진입)에서도 backstack 이
                         //   깔끔하게 정리되도록 한다. 기존 Umma 네비게이션 컨벤션(현재 그래프 통째 정리)과 일관.
                         // - launchSingleTop=true: 정상 경로(Dashboard → Correction → Dashboard)에서 기존
                         //   Dashboard 인스턴스를 재사용해 스크롤/상태를 보존하고 중복 push 도 방지한다.
+                        navController.setCorrectionCompletionMessage(message)
                         navController.navigate(Route.Dashboard) {
                             popUpTo<Route.CorrectionGraph> { inclusive = true }
                             launchSingleTop = true
@@ -149,4 +156,13 @@ fun UmmaNavHost(
             }
         }
     }
+}
+
+private const val CorrectionCompletionMessageKey = "correction_completion_message"
+
+private fun NavHostController.setCorrectionCompletionMessage(message: String) {
+    runCatching { getBackStackEntry<Route.Dashboard>() }
+        .getOrNull()
+        ?.savedStateHandle
+        ?.set(CorrectionCompletionMessageKey, message)
 }

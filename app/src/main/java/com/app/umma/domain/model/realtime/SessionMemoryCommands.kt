@@ -25,6 +25,18 @@ data class SummarizeTopicsCommand(
 )
 
 /**
+ * 최근 세션 주제 요약 저장 결과입니다.
+ *
+ * @property applied 새 topicSummaries 가 실제로 저장되었는지 여부
+ * @property displayTitle Dashboard 주제 칩에 표시할 최신 세션의 짧은 제목.
+ *                        null 이면 기존 DashSummary.recentTopic 을 보존한다.
+ */
+data class TopicSummarySaveResult(
+    val applied: Boolean,
+    val displayTitle: String?
+)
+
+/**
  * Session Memory 원문 버퍼를 압축 결과로 교체하기 위한 입력 모델입니다.
  *
  * @property language 압축 대상 학습 언어

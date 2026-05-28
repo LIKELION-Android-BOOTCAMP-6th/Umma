@@ -6,6 +6,7 @@ import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
+import com.app.umma.domain.model.realtime.TopicSummarySaveResult
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -75,9 +76,10 @@ interface SessionMemoryRepository {
      * SYS-LEARNING-STATE-INFRA Session Memory 필드 정의(topicSummaries: 교정 이후 남기는 주제별 압축 요약)에 근거한다.
      * 저장 대상 칼럼은 SessionMetadataEntity.topicSummariesJson (마이그레이션 없이 재사용).
      * 실패 시 기존 topicSummaries 는 변경하지 않으며 호출자(CompleteCorrectionUseCase)가 pending 으로만 처리한다. (#162-C)
+     * displayTitle 은 Dashboard 표시 품질을 위한 파생값이며, 비어 있으면 recentTopic 갱신에 사용하지 않는다. (#173)
      *
      * @param command 요약 대상 언어와 요청 시각
-     * @return 성공/실패 결과
+     * @return 저장 적용 여부와 Dashboard 표시용 제목을 담은 결과
      */
-    suspend fun summarizeAndSaveTopics(command: SummarizeTopicsCommand): Result<Unit>
+    suspend fun summarizeAndSaveTopics(command: SummarizeTopicsCommand): Result<TopicSummarySaveResult>
 }

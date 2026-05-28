@@ -23,11 +23,13 @@ sealed interface CorrectionEvent {
      * 완료 파이프라인 성공 직후 Dashboard 로 복귀해야 한다는 1회성 신호.
      *
      * 발화 위치: [CorrectionViewModel.launchCompletion] 의 5단계 마지막 — 완료 호출이 성공해
-     * [CorrectionUiState.Phase.Done] 으로 전환된 직후. 1~4단계 실패 분기(uid 미확보 / RT-003
+     * [CorrectionUiState.Phase.Done] 으로 전환된 직후 지연 없이 발화된다. 1~4단계 실패 분기(uid 미확보 / RT-003
      * context 조회 실패 / LangStateUpdateInput 조립 실패) 와 5단계 호출 실패 분기에서는 발화하지 않는다.
      *
      * 소비 위치: [CorrectionScreen] 의 LaunchedEffect collect 블록 → 상위 NavHost 가 정의한
      * Dashboard 복귀 콜백(CorrectionGraph 통째로 pop + launchSingleTop) 호출.
      */
-    data object NavigateToDashboard : CorrectionEvent
+    data class NavigateToDashboard(
+        val message: String,
+    ) : CorrectionEvent
 }

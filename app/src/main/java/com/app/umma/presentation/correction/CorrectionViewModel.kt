@@ -1,6 +1,7 @@
 package com.app.umma.presentation.correction
 
 import android.util.Log
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.model.correction.CompleteCorrectionInput
@@ -20,6 +21,7 @@ import com.app.umma.domain.usecase.realtime.GetCorrectionContextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +45,8 @@ import javax.inject.Inject
  *    보장한다. 화면 레이어가 Empty 상태에서 AI Chat 이동 CTA 를 노출하는 책임은 [CorrectionScreen] 이 진다.
  *  - (COR-002-A) Ready 첫 emit 시 사용자 추가 입력 없이 generateSuggestions 를 1회 자동 트리거.
  *    RT-003 correction context → 후보 추출 → AI 호출 → CorrectionSuggestion 목록 → Content / Error.
+ *    로딩 단계 안내는 화면 계층의 시간 기반 가이드가 전담하며, 5단계 안내가 모두 보이도록
+ *    생성 결과 반영 전 최소 15초 로딩 시간을 보장한다.
  *
  *  - (COR-004) 카드 선택/해제 토글과 저장 버튼 클릭 진입점을 노출한다.
  *    선택 상태는 [CorrectionUiState.selectedSuggestionIds] 가 SSOT 이고,
@@ -63,8 +67,8 @@ import javax.inject.Inject
  *    Firestore sync / compression / statistics 의 pending 만 발생한 경우는 [CompleteCorrectionUseCase]
  *    가 `Result.success` 로 흘려보내므로 Retry 가 아니라 Done 으로 이어진다 (회귀: COR-007-B pending 3건).
  *  - (COR-007-A) 완료 파이프라인 성공 직후 [events] 채널로 [CorrectionEvent.NavigateToDashboard] 를
- *    정확히 한 번 방출한다. State(`Phase.Done`) 결정 책임은 [applyCompletionOutcome] 에 그대로 두고,
- *    1회성 navigation 신호만 Channel 로 분리해 회전/recomposition/재진입에 의한 재발화를 막는다.
+ *    정확히 한 번 방출한다. State(`Phase.Done`) 결정 책임은 [applyCompletionOutcome] 에 그대로 두되,
+ *    성공 직후 지연 없이 navigation 신호를 보내 별도 완료 안내 화면이 사용자에게 노출되지 않게 한다.
  *  - (COR-007-B) Firestore sync / Session compression / Statistics history 의 pending 상태는
  *    사용자 흐름을 막지 않는다. [CompleteCorrectionUseCase] 가 pending 케이스에서도 `Result.success`
  *    로 흘려보내므로 [applyCompletionOutcome] 의 success 분기 하나로 [Phase.Done] 진입과
@@ -245,7 +249,8 @@ class CorrectionViewModel @Inject constructor(
         val langState = ready.langStateSnapshot ?: return
 
         viewModelScope.launch {
-            // Generating 전환 — errorReason 은 helper 에서 채워지므로 여기선 비워만 둔다.
+            val loadingStartedAt = SystemClock.elapsedRealtime()
+            // Generating 전환 — 화면의 5단계 로딩 가이드는 Composable 이 시간 기반으로 표시한다.
             _uiState.value = _uiState.value.copy(
                 phase = CorrectionUiState.Phase.Generating,
                 errorReason = null,
@@ -273,6 +278,12 @@ class CorrectionViewModel @Inject constructor(
                     langState = langState,
                 )
                 generateSuggestions(input).getOrThrow()
+            }
+
+            val elapsedMs = SystemClock.elapsedRealtime() - loadingStartedAt
+            val remainingMs = MIN_LOADING_GUIDE_DURATION_MS - elapsedMs
+            if (remainingMs > 0) {
+                delay(remainingMs)
             }
 
             // COR-002-B: 분기 결정(EmptyResult/Content/Error) 과 필드 정리는 pure helper 에 위임.
@@ -466,9 +477,22 @@ class CorrectionViewModel @Inject constructor(
             // 1~4단계 실패와 5단계 호출 실패 분기는 각자 위에서 applyCompletionOutcome(err) + return@launch
             // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
             // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
-            if (result.isSuccess) {
-                _events.send(CorrectionEvent.NavigateToDashboard)
+            result.getOrNull()?.let { completion ->
+                _events.send(
+                    CorrectionEvent.NavigateToDashboard(
+                        message = completion.toDashboardToastMessage(),
+                    )
+                )
             }
+        }
+    }
+
+    private fun CompleteCorrectionResult.toDashboardToastMessage(): String {
+        val savedCount = savedFlashcardIds.size
+        return if (savedCount > 0) {
+            "학습 카드 ${savedCount}개가 저장되었어요"
+        } else {
+            "학습 카드가 저장되었어요"
         }
     }
 
@@ -574,5 +598,6 @@ class CorrectionViewModel @Inject constructor(
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
+        const val MIN_LOADING_GUIDE_DURATION_MS = 15_000L
     }
 }
