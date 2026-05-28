@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -20,6 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +40,7 @@ import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.presentation.correction.component.CorrectionResultList
+import kotlinx.coroutines.delay
 
 /**
  * 교정 화면을 구성하는 컴포저블입니다.
@@ -49,8 +54,8 @@ import com.app.umma.presentation.correction.component.CorrectionResultList
  * COR-003-A 에서 Content 상태는 [CorrectionResultList] 카드 UI 로 교체되었다.
  * COR-004 에서는 Content 상태에서 카드 목록 아래에 [CorrectionSaveButton] 을 띄워
  * 선택 상태 → 저장 진입점을 연결한다.
- * COR-006-A 에서는 완료 파이프라인 성공 직후 [CorrectionUiState.Phase.Done] 으로 전환되며,
- * 카드 목록과 저장 버튼이 사라지고 안내 텍스트와 저장된 카드 수만 남는다.
+ * COR-006-A 에서는 완료 파이프라인 성공 직후 [CorrectionUiState.Phase.Done] 으로 전환되지만,
+ * COR-007 복귀 이벤트가 지연 없이 발화되므로 별도 완료 안내 UI 를 사용자에게 보여주지 않는다.
  * COR-006-B 에서는 로컬 완료 실패 시 [CorrectionUiState.Phase.Retry] 로 전환되어
  * 카드 목록과 저장 버튼은 그대로 유지된 채 상단에 [CorrectionCompletionRetryBanner] 가
  * 실패 사유와 함께 노출된다. 사용자가 같은 저장 버튼을 다시 누르면 ViewModel 의
@@ -63,9 +68,8 @@ import com.app.umma.presentation.correction.component.CorrectionResultList
  * 끌어올려 "AI 와 대화하기" CTA 를 노출하고, 클릭 시 [onNavigateToChat] 콜백으로 위임한다.
  * COR-002-B 에서는 AI 응답 0건([CorrectionUiState.Phase.EmptyResult]) 을 [CorrectionEmptyResult] 로,
  * 호출/파싱/필수 필드 실패([CorrectionUiState.Phase.Error]) 를 [CorrectionError] + Retry 버튼으로 연결한다.
- * COR-003-B 에서는 Loading / Ready / Generating 세 phase 를 [CorrectionLoading] 단일 컴포저블로 묶어
- * CircularProgressIndicator + 안내 텍스트를 표시한다. 세 phase 는 사용자 관점에서 모두 "카드가 등장하기 전
- * 대기 시간"이라 동일한 시각으로 통합한다(FLOW_CORRECTION.md §3 "진입 후 Loading 을 거쳐 카드 목록 확인").
+ * COR-003-B 에서는 Loading / Ready / Generating 세 phase 를 [CorrectionLoading] 단일 컴포저블로 묶되,
+ * 5단계 안내 문구와 점 애니메이션으로 준비 흐름이 계속 진행 중임을 표시한다.
  *
  * @param onNavigateToDashboard 완료 파이프라인 성공 후 Dashboard 로 복귀시켜야 할 때 호출되는 1회성 콜백.
  *  실제 navigate 와 backstack 정리(popUpTo<CorrectionGraph> inclusive=true + launchSingleTop) 책임은
@@ -242,22 +246,15 @@ fun CorrectionScreen(
             }
 
             CorrectionUiState.Phase.Done -> {
-                // COR-006-A: Done phase — 완료 파이프라인 성공 안내.
-                // Dashboard 복귀는 COR-007-A 가 1회성 navigation 이벤트로 잇는다(이 화면에서 머무는 시간은 짧을 예정).
-                // Content / Retry / Empty / EmptyResult / Error / Loading / Ready / Generating 은 위에서 이미 처리.
-                Column(
+                // COR backlog: 완료 성공 직후 Dashboard 이벤트가 즉시 발화되므로 별도 완료 안내 UI 를 노출하지 않는다.
+                // navigation 콜백 처리 전 아주 짧은 프레임이 생겨도 완료 문구나 카드 수는 보여주지 않는다.
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    contentAlignment = Alignment.Center,
                 ) {
-                    val savedCount = uiState.completionResult?.savedFlashcardIds?.size ?: 0
-                    Text(text = "저장이 완료되었어요", textAlign = TextAlign.Center)
-                    Text(
-                        text = "${savedCount}개 카드가 학습 목록에 추가되었어요",
-                        textAlign = TextAlign.Center,
-                    )
+                    CircularProgressIndicator(color = ThemePrimary)
                 }
             }
         }
@@ -284,6 +281,19 @@ fun CorrectionScreen(
 private fun CorrectionLoading(
     modifier: Modifier = Modifier,
 ) {
+    var stepIndex by remember { mutableIntStateOf(0) }
+    val steps = remember { CorrectionLoadingGuideStep.entries }
+
+    LaunchedEffect(Unit) {
+        stepIndex = 0
+        while (stepIndex < steps.lastIndex) {
+            delay(LOADING_GUIDE_STEP_INTERVAL_MS)
+            stepIndex += 1
+        }
+    }
+
+    val currentStep = steps[stepIndex]
+
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center,
@@ -294,10 +304,7 @@ private fun CorrectionLoading(
         ) {
             // Material3 기본 stroke 크기를 유지하고 앱 테마 색만 적용한다.
             CircularProgressIndicator(color = ThemePrimary)
-            Text(
-                text = "교정 결과를 준비하고 있어요",
-                textAlign = TextAlign.Center,
-            )
+            CorrectionLoadingGuideText(label = currentStep.label)
         }
     }
 }
@@ -307,6 +314,62 @@ private fun CorrectionLoading(
 private fun CorrectionLoadingPreview() {
     CorrectionLoading()
 }
+
+/**
+ * 긴 AI 대기 시간을 실제 진행률처럼 꾸미지 않고, 준비 흐름의 체감 단계를 안내하기 위한 화면 전용 가이드.
+ *
+ * 실제 작업 완료율과 1:1 대응시키지 않는 이유는 AI 응답 대기 시간이 예측 불가능하기 때문이다.
+ * 화면은 3초 간격으로 마지막 단계까지 진행하고, 각 문구의 말줄임표를 짧게 반복해 진행감을 만든다.
+ * ViewModel 은 최소 15초 로딩 보장 뒤 결과 상태로 전환한다.
+ */
+private enum class CorrectionLoadingGuideStep(val label: String) {
+    ReviewingConversation("최근 대화를 확인하고 있어요"),
+    FindingCandidates("교정할 문장을 고르고 있어요"),
+    CreatingExpression("자연스러운 표현을 만들고 있어요"),
+    WritingExplanation("학습 설명을 정리하고 있어요"),
+    PreparingCards("교정 카드를 준비하고 있어요"),
+}
+
+@Composable
+private fun CorrectionLoadingGuideText(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = animatedEllipsis(),
+            modifier = Modifier.width(LOADING_ELLIPSIS_WIDTH),
+            textAlign = TextAlign.Start,
+        )
+    }
+}
+
+@Composable
+private fun animatedEllipsis(): String {
+    var dotCount by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(LOADING_ELLIPSIS_INTERVAL_MS)
+            dotCount = (dotCount + 1) % (LOADING_ELLIPSIS_MAX_DOTS + 1)
+        }
+    }
+
+    return ".".repeat(dotCount)
+}
+
+private const val LOADING_GUIDE_STEP_INTERVAL_MS = 3_000L
+private const val LOADING_ELLIPSIS_INTERVAL_MS = 600L
+private const val LOADING_ELLIPSIS_MAX_DOTS = 3
+private val LOADING_ELLIPSIS_WIDTH = 18.dp
 
 /**
  * COR-001-B: 결손 케이스 Empty UI.

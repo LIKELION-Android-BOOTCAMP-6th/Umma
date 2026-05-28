@@ -27,7 +27,8 @@ import com.app.umma.domain.model.learningstate.selectedLang
  *    [saveRequest] 에 보관한다. 변환 실패 사유는 [saveErrorReason] 에 남긴다.
  *  - (COR-006-A) 저장 요청 변환 성공 후 CompleteCorrectionUseCase 완료 파이프라인 호출까지 이어가고,
  *    완료 in-flight 윈도우([isCompleting])와 완료 결과 보관([completionResult])을 추가한다.
- *    완료 성공 시 [Phase.Done] 으로 전환되어 카드 목록과 저장 버튼이 사라지고 안내 텍스트로 마무리된다.
+ *    완료 성공 시 [Phase.Done] 으로 전환되지만, COR-007 복귀 이벤트가 즉시 발화되므로 사용자가 별도 완료
+ *    안내 화면에 머물지 않는 정책을 따른다.
  *  - (COR-006-B) 로컬 완료 실패 결과를 받으면 [Phase.Retry] 로 전환한다. 카드 목록 / 선택 /
  *    [saveRequest] 는 그대로 보존해 사용자가 같은 입력으로 다시 저장 버튼을 누르면 [PrepareSaveRequestUseCase]
  *    가 deterministic 하게 같은 [CorrectionSaveRequest] 를 재생성해 같은 완료 요청으로 재진입한다.
@@ -93,8 +94,8 @@ data class CorrectionUiState(
     // 같은 이유로 [canSave] 가 두 플래그를 모두 가드한다.
     val isCompleting: Boolean = false,
     // COR-006-A: CompleteCorrectionUseCase 성공 결과 보관.
-    // [Phase.Done] 화면에서 "저장된 카드 수" 를 표시하기 위해 [CompleteCorrectionResult.savedFlashcardIds] 를 읽는다.
-    // 후속 COR-007-A 가 Dashboard 복귀 navigation 을 붙일 때 이 결과를 참조해 1회성 이벤트로 변환한다.
+    // COR-007 복귀 이벤트가 성공 직후 지연 없이 발화되므로 화면은 이 값을 완료 안내로 노출하지 않는다.
+    // pending sync / compression 진단과 회귀 테스트를 위해 결과 객체 자체는 상태에 보관한다.
     val completionResult: CompleteCorrectionResult? = null,
     // COR-006-B: CompleteCorrectionUseCase 가 로컬 완료 실패 결과를 돌려준 사유.
     // [Phase.Retry] 화면 상단 배너로 노출하기 위한 진단 텍스트로, 같은 saveRequest 로 재시도가 성공하면
