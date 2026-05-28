@@ -4,8 +4,17 @@ import com.app.umma.domain.model.audio.AudioInputFrame
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 녹음 추상화 계층 인터페이스
- * */
+ * Contract for microphone input.
+ */
 interface AudioInput {
+
+    /**
+     * Starts recording and emits PCM frames until the caller stops or cancels it.
+     */
     fun startRecording(): Flow<AudioInputFrame>
+
+    /**
+     * Stops the currently active recording session immediately.
+     */
+    fun stopRecording()
 }

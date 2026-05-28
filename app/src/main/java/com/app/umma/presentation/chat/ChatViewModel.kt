@@ -205,7 +205,7 @@ class ChatViewModel @Inject constructor(
                             isRecoverableError = true,
                             errorMessage = toUserFacingErrorMessage(
                                 rawMessage = error.message,
-                                fallback = "대화를 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                                fallback = "대화를 시작할 수 없습니다.\n잠시 후 다시 시도해 주세요."
                             )
                         )
                     }
@@ -327,6 +327,7 @@ class ChatViewModel @Inject constructor(
         if (!_uiState.value.isRecording) return
 
         captureCurrentUserTurnDuration()
+        audioRecorder.stopRecording()
         recordJob?.cancel()
         recordJob = null
 
@@ -478,6 +479,7 @@ class ChatViewModel @Inject constructor(
         if (!_uiState.value.canEndUserTurn) return
 
         captureCurrentUserTurnDuration()
+        audioRecorder.stopRecording()
         recordJob?.cancel()
         recordJob = null
 
@@ -499,6 +501,7 @@ class ChatViewModel @Inject constructor(
             eventJob?.cancel()
             eventJob = null
 
+            audioRecorder.stopRecording()
             recordJob?.cancel()
             recordJob = null
 

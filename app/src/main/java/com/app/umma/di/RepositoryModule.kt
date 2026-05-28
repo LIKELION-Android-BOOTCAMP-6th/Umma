@@ -3,7 +3,6 @@ package com.app.umma.di
 import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
-import com.app.umma.data.repository.ChatRepositoryImpl
 import com.app.umma.data.repository.CorrectionRepositoryImpl
 import com.app.umma.data.repository.SessionMemoryRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
@@ -16,7 +15,6 @@ import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.domain.repository.AuthRepository
-import com.app.umma.domain.repository.ChatRepository
 import com.app.umma.domain.repository.CorrectionRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
 import com.app.umma.domain.repository.UserProfileRepository
@@ -39,20 +37,6 @@ abstract class RepositoryModule {
         authRepositoryImpl: AuthRepositoryImpl
     ): AuthRepository
 
-
-    @Binds
-    @Singleton
-    abstract fun bindChatRepository(
-        chatRepositoryImpl: ChatRepositoryImpl
-    ): ChatRepository
-
-    // Correction 저장소 Real ↔ Fake 토글
-    // 아래 두 파라미터 중 한 줄만 활성화한다.
-    // 동시에 활성화하거나 같은 interface 에 @Binds 메서드를 추가하면 Dagger duplicate binding 으로 컴파일이 실패한다.
-    //   - Real:  correctionRepositoryImpl: CorrectionRepositoryImpl (실제 Gemini 호출)
-    //   - Fake:  fakeCorrectionRepository: FakeCorrectionRepository (화면/ViewModel 분기 검증용 토글 필드 제공)
-    // COR-002-A 부터 Real 활성화. 후속 화면 백로그(COR-003~005)에서 Empty/Error/Save 검증이 필요해지면
-    // Fake 로 한 줄 토글한 뒤 검증이 끝나면 다시 Real 로 원복한다.
     @Binds
     @Singleton
     abstract fun bindCorrectionRepository(
