@@ -12,6 +12,8 @@ interface AudioOutput {
 
     fun playAudioChunk(audio: ByteArray)
 
+    fun consumeLastPlaybackDurationMs(): Long?
+
     fun stopPlaying()
 
     fun release()

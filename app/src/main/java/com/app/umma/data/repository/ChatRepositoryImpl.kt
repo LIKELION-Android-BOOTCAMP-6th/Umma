@@ -1,6 +1,7 @@
 package com.app.umma.data.repository
 
 import android.util.Log
+import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
@@ -36,19 +37,22 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.ceil
 
 /**
  * Gemini Live API 기반 실시간 음성 대화 Repository 구현체입니다.
  */
 @OptIn(PublicPreviewAPI::class)
 class ChatRepositoryImpl @Inject constructor(
-    private val firebaseAI: FirebaseAI
+    private val firebaseAI: FirebaseAI,
+    private val audioPlayer: AudioOutput
 ) : ChatRepository {
 
     constructor(
         firebaseAI: FirebaseAI,
+        audioPlayer: AudioOutput,
         reconnectPolicy: ReconnectPolicy
-    ) : this(firebaseAI) {
+    ) : this(firebaseAI, audioPlayer) {
         this.reconnectPolicy = reconnectPolicy
     }
 
@@ -117,6 +121,12 @@ class ChatRepositoryImpl @Inject constructor(
      * session-local turn 시퀀스입니다.
      */
     private var turnSequence: Long = 0L
+    /**
+     * durationMs 계산용 프로퍼티입니다.
+     * */
+    private var pendingUserTurnDurationMs: Long? = null
+    private var currentAiTurnStartedAtMs: Long? = null
+    private var currentAiTurnEndedAtMs: Long? = null
 
     override suspend fun startSession(
         langCode: LangCode,
@@ -255,10 +265,15 @@ class ChatRepositoryImpl @Inject constructor(
         message.content?.parts
             ?.filterIsInstance<InlineDataPart>()
             ?.forEach { part ->
+                if (currentAiTurnStartedAtMs == null) {
+                    currentAiTurnStartedAtMs = System.currentTimeMillis()
+                    currentAiTurnEndedAtMs = null
+                }
                 _events.emit(AIEvent.AudioResponse(part.inlineData))
             }
 
         if (message.turnComplete) {
+            currentAiTurnEndedAtMs = currentAiTurnEndedAtMs ?: System.currentTimeMillis()
             emitFinalTranscripts()
             _events.emit(AIEvent.StateChanged(AIState.IDLE))
         }
@@ -331,11 +346,25 @@ class ChatRepositoryImpl @Inject constructor(
                 text = text,
                 role = role,
                 createdAt = createdAt,
-                durationMs = null,
-                tokenCount = null,
+                durationMs = when (role) {
+                    TurnSpeaker.USER -> pendingUserTurnDurationMs
+                    TurnSpeaker.AI -> audioPlayer.consumeLastPlaybackDurationMs()
+                        ?: computeDurationMs(currentAiTurnStartedAtMs, currentAiTurnEndedAtMs)
+                },
+                tokenCount = computeTokenCount(text),
                 confidence = null
             )
         )
+
+        when (role) {
+            TurnSpeaker.USER -> {
+                pendingUserTurnDurationMs = null
+            }
+            TurnSpeaker.AI -> {
+                currentAiTurnStartedAtMs = null
+                currentAiTurnEndedAtMs = null
+            }
+        }
     }
 
     /**
@@ -543,6 +572,9 @@ class ChatRepositoryImpl @Inject constructor(
         reconnectJob = null
 
         closeLiveTransport()
+        pendingUserTurnDurationMs = null
+        currentAiTurnStartedAtMs = null
+        currentAiTurnEndedAtMs = null
 
         if (!clearAppSession) return
 
@@ -561,6 +593,10 @@ class ChatRepositoryImpl @Inject constructor(
         )
     }
 
+    override fun setPendingUserTurnDuration(durationMs: Long?) {
+        pendingUserTurnDurationMs = durationMs
+    }
+
     override suspend fun sendTextData(text: String) {
         session?.sendTextRealtime(text)
     }
@@ -571,6 +607,17 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun stopSession(clearAppSession: Boolean) = sessionMutex.withLock {
         stopInternal(clearAppSession = clearAppSession)
+    }
+
+    private fun computeDurationMs(startedAt: Long?, endedAt: Long?): Long? {
+        if (startedAt == null || endedAt == null) return null
+        return (endedAt - startedAt).coerceAtLeast(0L)
+    }
+
+    private fun computeTokenCount(text: String): Int {
+        val normalized = text.trim()
+        if (normalized.isEmpty()) return 0
+        return ceil(normalized.length / 4.0).toInt().coerceAtLeast(1)
     }
 }
 

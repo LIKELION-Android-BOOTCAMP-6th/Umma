@@ -22,6 +22,7 @@ import com.app.umma.domain.usecase.chat.ObserveAIEventUseCase
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
 import com.app.umma.domain.usecase.chat.RetryConnectionUseCase
 import com.app.umma.domain.usecase.chat.SendAudioDataUseCase
+import com.app.umma.domain.usecase.chat.SetPendingUserTurnDurationUseCase
 import com.app.umma.domain.usecase.chat.StartSessionUseCase
 import com.app.umma.domain.usecase.chat.StopSessionUseCase
 import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.ceil
 
 /**
  * AI Chat 실시간 대화 상태를 관리하는 ViewModel 입니다.
@@ -49,6 +51,7 @@ class ChatViewModel @Inject constructor(
     private val retryConnectionUseCase: RetryConnectionUseCase,
     private val observeAIEventUseCase: ObserveAIEventUseCase,
     private val sendAudioDataUseCase: SendAudioDataUseCase,
+    private val setPendingUserTurnDurationUseCase: SetPendingUserTurnDurationUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
     private val getUserProfileUseCase: GetUserProfileUseCase,
     private val getUserNicknameUseCase: GetUserNicknameUseCase,
@@ -89,6 +92,8 @@ class ChatViewModel @Inject constructor(
     private var stopChatJob: Job? = null
     private var enterChatJob: Job? = null
     private var outputLevelJob: Job? = null
+    private var currentUserTurnStartedAtMs: Long? = null
+    private var currentUserTurnEndedAtMs: Long? = null
 
     init {
         observeAudioOutputLevel()
@@ -261,6 +266,10 @@ class ChatViewModel @Inject constructor(
         if (!currentState.canStartUserTurn) return
         if (recordJob?.isActive == true) return
 
+        currentUserTurnStartedAtMs = System.currentTimeMillis()
+        currentUserTurnEndedAtMs = null
+        setPendingUserTurnDurationUseCase(null)
+
         _uiState.update {
             it.copy(
                 isRecording = true,
@@ -301,6 +310,7 @@ class ChatViewModel @Inject constructor(
     private fun stopRecordingForAiSpeaking() {
         if (!_uiState.value.isRecording) return
 
+        captureCurrentUserTurnDuration()
         recordJob?.cancel()
         recordJob = null
 
@@ -438,6 +448,7 @@ class ChatViewModel @Inject constructor(
     fun endUserTurn() {
         if (!_uiState.value.canEndUserTurn) return
 
+        captureCurrentUserTurnDuration()
         recordJob?.cancel()
         recordJob = null
 
@@ -462,6 +473,9 @@ class ChatViewModel @Inject constructor(
             recordJob?.cancel()
             recordJob = null
 
+            currentUserTurnStartedAtMs = null
+            currentUserTurnEndedAtMs = null
+            setPendingUserTurnDurationUseCase(null)
             audioPlayer.stopPlaying()
             stopSessionUseCase(clearAppSession = false)
 
@@ -889,6 +903,16 @@ class ChatViewModel @Inject constructor(
                 _uiState.update { it.copy(outputLevel = level.coerceIn(0f, 1f)) }
             }
         }
+    }
+
+    private fun captureCurrentUserTurnDuration() {
+        val startedAt = currentUserTurnStartedAtMs ?: return
+        if (currentUserTurnEndedAtMs == null) {
+            currentUserTurnEndedAtMs = System.currentTimeMillis()
+        }
+        val endedAt = currentUserTurnEndedAtMs ?: return
+        val durationMs = (endedAt - startedAt).coerceAtLeast(0L)
+        setPendingUserTurnDurationUseCase(durationMs)
     }
 
     /**

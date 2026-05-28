@@ -62,6 +62,8 @@ interface ChatRepository {
      */
     suspend fun sendAudioData(audio: ByteArray)
 
+    fun setPendingUserTurnDuration(durationMs: Long?)
+
     /**
      * 텍스트 payload를 실시간 세션으로 전송합니다.
      *

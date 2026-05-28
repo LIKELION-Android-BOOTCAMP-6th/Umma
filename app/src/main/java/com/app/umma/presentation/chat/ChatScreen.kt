@@ -316,9 +316,9 @@ fun ChatScreen(
                 if (uiState.microphonePermissionDenied) {
                     Text(
                         text = if (uiState.microphonePermissionPermanentlyDenied) {
-                            "Mic permission is permanently denied. Open settings to allow it."
+                            "마이크 권한이 영구 거부되었습니다. 설정에서 권한을 확인해주세요."
                         } else {
-                            "Mic permission is required."
+                            "마이크 권한이 필요합니다."
                         },
                         color = TextLogout,
                         style = TextAnalysisR,
@@ -339,7 +339,7 @@ fun ChatScreen(
 
                 if (uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK) {
                     Text(
-                        text = uiState.errorMessage ?: "Network connection is required.",
+                        text = uiState.errorMessage ?: "네트워크 연결이 필요합니다.",
                         color = TextLogout,
                         style = TextAnalysisR,
                         textAlign = TextAlign.Center
@@ -350,7 +350,7 @@ fun ChatScreen(
                             .fillMaxWidth()
                             .padding(top = SpacingS)
                     ) {
-                        Text(text = "Retry")
+                        Text(text = "재시도")
                     }
                 }
 
@@ -367,7 +367,7 @@ fun ChatScreen(
                             .fillMaxWidth()
                             .padding(top = SpacingS)
                     ) {
-                        Text(text = "Retry Connection")
+                        Text(text = "재연결 시도")
                     }
                 }
 
@@ -385,11 +385,11 @@ fun ChatScreen(
 
     if (uiState.showTopicDialog) {
         UmmaDialog(
-            title = "Pick 5 Topics",
+            title = "관심 주제 5개 선택",
             modifier = Modifier.padding(horizontal = SpacingL),
             onCancel = {},
             onConfirm = { viewModel.saveInterestTopics() },
-            confirmText = "Done"
+            confirmText = "완료"
         ) {
             Column(
                 modifier = Modifier
