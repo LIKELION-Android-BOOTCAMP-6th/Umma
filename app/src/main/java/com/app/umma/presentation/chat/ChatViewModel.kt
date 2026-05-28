@@ -1,7 +1,6 @@
 package com.app.umma.presentation.chat
 
 import android.annotation.SuppressLint
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.core.util.NetworkConnectivityMonitor
@@ -109,7 +108,6 @@ class ChatViewModel @Inject constructor(
         enterChatJob = viewModelScope.launch {
             stopChatJob?.join()
             startObservingAIEvents()
-            logEntry("enterChat start")
 
             _uiState.update {
                 it.copy(
@@ -137,7 +135,6 @@ class ChatViewModel @Inject constructor(
                         errorMessage = "네트워크에 연결할 수 없습니다.\nwifi 또는 모바일 데이터를 확인해주세요."
                     )
                 }
-                logEntry("blocked offline")
                 return@launch
             }
 
@@ -152,21 +149,16 @@ class ChatViewModel @Inject constructor(
                     errorMessage = null
                 )
             }
-            logEntry("restoring")
             delay(entryStageDelayMs)
             val restoreResult = retryConnectionUseCase()
             when (restoreResult) {
                 is RetryConnectionResult.Reconnected -> {
-                    logEntry("restore success sessionId=${restoreResult.sessionId}")
                     handleSessionStarted(restoreResult.sessionId)
                     return@launch
                 }
                 is RetryConnectionResult.Failed -> Unit
-                is RetryConnectionResult.RequireNewSession -> {
-                    logEntry("restore skipped reason=${restoreResult.reason}")
-                }
+                is RetryConnectionResult.RequireNewSession -> Unit
             }
-            logEntry("restore failed, fallback to new session")
 
             _uiState.update {
                 it.copy(
@@ -190,12 +182,10 @@ class ChatViewModel @Inject constructor(
 
             startSessionUseCase()
                 .onSuccess { sessionId ->
-                    logEntry("start new session success sessionId=$sessionId")
                     handleSessionStarted(sessionId)
                     audioPlayer.startPlaying()
                 }
                 .onFailure { error ->
-                    logEntry("start new session failed reason=${error.message}")
                     _uiState.update {
                         it.copy(
                             entryStage = ChatEntryStage.ERROR,
@@ -205,7 +195,7 @@ class ChatViewModel @Inject constructor(
                             isRecoverableError = true,
                             errorMessage = toUserFacingErrorMessage(
                                 rawMessage = error.message,
-                                fallback = "대화를 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                                fallback = "대화를 시작할 수 없습니다.\n잠시 후 다시 시도해 주세요."
                             )
                         )
                     }
@@ -219,7 +209,6 @@ class ChatViewModel @Inject constructor(
      * Initialized 이벤트를 늦게 받거나 놓쳐도 UI가 LOADING에 남지 않도록 합니다.
      */
     private fun handleSessionStarted(sessionId: String) {
-        logEntry("ready sessionId=$sessionId")
         _uiState.update {
             it.copy(
                 entryStage = ChatEntryStage.READY,
@@ -327,6 +316,7 @@ class ChatViewModel @Inject constructor(
         if (!_uiState.value.isRecording) return
 
         captureCurrentUserTurnDuration()
+        audioRecorder.stopRecording()
         recordJob?.cancel()
         recordJob = null
 
@@ -415,7 +405,6 @@ class ChatViewModel @Inject constructor(
         targetLang: LangCode?
     ) {
         stopSessionUseCase()
-        logEntry("fallback to new session reason=$reason")
 
         _uiState.update {
             it.copy(
@@ -478,6 +467,7 @@ class ChatViewModel @Inject constructor(
         if (!_uiState.value.canEndUserTurn) return
 
         captureCurrentUserTurnDuration()
+        audioRecorder.stopRecording()
         recordJob?.cancel()
         recordJob = null
 
@@ -495,10 +485,10 @@ class ChatViewModel @Inject constructor(
     fun stopChat() {
         stopChatJob?.cancel()
         stopChatJob = viewModelScope.launch {
-            logEntry("stopChat start")
             eventJob?.cancel()
             eventJob = null
 
+            audioRecorder.stopRecording()
             recordJob?.cancel()
             recordJob = null
 
@@ -510,7 +500,6 @@ class ChatViewModel @Inject constructor(
 
             _uiState.value = ChatUiState()
             pendingTurnSaveCount = 0
-            logEntry("stopChat done")
         }
     }
 
@@ -598,21 +587,11 @@ class ChatViewModel @Inject constructor(
      */
     private fun handleFinalTranscription(event: AIEvent.FinalTranscription) {
         if (event.text.isBlank()) {
-            Log.d(CHAT_FLOW_TAG, "skip final transcription because text is blank")
             return
         }
         if (_uiState.value.lastHandledFinalTurnId == event.turnId) {
-            Log.d(
-                CHAT_FLOW_TAG,
-                "skip duplicate final transcription turnId=${event.turnId}, role=${event.role}, sessionId=${event.sessionId}"
-            )
             return
         }
-
-        Log.d(
-            CHAT_FLOW_TAG,
-            "final transcription received turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}, sessionId=${event.sessionId}, textLength=${event.text.length}"
-        )
 
         _uiState.update {
             when (event.role) {
@@ -642,11 +621,6 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             beginTurnSave()
 
-            Log.d(
-                CHAT_FLOW_TAG,
-                "append turn requested turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}, sessionId=${event.sessionId}"
-            )
-
             val command = AppendTurnCommand(
                 language = event.sessionLang,
                 turn = SessionTurn(
@@ -663,21 +637,12 @@ class ChatViewModel @Inject constructor(
 
             appendTurnUseCase(command)
                 .onSuccess {
-                    Log.d(
-                        CHAT_FLOW_TAG,
-                        "append turn succeeded turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}"
-                    )
                     handoverCorrectionAvailableSignal(event)
                     _uiState.update {
                         it.copy(saveErrorMessage = null)
                     }
                 }
                 .onFailure { error ->
-                    Log.w(
-                        CHAT_FLOW_TAG,
-                        "append turn failed turnId=${event.turnId}, role=${event.role}, lang=${event.sessionLang.code}, reason=${error.message ?: error.javaClass.simpleName}",
-                        error
-                    )
                     _uiState.update {
                         it.copy(saveErrorMessage = error.message ?: "Turn 저장 실패")
                     }
@@ -692,10 +657,6 @@ class ChatViewModel @Inject constructor(
 
         val uid = getCurrentUserUidUseCase.getCurrentUserUid()
         if (uid.isNullOrBlank()) {
-            Log.w(
-                CHAT_FLOW_TAG,
-                "skip correction signal handover because uid is missing turnId=${event.turnId}, lang=${event.sessionLang.code}"
-            )
             return
         }
 
@@ -709,19 +670,7 @@ class ChatViewModel @Inject constructor(
         )
 
         applyCorrectionSignalUpdateUseCase(input)
-            .onSuccess {
-                Log.d(
-                    CHAT_FLOW_TAG,
-                    "correction signal handover succeeded turnId=${event.turnId}, lang=${event.sessionLang.code}"
-                )
-            }
-            .onFailure { error ->
-                Log.w(
-                    CHAT_FLOW_TAG,
-                    "correction signal handover failed turnId=${event.turnId}, lang=${event.sessionLang.code}, reason=${error.message ?: error.javaClass.simpleName}",
-                    error
-                )
-            }
+            .onFailure { }
     }
 
     /**
@@ -1076,13 +1025,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun logEntry(message: String) {
-        Log.d(CHAT_FLOW_TAG, "[ENTRY] $message")
-    }
-
     private companion object {
-        const val CHAT_FLOW_TAG = "ChatTurnFlow"
-
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }
