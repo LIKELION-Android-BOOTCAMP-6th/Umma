@@ -96,7 +96,19 @@ fun UmmaNavHost(
 
         // SRS 반복학습 그래프
         navigation<Route.SrsStudyGraph>(startDestination = Route.SrsStudy) {
-            composable<Route.SrsStudy> { SrsStudyScreen() }
+            composable<Route.SrsStudy> {
+                SrsStudyScreen(
+                    onNavigateToDashboard = {
+                        // 학습 완료 후 Dashboard로 복귀
+                        // popUpTo: SRS 화면을 뒤로가기 기록에서 지움
+                        // launchSingleTop: Dashboard 인스턴스 재사용 스크롤/상태 보존 중복 push 방지
+                        navController.navigate(Route.Dashboard) {
+                            popUpTo<Route.SrsStudyGraph> { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
         }
 
         // 챗(대화) 그래프

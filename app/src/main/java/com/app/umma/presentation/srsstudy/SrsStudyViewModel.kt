@@ -35,7 +35,7 @@ class SrsStudyViewModel @Inject constructor(
     private val getCurrentUserUid: GetCurrentUserUidUseCase,
     private val applyReviewDecision: ApplyReviewDecisionUseCase,
     private val ttsController: TextToSpeechController,
-    private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase
+    private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SrsStudyUiState())
@@ -112,10 +112,12 @@ class SrsStudyViewModel @Inject constructor(
                                 cards = deckState.cards,
                                 currentCardIndex = 0,
                                 isCardFlipped = false,
-                                isDone = false
+                                isDone = false,
+                                // 덱 최초 로드 시점의 카드 수 고정
+                                // again 평가로 늘어난 카드 영향 X
+                                studiedCardCount = deckState.cards.size
                             )
                         }
-
                     }
 
                     is ReviewDeckState.Empty -> _uiState.update {
@@ -158,6 +160,10 @@ class SrsStudyViewModel @Inject constructor(
     /**
      * 선택된 평가 있을 때 -> Room 저장 -> 다음 카드로 이동
      * 평가 없으면 클릭 X
+     *
+     * 1. Room/Firestore 저장 + Summary 갱신: applyReviewDecision 안에서 다 처리
+     * 2. Again이면 cards 끝에 현재 카드 추가 혹은 그대로
+     * 3. 인덱스 계산-> 마지막 카드면 isDone = true 변경
      */
     fun onConfirmRating() {
         // 저장 중이면 return
@@ -175,7 +181,7 @@ class SrsStudyViewModel @Inject constructor(
                 rating = rating,
                 reviewedAt = System.currentTimeMillis()
             )
-            // SM-2 계산 + ROOM 저장
+            // SM-2 계산 + Room 저장 + Summary 갱신
             applyReviewDecision(userId, card, decision).onSuccess {
                 ttsController.stop()
                 _uiState.update { state ->
