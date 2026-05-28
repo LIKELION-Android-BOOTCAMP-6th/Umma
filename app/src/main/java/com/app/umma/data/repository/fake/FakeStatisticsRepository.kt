@@ -54,12 +54,19 @@ class FakeStatisticsRepository @Inject constructor() : StatisticsRepository {
                 StatisticsHistoryFixtures.expressionRangeOverflowHistories()
             )
             StatisticsDemoPreset.DelayedLanguageSwitch -> {
-                seedHistories(normalHistories.filter { it.language == LangCode.EN })
-                // EN 응답을 늦춰 언어 전환 후 stale result 방어를 확인한다.
+                // 언어 전환 preset은 stale 방어가 목적이므로 새 언어의 차트 데이터까지 함께 둔다.
+                // JA history를 비우면 Empty chart 검증과 섞여 카드/차트 언어 정합성을 확인하기 어렵다.
+                seedHistories(normalHistories)
+                // EN 응답만 늦춰 언어 전환 후 이전 언어 결과가 새 언어 화면을 덮는지 확인한다.
                 delayedHistoryLanguages = setOf(LangCode.EN)
             }
             StatisticsDemoPreset.ShortHistory -> seedHistories(
-                listOf(normalHistories.first { it.language == LangCode.EN })
+                // history 부족 preset도 카드 현재값과 단일 source가 같은 최신 snapshot처럼 읽히도록 최신 EN 1건만 남긴다.
+                listOf(
+                    normalHistories
+                        .filter { it.userId == "user-1" && it.language == LangCode.EN }
+                        .maxBy { it.recordedAt }
+                )
             )
             StatisticsDemoPreset.EmptyHistory -> seedHistories(emptyList())
             StatisticsDemoPreset.PendingSyncFailure -> {

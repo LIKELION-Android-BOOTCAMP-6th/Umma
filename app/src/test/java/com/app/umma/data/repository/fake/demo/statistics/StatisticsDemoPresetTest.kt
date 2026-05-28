@@ -45,11 +45,16 @@ class StatisticsDemoPresetTest {
         assertTrue(english is StatisticsHistoryState.Content)
         // 언어 전환 후보인 JA도 일반 content를 제공해야 한다.
         assertTrue(japanese is StatisticsHistoryState.Content)
+        // 카드 현재값은 LearningState.external에서, 차트는 StatisticsHistory에서 오므로
+        // 정상 preset에서는 각 언어의 마지막 history와 external snapshot을 의도적으로 맞춰 둔다.
+        assertLatestHistoryMatchesExternal(state, english as StatisticsHistoryState.Content, LangCode.EN)
+        assertLatestHistoryMatchesExternal(state, japanese as StatisticsHistoryState.Content, LangCode.JA)
     }
 
     @Test
     fun `02 ExpressionRangeOverflow provides expression histories over default axis max`() = runBlocking {
         // 표현 폭 y축 확장은 repository가 10 초과 history를 제공할 때만 수동 QA가 가능하다.
+        val learningState = learningStateFor(StatisticsDemoPreset.ExpressionRangeOverflow)
         val repository = statisticsRepositoryFor(StatisticsDemoPreset.ExpressionRangeOverflow)
 
         // 표현 폭 확장 시나리오는 현재 사용자 EN 차트를 기준으로 확인한다.
@@ -59,29 +64,35 @@ class StatisticsDemoPresetTest {
         val content = state as StatisticsHistoryState.Content
         // 10을 넘는 값이 하나라도 있어야 차트의 기본 0~10 범위 초과 케이스가 재현된다.
         assertTrue(content.histories.any { it.expressionRange > DEFAULT_EXPRESSION_AXIS_MAX })
+        // overflow preset도 카드 값과 최신 chart point가 같은 표현 폭으로 읽혀야 데모 해석이 흔들리지 않는다.
+        assertLatestHistoryMatchesExternal(learningState, content, LangCode.EN)
     }
 
     @Test
-    fun `03 DelayedLanguageSwitch keeps next language history empty while delaying previous language`() = runBlocking {
-        // 언어 전환 시나리오는 EN 응답을 늦추고 JA history를 비워 stale result 방어를 눈으로 확인한다.
+    fun `03 DelayedLanguageSwitch delays previous language while keeping next language chartable`() = runBlocking {
+        // 언어 전환 시나리오는 EN 응답만 늦추고 JA에는 충분한 history를 제공한다.
+        // 그래야 Empty chart가 아니라 "새 언어의 실제 차트" 기준으로 stale result 방어를 확인할 수 있다.
         // LearningState에는 JA LangState가 있어야 언어 변경 자체는 성공한 상태로 재현된다.
         val learningState = learningStateFor(StatisticsDemoPreset.DelayedLanguageSwitch)
-        // Statistics history는 EN만 남기고 JA는 비워 새 언어 Empty 상태를 확인하게 한다.
+        // Statistics history는 EN/JA 모두 제공하되, EN observe만 늦게 도착하도록 preset이 구성된다.
         val repository = statisticsRepositoryFor(StatisticsDemoPreset.DelayedLanguageSwitch)
 
         // EN 요청은 일부러 지연된다. timeout은 preset이 무한 대기 상태가 되지 않는지 지키는 안전장치다.
         val english = withTimeout(DELAYED_HISTORY_TIMEOUT_MS) {
             repository.observeHistory("user-1", LangCode.EN).first()
         }
-        // JA는 history가 없어야 언어 전환 후 새 언어 Empty 상태를 볼 수 있다.
+        // JA는 바로 Content를 내려야 언어 변경 후 새 언어 chart가 정상 표시되는지 확인할 수 있다.
         val japanese = repository.observeHistory("user-1", LangCode.JA).first()
 
         // JA LangState가 없으면 Empty history가 아니라 overview 구성 실패 시나리오가 되어버린다.
         assertTrue(learningState.langStates.containsKey(LangCode.JA))
         // 지연 후 EN은 정상 content로 도착해야 stale 응답을 재현할 수 있다.
         assertTrue(english is StatisticsHistoryState.Content)
-        // 새 언어인 JA는 Empty 상태여야 문서의 "이전 언어 통계가 남지 않음"을 확인할 수 있다.
-        assertTrue(japanese is StatisticsHistoryState.Empty)
+        // 새 언어인 JA도 차트 가능한 history가 있어야 DelayedLanguageSwitch가 Empty 시나리오와 섞이지 않는다.
+        val japaneseContent = japanese as StatisticsHistoryState.Content
+        assertTrue(japaneseContent.histories.size >= MIN_CHARTABLE_HISTORY_COUNT)
+        // 언어 전환 후 카드와 차트가 같은 JA snapshot처럼 읽히도록 마지막 history와 external을 맞춘다.
+        assertLatestHistoryMatchesExternal(learningState, japaneseContent, LangCode.JA)
     }
 
     @Test
@@ -96,6 +107,12 @@ class StatisticsDemoPresetTest {
         val content = state as StatisticsHistoryState.Content
         // 1건이면 line chart를 그릴 수 없으므로 문서의 history 부족 시나리오 입력이 된다.
         assertEquals(1, content.histories.size)
+        // 단일 history도 최신 external과 맞춰 두어 Empty chart 방어와 데이터 불일치 문제가 섞이지 않게 한다.
+        assertLatestHistoryMatchesExternal(
+            learningStateFor(StatisticsDemoPreset.ShortHistory),
+            content,
+            LangCode.EN
+        )
     }
 
     @Test
@@ -227,8 +244,27 @@ class StatisticsDemoPresetTest {
         return repository.observeLearningState().first()
     }
 
+    private fun assertLatestHistoryMatchesExternal(
+        state: GlobalLangState,
+        content: StatisticsHistoryState.Content,
+        language: LangCode
+    ) {
+        // Statistics 카드와 차트는 저장소가 다르지만, 정상 데모 seed에서는 같은 언어의 최신 snapshot으로 읽혀야 한다.
+        val external = state.langStates.getValue(language).external
+        val latestHistory = content.histories.maxBy { it.recordedAt }
+
+        // 어휘 레벨과 표현 폭은 정수/enum 값이라 최신 history와 정확히 일치해야 한다.
+        assertEquals(external.vocabularyLevel, latestHistory.vocabularyLevel)
+        assertEquals(external.expressionRange, latestHistory.expressionRange)
+        // 점수형 값은 fake seed가 같은 숫자를 쓰므로 오차 없이 비교한다.
+        assertEquals(external.grammarAccuracy, latestHistory.grammarAccuracy, 0.0)
+        assertEquals(external.fluencyScore, latestHistory.fluencyScore, 0.0)
+        assertEquals(external.naturalnessScore, latestHistory.naturalnessScore, 0.0)
+    }
+
     private companion object {
         private const val DEFAULT_EXPRESSION_AXIS_MAX = 10
         private const val DELAYED_HISTORY_TIMEOUT_MS = 2_000L
+        private const val MIN_CHARTABLE_HISTORY_COUNT = 2
     }
 }

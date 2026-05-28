@@ -66,7 +66,7 @@ object StatisticsDemoPresetConfig {
 | --- | --- | --- | --- | --- |
 | 1 | `NormalStatistics` | `FakeStatisticsRepository` | `normalHistories()` | 기본 진입, 지표 카드, 일반 차트 표시 |
 | 2 | `ExpressionRangeOverflow` | `FakeStatisticsRepository` | `expressionRangeOverflowHistories()` | 표현 폭 값이 10을 넘어도 y축이 확장되는지 확인 |
-| 3 | `DelayedLanguageSwitch` | `FakeStatisticsRepository` + `FakeLearningStateRepo` | EN delayed flow + JA empty history + selected language 변경 | 이전 언어의 늦은 응답이 새 언어 화면을 덮지 않는지 확인 |
+| 3 | `DelayedLanguageSwitch` | `FakeStatisticsRepository` + `FakeLearningStateRepo` | EN delayed flow + JA chartable history + selected language 변경 | 이전 언어의 늦은 응답이 새 언어 화면을 덮지 않는지 확인 |
 | 4 | `ShortHistory` | `FakeStatisticsRepository` | 현재 사용자/현재 언어 history 1건 | history 1건일 때 Empty chart 방어 확인 |
 | 5 | `EmptyHistory` | `FakeStatisticsRepository` | `seedHistories(emptyList())` | history가 없을 때 Empty chart 방어 확인 |
 | 6 | `PendingSyncFailure` | `FakeStatisticsRepository` | `pendingHistories()` + `setPendingSyncFailure(...)` + refresh no-op | pending sync 실패가 화면을 차단하지 않는지 확인 |
@@ -164,7 +164,7 @@ Fake 준비:
 Fake 준비:
 
 - 활성 preset: `DelayedLanguageSwitch`
-- 포함 설정: EN delayed flow + JA empty history + LearningState selected language 변경 가능 상태
+- 포함 설정: EN delayed flow + JA chartable history + LearningState selected language 변경 가능 상태
 - 실행 방법: `DelayedLanguageSwitch` preset 활성화 후 EN 차트 요청 중 학습 언어를 JA로 변경
 
 1. EN 기준 Statistics 화면 진입
@@ -174,14 +174,14 @@ Fake 준비:
 5. Statistics 화면 재진입
 6. 현재 선택 언어가 JA로 표시되는지 확인
 7. 늦게 도착한 EN 차트 결과가 JA 화면을 덮어쓰지 않는지 확인
-8. JA 기준 Empty 상태가 표시되는지 확인
+8. JA 기준 지표 카드와 차트가 표시되는지 확인
 
 **AC**
 
 - [ ] 언어 변경 후 Statistics 화면의 현재 선택 언어가 갱신된다.
 - [ ] 언어 변경 후 이전 언어의 지표 카드 값이 남지 않는다.
 - [ ] 이전 언어의 지연된 차트 결과가 새 언어 화면을 덮어쓰지 않는다.
-- [ ] 새 언어의 Empty 상태가 표시된다.
+- [ ] 새 언어의 지표 카드와 line chart가 표시된다.
 
 ---
 

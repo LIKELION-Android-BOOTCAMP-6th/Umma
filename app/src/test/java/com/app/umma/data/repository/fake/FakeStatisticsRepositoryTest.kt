@@ -1,5 +1,6 @@
 package com.app.umma.data.repository.fake
 
+import com.app.umma.data.repository.fake.demo.statistics.StatisticsDemoPreset
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -20,7 +21,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository filters by user and language`() = runBlocking {
         // mockDebug에서 쓰는 fake도 실제 repository 계약처럼 userId + language 경계를 지켜야 한다.
-        val repository = FakeStatisticsRepository()
+        val repository = normalRepository()
 
         // 기본 seed에는 여러 사용자/여러 언어가 섞여 있으므로 EN + user-1만 조회한다.
         val state = repository.observeHistory("user-1", LangCode.EN).first()
@@ -38,7 +39,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository falls back to language demo data in debug`() = runBlocking {
         // 실제 Firebase uid가 샘플 uid와 달라도 mockDebug 화면 검증은 막히지 않아야 한다.
-        val repository = FakeStatisticsRepository()
+        val repository = normalRepository()
 
         // mockDebug 수동 실행에서는 실제 로그인 uid가 seed의 user-1과 다를 수 있다.
         val state = repository.observeHistory("unknown-user", LangCode.EN).first()
@@ -54,7 +55,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository can emit retry state`() = runBlocking {
         // UI의 ChartError/Retry 분기를 실제 네트워크 장애 없이 재현하기 위한 테스트 훅이다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // queryFailure를 넣으면 observeHistory가 Content 대신 Retry를 즉시 반환한다.
             setFetchFailure(IllegalStateException("boom"))
         }
@@ -70,7 +71,7 @@ class FakeStatisticsRepositoryTest {
     fun `fake repository can refresh remote snapshot into local cache`() = runBlocking {
         // STAT-004의 background refresh는 local cache를 직접 교체하지 않고 보정하는 흐름이므로,
         // fake에서도 remote 최신본이 local observe 결과로 이어지는지 확인해야 한다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // local cache를 비워 refresh 전에는 history가 없는 상태를 만든다.
             seedHistories(emptyList())
             // refresh 호출 시 remote snapshot처럼 주입될 row를 준비한다.
@@ -113,7 +114,7 @@ class FakeStatisticsRepositoryTest {
     fun `fake repository emits updated snapshot to existing observer after refresh`() = runBlocking {
         // STAT-004는 refresh 결과를 UI에 직접 넣지 않고 기존 observe stream으로 다시 받는 구조다.
         // fake도 같은 방식으로 emit해야 ViewModel 테스트와 mockDebug 검증이 실제 Room 흐름과 맞아진다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // 첫 emit이 Empty여야 refresh 전/후 두 snapshot 차이를 확인할 수 있다.
             seedHistories(emptyList())
             // refresh 후 두 번째 emit으로 들어올 snapshot이다.
@@ -163,7 +164,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository preserves local cache when refresh fails`() = runBlocking {
         // remote refresh 실패는 local history를 지우는 실패가 아니어야 한다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // 실패 후에도 유지되어야 할 local pending row를 먼저 넣는다.
             seedHistories(
                 listOf(
@@ -203,7 +204,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository records history idempotently`() = runBlocking {
         // STI-002 기록 계약의 중복 방지 흐름을 fake에서도 맞춰두면 후속 화면 테스트가 안정적이다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // 새 record의 applied 여부를 명확히 보기 위해 기존 seed를 비운다.
             seedHistories(emptyList())
         }
@@ -239,7 +240,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository syncs only pending histories for requested user`() = runBlocking {
         // STAT-004의 pending retry는 사용자 단위로 동작하되, 다른 사용자의 pending은 건드리면 안 된다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // user-1 pending, user-1 synced, user-2 pending을 섞어 사용자 경계를 만든다.
             seedHistories(
                 listOf(
@@ -268,7 +269,7 @@ class FakeStatisticsRepositoryTest {
     @Test
     fun `fake repository leaves pending histories when retry fails`() = runBlocking {
         // Firestore 재전송 실패를 재현하면 local PENDING 상태가 유지되어 다음 retry 대상이 되어야 한다.
-        val repository = FakeStatisticsRepository().apply {
+        val repository = normalRepository().apply {
             // syncPendingHistories만 실패시키고 기존 local seed는 그대로 둔다.
             setPendingSyncFailure(IllegalStateException("network down"))
         }
@@ -304,5 +305,12 @@ class FakeStatisticsRepositoryTest {
             sourceEventId = "event-$id",
             syncStatus = syncStatus
         )
+    }
+
+    private fun normalRepository(): FakeStatisticsRepository {
+        // 수동 데모 중 activePreset을 바꿔도 repository 계약 테스트는 항상 기본 seed에서 시작한다.
+        return FakeStatisticsRepository().apply {
+            applyPreset(StatisticsDemoPreset.NormalStatistics)
+        }
     }
 }
