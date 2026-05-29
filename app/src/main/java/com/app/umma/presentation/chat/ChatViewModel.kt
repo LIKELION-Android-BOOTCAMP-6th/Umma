@@ -1,6 +1,7 @@
 package com.app.umma.presentation.chat
 
 import android.annotation.SuppressLint
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.core.util.NetworkConnectivityMonitor
@@ -106,6 +107,7 @@ class ChatViewModel @Inject constructor(
         if (enterChatJob?.isActive == true) return
 
         enterChatJob = viewModelScope.launch {
+            Log.d(TAG, "enterChat started")
             stopChatJob?.join()
             startObservingAIEvents()
 
@@ -291,6 +293,11 @@ class ChatViewModel @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                Log.e(
+                    TAG,
+                    "beginUserTurn failed: type=${error::class.java.simpleName}, message=${error.message}",
+                    error
+                )
                 val userMessage = toUserFacingErrorMessage(
                     rawMessage = error.message,
                     fallback = "녹음 중 문제가 발생했습니다.\n네트워크 연결 후 다시 시도해주세요."
@@ -316,8 +323,8 @@ class ChatViewModel @Inject constructor(
         if (!_uiState.value.isRecording) return
 
         captureCurrentUserTurnDuration()
-        audioRecorder.stopRecording()
         recordJob?.cancel()
+        audioRecorder.stopRecording()
         recordJob = null
 
         _uiState.update {
@@ -404,6 +411,7 @@ class ChatViewModel @Inject constructor(
         reason: NewSessionReason,
         targetLang: LangCode?
     ) {
+        Log.w(TAG, "fallbackToNewSession reason=$reason, targetLang=${targetLang?.code}")
         stopSessionUseCase()
 
         _uiState.update {
@@ -467,8 +475,8 @@ class ChatViewModel @Inject constructor(
         if (!_uiState.value.canEndUserTurn) return
 
         captureCurrentUserTurnDuration()
-        audioRecorder.stopRecording()
         recordJob?.cancel()
+        audioRecorder.stopRecording()
         recordJob = null
 
         _uiState.update {
@@ -488,8 +496,8 @@ class ChatViewModel @Inject constructor(
             eventJob?.cancel()
             eventJob = null
 
-            audioRecorder.stopRecording()
             recordJob?.cancel()
+            audioRecorder.stopRecording()
             recordJob = null
 
             currentUserTurnStartedAtMs = null
@@ -724,7 +732,16 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(inputLevel = frame.level)
         }
-        sendAudioDataUseCase(frame.pcm)
+        try {
+            sendAudioDataUseCase(frame.pcm)
+        } catch (error: Exception) {
+            Log.e(
+                TAG,
+                "sendAudioData failed: bytes=${frame.pcm.size}, type=${error::class.java.simpleName}, message=${error.message}",
+                error
+            )
+            throw error
+        }
     }
 
     /**
@@ -751,6 +768,10 @@ class ChatViewModel @Inject constructor(
      * - RECONNECTING으로 전환
      */
     private fun handleSessionInterrupted(event: AIEvent.SessionInterrupted) {
+        Log.w(
+            TAG,
+            "handleSessionInterrupted reason=${event.reason}, attempt=${event.attempt}/${event.maxAttempts}, message=${event.message}"
+        )
         recordJob?.cancel()
         recordJob = null
 
@@ -781,6 +802,7 @@ class ChatViewModel @Inject constructor(
      * @param event 재연결 완료 이벤트
      */
     private fun handleReconnected(event: AIEvent.Reconnected) {
+        Log.d(TAG, "handleReconnected sessionId=${event.sessionId}")
         _uiState.update {
             it.copy(
                 entryStage = ChatEntryStage.READY,
@@ -805,6 +827,10 @@ class ChatViewModel @Inject constructor(
      * @param event 재연결 실패 이벤트
      */
     private fun handleReconnectFailed(event: AIEvent.ReconnectFailed) {
+        Log.e(
+            TAG,
+            "handleReconnectFailed recoverable=${event.recoverable}, message=${event.message}"
+        )
         recordJob?.cancel()
         recordJob = null
 
@@ -835,6 +861,7 @@ class ChatViewModel @Inject constructor(
      * @param event 오류 이벤트
      */
     private fun handleError(event: AIEvent.Error) {
+        Log.e(TAG, "handleError message=${event.message}")
         recordJob?.cancel()
         recordJob = null
 
@@ -1026,6 +1053,8 @@ class ChatViewModel @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "ChatViewModel"
+
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }

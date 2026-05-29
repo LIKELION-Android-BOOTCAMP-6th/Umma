@@ -128,7 +128,8 @@ fun ChatScreen(
     }
 
     val showMainChat = uiState.entryStage == ChatEntryStage.READY &&
-        uiState.sessionState == SessionState.READY
+        (uiState.sessionState == SessionState.READY ||
+            uiState.sessionState == SessionState.RECONNECTING)
 
     if (!showMainChat) {
         ChatEntryGuardScreen(

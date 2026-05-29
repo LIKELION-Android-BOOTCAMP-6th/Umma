@@ -71,7 +71,7 @@ class AudioRecorder @Inject constructor() : AudioInput {
                 throw IllegalStateException("Microphone recording did not start.")
             }
 
-            while (currentCoroutineContext().isActive) {
+            while (currentCoroutineContext().isActive && activeAudioRecord === audioRecord) {
                 val readBytes = audioRecord.read(
                     buffer,
                     0,
@@ -79,8 +79,12 @@ class AudioRecorder @Inject constructor() : AudioInput {
                 )
 
                 when (readBytes) {
-                    AudioRecord.ERROR_INVALID_OPERATION ->
+                    AudioRecord.ERROR_INVALID_OPERATION -> {
+                        if (!currentCoroutineContext().isActive || activeAudioRecord !== audioRecord) {
+                            return@flow
+                        }
                         throw IllegalStateException("Invalid recording operation.")
+                    }
 
                     AudioRecord.ERROR_BAD_VALUE ->
                         throw IllegalStateException("Invalid recording buffer value.")
@@ -113,24 +117,31 @@ class AudioRecorder @Inject constructor() : AudioInput {
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Stops the active microphone recording immediately.
+     * Requests the active microphone recording to stop.
      */
     override fun stopRecording() {
         val audioRecord = activeAudioRecord ?: return
         activeAudioRecord = null
-        releaseAudioRecord(audioRecord)
+        stopAudioRecord(audioRecord)
     }
 
     /**
-     * Stops and releases the given [audioRecord] safely.
+     * Stops the given [audioRecord] without releasing it.
      */
-    private fun releaseAudioRecord(audioRecord: AudioRecord) {
+    private fun stopAudioRecord(audioRecord: AudioRecord) {
         try {
             if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 audioRecord.stop()
             }
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * Releases the given [audioRecord] safely after stopping it if needed.
+     */
+    private fun releaseAudioRecord(audioRecord: AudioRecord) {
+        stopAudioRecord(audioRecord)
 
         try {
             audioRecord.release()

@@ -42,12 +42,6 @@ abstract class RepositoryModule {
         authRepositoryImpl: AuthRepositoryImpl
     ): AuthRepository
 
-    @Binds
-    @Singleton
-    abstract fun bindChatRepository(
-        chatRepositoryImpl: ChatRepositoryImpl
-    ): ChatRepository
-
     // CorrectionRepository binding is variant-specific:
     // devDebug -> DevCorrectionRepositoryModule, mockDebug -> MockCorrectionRepositoryModule.
     // LearningStateRepo, FlashcardRepository, and StatisticsRepository follow the same pattern.
