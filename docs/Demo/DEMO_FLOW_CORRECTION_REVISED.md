@@ -49,6 +49,7 @@ object CorrectionDemoPresetConfig {
 | `Error` | AI 요청/파싱/필드 누락 실패 확인 | Correction 진입 | Error UI와 Retry 표시 |
 | `SaveFail` | 저장 완료 파이프라인 실패 확인 | 카드 선택 후 저장 | Dashboard 이동 없이 Retry 상태 유지 |
 | `PendingSync` | sync/compression pending 비차단 확인 | 카드 선택 후 저장 | Dashboard 복귀, 사용자에게 실패 노출 없음 |
+| `ZeroSavedSuccess` | 저장 카드 수 0개 성공 이벤트 fallback 확인 | 카드 선택 후 저장 | 기본 완료 메시지 표시 |
 | `TopicTitleSuccess` | Dashboard 주제 칩 품질 확인 | 저장 성공 후 Dashboard | 짧은 주제 제목 표시 |
 | `TopicTitleEmpty` | 주제 제목 없음/요약 실패 확인 | 저장 성공 후 Dashboard | 기존 topic 보존 또는 fallback 표시 |
 

@@ -103,6 +103,13 @@ class FakeCorrectionRepository @Inject constructor(
                     savedIds = listOf("corr-en-1-def")
                 )
             }
+
+            CorrectionDemoPreset.ZeroSavedSuccess -> {
+                suggestionsOverride = CorrectionSuggestionFixtures.contentSuggestions()
+                saveResultOverride = CorrectionSuggestionFixtures.successSaveResult(
+                    savedIds = emptyList()
+                )
+            }
         }
     }
 
@@ -121,6 +128,9 @@ class FakeCorrectionRepository @Inject constructor(
     override suspend fun saveFlashcards(
         request: CorrectionSaveRequest
     ): Result<CorrectionSaveResult> {
+        if (request.flashcards.isEmpty()) {
+            return Result.failure(IllegalArgumentException("flashcards must not be empty"))
+        }
         saveFailure?.let { return Result.failure(it) }
         saveResultOverride?.let { return Result.success(it) }
         return super.saveFlashcards(request)
