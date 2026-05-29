@@ -432,8 +432,14 @@ class ChatRepositoryImpl @Inject constructor(
                     handleServerMessage(message)
                 }
             } catch (error: CancellationException) {
+                Log.d(TAG, "receive loop cancelled")
                 throw error
             } catch (error: Exception) {
+                Log.e(
+                    TAG,
+                    "receive loop failed: type=${error::class.java.simpleName}, message=${error.message}",
+                    error
+                )
                 beginAutomaticReconnect(
                     reason = classifyReceiveException(error),
                     message = error.message ?: "Live stream interrupted"
@@ -459,6 +465,10 @@ class ChatRepositoryImpl @Inject constructor(
         val systemInstruction = currentSystemInstruction
 
         if (sessionId == null || langCode == null || systemInstruction == null) {
+            Log.e(
+                TAG,
+                "automatic reconnect aborted: missing session context sessionId=$sessionId, langCode=$langCode, hasPrompt=${systemInstruction != null}"
+            )
             _events.emit(
                 AIEvent.ReconnectFailed(
                     message = "복구할 세션 정보가 없습니다.",
@@ -469,12 +479,20 @@ class ChatRepositoryImpl @Inject constructor(
         }
 
         clearTranscriptBuffers()
+        Log.w(
+            TAG,
+            "automatic reconnect started: reason=$reason, message=$message, sessionId=$sessionId"
+        )
         _events.emit(AIEvent.StateChanged(AIState.RECONNECTING))
 
         reconnectJob = repositoryScope.launch {
             var lastError: Throwable? = null
 
             for (attempt in 1..reconnectPolicy.maxAttempts) {
+                Log.w(
+                    TAG,
+                    "automatic reconnect attempt=$attempt/${reconnectPolicy.maxAttempts}, reason=$reason, sessionId=$sessionId"
+                )
                 _events.emit(
                     AIEvent.SessionInterrupted(
                         reason = reason,
@@ -507,6 +525,11 @@ class ChatRepositoryImpl @Inject constructor(
                 }
 
                 lastError = result.exceptionOrNull()
+                Log.e(
+                    TAG,
+                    "automatic reconnect attempt failed: attempt=$attempt, type=${lastError?.javaClass?.simpleName}, message=${lastError?.message}",
+                    lastError
+                )
                 sessionMutex.withLock {
                     closeLiveTransport()
                 }
@@ -517,6 +540,11 @@ class ChatRepositoryImpl @Inject constructor(
                     message = lastError?.message ?: "자동 재연결에 실패했습니다.",
                     recoverable = true
                 )
+            )
+            Log.e(
+                TAG,
+                "automatic reconnect exhausted: sessionId=$sessionId, lastMessage=${lastError?.message}",
+                lastError
             )
             reconnectJob = null
         }
@@ -585,7 +613,12 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendAudioData(audio: ByteArray) {
-        session?.sendAudioRealtime(
+        val currentSession = session
+        if (currentSession == null) {
+            Log.e(TAG, "sendAudioData skipped: session is null, bytes=${audio.size}")
+            return
+        }
+        currentSession.sendAudioRealtime(
             InlineData(
                 data = audio,
                 mimeType = "audio/pcm;rate=16000"
@@ -620,6 +653,10 @@ class ChatRepositoryImpl @Inject constructor(
         val normalized = text.trim()
         if (normalized.isEmpty()) return 0
         return ceil(normalized.length / 4.0).toInt().coerceAtLeast(1)
+    }
+
+    private companion object {
+        const val TAG = "ChatRepository"
     }
 }
 
