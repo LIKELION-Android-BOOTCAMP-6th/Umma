@@ -6,6 +6,9 @@ import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.app.umma.data.repository.correction.CorrectionFlashcardStore
 import com.app.umma.data.repository.correction.CorrectionPromptBuilder
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtureBuilder
+import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
+import com.app.umma.data.repository.fake.demo.correction.CorrectionDemoPreset
+import com.app.umma.data.repository.fake.demo.correction.CorrectionDemoPresetConfig
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
@@ -61,6 +64,47 @@ class FakeCorrectionRepository @Inject constructor(
 
     /** 설정되면 rollbackFlashcards 가 즉시 Result.failure 로 종료된다. */
     var rollbackFailure: Throwable? = null
+
+    init {
+        applyPreset(CorrectionDemoPresetConfig.activePreset)
+    }
+
+    fun applyPreset(preset: CorrectionDemoPreset) {
+        suggestionsOverride = null
+        generateFailure = null
+        saveFailure = null
+        saveResultOverride = null
+        rollbackFailure = null
+
+        when (preset) {
+            CorrectionDemoPreset.Content,
+            CorrectionDemoPreset.TopicTitleSuccess,
+            CorrectionDemoPreset.TopicTitleEmpty -> {
+                suggestionsOverride = CorrectionSuggestionFixtures.contentSuggestions()
+            }
+
+            CorrectionDemoPreset.EmptyInitial,
+            CorrectionDemoPreset.EmptyResult -> {
+                suggestionsOverride = CorrectionSuggestionFixtures.emptySuggestions()
+            }
+
+            CorrectionDemoPreset.Error -> {
+                generateFailure = CorrectionSuggestionFixtures.generateFailure("correction preset error")
+            }
+
+            CorrectionDemoPreset.SaveFail -> {
+                suggestionsOverride = CorrectionSuggestionFixtures.contentSuggestions()
+                saveFailure = CorrectionSuggestionFixtures.saveFailure("correction preset save failed")
+            }
+
+            CorrectionDemoPreset.PendingSync -> {
+                suggestionsOverride = CorrectionSuggestionFixtures.contentSuggestions()
+                saveResultOverride = CorrectionSuggestionFixtures.pendingSyncSaveResult(
+                    savedIds = listOf("corr-en-1-def")
+                )
+            }
+        }
+    }
 
     override suspend fun generateSuggestions(
         input: GenerateSuggestionsInput
