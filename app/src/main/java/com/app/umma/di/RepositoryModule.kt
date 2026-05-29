@@ -38,8 +38,8 @@ abstract class RepositoryModule {
         authRepositoryImpl: AuthRepositoryImpl
     ): AuthRepository
 
-    // ChatRepository and CorrectionRepository bindings are variant-specific:
-    // devDebug -> Dev*RepositoryModule, mockDebug -> Mock*RepositoryModule.
+    // CorrectionRepository binding is variant-specific:
+    // devDebug -> DevCorrectionRepositoryModule, mockDebug -> MockCorrectionRepositoryModule.
     // LearningStateRepo, FlashcardRepository, and StatisticsRepository follow the same pattern.
 
     @Binds

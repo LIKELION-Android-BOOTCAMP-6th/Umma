@@ -14,7 +14,10 @@ interface AudioInput {
     fun startRecording(): Flow<AudioInputFrame>
 
     /**
-     * Stops the currently active recording session immediately.
+     * Requests the currently active recording session to stop.
+     *
+     * Implementations should terminate the active recording loop promptly and
+     * release underlying resources from their own lifecycle cleanup.
      */
     fun stopRecording()
 }
