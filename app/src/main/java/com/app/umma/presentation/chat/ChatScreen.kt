@@ -69,6 +69,7 @@ import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
+import com.app.umma.core.theme.SpacingXL
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
@@ -415,7 +416,7 @@ fun ChatScreen(
                     // 가로 화면에서는 버튼 영역을 남기고 목록만 스크롤되도록 높이를 제한한다.
                     .heightIn(max = topicListMaxHeight)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = SpacingXL)
             ) {
                 // 선택 목록은 ViewModel 의 selectedTopic 상태만 보고 렌더링해 회전 후 상태 복제를 피한다.
                 Topic.entries.forEach { topic ->

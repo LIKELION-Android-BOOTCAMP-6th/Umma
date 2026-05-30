@@ -244,9 +244,11 @@ fun DashboardScreen(
                 UmmaDialog(
                     title = "닉네임 설정",
                     modifier = Modifier.padding(horizontal = SpacingL),
-                    onCancel = null,
+                    onCancel = {},
                     onConfirm = { authViewModel.onNicknameConfirm(nicknameInput) },
                     confirmText = "확인",
+                    // 닫기 아이콘을 숨겨 사용자가 필수 설정 단계를 시각적으로 우회할 수 없게 한다.
+                    showCancelButton = false
                 ) {
                     Column(
                         modifier = Modifier
@@ -284,7 +286,7 @@ fun DashboardScreen(
                 UmmaDialog(
                     title = "학습 언어 선택",
                     modifier = Modifier.padding(horizontal = SpacingL),
-                    onCancel = null,
+                    onCancel = {},
                     onConfirm = {
                         selectedLearningLanguage?.let {
                             authViewModel.onLanguageSelectAndSave(
@@ -292,7 +294,9 @@ fun DashboardScreen(
                             )
                         }
                     },
-                    confirmText = "완료"
+                    confirmText = "완료",
+                    // 닫기 아이콘을 숨겨 사용자가 필수 설정 단계를 시각적으로 우회할 수 없게 한다.
+                    showCancelButton = false,
                 ) {
                     Column(
                         modifier = Modifier
