@@ -96,7 +96,7 @@ sessionSummaries = current.sessionSummaries + (
 
 ### 4.1. `CHAT-007` (AI Chat) — 명시적 Out of Scope
 
-[`CHAT-007_Turn_Commit.md`](../User_FlowDB/FLOW_AI_CHAT/CHAT-007_Turn_Commit.md) line 39~45 "제외 범위(Out of Scope)":
+[`CHAT-007_Turn_Commit.md`](../Sprint2/User_FlowDB/FLOW_AI_CHAT/CHAT-007_Turn_Commit.md) line 39~45 "제외 범위(Out of Scope)":
 
 > - Session Memory Repository 상세 구현
 > - Room Entity / DAO 구현
@@ -125,7 +125,7 @@ LS-006이 정의한 트리거:
 
 ### 4.3. `DASH-003` (Dashboard) — 데이터 소비자일 뿐
 
-[`DASH-003_Correction_Pending_Card.md`](../User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md) line 96~119는 `DashSummary[selectedLearningLanguage].correctionAvailable`을 **읽기**만 한다. 채우는 책임은 DashSummary 공급자(=LS infra)에 위임.
+[`DASH-003_Correction_Pending_Card.md`](../Sprint2/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md) line 96~119는 `DashSummary[selectedLearningLanguage].correctionAvailable`을 **읽기**만 한다. 채우는 책임은 DashSummary 공급자(=LS infra)에 위임.
 
 ### 4.4. 결론
 
@@ -210,7 +210,7 @@ LS 소유자가 결정해 주셔야 할 항목:
 ## 8. 참고 링크
 
 - 본 인계 코드 추적 기반: [`LearningStateRepoImpl.kt:130-213`](../../app/src/main/java/com/app/umma/data/repository/LearningStateRepoImpl.kt), [`LearningStateWriteUseCases.kt:28-53`](../../app/src/main/java/com/app/umma/domain/usecase/learningstate/LearningStateWriteUseCases.kt), [`SessionMemoryLocalDataSource.kt:30`](../../app/src/main/java/com/app/umma/data/source/local/SessionMemoryLocalDataSource.kt)
-- 책임 판정 근거 문서: [`CHAT-007`](../User_FlowDB/FLOW_AI_CHAT/CHAT-007_Turn_Commit.md), [`LS-006`](../System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-006_Language_State_Update_Policy.md), [`DASH-003`](../User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md)
-- Correction 측 진입점: [`COR-001_Initial_State.md`](../User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md)
+- 책임 판정 근거 문서: [`CHAT-007`](../Sprint2/User_FlowDB/FLOW_AI_CHAT/CHAT-007_Turn_Commit.md), [`LS-006`](../System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-006_Language_State_Update_Policy.md), [`DASH-003`](../Sprint2/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md)
+- Correction 측 진입점: [`COR-001_Initial_State.md`](../Sprint2/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md)
 - 선행 LS 인계: [`LS-008_LANGSTATE_INPUT_READY.md`](LS-008_LANGSTATE_INPUT_READY.md) — `BuildLangStateUpdateInputUseCase` 계약. 본 이슈에서 lightweight 경로 진입점을 만들 때 재사용 가능.
 - "충돌 지점을 먼저 정리하여 정합성을 맞춘 뒤 작업 진행" 원칙에 따라 본 인계는 **코드 변경 없이 문서로만** 마무리. 정책 결정 후 회신 부탁드립니다.
