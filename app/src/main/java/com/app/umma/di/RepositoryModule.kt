@@ -3,7 +3,6 @@ package com.app.umma.di
 import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
-import com.app.umma.data.repository.SessionMemoryRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.app.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
@@ -14,7 +13,6 @@ import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.domain.repository.AuthRepository
-import com.app.umma.domain.repository.SessionMemoryRepository
 import com.app.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
@@ -65,12 +63,6 @@ abstract class RepositoryModule {
     abstract fun bindLearningStateRemoteDataSource(
         impl: LearningStateRemoteDataSourceImpl
     ): LearningStateRemoteDataSource
-
-    @Binds
-    @Singleton
-    abstract fun bindSessionMemoryRepository(
-        impl: SessionMemoryRepositoryImpl
-    ): SessionMemoryRepository
 
     @Binds
     @Singleton

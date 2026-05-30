@@ -26,6 +26,9 @@ enum class CorrectionDemoPreset {
     /** local 저장은 성공했지만 remote sync pending으로 남는 상태. */
     PendingSync,
 
+    /** 성공 이벤트는 발생했지만 저장 카드 수가 0개인 예외 fallback 상태. */
+    ZeroSavedSuccess,
+
     /** Dashboard 주제 칩에 짧은 topic title이 표시되는 상태. */
     TopicTitleSuccess,
 

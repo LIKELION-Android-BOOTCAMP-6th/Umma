@@ -47,6 +47,7 @@ object CorrectionDemoPresetConfig {
 | `Error` | AI 요청 실패 / 파싱 실패 / 필드 누락 / candidateId 불일치 |
 | `SaveFail` | 저장 요청 또는 완료 파이프라인 실패 |
 | `PendingSync` | Firestore sync 또는 compression pending 비차단 |
+| `ZeroSavedSuccess` | 저장 카드 수 0개 성공 이벤트 fallback |
 | `TopicTitleSuccess` | Dashboard 주제 칩 제목 생성 성공 |
 | `TopicTitleEmpty` | topic title 없음 또는 요약 실패 fallback |
 
@@ -171,7 +172,7 @@ object CorrectionDemoPresetConfig {
 | TC-COR-16 | Real | 완료 후 Dashboard 복귀 | COR-006 AC2·3·4 / COR-007 AC1·2 / COR-FIX-04 AC5·6 | `devDebug`, 카드 저장 성공 | 저장 성공까지 진행 | Phase.Done 완료 화면 없이 Dashboard로 즉시 복귀, navigation 이벤트 1회만 소비 |  |  |
 | TC-COR-17 | Mock | Pending sync 비차단 | COR-007-B AC1·2 / COR-FIX-01 AC4 | `mockDebug`, `activePreset = PendingSync` | 카드 선택 후 저장 | Firestore sync 또는 compression pending이어도 Dashboard 복귀, 사용자 Error UI 노출 없음 |  |  |
 | TC-COR-18 | Real | 완료 토스트 | COR-DASH-FIX-01 AC1·2·3·5 | `devDebug`, 카드 N개 저장 성공 | 저장 후 Dashboard 복귀 화면 확인 | Dashboard 위 커스텀 토스트에 실제 저장 카드 수가 포함되어 표시되고 1.5초 뒤 사라짐 |  |  |
-| TC-COR-19 | Mock | 토스트 0개 fallback | COR-DASH-FIX-01 AC4 | `mockDebug`, 저장 카드 수 0 성공 fixture | 저장 성공 이벤트 발생 | 기본 완료 메시지로 fallback 표시 |  |  |
+| TC-COR-19 | Mock | 토스트 0개 fallback | COR-DASH-FIX-01 AC4 | `mockDebug`, `activePreset = ZeroSavedSuccess` | 카드 선택 후 저장 | 저장 카드 수가 0개인 성공 이벤트에서 기본 완료 메시지로 fallback 표시 |  |  |
 | TC-COR-20 | Mock | 토스트 1회 소비 | COR-DASH-FIX-01 AC6 | `mockDebug`, `activePreset = Content` | 저장 성공 후 화면 회전 또는 recomposition | 같은 완료 토스트가 다시 표시되지 않음 |  |  |
 | TC-COR-21 | Mock | 저장 실패 시 토스트 미표시 | COR-DASH-FIX-01 AC7 | `mockDebug`, `activePreset = SaveFail` | 저장 실패 유도 | Dashboard 이동과 완료 토스트가 발생하지 않고 Retry 상태 유지 |  |  |
 | TC-COR-22 | Real | Dashboard Flashcard summary 갱신 | COR-FIX-01 AC3·6 | `devDebug`, 카드 N개 저장 | Dashboard Flashcard 카드 확인 | `savedFlashcards`와 `dueFlashcards`가 저장 직후 즉시 재계산되어 표시 |  |  |
