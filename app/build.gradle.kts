@@ -31,6 +31,31 @@ android {
         }
         val apiKey = properties.getProperty("API_KEY") ?: ""
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
+
+        // CHAT-POC-001 전용 스위치다.
+        // 기본값 false 를 유지해 devDebug 일반 실행은 기존 Firebase/Gemini transport 를 사용한다.
+        val openAiRealtimeEnabled = properties.getProperty("OPENAI_REALTIME_ENABLED") ?: "false"
+        // Android 앱은 OpenAI API key 를 직접 갖지 않는다.
+        // 이 URL 은 Firebase Cloud Function 이 발급하는 short-lived Realtime client secret endpoint 다.
+        val openAiRealtimeTokenUrl = properties.getProperty("OPENAI_REALTIME_TOKEN_URL") ?: ""
+        // PoC 모델은 문서와 백로그에서 결정한 gpt-realtime-mini 로 고정하되,
+        // local.properties 로만 바꿀 수 있게 해 코드 변경 없이 비교 테스트할 수 있게 한다.
+        val openAiRealtimeModel = properties.getProperty(
+            "OPENAI_REALTIME_MODEL"
+        ) ?: "gpt-realtime-mini"
+        // OpenAI Realtime WebSocket endpoint 다.
+        // 공식 endpoint 변경 또는 프록시 검증이 필요할 때만 local.properties 에서 override 한다.
+        val openAiRealtimeWebSocketUrl = properties.getProperty(
+            "OPENAI_REALTIME_WS_URL"
+        ) ?: "wss://api.openai.com/v1/realtime"
+        buildConfigField("boolean", "OPENAI_REALTIME_ENABLED", openAiRealtimeEnabled)
+        buildConfigField("String", "OPENAI_REALTIME_TOKEN_URL", "\"$openAiRealtimeTokenUrl\"")
+        buildConfigField("String", "OPENAI_REALTIME_MODEL", "\"$openAiRealtimeModel\"")
+        buildConfigField(
+            "String",
+            "OPENAI_REALTIME_WS_URL",
+            "\"$openAiRealtimeWebSocketUrl\""
+        )
     }
 
     buildTypes {
