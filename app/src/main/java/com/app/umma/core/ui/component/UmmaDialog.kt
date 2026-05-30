@@ -65,12 +65,12 @@ import com.app.umma.core.theme.TitleDialogSB
 fun UmmaDialog(
     title: String,
     modifier: Modifier = Modifier,
-    onCancel: () -> Unit,
+    onCancel: (() -> Unit)? = null,
     onConfirm: () -> Unit,
     confirmText: String = "확인",
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Dialog(onDismissRequest = { onCancel() }) {
+    Dialog(onDismissRequest = { onCancel?.invoke() }) {
         Surface(
             modifier = modifier
                 .fillMaxWidth()
@@ -86,17 +86,23 @@ fun UmmaDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 상단 취소 버튼
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    IconButton(
-                        onClick = { onCancel() },
-                        modifier = Modifier.align(Alignment.TopEnd )
-                    ) {
-                        Icon(
-                            Icons.Outlined.Cancel,
-                            contentDescription = "취소 버튼",
-                            modifier = Modifier.size(30.dp),
-                            tint = TextPrimary,
-                        )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    if (onCancel != null) {
+                        IconButton(
+                            onClick = { onCancel() },
+                            modifier = Modifier.align(Alignment.TopEnd)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Cancel,
+                                contentDescription = "취소 버튼",
+                                modifier = Modifier.size(30.dp),
+                                tint = TextPrimary,
+                            )
+                        }
                     }
                 }
                 // 다이얼로그 타이틀
@@ -134,7 +140,7 @@ fun UmmaDialog(
     }
 }
 
-@Preview(showBackground = true, showSystemUi = true, )
+@Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun UmmaPreview() {
 

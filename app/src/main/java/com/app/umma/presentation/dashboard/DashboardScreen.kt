@@ -53,6 +53,7 @@ import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
+import com.app.umma.core.theme.SpacingXL
 import com.app.umma.core.theme.SpacingXS
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextCorrect
@@ -243,14 +244,14 @@ fun DashboardScreen(
                 UmmaDialog(
                     title = "닉네임 설정",
                     modifier = Modifier.padding(horizontal = SpacingL),
-                    onCancel = {},
+                    onCancel = null,
                     onConfirm = { authViewModel.onNicknameConfirm(nicknameInput) },
                     confirmText = "확인",
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                            .padding(horizontal = SpacingXL, vertical = SpacingS),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         OutlinedTextField(
@@ -283,7 +284,7 @@ fun DashboardScreen(
                 UmmaDialog(
                     title = "학습 언어 선택",
                     modifier = Modifier.padding(horizontal = SpacingL),
-                    onCancel = {},
+                    onCancel = null,
                     onConfirm = {
                         selectedLearningLanguage?.let {
                             authViewModel.onLanguageSelectAndSave(
@@ -296,7 +297,7 @@ fun DashboardScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
+                            .padding(horizontal = SpacingXL),
                     ) {
 
                         learningLanguageOptions.forEach { (code, label) ->
@@ -354,7 +355,7 @@ fun DashboardScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = SpacingXL),
                 ) {
                     dashboardLanguageOptions.forEach { (code, label) ->
                         DashboardLanguageButton(
@@ -553,7 +554,7 @@ private fun LanguageButton(
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = SpacingXS)
     )
     {
         Text(
@@ -614,7 +615,7 @@ private fun DashboardLanguageButton(
         shape = RoundedCornerShape(percent = 50),
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = SpacingXS)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),

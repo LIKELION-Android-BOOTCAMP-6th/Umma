@@ -10,9 +10,9 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,6 +65,7 @@ import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
+import com.app.umma.core.theme.SpacingXL
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
@@ -107,11 +108,11 @@ fun ChatScreen(
             viewModel.startUserTurn(hasRecordAudioPermission = true)
         } else {
             val permanentlyDenied = activity != null &&
-                hasRequestedMicPermission &&
-                !ActivityCompat.shouldShowRequestPermissionRationale(
-                    activity,
-                    Manifest.permission.RECORD_AUDIO
-                )
+                    hasRequestedMicPermission &&
+                    !ActivityCompat.shouldShowRequestPermissionRationale(
+                        activity,
+                        Manifest.permission.RECORD_AUDIO
+                    )
             viewModel.onMicPermissionDenied(permanently = permanentlyDenied)
         }
     }
@@ -128,8 +129,8 @@ fun ChatScreen(
     }
 
     val showMainChat = uiState.entryStage == ChatEntryStage.READY &&
-        (uiState.sessionState == SessionState.READY ||
-            uiState.sessionState == SessionState.RECONNECTING)
+            (uiState.sessionState == SessionState.READY ||
+                    uiState.sessionState == SessionState.RECONNECTING)
 
     if (!showMainChat) {
         ChatEntryGuardScreen(
@@ -205,7 +206,7 @@ fun ChatScreen(
                                     color = ThemePrimary,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .padding(horizontal = SpacingS, vertical = 2.dp)
                         ) {
                             Text(
                                 text = "Umma Tutor",
@@ -233,7 +234,7 @@ fun ChatScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp)
+                            .padding(top = SpacingS)
                             .wrapContentSize(Alignment.CenterEnd)
                     ) {
                         Box(
@@ -291,6 +292,7 @@ fun ChatScreen(
                             hasRecordAudioPermission() -> {
                                 viewModel.startUserTurn(hasRecordAudioPermission = true)
                             }
+
                             uiState.microphonePermissionPermanentlyDenied -> openAppSettings()
                             else -> {
                                 hasRequestedMicPermission = true
@@ -388,14 +390,14 @@ fun ChatScreen(
         UmmaDialog(
             title = "관심 주제 5개 선택",
             modifier = Modifier.padding(horizontal = SpacingL),
-            onCancel = {},
+            onCancel = null,
             onConfirm = { viewModel.saveInterestTopics() },
             confirmText = "완료"
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = SpacingXL)
             ) {
                 Topic.entries.forEach { topic ->
                     val isSelected = uiState.selectedTopic.contains(topic)
@@ -493,10 +495,10 @@ private fun ChatEntryGuardScreen(
     onRetry: () -> Unit
 ) {
     val canRetryFromGuard = uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK ||
-        uiState.entryStage == ChatEntryStage.ERROR ||
-        uiState.isRecoverableError ||
-        uiState.sessionState == SessionState.ERROR ||
-        uiState.aiState == AIState.ERROR
+            uiState.entryStage == ChatEntryStage.ERROR ||
+            uiState.isRecoverableError ||
+            uiState.sessionState == SessionState.ERROR ||
+            uiState.aiState == AIState.ERROR
 
     Scaffold(
         topBar = {
@@ -552,9 +554,11 @@ internal fun buildStatusText(uiState: ChatUiState): String {
         uiState.entryStage == ChatEntryStage.STARTING_NEW -> "새로운 세션 시작중.."
         uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK ->
             "네트워크에 연결할 수 없습니다.\n wifi 또는 모바일 데이터를 확인해주세요."
+
         uiState.sessionState == SessionState.LOADING -> "세션 준비중..."
         uiState.sessionState == SessionState.RECONNECTING ->
             "Reconnecting ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
+
         uiState.aiState == AIState.RECONNECTING -> "Response was interrupted."
         uiState.aiState == AIState.THINKING -> "AI is thinking..."
         uiState.aiState == AIState.SPEAKING -> "AI is speaking..."
