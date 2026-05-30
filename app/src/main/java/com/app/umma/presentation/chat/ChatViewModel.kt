@@ -18,12 +18,13 @@ import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.chat.CancelPendingUserTurnUseCase
+import com.app.umma.domain.usecase.chat.EndUserTurnUseCase
 import com.app.umma.domain.usecase.chat.ObserveAIEventUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
 import com.app.umma.domain.usecase.chat.RetryConnectionUseCase
 import com.app.umma.domain.usecase.chat.SendAudioDataUseCase
-import com.app.umma.domain.usecase.chat.SetPendingUserTurnDurationUseCase
 import com.app.umma.domain.usecase.chat.StartSessionUseCase
 import com.app.umma.domain.usecase.chat.StopSessionUseCase
 import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
@@ -52,7 +53,8 @@ class ChatViewModel @Inject constructor(
     private val retryConnectionUseCase: RetryConnectionUseCase,
     private val observeAIEventUseCase: ObserveAIEventUseCase,
     private val sendAudioDataUseCase: SendAudioDataUseCase,
-    private val setPendingUserTurnDurationUseCase: SetPendingUserTurnDurationUseCase,
+    private val endUserTurnUseCase: EndUserTurnUseCase,
+    private val cancelPendingUserTurnUseCase: CancelPendingUserTurnUseCase,
     private val stopSessionUseCase: StopSessionUseCase,
     private val getUserProfileUseCase: GetUserProfileUseCase,
     private val getUserNicknameUseCase: GetUserNicknameUseCase,
@@ -281,7 +283,7 @@ class ChatViewModel @Inject constructor(
 
         currentUserTurnStartedAtMs = System.currentTimeMillis()
         currentUserTurnEndedAtMs = null
-        setPendingUserTurnDurationUseCase(null)
+        cancelPendingUserTurnUseCase()
 
         _uiState.update {
             it.copy(
@@ -340,75 +342,6 @@ class ChatViewModel @Inject constructor(
             )
         }
     }
-
-    /**
-     * 같은 앱 세션으로 Live transport 재연결을 수동 재시도합니다.
-     */
-    fun retryConnection() {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    entryStage = ChatEntryStage.RESTORING,
-                    blockedReason = null,
-                    entryMessageOverride = null,
-                    sessionState = SessionState.RECONNECTING,
-                    aiState = AIState.RECONNECTING,
-                    isRecoverableError = false,
-                    didFallbackToNewSession = false,
-                    fallbackMessage = null,
-                    errorMessage = null
-                )
-            }
-
-            when (val result = retryConnectionUseCase()) {
-                is RetryConnectionResult.Reconnected -> {
-                    _uiState.update {
-                        it.copy(
-                            entryStage = ChatEntryStage.READY,
-                            blockedReason = null,
-                            entryMessageOverride = null,
-                            sessionState = SessionState.READY,
-                            aiState = AIState.IDLE,
-                            activeSessionId = result.sessionId,
-                            reconnectAttempt = 0,
-                            maxReconnectAttempts = 0,
-                            isRecoverableError = false,
-                            didFallbackToNewSession = false,
-                            fallbackMessage = null,
-                            errorMessage = null
-                        )
-                    }
-                }
-
-                is RetryConnectionResult.Failed -> {
-                    _uiState.update {
-                        it.copy(
-                            entryStage = ChatEntryStage.ERROR,
-                            blockedReason = null,
-                            entryMessageOverride = null,
-                            sessionState = SessionState.ERROR,
-                            aiState = AIState.ERROR,
-                            isRecoverableError = true,
-                            didFallbackToNewSession = false,
-                            fallbackMessage = null,
-                            errorMessage = toUserFacingErrorMessage(
-                                rawMessage = result.message,
-                                fallback = "연결이 불안정합니다. 다시 시도해 주세요."
-                            )
-                        )
-                    }
-                }
-
-                is RetryConnectionResult.RequireNewSession -> {
-                    fallbackToNewSession(
-                        reason = result.reason,
-                        targetLang = result.targetLang
-                    )
-                }
-            }
-        }
-    }
-
 
     /**
      * 같은 앱 세션 복구가 불가능할 때 새 세션으로 전환합니다.
@@ -508,7 +441,7 @@ class ChatViewModel @Inject constructor(
      *
      * 화면 회전에서는 [ChatScreen]이 dispose되더라도 같은 [ChatViewModel]을 재사용할 수 있으므로
      * 이 함수를 호출하지 않는다. navigation 이탈처럼 화면이 실제로 사라지는 경우에는 [stopChat]이,
-     * ViewModel 자체가 제거되는 경우에는 onCleared가 호출해 녹음/재생/Live transport를 정리한다.
+     * ViewModel 자체가 제거되는 경우에는 onCleared가 호출해 녹음/재생/realtime transport를 정리한다.
      */
     private suspend fun stopChatInternal(resetUiState: Boolean) {
         eventJob?.cancel()
@@ -520,7 +453,7 @@ class ChatViewModel @Inject constructor(
 
         currentUserTurnStartedAtMs = null
         currentUserTurnEndedAtMs = null
-        setPendingUserTurnDurationUseCase(null)
+        cancelPendingUserTurnUseCase()
         audioPlayer.stopPlaying()
         stopSessionUseCase(clearAppSession = false)
 
@@ -816,7 +749,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Live transport 재연결 완료 상태를 반영합니다.
+     * realtime transport 재연결 완료 상태를 반영합니다.
      *
      * @param event 재연결 완료 이벤트
      */
@@ -944,7 +877,10 @@ class ChatViewModel @Inject constructor(
         }
         val endedAt = currentUserTurnEndedAtMs ?: return
         val durationMs = (endedAt - startedAt).coerceAtLeast(0L)
-        setPendingUserTurnDurationUseCase(durationMs)
+        // 사용자가 정지 버튼으로 turn 을 끝낸 시점은 단순 duration 저장보다 의미가 크다.
+        // OpenAI Realtime 은 이 호출을 기준으로 input audio commit 을 수행하고,
+        // USER transcript 확정 이후 AI response 를 시작한다.
+        endUserTurnUseCase(durationMs)
     }
 
     /**
@@ -1043,20 +979,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun resolveBlockedReason(message: String): ChatBlockedReason {
-        val normalized = message.lowercase()
-        return if (
-            normalized.contains("preference") ||
-            normalized.contains("selected") ||
-            normalized.contains("language") ||
-            normalized.contains("lang")
-        ) {
-            ChatBlockedReason.MISSING_LANG
-        } else {
-            ChatBlockedReason.UNRECOVERABLE
-        }
-    }
-
     private fun toUserFacingErrorMessage(rawMessage: String?, fallback: String): String {
         val normalized = rawMessage.orEmpty().lowercase()
         if (normalized.isBlank()) return fallback
@@ -1112,4 +1034,3 @@ private val ChatUiState.hasActiveChatSession: Boolean
     get() = entryStage == ChatEntryStage.READY &&
             (sessionState == SessionState.READY || sessionState == SessionState.RECONNECTING) &&
             activeSessionId != null
-// 재시도 commit

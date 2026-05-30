@@ -100,7 +100,7 @@ class BuildLangStateUpdateInputUseCase @Inject constructor() {
         uid: String,
         lang: LangCode
     ): String {
-        // Session Memory는 개별 LiveSession이 아니라 사용자와 학습 언어 단위로 누적된다.
+        // Session Memory는 개별 realtime session이 아니라 사용자와 학습 언어 단위로 누적된다.
         return "${uid}_${lang.code}"
     }
 

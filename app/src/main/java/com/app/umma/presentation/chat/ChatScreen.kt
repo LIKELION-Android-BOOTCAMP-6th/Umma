@@ -135,7 +135,7 @@ fun ChatScreen(
         onDispose {
             // 화면 회전은 같은 ChatViewModel을 재사용하는 configuration change 이므로
             // 세션과 자막 상태를 유지한다. 실제 navigation 이탈처럼 Activity 재구성이 아닌
-            // dispose 에서만 기존 Sprint2 정책대로 녹음/재생/Live transport 를 정리한다.
+            // dispose 에서만 기존 Sprint2 정책대로 녹음/재생/realtime transport 를 정리한다.
             if (activity?.isChangingConfigurations != true) {
                 viewModel.stopChat()
             }

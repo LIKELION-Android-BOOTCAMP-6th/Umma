@@ -4,7 +4,9 @@
 
 AI Chat 엔진을 전환하기 전에, `gpt-realtime-mini`가 MVP에서 필요한 수동 turn 제어와 사용자/AI 자막 분리 요구사항을 실제 Android 앱 구조에서 만족하는지 확인해야 한다.
 
-이번 작업은 production 전환이 아니라 기술 검증이다. 기존 Firebase AI Logic 구현은 유지하고, OpenAI Realtime을 별도 PoC 경로로 연결해 전환 가능성과 구조 변경 범위를 판단한다.
+이번 작업은 production 전환이 아니라 기술 검증이다. 당시에는 기존 Firebase AI Logic 구현을 유지하고 OpenAI Realtime을 별도 PoC 경로로 연결해 전환 가능성과 구조 변경 범위를 판단했다.
+
+후속 `CHAT-ENGINE-001`에서 PoC 결과를 바탕으로 AI Chat realtime transport는 OpenAI Realtime 단일 경로로 전환되었다. 이 문서는 PoC 당시의 판단 근거와 측정 기준을 보존한다.
 
 ---
 
@@ -128,10 +130,10 @@ OpenAI / Firebase 양쪽 모두 PoC 접근성을 우선해 임시 설정이 포�
 
 ### 실행 설정
 
-`devDebug`에서만 PoC 경로를 선택한다. 기본값은 기존 Firebase/Gemini 구현이다.
+아래 설정은 PoC 당시 dev 환경에서 OpenAI 경로를 선택하기 위한 기록이다.
+`CHAT-ENGINE-001` 이후에는 `OPENAI_REALTIME_ENABLED` 플래그를 사용하지 않고, dev AI Chat은 OpenAI Realtime 경로를 기본으로 사용한다.
 
 ```properties
-OPENAI_REALTIME_ENABLED=true
 OPENAI_REALTIME_TOKEN_URL=https://your-dev-token-endpoint.example.com/realtime-token
 OPENAI_REALTIME_MODEL=gpt-realtime-mini
 ```

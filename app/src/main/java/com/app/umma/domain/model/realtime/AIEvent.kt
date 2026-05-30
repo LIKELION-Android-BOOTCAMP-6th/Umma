@@ -68,10 +68,10 @@ sealed interface AIEvent {
         val attempt: Int = 0,
         val maxAttempts: Int = 0,
         val recoverable: Boolean = true,
-        val message: String = "Live session interrupted"
+        val message: String = "Realtime session interrupted"
     ) : AIEvent
 
-    /** 동일한 앱 세션으로 Live transport 복구가 완료되었음을 알리는 이벤트입니다. */
+    /** 동일한 앱 세션으로 realtime transport 복구가 완료되었음을 알리는 이벤트입니다. */
     data class Reconnected(val sessionId: String) : AIEvent
 
     /** 자동 복구 실패 후 사용자 조치가 필요한 상태를 알리는 이벤트입니다. */
@@ -85,7 +85,7 @@ sealed interface AIEvent {
 }
 
 /**
- * Live session 중단 원인입니다.
+ * Realtime session 중단 원인입니다.
  */
 enum class SessionInterruptedReason {
     /** 서버가 정상적인 종료 신호를 전달한 경우 */
