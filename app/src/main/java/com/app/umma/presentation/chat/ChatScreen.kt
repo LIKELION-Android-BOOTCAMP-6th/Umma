@@ -121,9 +121,14 @@ fun ChatScreen(
         viewModel.enterChat()
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(activity) {
         onDispose {
-            viewModel.stopChat()
+            // 화면 회전은 같은 ChatViewModel을 재사용하는 configuration change 이므로
+            // 세션과 자막 상태를 유지한다. 실제 navigation 이탈처럼 Activity 재구성이 아닌
+            // dispose 에서만 기존 Sprint2 정책대로 녹음/재생/Live transport 를 정리한다.
+            if (activity?.isChangingConfigurations != true) {
+                viewModel.stopChat()
+            }
         }
     }
 
@@ -335,23 +340,6 @@ fun ChatScreen(
                             .padding(top = SpacingS)
                     ) {
                         Text(text = "Open Settings")
-                    }
-                }
-
-                if (uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK) {
-                    Text(
-                        text = uiState.errorMessage ?: "네트워크 연결이 필요합니다.",
-                        color = TextLogout,
-                        style = TextAnalysisR,
-                        textAlign = TextAlign.Center
-                    )
-                    Button(
-                        onClick = { viewModel.enterChat() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = SpacingS)
-                    ) {
-                        Text(text = "재시도")
                     }
                 }
 

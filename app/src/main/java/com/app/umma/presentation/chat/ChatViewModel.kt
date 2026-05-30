@@ -40,8 +40,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
-import kotlin.math.ceil
 
 /**
  * AI Chat 실시간 대화 상태를 관리하는 ViewModel 입니다.
@@ -105,6 +105,12 @@ class ChatViewModel @Inject constructor(
      */
     fun enterChat() {
         if (enterChatJob?.isActive == true) return
+        if (_uiState.value.hasActiveChatSession) {
+            // 화면 회전 후 LaunchedEffect가 다시 실행되어도, 이미 준비된 세션과 화면 상태는
+            // 그대로 유지한다. 여기서 loading 상태를 다시 쓰면 subtitle/final text가 초기화된다.
+            startObservingAIEvents()
+            return
+        }
 
         enterChatJob = viewModelScope.launch {
             Log.d(TAG, "enterChat started")
@@ -493,21 +499,34 @@ class ChatViewModel @Inject constructor(
     fun stopChat() {
         stopChatJob?.cancel()
         stopChatJob = viewModelScope.launch {
-            eventJob?.cancel()
-            eventJob = null
+            stopChatInternal(resetUiState = true)
+        }
+    }
 
-            recordJob?.cancel()
-            audioRecorder.stopRecording()
-            recordJob = null
+    /**
+     * Chat 화면 리소스를 정리합니다.
+     *
+     * 화면 회전에서는 [ChatScreen]이 dispose되더라도 같은 [ChatViewModel]을 재사용할 수 있으므로
+     * 이 함수를 호출하지 않는다. navigation 이탈처럼 화면이 실제로 사라지는 경우에는 [stopChat]이,
+     * ViewModel 자체가 제거되는 경우에는 onCleared가 호출해 녹음/재생/Live transport를 정리한다.
+     */
+    private suspend fun stopChatInternal(resetUiState: Boolean) {
+        eventJob?.cancel()
+        eventJob = null
 
-            currentUserTurnStartedAtMs = null
-            currentUserTurnEndedAtMs = null
-            setPendingUserTurnDurationUseCase(null)
-            audioPlayer.stopPlaying()
-            stopSessionUseCase(clearAppSession = false)
+        recordJob?.cancel()
+        audioRecorder.stopRecording()
+        recordJob = null
 
+        currentUserTurnStartedAtMs = null
+        currentUserTurnEndedAtMs = null
+        setPendingUserTurnDurationUseCase(null)
+        audioPlayer.stopPlaying()
+        stopSessionUseCase(clearAppSession = false)
+
+        pendingTurnSaveCount = 0
+        if (resetUiState) {
             _uiState.value = ChatUiState()
-            pendingTurnSaveCount = 0
         }
     }
 
@@ -890,7 +909,11 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         outputLevelJob?.cancel()
-        audioPlayer.stopPlaying()
+        // onCleared는 Chat back stack이 제거되는 실제 종료 경계다. 화면 회전과 달리
+        // 여기서는 transport와 오디오 리소스를 정리해야 다음 진입 시 잔여 녹음/재생이 남지 않는다.
+        runBlocking {
+            stopChatInternal(resetUiState = false)
+        }
     }
 
     /**
@@ -1058,4 +1081,9 @@ class ChatViewModel @Inject constructor(
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }
+
+private val ChatUiState.hasActiveChatSession: Boolean
+    get() = entryStage == ChatEntryStage.READY &&
+            (sessionState == SessionState.READY || sessionState == SessionState.RECONNECTING) &&
+            activeSessionId != null
 // 재시도 commit

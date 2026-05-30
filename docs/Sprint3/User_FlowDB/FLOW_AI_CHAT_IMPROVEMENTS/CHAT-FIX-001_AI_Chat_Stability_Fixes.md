@@ -1,0 +1,225 @@
+# [Fix] CHAT-FIX-001 AI Chat Sprint2 후속 수정
+
+## User Story
+
+사용자는 Sprint2에서 구현된 AI Chat 기본 흐름을 사용할 때, 진입 설정, 화면 회전, 대화 상태 유지 같은 기본 UX가 끊기거나 우회되지 않는 안정적인 경험을 해야 한다.
+
+이번 Flow 문서는 Sprint2 AI Chat 구현 이후 발견된 후속 수정 사항을 하나의 Fix 흐름으로 관리한다. 실제 백로그 이슈는 아래 작업 단위별로 작게 나누어 처리한다.
+
+추가 Sprint2 회귀나 안정성 문제가 발견되면 `CHAT-FIX-001-C`, `CHAT-FIX-001-D`처럼 이 문서에 작업 단위를 확장한다.
+
+---
+
+# 작업 단위
+
+| 작업 ID | 범위 | 목적 |
+| --- | --- | --- |
+| `CHAT-FIX-001-A` | 화면 회전 시 세션/화면 상태 유지 | READY 상태의 LiveSession/UI 상태가 회전으로 초기화되지 않게 한다. |
+| `CHAT-FIX-001-B` | 관심주제 선택 다이얼로그 안정성 | 필수 선택 단계를 우회하지 못하게 하고, 회전/가로 화면에서도 선택을 완료할 수 있게 한다. |
+| `CHAT-FIX-001-C+` | 추후 Sprint2 후속 수정 | Sprint2 AI Chat 흐름에서 추가로 발견되는 회귀/안정성 문제를 작은 이슈 단위로 추가한다. |
+
+---
+
+# 완료 기준(AC) (Acceptance Criteria)
+
+## CHAT-FIX-001-A 세션 유지
+
+- [ ] READY 상태에서 화면 회전 시 새 LiveSession이 불필요하게 생성되지 않는다.
+- [ ] 화면 회전 시 `ChatUiState`가 초기값으로 재설정되지 않는다.
+- [ ] 화면 회전 후 자막 On/Off 상태가 유지된다.
+- [ ] 화면 회전 후 마지막 사용자/AI 자막이 유지된다.
+- [ ] 화면 회전 후 마이크 버튼 상태가 현재 세션 상태와 일치한다.
+- [ ] AI 응답 중 화면 회전이 발생해도 응답 상태가 중복 초기화되지 않는다.
+- [ ] 실제 AI Chat back stack이 제거될 때는 기존처럼 녹음과 재생이 정리된다.
+
+## CHAT-FIX-001-B 관심주제 선택 다이얼로그
+
+- [ ] 관심주제 미설정 사용자가 AI Chat에 진입하면 관심주제 선택 다이얼로그가 표시된다.
+- [ ] 관심주제 선택 다이얼로그에는 닫기/취소 버튼이 노출되지 않는다.
+- [ ] 다이얼로그 외부 터치 또는 뒤로가기로 필수 선택 단계를 우회할 수 없다.
+- [ ] 관심주제 선택 상태는 `ChatUiState.selectedTopic` 기준으로 렌더링되고 Composable local state로 복제되지 않는다.
+- [ ] 화면 회전 후에도 관심주제 목록을 스크롤해 모든 항목을 선택할 수 있다.
+- [ ] 정확히 5개를 선택해야 저장할 수 있고, 5개 미만이면 사용자에게 안내 문구를 표시한다.
+- [ ] 저장 성공 후 다이얼로그가 닫히고 AI Chat 흐름을 계속 진행할 수 있다.
+
+---
+
+# Flow (링크)
+
+- Sprint2 기준: `docs/Sprint2/User_FlowDB/FLOW_AI_CHAT.md`
+- Sprint2 기준: `docs/Sprint2/User_FlowDB/FLOW_AI_CHAT/CHAT-001_Entry_State.md`
+- Sprint2 기준: `docs/Sprint2/User_FlowDB/FLOW_AI_CHAT/CHAT-008_Exit_Reentry.md`
+- Sprint3 데모: `docs/Sprint3/Demo/DEMO_FLOW_AI_CHAT_IMPROVEMENTS.md`
+- Reconnect 기준: `docs/System_FlowDB/SYS_REALTIME_INFRA/RT-004_Reconnect.md`
+
+---
+
+# 구현 범위
+
+## 포함 범위
+
+- Sprint2 AI Chat 기본 흐름에서 발견된 안정성/회귀성 수정
+- 화면 회전 시 `stopChat()`에 의한 상태 초기화 방지
+- 화면 회전 시 `enterChat()` 중복 실행 방어
+- READY 상태의 `activeSessionId`와 `ChatUiState` 유지
+- subtitle 상태와 마지막 자막 보존
+- AI 응답 중 recomposition 안정화
+- 실제 화면 이탈 또는 back stack 제거 시 cleanup 경계 확인
+- 관심주제 미설정 사용자 진입 시 다이얼로그 표시 정책 유지
+- 관심주제 선택 다이얼로그의 닫기/취소 우회 제거
+- 관심주제 선택 상태의 단일 source of truth 유지
+- 관심주제 목록 스크롤 및 다이얼로그 높이 제약 적용
+- 관심주제 저장 중 중복 클릭 방어와 5개 선택 검증 유지
+
+## 제외 범위 (Out of Scope)
+
+- Sprint3 신규 UX 고도화 자체
+- prompt tuning 정책 구현
+- 자막 타이밍 분리 구현
+- 장기 백그라운드 세션 유지
+- 앱 프로세스 kill 이후 LiveSession 복원
+- Firebase Live API 세션 자체의 영구 재사용
+- Android multi-window 전체 대응
+- 관심주제 추천 알고리즘
+- 관심주제 개수 정책 변경
+- 기존에 저장된 관심주제 편집 화면
+- AI 응답 프롬프트에 관심주제를 반영하는 tune 작업
+
+---
+
+# Details
+
+## 문서 확장 정책
+
+- 이 문서는 Sprint2 AI Chat 구현을 대체하지 않는다.
+- Sprint2 문서는 완료된 기준 흐름으로 보존하고, Sprint2 이후 발견된 수정 사항만 이 문서에 누적한다.
+- 새 문제가 기존 작업 단위와 독립적이면 `CHAT-FIX-001-C`처럼 하위 작업 ID를 추가한다.
+- 개별 구현/PR/백로그 이슈는 하위 작업 ID 단위로 작게 관리한다.
+
+## 세션 상태 유지 정책
+
+- 화면 회전은 configuration change로 보고, 사용자가 대화 화면을 떠난 것으로 간주하지 않는다.
+- 이미 READY 상태이고 `activeSessionId`가 있으면 새 세션 시작을 시도하지 않는다.
+- 자막 표시 여부와 마지막 자막은 ViewModel 상태로 유지한다.
+- `DisposableEffect.onDispose`는 화면 회전, recomposition, navigation dispose에서 모두 호출될 수 있으므로 무조건 `stopChat()`을 호출하지 않는다.
+- `Activity.isChangingConfigurations == true`인 dispose는 화면 회전으로 보고 세션과 UI 상태를 유지한다.
+- `Activity.isChangingConfigurations != true`인 dispose는 실제 navigation 이탈로 보고 기존 Sprint2 정책대로 `stopChat()`을 호출해 녹음/재생/Live transport를 정리한다.
+- `ChatViewModel.onCleared()`는 back stack 제거 또는 ViewModel 종료 시점의 마지막 cleanup 경계로 둔다.
+- 사용자가 명시적으로 AI Chat을 종료하는 별도 UX가 생기면 그 이벤트에서만 `stopChat()`을 호출한다.
+
+## 관심주제 선택 상태 유지 정책
+
+- 관심주제 선택 상태의 source of truth는 `ChatViewModel`의 `ChatUiState.selectedTopic`이다.
+- Composable 내부 `remember` 상태로 선택 항목을 따로 복제하지 않는다.
+- 다이얼로그 표시 여부는 사용자 프로필의 `interestTopics`가 비어 있는지 확인한 결과와 저장 성공 여부를 기준으로 한다.
+- 저장 성공 전까지는 사용자가 닫기/취소 동작으로 다이얼로그를 사라지게 만들 수 없어야 한다.
+- 화면 회전 자체에서 `ChatUiState`가 유지되는 생명주기 책임은 `CHAT-FIX-001-A`가 가진다.
+- `CHAT-FIX-001-B`는 관심주제 다이얼로그가 그 상태를 local state로 복제하지 않고 그대로 렌더링하는 UI 책임만 가진다.
+
+## 관심주제 다이얼로그 스크롤 정책
+
+- 관심주제 목록은 기기 높이와 화면 방향에 따라 다이얼로그보다 길어질 수 있다.
+- 특히 가로 방향에서는 다이얼로그의 세로 공간이 줄어들기 때문에 목록 영역에 스크롤이 필요하다.
+- 다이얼로그 자체가 화면 높이를 넘지 않도록 최대 높이를 제한한다.
+- 버튼 영역은 하단에 유지하고, 주제 목록만 스크롤되도록 구성하는 방향을 우선한다.
+
+## 기대 흐름
+
+```text
+AI Chat 진입
+→ interestTopics 비어 있음 확인
+→ 관심주제 선택 다이얼로그 표시
+→ 사용자가 주제 선택
+→ 화면 회전
+→ 선택 항목 유지
+→ 목록 스크롤로 남은 항목 선택 가능
+→ 5개 선택 후 저장
+→ AI Chat READY
+→ 화면 회전
+→ 기존 ViewModel 상태 유지
+→ stopChat 미호출
+→ 새 LiveSession 생성 없음
+→ 자막/버튼/AI 상태 유지
+→ 대화 계속 가능
+```
+
+---
+
+# 기술 설계 가이드
+
+## 권장 구조
+
+```text
+presentation/chat/
+→ ChatScreen
+→ ChatViewModel
+→ ChatUiState
+
+domain/usecase/chat/
+→ StartSessionUseCase
+→ RetryConnectionUseCase
+
+domain/usecase/user/
+→ GetUserProfileUseCase
+→ SaveInterestTopicsUseCase
+```
+
+- `ChatScreen`은 다이얼로그 렌더링, 스크롤 가능한 레이아웃, 버튼 입력 전달만 담당한다.
+- `ChatViewModel`은 세션 재진입 방어, 관심주제 선택 항목, 저장 중 상태, 검증 오류 메시지를 단일 상태로 관리한다.
+- `ChatScreen`의 `LaunchedEffect(Unit)`가 회전 후 호출되더라도 `ChatViewModel.enterChat()`에서 중복 시작을 방어한다.
+- `ChatScreen`의 `DisposableEffect`에서는 `Activity.isChangingConfigurations`를 확인한 뒤, 화면 회전이 아닌 dispose에서만 `stopChat()`을 호출한다.
+- `ChatViewModel.onCleared()`는 back stack 제거 또는 ViewModel 종료 시점에 남은 리소스를 정리하는 최종 방어선으로 사용한다.
+- 관심주제 저장은 기존 `SaveInterestTopicsUseCase` 계약을 그대로 사용한다.
+- 관심주제 선택 상태를 Composable local state로 이동하지 않는다.
+- 공통 `UmmaDialog`는 다른 화면에서도 사용 중이므로 기존 호출부를 깨지 않게 optional parameter를 추가하는 방향을 우선한다.
+- 관심주제 다이얼로그에는 취소 아이콘 숨김, back press dismiss 방지, outside touch dismiss 방지, 스크롤 가능한 content 영역이 필요하다.
+
+## 현재 코드 확인 지점
+
+- `ChatScreen`은 진입 시 `LaunchedEffect(Unit)`에서 `checkInterestTopics()`와 `enterChat()`을 호출한다.
+- `enterChat()`은 `enterChatJob` 중복은 막지만, 이미 READY인 상태에서 재호출될 때의 정책 확인이 필요하다.
+- `enterChat()`은 시작 시 `showSubtitle = false`로 초기화하므로, 회전 후 재호출되면 자막 상태가 사라질 수 있다.
+- 기존 `DisposableEffect(Unit)`의 `onDispose`는 configuration change와 실제 이탈을 구분하지 않고 `stopChat()`을 호출해 `ChatUiState()` 초기화, 관심주제 선택 상태 초기화, active session 정리로 이어질 수 있다.
+- `ChatRepositoryImpl.startSession()`은 동일 조건 세션이면 재사용하는 guard가 있지만, 화면 상태 초기화는 ViewModel에서 별도 확인이 필요하다.
+- `ChatUiState.selectedTopic`은 ViewModel 상태에 있어 회전 후에도 유지될 수 있는 구조다.
+- 현재 관심주제 다이얼로그는 `UmmaDialog(onCancel = {})` 형태다. back/outside dismiss는 상태를 바꾸지 않지만, 우측 상단 취소 아이콘이 그대로 보여 필수 선택 UX와 맞지 않는다.
+- 공통 `UmmaDialog`는 항상 취소 아이콘을 표시하고 `Dialog(onDismissRequest = onCancel)`만 사용한다. 관심주제처럼 닫기 금지가 필요한 화면을 위해 optional dismiss 정책이 필요하다.
+- 현재 주제 목록은 단순 `Column`에 전체 항목을 배치하므로, 가로 화면이나 낮은 화면에서 하단 항목 선택이 어려울 수 있다.
+
+---
+
+# 검증 기준
+
+## CHAT-FIX-001-A
+
+- READY 상태에서 회전해도 Loading부터 다시 보이지 않는다.
+- 회전 후 `activeSessionId`가 유지된다.
+- subtitle visible 상태와 마지막 자막이 유지된다.
+- AI 응답 중 회전해도 응답 상태가 중복 초기화되지 않는다.
+- AI Chat back stack이 제거되면 녹음과 재생이 정리된다.
+
+## CHAT-FIX-001-B
+
+- 관심주제 미설정 계정으로 AI Chat 진입 시 다이얼로그가 표시된다.
+- 다이얼로그에서 취소/닫기 UI가 보이지 않는다.
+- 외부 터치나 뒤로가기로 다이얼로그가 닫히지 않는다.
+- 선택 상태가 `ChatUiState.selectedTopic` 기준으로 표시된다.
+- 가로 화면에서도 목록을 스크롤해 모든 주제를 확인하고 선택할 수 있다.
+- 5개 미만 저장 시 오류 안내가 표시된다.
+- 5개 저장 성공 후 다이얼로그가 닫힌다.
+
+---
+
+# Edge Cases
+
+- 세션 Loading 중 화면 회전
+- Recording 중 화면 회전
+- AI Speaking 중 화면 회전
+- final turn 저장 중 화면 회전
+- 화면 회전 직후 뒤로가기
+- selected language 변경 후 재진입
+- 관심주제 저장 중 화면 회전
+- 관심주제 4개 선택 후 저장 시도
+- 관심주제 5개 선택 후 일부 선택 해제
+- 가로 화면에서 다이얼로그 진입
+- 프로필 로딩 완료 전 화면 회전
