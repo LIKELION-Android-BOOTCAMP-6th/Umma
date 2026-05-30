@@ -37,9 +37,10 @@
 - [ ] 관심주제 미설정 사용자가 AI Chat에 진입하면 관심주제 선택 다이얼로그가 표시된다.
 - [ ] 관심주제 선택 다이얼로그에는 닫기/취소 버튼이 노출되지 않는다.
 - [ ] 다이얼로그 외부 터치 또는 뒤로가기로 필수 선택 단계를 우회할 수 없다.
-- [ ] 관심주제 선택 상태는 `ChatUiState.selectedTopic` 기준으로 렌더링되고 Composable local state로 복제되지 않는다.
+- [ ] 화면 회전 후에도 선택한 관심주제가 선택 상태로 유지된다.
 - [ ] 화면 회전 후에도 관심주제 목록을 스크롤해 모든 항목을 선택할 수 있다.
-- [ ] 정확히 5개를 선택해야 저장할 수 있고, 5개 미만이면 사용자에게 안내 문구를 표시한다.
+- [ ] 관심주제가 5개 미만이면 안내 문구가 표시되고 완료 버튼이 비활성화된다.
+- [ ] 관심주제 5개 선택 시 완료 버튼이 활성화되고 선택 안내 문구가 노출되지 않는다.
 - [ ] 저장 성공 후 다이얼로그가 닫히고 AI Chat 흐름을 계속 진행할 수 있다.
 
 ---
@@ -67,9 +68,10 @@
 - 실제 화면 이탈 또는 back stack 제거 시 cleanup 경계 확인
 - 관심주제 미설정 사용자 진입 시 다이얼로그 표시 정책 유지
 - 관심주제 선택 다이얼로그의 닫기/취소 우회 제거
-- 관심주제 선택 상태의 단일 source of truth 유지
 - 관심주제 목록 스크롤 및 다이얼로그 높이 제약 적용
-- 관심주제 저장 중 중복 클릭 방어와 5개 선택 검증 유지
+- 관심주제 저장 중 중복 클릭 방어
+- 관심주제 5개 선택 전 안내 문구 표시 및 완료 버튼 비활성화
+- 관심주제 5개 선택 후 완료 버튼 활성화 및 선택 안내 문구 제거
 
 ## 제외 범위 (Out of Scope)
 
@@ -80,10 +82,11 @@
 - 앱 프로세스 kill 이후 LiveSession 복원
 - Firebase Live API 세션 자체의 영구 재사용
 - Android multi-window 전체 대응
-- 관심주제 추천 알고리즘
+- 관심주제 추천 알고리즘 또는 추천 품질 개선
 - 관심주제 개수 정책 변경
 - 기존에 저장된 관심주제 편집 화면
 - AI 응답 프롬프트에 관심주제를 반영하는 tune 작업
+- 관심주제 미설정 상태에서 LiveSession 시작 자체를 차단하는 정책
 
 ---
 
@@ -107,34 +110,29 @@
 - `ChatViewModel.onCleared()`는 back stack 제거 또는 ViewModel 종료 시점의 마지막 cleanup 경계로 둔다.
 - 사용자가 명시적으로 AI Chat을 종료하는 별도 UX가 생기면 그 이벤트에서만 `stopChat()`을 호출한다.
 
-## 관심주제 선택 상태 유지 정책
+## 관심주제 다이얼로그 정책
 
-- 관심주제 선택 상태의 source of truth는 `ChatViewModel`의 `ChatUiState.selectedTopic`이다.
-- Composable 내부 `remember` 상태로 선택 항목을 따로 복제하지 않는다.
 - 다이얼로그 표시 여부는 사용자 프로필의 `interestTopics`가 비어 있는지 확인한 결과와 저장 성공 여부를 기준으로 한다.
-- 저장 성공 전까지는 사용자가 닫기/취소 동작으로 다이얼로그를 사라지게 만들 수 없어야 한다.
-- 화면 회전 자체에서 `ChatUiState`가 유지되는 생명주기 책임은 `CHAT-FIX-001-A`가 가진다.
-- `CHAT-FIX-001-B`는 관심주제 다이얼로그가 그 상태를 local state로 복제하지 않고 그대로 렌더링하는 UI 책임만 가진다.
-
-## 관심주제 다이얼로그 스크롤 정책
-
-- 관심주제 목록은 기기 높이와 화면 방향에 따라 다이얼로그보다 길어질 수 있다.
-- 특히 가로 방향에서는 다이얼로그의 세로 공간이 줄어들기 때문에 목록 영역에 스크롤이 필요하다.
-- 다이얼로그 자체가 화면 높이를 넘지 않도록 최대 높이를 제한한다.
-- 버튼 영역은 하단에 유지하고, 주제 목록만 스크롤되도록 구성하는 방향을 우선한다.
+- 관심주제 미설정은 세션 시작 자체를 막는 조건이 아니다. 다만 다이얼로그가 표시된 뒤에는 저장 성공 전까지 우회해서 닫을 수 없어야 한다.
+- 관심주제는 정확히 5개를 선택해야 저장할 수 있다.
+- 5개 미만이면 선택 안내 문구를 표시하고 완료 버튼은 비활성화한다.
+- 5개를 채우면 완료 버튼이 활성화되고, 선택 안내 문구는 사라진다.
+- 가로 화면처럼 세로 공간이 좁은 경우에도 목록을 스크롤해 모든 항목을 선택할 수 있어야 한다.
 
 ## 기대 흐름
 
 ```text
 AI Chat 진입
+→ AI Chat 세션 준비 진행
 → interestTopics 비어 있음 확인
-→ 관심주제 선택 다이얼로그 표시
+→ AI Chat READY 상태에서 관심주제 선택 다이얼로그 표시
 → 사용자가 주제 선택
 → 화면 회전
 → 선택 항목 유지
 → 목록 스크롤로 남은 항목 선택 가능
+→ 5개 미만이면 안내 문구 표시 및 완료 버튼 비활성화
 → 5개 선택 후 저장
-→ AI Chat READY
+→ 관심주제 다이얼로그 닫힘
 → 화면 회전
 → 기존 ViewModel 상태 유지
 → stopChat 미호출
@@ -145,46 +143,14 @@ AI Chat 진입
 
 ---
 
-# 기술 설계 가이드
+# 구현 메모
 
-## 권장 구조
-
-```text
-presentation/chat/
-→ ChatScreen
-→ ChatViewModel
-→ ChatUiState
-
-domain/usecase/chat/
-→ StartSessionUseCase
-→ RetryConnectionUseCase
-
-domain/usecase/user/
-→ GetUserProfileUseCase
-→ SaveInterestTopicsUseCase
-```
-
-- `ChatScreen`은 다이얼로그 렌더링, 스크롤 가능한 레이아웃, 버튼 입력 전달만 담당한다.
-- `ChatViewModel`은 세션 재진입 방어, 관심주제 선택 항목, 저장 중 상태, 검증 오류 메시지를 단일 상태로 관리한다.
 - `ChatScreen`의 `LaunchedEffect(Unit)`가 회전 후 호출되더라도 `ChatViewModel.enterChat()`에서 중복 시작을 방어한다.
 - `ChatScreen`의 `DisposableEffect`에서는 `Activity.isChangingConfigurations`를 확인한 뒤, 화면 회전이 아닌 dispose에서만 `stopChat()`을 호출한다.
 - `ChatViewModel.onCleared()`는 back stack 제거 또는 ViewModel 종료 시점에 남은 리소스를 정리하는 최종 방어선으로 사용한다.
 - 관심주제 저장은 기존 `SaveInterestTopicsUseCase` 계약을 그대로 사용한다.
-- 관심주제 선택 상태를 Composable local state로 이동하지 않는다.
-- 공통 `UmmaDialog`는 다른 화면에서도 사용 중이므로 기존 호출부를 깨지 않게 optional parameter를 추가하는 방향을 우선한다.
-- 관심주제 다이얼로그에는 취소 아이콘 숨김, back press dismiss 방지, outside touch dismiss 방지, 스크롤 가능한 content 영역이 필요하다.
-
-## 현재 코드 확인 지점
-
-- `ChatScreen`은 진입 시 `LaunchedEffect(Unit)`에서 `checkInterestTopics()`와 `enterChat()`을 호출한다.
-- `enterChat()`은 `enterChatJob` 중복은 막지만, 이미 READY인 상태에서 재호출될 때의 정책 확인이 필요하다.
-- `enterChat()`은 시작 시 `showSubtitle = false`로 초기화하므로, 회전 후 재호출되면 자막 상태가 사라질 수 있다.
-- 기존 `DisposableEffect(Unit)`의 `onDispose`는 configuration change와 실제 이탈을 구분하지 않고 `stopChat()`을 호출해 `ChatUiState()` 초기화, 관심주제 선택 상태 초기화, active session 정리로 이어질 수 있다.
-- `ChatRepositoryImpl.startSession()`은 동일 조건 세션이면 재사용하는 guard가 있지만, 화면 상태 초기화는 ViewModel에서 별도 확인이 필요하다.
-- `ChatUiState.selectedTopic`은 ViewModel 상태에 있어 회전 후에도 유지될 수 있는 구조다.
-- 현재 관심주제 다이얼로그는 `UmmaDialog(onCancel = {})` 형태다. back/outside dismiss는 상태를 바꾸지 않지만, 우측 상단 취소 아이콘이 그대로 보여 필수 선택 UX와 맞지 않는다.
-- 공통 `UmmaDialog`는 항상 취소 아이콘을 표시하고 `Dialog(onDismissRequest = onCancel)`만 사용한다. 관심주제처럼 닫기 금지가 필요한 화면을 위해 optional dismiss 정책이 필요하다.
-- 현재 주제 목록은 단순 `Column`에 전체 항목을 배치하므로, 가로 화면이나 낮은 화면에서 하단 항목 선택이 어려울 수 있다.
+- 공통 `UmmaDialog`는 다른 화면에서도 사용 중이므로 기존 호출부를 깨지 않는 optional parameter로 확장한다.
+- 관심주제 다이얼로그에는 취소 아이콘 숨김, back/outside dismiss 방지, 스크롤 가능한 목록, 완료 버튼 활성화 조건을 적용한다.
 
 ---
 
@@ -203,9 +169,10 @@ domain/usecase/user/
 - 관심주제 미설정 계정으로 AI Chat 진입 시 다이얼로그가 표시된다.
 - 다이얼로그에서 취소/닫기 UI가 보이지 않는다.
 - 외부 터치나 뒤로가기로 다이얼로그가 닫히지 않는다.
-- 선택 상태가 `ChatUiState.selectedTopic` 기준으로 표시된다.
+- 화면 회전 후에도 선택한 관심주제가 유지된다.
 - 가로 화면에서도 목록을 스크롤해 모든 주제를 확인하고 선택할 수 있다.
-- 5개 미만 저장 시 오류 안내가 표시된다.
+- 5개 미만이면 안내 문구가 표시되고 완료 버튼이 비활성화된다.
+- 5개 선택 시 완료 버튼이 활성화되고 선택 안내 문구가 사라진다.
 - 5개 저장 성공 후 다이얼로그가 닫힌다.
 
 ---
