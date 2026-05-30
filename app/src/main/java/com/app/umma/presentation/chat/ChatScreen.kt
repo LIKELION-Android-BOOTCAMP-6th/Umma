@@ -10,17 +10,20 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
@@ -48,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -65,7 +69,6 @@ import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
-import com.app.umma.core.theme.SpacingXL
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
@@ -83,7 +86,13 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = context.findActivity()
+    val configuration = LocalConfiguration.current
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
+    val topicListMaxHeight = when {
+        configuration.screenHeightDp < 420 -> 160.dp
+        configuration.screenHeightDp < 600 -> 220.dp
+        else -> 360.dp
+    }
 
     fun hasRecordAudioPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -108,11 +117,11 @@ fun ChatScreen(
             viewModel.startUserTurn(hasRecordAudioPermission = true)
         } else {
             val permanentlyDenied = activity != null &&
-                    hasRequestedMicPermission &&
-                    !ActivityCompat.shouldShowRequestPermissionRationale(
-                        activity,
-                        Manifest.permission.RECORD_AUDIO
-                    )
+                hasRequestedMicPermission &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    Manifest.permission.RECORD_AUDIO
+                )
             viewModel.onMicPermissionDenied(permanently = permanentlyDenied)
         }
     }
@@ -122,15 +131,20 @@ fun ChatScreen(
         viewModel.enterChat()
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(activity) {
         onDispose {
-            viewModel.stopChat()
+            // 화면 회전은 같은 ChatViewModel을 재사용하는 configuration change 이므로
+            // 세션과 자막 상태를 유지한다. 실제 navigation 이탈처럼 Activity 재구성이 아닌
+            // dispose 에서만 기존 Sprint2 정책대로 녹음/재생/Live transport 를 정리한다.
+            if (activity?.isChangingConfigurations != true) {
+                viewModel.stopChat()
+            }
         }
     }
 
     val showMainChat = uiState.entryStage == ChatEntryStage.READY &&
-            (uiState.sessionState == SessionState.READY ||
-                    uiState.sessionState == SessionState.RECONNECTING)
+        (uiState.sessionState == SessionState.READY ||
+            uiState.sessionState == SessionState.RECONNECTING)
 
     if (!showMainChat) {
         ChatEntryGuardScreen(
@@ -206,7 +220,7 @@ fun ChatScreen(
                                     color = ThemePrimary,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .padding(horizontal = SpacingS, vertical = 2.dp)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = "Umma Tutor",
@@ -234,7 +248,7 @@ fun ChatScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = SpacingS)
+                            .padding(top = 8.dp)
                             .wrapContentSize(Alignment.CenterEnd)
                     ) {
                         Box(
@@ -292,7 +306,6 @@ fun ChatScreen(
                             hasRecordAudioPermission() -> {
                                 viewModel.startUserTurn(hasRecordAudioPermission = true)
                             }
-
                             uiState.microphonePermissionPermanentlyDenied -> openAppSettings()
                             else -> {
                                 hasRequestedMicPermission = true
@@ -340,23 +353,6 @@ fun ChatScreen(
                     }
                 }
 
-                if (uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK) {
-                    Text(
-                        text = uiState.errorMessage ?: "네트워크 연결이 필요합니다.",
-                        color = TextLogout,
-                        style = TextAnalysisR,
-                        textAlign = TextAlign.Center
-                    )
-                    Button(
-                        onClick = { viewModel.enterChat() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = SpacingS)
-                    ) {
-                        Text(text = "재시도")
-                    }
-                }
-
                 if (uiState.isRecoverableError) {
                     Text(
                         text = buildStatusText(uiState),
@@ -387,27 +383,54 @@ fun ChatScreen(
     }
 
     if (uiState.showTopicDialog) {
+        // 관심주제 저장 정책은 정확히 5개 선택이므로 UI도 같은 기준으로 버튼/안내를 제어한다.
+        val hasRequiredTopicCount = uiState.selectedTopic.size == REQUIRED_TOPIC_COUNT
+        // 5개 미만일 때는 저장 시도 없이도 사용자가 부족한 조건을 알 수 있어야 한다.
+        val topicGuideText = when {
+            // 완료 버튼이 비활성화되어도 사용자가 왜 완료할 수 없는지 즉시 알 수 있어야 한다.
+            !hasRequiredTopicCount -> "주제를 정확히 5개 선택해 주세요."
+            // 5개를 채운 뒤에는 선택 안내를 숨기되, 저장 실패 같은 실제 오류는 그대로 보여준다.
+            else -> uiState.topicError
+        }
+
         UmmaDialog(
             title = "관심 주제 5개 선택",
             modifier = Modifier.padding(horizontal = SpacingL),
-            onCancel = null,
+            // 필수 선택 다이얼로그라 취소 콜백은 호출되지 않도록 UI/dismiss 를 모두 막는다.
+            onCancel = {},
             onConfirm = { viewModel.saveInterestTopics() },
-            confirmText = "완료"
+            confirmText = "완료",
+            // 닫기 아이콘을 숨겨 사용자가 필수 설정 단계를 시각적으로 우회할 수 없게 한다.
+            showCancelButton = false,
+            // 시스템 뒤로가기로 다이얼로그만 닫히는 경로를 차단한다.
+            dismissOnBackPress = false,
+            // 외부 터치로 다이얼로그만 닫히는 경로를 차단한다.
+            dismissOnClickOutside = false,
+            // 5개 선택 전 또는 저장 중에는 완료 버튼을 눌러 저장 요청을 만들 수 없다.
+            confirmEnabled = hasRequiredTopicCount && !uiState.isTopicSaving
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = SpacingXL)
+                    // 가로 화면에서는 버튼 영역을 남기고 목록만 스크롤되도록 높이를 제한한다.
+                    .heightIn(max = topicListMaxHeight)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp)
             ) {
+                // 선택 목록은 ViewModel 의 selectedTopic 상태만 보고 렌더링해 회전 후 상태 복제를 피한다.
                 Topic.entries.forEach { topic ->
+                    // 현재 topic 이 선택 목록에 포함되어 있으면 버튼을 selected 스타일로 표시한다.
                     val isSelected = uiState.selectedTopic.contains(topic)
                     TopicButton(
                         text = topic.displayName,
                         isSelected = isSelected,
+                        // 저장 요청 중에는 선택 변경을 막아 저장 입력과 화면 상태가 어긋나지 않게 한다.
+                        enabled = !uiState.isTopicSaving,
                         onClick = { viewModel.toggleTopic(topic) }
                     )
                 }
-                uiState.topicError?.let {
+                // 5개 미만 안내 또는 저장 실패 오류를 같은 위치에 표시한다.
+                topicGuideText?.let {
                     Text(
                         text = it,
                         color = TextLogout,
@@ -495,10 +518,10 @@ private fun ChatEntryGuardScreen(
     onRetry: () -> Unit
 ) {
     val canRetryFromGuard = uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK ||
-            uiState.entryStage == ChatEntryStage.ERROR ||
-            uiState.isRecoverableError ||
-            uiState.sessionState == SessionState.ERROR ||
-            uiState.aiState == AIState.ERROR
+        uiState.entryStage == ChatEntryStage.ERROR ||
+        uiState.isRecoverableError ||
+        uiState.sessionState == SessionState.ERROR ||
+        uiState.aiState == AIState.ERROR
 
     Scaffold(
         topBar = {
@@ -554,11 +577,9 @@ internal fun buildStatusText(uiState: ChatUiState): String {
         uiState.entryStage == ChatEntryStage.STARTING_NEW -> "새로운 세션 시작중.."
         uiState.entryStage == ChatEntryStage.BLOCKED_NETWORK ->
             "네트워크에 연결할 수 없습니다.\n wifi 또는 모바일 데이터를 확인해주세요."
-
         uiState.sessionState == SessionState.LOADING -> "세션 준비중..."
         uiState.sessionState == SessionState.RECONNECTING ->
             "Reconnecting ${uiState.reconnectAttempt}/${uiState.maxReconnectAttempts}"
-
         uiState.aiState == AIState.RECONNECTING -> "Response was interrupted."
         uiState.aiState == AIState.THINKING -> "AI is thinking..."
         uiState.aiState == AIState.SPEAKING -> "AI is speaking..."
@@ -573,10 +594,12 @@ private fun TopicButton(
     text: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = BackgroundSecondary
@@ -601,3 +624,5 @@ private tailrec fun Context.findActivity(): Activity? {
         else -> null
     }
 }
+
+private const val REQUIRED_TOPIC_COUNT = 5

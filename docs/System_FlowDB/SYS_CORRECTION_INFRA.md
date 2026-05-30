@@ -35,13 +35,13 @@ User Flow의 실제 기능 구현은 `FLOW-CORRECTION`에서 진행한다.
 
 ### User Flow 구현 이슈
 
-- [COR-001 Correction 초기 상태 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md)
-- [COR-002 교정 결과 생성](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-002_Suggestion_Generation.md)
-- [COR-003 교정 결과 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-003_Result_Cards.md)
-- [COR-004 저장 카드 선택 상태](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-004_Card_Selection.md)
-- [COR-005 Flashcard 저장 요청 준비](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-005_Save_Request.md)
-- [COR-006 교정 완료 결과 연결](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md)
-- [COR-007 Dashboard 복귀 및 후처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION/COR-007_Return_and_Sync.md)
+- [COR-001 Correction 초기 상태 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md)
+- [COR-002 교정 결과 생성](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-002_Suggestion_Generation.md)
+- [COR-003 교정 결과 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-003_Result_Cards.md)
+- [COR-004 저장 카드 선택 상태](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-004_Card_Selection.md)
+- [COR-005 Flashcard 저장 요청 준비](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-005_Save_Request.md)
+- [COR-006 교정 완료 결과 연결](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md)
+- [COR-007 Dashboard 복귀 및 후처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-007_Return_and_Sync.md)
 
 ---
 
@@ -223,20 +223,20 @@ Correction은 AI 응답과 저장 흐름이 포함되므로 mock/real 교체 가
 - UI 작업자는 mock repository로 카드 표시와 저장 상태를 먼저 구현할 수 있다.
 - 실제 AI API 연결은 같은 domain 계약을 사용해야 하며, fake/mock 구현만으로 `COR-002` 최종 완료를 대체하지 않는다.
 - ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
-- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
+- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
 
 ---
 
 ## 12. 연결 문서
 
 - [SYS_CORRECTION_INFRA_OVERVIEW.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_CORRECTION_INFRA/SYS_CORRECTION_INFRA_OVERVIEW.md)
-- [FLOW_CORRECTION.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_CORRECTION.md)
+- [FLOW_CORRECTION.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_CORRECTION.md)
 - [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
 - [SYS_LEARNING_STATE_INFRA_OVERVIEW.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md)
 - [SYS_REALTIME_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_REALTIME_INFRA.md)
-- [FLOW_AI_CHAT.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_AI_CHAT.md)
-- [FLOW_DASHBOARD.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_DASHBOARD.md)
-- [DASH-003_Correction_Pending_Card.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md)
+- [FLOW_AI_CHAT.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_AI_CHAT.md)
+- [FLOW_DASHBOARD.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_DASHBOARD.md)
+- [DASH-003_Correction_Pending_Card.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md)
 
 ---
 

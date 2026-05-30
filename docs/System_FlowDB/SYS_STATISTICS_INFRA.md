@@ -39,10 +39,10 @@ User Flow의 실제 통계 화면 구현은 `FLOW-STATISTICS`에서 진행한다
 
 ### User Flow 구현 이슈
 
-- [STAT-001 Statistics 화면 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-001_Entry_Context.md)
-- [STAT-002 학습 지표 요약 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-002_Metric_Summary_Cards.md)
-- [STAT-003 지표 카드 클릭 및 line chart 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
-- [STAT-004 통계 데이터 동기화 및 재진입 처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS/STAT-004_Sync_and_Reentry.md)
+- [STAT-001 Statistics 화면 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_STATISTICS/STAT-001_Entry_Context.md)
+- [STAT-002 학습 지표 요약 카드 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_STATISTICS/STAT-002_Metric_Summary_Cards.md)
+- [STAT-003 지표 카드 클릭 및 line chart 표시](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_STATISTICS/STAT-003_Metric_Line_Chart.md)
+- [STAT-004 통계 데이터 동기화 및 재진입 처리](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_STATISTICS/STAT-004_Sync_and_Reentry.md)
 
 ---
 
@@ -228,20 +228,20 @@ MVP에서 노출하는 지표는 `ExternalMetrics` 5개로 제한한다.
 - UI 작업자는 `FakeStatisticsRepository`로 지표 카드, Empty chart, line chart, pending sync 상태를 먼저 구현할 수 있다.
 - fake와 real 구현체는 같은 `StatisticsHistory` / `MetricHistoryPoint` 계약을 반환한다.
 - ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
-- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
+- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
 
 ---
 
 ## 12. 연결 문서
 
-- [FLOW_STATISTICS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_STATISTICS.md)
+- [FLOW_STATISTICS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_STATISTICS.md)
 - [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
 - [LS-001 Language State Model Structure](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-001_Language_State_Model_Structure.md)
 - [LS-004 Global Learning State Store](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-004_Global_Learning_State_Store.md)
 - [LS-005 Local Cache & Sync Policy](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-005_Local_Cache_and_Sync_Policy.md)
 - [LS-006 Language State Update Policy](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/LS-006_Language_State_Update_Policy.md)
-- [FLOW_DASHBOARD.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_DASHBOARD.md)
-- [DASH-005 Language Progress Card](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/User_FlowDB/FLOW_DASHBOARD/DASH-005_Language_Progress_Card.md)
+- [FLOW_DASHBOARD.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_DASHBOARD.md)
+- [DASH-005 Language Progress Card](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/develop/docs/Sprint2/User_FlowDB/FLOW_DASHBOARD/DASH-005_Language_Progress_Card.md)
 
 ---
 

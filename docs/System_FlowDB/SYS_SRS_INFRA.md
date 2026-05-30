@@ -43,12 +43,12 @@ User Flow의 실제 학습 화면 구현은 `FLOW-SRS`에서 진행한다.
 
 ### User Flow 구현 이슈
 
-- [SRS-001 반복학습 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-001_Entry_Context.md)
-- [SRS-002 복습 카드 덱 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-002_Deck_Load.md)
-- [SRS-003 카드 앞/뒤 표시 및 뒤집기](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-003_Card_Flip.md)
-- [SRS-004 발음 재생](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-004_Pronunciation_Playback.md)
-- [SRS-005 복습 평가 및 스케줄 반영](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-005_Grading_and_Schedule.md)
-- [SRS-006 완료, 복귀, 동기화](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS/SRS-006_Completion_and_Return.md)
+- [SRS-001 반복학습 진입 및 언어 컨텍스트](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS/SRS-001_Entry_Context.md)
+- [SRS-002 복습 카드 덱 로드](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS/SRS-002_Deck_Load.md)
+- [SRS-003 카드 앞/뒤 표시 및 뒤집기](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS/SRS-003_Card_Flip.md)
+- [SRS-004 발음 재생](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS/SRS-004_Pronunciation_Playback.md)
+- [SRS-005 복습 평가 및 스케줄 반영](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS/SRS-005_Grading_and_Schedule.md)
+- [SRS-006 완료, 복귀, 동기화](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS/SRS-006_Completion_and_Return.md)
 
 ---
 
@@ -153,13 +153,13 @@ SRS는 카드 조회와 복습 결과 schedule 갱신이 모두 포함되므로 
 - UI 작업자는 fake repository로 카드 표시와 복습 평가 흐름을 먼저 구현할 수 있다.
 - 실제 API 연결은 같은 domain 계약을 사용해야 한다.
 - ViewModel과 Composable은 fake인지 real인지 알지 못해야 한다.
-- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
+- 교체 방식은 [USER_FLOW_MOCK_REAL_DATA_GUIDE.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/USER_FLOW_MOCK_REAL_DATA_GUIDE.md)를 따른다.
 
 ---
 
 ## 10. 연결 문서
 
-- [FLOW_SRS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/User_FlowDB/FLOW_SRS.md)
+- [FLOW_SRS.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Sprint2/User_FlowDB/FLOW_SRS.md)
 - [SYS_LEARNING_STATE_INFRA.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA.md)
 - [SYS_LEARNING_STATE_INFRA_OVERVIEW.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/System_FlowDB/SYS_LEARNING_STATE_INFRA/SYS_LEARNING_STATE_INFRA_OVERVIEW.md)
 - [Umma_Service_Structure.md](https://github.com/LIKELION-Android-BOOTCAMP-6th/Umma/blob/docs/flow/docs/Umma_Service_Structure.md)

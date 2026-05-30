@@ -40,8 +40,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
-import kotlin.math.ceil
 
 /**
  * AI Chat 실시간 대화 상태를 관리하는 ViewModel 입니다.
@@ -105,6 +105,12 @@ class ChatViewModel @Inject constructor(
      */
     fun enterChat() {
         if (enterChatJob?.isActive == true) return
+        if (_uiState.value.hasActiveChatSession) {
+            // 화면 회전 후 LaunchedEffect가 다시 실행되어도, 이미 준비된 세션과 화면 상태는
+            // 그대로 유지한다. 여기서 loading 상태를 다시 쓰면 subtitle/final text가 초기화된다.
+            startObservingAIEvents()
+            return
+        }
 
         enterChatJob = viewModelScope.launch {
             Log.d(TAG, "enterChat started")
@@ -493,21 +499,34 @@ class ChatViewModel @Inject constructor(
     fun stopChat() {
         stopChatJob?.cancel()
         stopChatJob = viewModelScope.launch {
-            eventJob?.cancel()
-            eventJob = null
+            stopChatInternal(resetUiState = true)
+        }
+    }
 
-            recordJob?.cancel()
-            audioRecorder.stopRecording()
-            recordJob = null
+    /**
+     * Chat 화면 리소스를 정리합니다.
+     *
+     * 화면 회전에서는 [ChatScreen]이 dispose되더라도 같은 [ChatViewModel]을 재사용할 수 있으므로
+     * 이 함수를 호출하지 않는다. navigation 이탈처럼 화면이 실제로 사라지는 경우에는 [stopChat]이,
+     * ViewModel 자체가 제거되는 경우에는 onCleared가 호출해 녹음/재생/Live transport를 정리한다.
+     */
+    private suspend fun stopChatInternal(resetUiState: Boolean) {
+        eventJob?.cancel()
+        eventJob = null
 
-            currentUserTurnStartedAtMs = null
-            currentUserTurnEndedAtMs = null
-            setPendingUserTurnDurationUseCase(null)
-            audioPlayer.stopPlaying()
-            stopSessionUseCase(clearAppSession = false)
+        recordJob?.cancel()
+        audioRecorder.stopRecording()
+        recordJob = null
 
+        currentUserTurnStartedAtMs = null
+        currentUserTurnEndedAtMs = null
+        setPendingUserTurnDurationUseCase(null)
+        audioPlayer.stopPlaying()
+        stopSessionUseCase(clearAppSession = false)
+
+        pendingTurnSaveCount = 0
+        if (resetUiState) {
             _uiState.value = ChatUiState()
-            pendingTurnSaveCount = 0
         }
     }
 
@@ -890,7 +909,11 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         outputLevelJob?.cancel()
-        audioPlayer.stopPlaying()
+        // onCleared는 Chat back stack이 제거되는 실제 종료 경계다. 화면 회전과 달리
+        // 여기서는 transport와 오디오 리소스를 정리해야 다음 진입 시 잔여 녹음/재생이 남지 않는다.
+        runBlocking {
+            stopChatInternal(resetUiState = false)
+        }
     }
 
     /**
@@ -954,40 +977,65 @@ class ChatViewModel @Inject constructor(
 
     // 관심 주제 다이얼로그에서 선택/해제
     fun toggleTopic(topic: Topic) {
+        // 저장 중에는 사용자가 선택 목록을 바꿔 저장 요청의 입력과 화면 상태가 어긋나지 않게 한다.
+        if (_uiState.value.isTopicSaving) return
+
+        // 현재 선택 목록을 복사해서 immutable UiState 를 직접 수정하지 않고 새 상태로 교체한다.
         val current = _uiState.value.selectedTopic.toMutableList()
+        // 이미 선택된 주제를 다시 누르면 선택 해제로 처리한다.
         if (current.contains(topic)) {
             current.remove(topic)
+        // 최대 5개까지만 추가해 저장 정책과 UI 선택 가능 범위를 맞춘다.
         } else if (current.size < 5) {
             current.add(topic)
         }
-        _uiState.update { it.copy(selectedTopic = current) }
+        _uiState.update {
+            it.copy(
+                // 변경된 선택 목록을 UiState 에 반영해 회전 후에도 같은 상태를 렌더링한다.
+                selectedTopic = current,
+                // 5개를 채운 순간 이전의 "5개 선택 필요" 오류를 즉시 내려 UI가 성공 조건과 모순되지 않게 한다.
+                topicError = if (current.size == REQUIRED_TOPIC_COUNT) null else it.topicError
+            )
+        }
     }
 
 
     fun saveInterestTopics() {
         viewModelScope.launch {
+            // 저장 버튼 연타나 recomposition 중복 호출이 같은 관심주제 저장 요청을 여러 번 만들지 않게 한다.
+            if (_uiState.value.isTopicSaving) return@launch
+
+            // 현재 로그인 사용자가 없으면 저장 대상이 없으므로 요청을 만들지 않는다.
             val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            // 도메인 저장 계약은 Topic enum name 목록을 받으므로 화면 선택값을 name 으로 변환한다.
             val topics = _uiState.value.selectedTopic.map { it.name }
 
-            // 5개 미선택 시 저장 X
-            if (topics.size != 5) {
+            // 버튼 비활성화가 기본 방어지만, 외부 호출/상태 경합에 대비해 ViewModel 에서도 5개 정책을 다시 검증한다.
+            if (topics.size != REQUIRED_TOPIC_COUNT) {
                 _uiState.update { it.copy(topicError = "주제를 정확히 5개 선택해 주세요.") }
                 return@launch
             }
+            // 저장 진행 중에는 버튼/선택 변경을 막기 위해 loading 상태를 먼저 올린다.
             _uiState.update { it.copy(isTopicSaving = true) }
+            // 실제 사용자 프로필의 관심주제를 저장하는 기존 usecase 계약을 그대로 사용한다.
             val result = saveInterestTopicsUseCase(uid, topics)
             result.onSuccess {
                 _uiState.update {
                     it.copy(
+                        // 저장이 끝났으므로 loading 을 내린다.
                         isTopicSaving = false,
+                        // 저장 성공 후에는 필수 설정 단계가 완료되었으므로 다이얼로그를 닫는다.
                         showTopicDialog = false,
+                        // 성공 상태에서 이전 안내/오류 문구가 남지 않게 정리한다.
                         topicError = null
                     )
                 }
             }.onFailure {
                 _uiState.update {
                     it.copy(
+                        // 실패해도 사용자가 다시 시도할 수 있도록 저장 중 상태는 해제한다.
                         isTopicSaving = false,
+                        // 실패 사유는 같은 안내 영역에 보여 사용자가 현재 상태를 이해할 수 있게 한다.
                         topicError = "저장에 실패했습니다."
                     )
                 }
@@ -1054,8 +1102,14 @@ class ChatViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "ChatViewModel"
+        const val REQUIRED_TOPIC_COUNT = 5
 
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }
+
+private val ChatUiState.hasActiveChatSession: Boolean
+    get() = entryStage == ChatEntryStage.READY &&
+            (sessionState == SessionState.READY || sessionState == SessionState.RECONNECTING) &&
+            activeSessionId != null
 // 재시도 commit
