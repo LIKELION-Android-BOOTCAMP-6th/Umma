@@ -116,6 +116,7 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.compose.icons.extended)
     implementation(libs.compose.icons)
+    implementation(libs.androidx.core.splashscreen)
 
     // Hilt
     implementation(libs.hilt.android)
