@@ -2,4 +2,8 @@
 <resources>
 
     <style name="Theme.Umma" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="TransparentSplashTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- 기본 스플래시 화면을 투명하게 처리 -->
+        <item name="android:windowIsTranslucent">true</item>
+    </style>
 </resources>
