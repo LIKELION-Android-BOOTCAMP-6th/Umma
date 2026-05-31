@@ -21,15 +21,15 @@ AI Chat 엔진을 전환하기 전에, `gpt-realtime-mini`가 MVP에서 필요�
 - [ ] AI 음성 응답 중 AI transcript delta를 받을 수 있다.
 - [ ] 사용자 transcript와 AI transcript가 이벤트 레벨에서 구분된다.
 - [ ] 첫 AI 음성 응답까지의 지연시간과 usage를 확인할 수 있다.
-- [ ] PoC 결과를 기준으로 OpenAI 전환 여부와 `CHAT-UX-001`, `CHAT-UX-002` 구현 방향을 결정할 수 있다.
+- [ ] PoC 결과를 기준으로 OpenAI 전환 여부와 `CHAT-FIX-001-C`, `CHAT-FIX-001-D` 구현 방향을 결정할 수 있다.
 
 ---
 
 ## 기준 문서
 
 - Sprint3 데모: `docs/Sprint3/Demo/DEMO_FLOW_AI_CHAT_IMPROVEMENTS.md`
-- Toggle UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-001_Toggle_to_Talk_UX.md`
-- Subtitle Timing: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-002_Subtitle_Timing.md`
+- 마이크 버튼 상태 UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-C_Mic_Button_State_UX.md`
+- final 자막 대화형 표시: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-D_Final_Subtitle_Conversation_UX.md`
 - OpenAI Realtime conversations: https://developers.openai.com/api/docs/guides/realtime-conversations
 - OpenAI Realtime cost guide: https://developers.openai.com/api/docs/guides/realtime-costs
 - OpenAI pricing: https://developers.openai.com/api/docs/pricing
@@ -94,7 +94,7 @@ AI Chat PoC 진입
 
 | 결과 | 조건 | 후속 결정 |
 | --- | --- | --- |
-| A. 전환 후보 | 수동 turn 제어, 자막 분리, 지연시간, usage 확인이 모두 가능 | `CHAT-UX-001`, `CHAT-UX-002`를 OpenAI Realtime 기준으로 설계 |
+| A. 전환 후보 | 수동 turn 제어, 자막 분리, 지연시간, usage 확인이 모두 가능 | `CHAT-FIX-001-C`, `CHAT-FIX-001-D`를 OpenAI Realtime 기준으로 설계 |
 | B. 조건부 가능 | 핵심 UX는 가능하지만 token 발급, event 매핑, 오디오 포맷 변환 등 구조 보강이 필요 | 구조 보강 이슈를 먼저 만들고 전환 여부 재검토 |
 | C. 보류 | 지연이 크거나 자막 순서가 불안정하거나 현재 구조와 매핑 난이도가 큼 | OpenAI 전환 보류, Firebase 유지 또는 다른 PoC 검토 |
 

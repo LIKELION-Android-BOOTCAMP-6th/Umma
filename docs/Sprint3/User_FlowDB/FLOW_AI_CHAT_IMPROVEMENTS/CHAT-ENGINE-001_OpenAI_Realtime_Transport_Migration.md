@@ -4,7 +4,7 @@
 
 사용자는 AI Chat에서 기존과 같은 대화 흐름을 사용하되, 내부 realtime transport는 OpenAI Realtime 기준으로 동작한다.
 
-이번 작업은 `CHAT-POC-001`에서 검증한 OpenAI Realtime 경로로 AI Chat 음성 대화 엔진을 완전히 교체하는 선행 인프라 작업이다. UX-001/UX-002는 이 전환 경계가 정리된 뒤 그 위에서 입력 UX와 자막 타이밍을 다룬다.
+이번 작업은 `CHAT-POC-001`에서 검증한 OpenAI Realtime 경로로 AI Chat 음성 대화 엔진을 완전히 교체하는 선행 인프라 작업이다. 이후 화면 UX 보강은 `CHAT-FIX-001-C/D/E`에서 마이크 버튼 상태, final 자막 대화형 표시, 음성 레벨 wave로 나누어 다룬다.
 
 ---
 
@@ -28,8 +28,8 @@
 - Realtime Infra: `docs/System_FlowDB/SYS_REALTIME_INFRA.md`
 - Realtime Overview: `docs/System_FlowDB/SYS_REALTIME_INFRA/SYS_REALTIME_INFRA_OVERVIEW.md`
 - OpenAI PoC: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-POC-001_OpenAI_Realtime_Push_to_Talk_PoC.md`
-- Toggle UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-001_Toggle_to_Talk_UX.md`
-- Subtitle Timing: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-002_Subtitle_Timing.md`
+- 마이크 버튼 상태 UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-C_Mic_Button_State_UX.md`
+- final 자막 대화형 표시: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-D_Final_Subtitle_Conversation_UX.md`
 
 ---
 
@@ -91,13 +91,13 @@
 - `ChatRepository.endUserTurn(durationMs: Long?)`은 provider별 transport 종료 처리를 담당한다.
 - `CancelPendingUserTurnUseCase`는 화면 이탈, 새 발화 시작 전 초기화처럼 아직 확정되지 않은 user turn을 폐기하는 cleanup 계약으로만 사용한다.
 - final USER transcript metadata 보관은 `ChatRepositoryImpl` 내부 상태로 제한하고, ViewModel/domain 레이어에는 별도 pending duration setter를 노출하지 않는다.
-- 이 정리는 UX-001 버튼 동작과 직접 연결되므로 ENGINE 작업에서 먼저 경계를 잡는다.
+- 이 정리는 `CHAT-FIX-001-C`의 마이크 버튼 상태 UX와 직접 연결되므로 ENGINE 작업에서 먼저 경계를 잡는다.
 
 ### 3. Event Mapping
 
 - OpenAI event는 기존 `AIEvent`로 매핑한다.
 - USER transcript completed는 `AIEvent.FinalTranscription(role = USER)`로 전달한다.
-- AI transcript delta는 현재 응답 subtitle 상태로 전달하되, 저장은 final 기준을 유지한다.
+- AI transcript delta는 provider 이벤트로 수신 가능하지만, MVP 화면 표시는 `CHAT-FIX-001-D` 기준에 따라 final transcript를 사용한다.
 - AI audio delta는 기존 `AIEvent.AudioResponse`로 전달한다.
 - response usage는 운영 판단용 로그 또는 별도 telemetry 후보로 남긴다.
 
