@@ -2,6 +2,9 @@ const { setGlobalOptions } = require("firebase-functions");
 const { onRequest } = require("firebase-functions/https");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
+const admin = require("firebase-admin");
+
+admin.initializeApp();
 
 setGlobalOptions({ maxInstances: 10 });
 
@@ -22,8 +25,8 @@ exports.realtimeToken = onRequest(
     region: "us-central1",
     // 이 함수가 실행될 때만 OPENAI_API_KEY secret 접근 권한을 부여한다.
     secrets: [openAiApiKey],
-    // CHAT-POC-001에서는 Android 앱이 아직 Auth/App Check 토큰을 전달하지 않으므로
-    // Cloud Run 공개 액세스를 임시로 허용한다. PoC 후에는 인증 검증을 붙이고 닫아야 한다.
+    // 모바일 앱은 Cloud Run IAM 으로 직접 인증하지 않고 Firebase ID token 을 전달한다.
+    // 따라서 URL 접근 자체보다, 아래 handler 에서 인증된 Firebase 사용자에게만 token 을 발급하는 것이 핵심이다.
     cors: false,
   },
   async (request, response) => {
@@ -34,6 +37,8 @@ exports.realtimeToken = onRequest(
     }
 
     try {
+      const decodedToken = await verifyFirebaseIdToken(request);
+
       // Realtime WebSocket 은 Android 앱이 직접 연결하지만,
       // 그 연결에 필요한 short-lived client secret 은 서버에서 발급한다.
       const openAiResponse = await fetch(
@@ -60,6 +65,7 @@ exports.realtimeToken = onRequest(
         // OpenAI 에러 payload 를 그대로 남겨 Android 연결 실패가 key/권한/모델 문제인지 구분한다.
         logger.error("OpenAI realtime session request failed", {
           status: openAiResponse.status,
+          uid: decodedToken.uid,
           payload,
         });
         response.status(openAiResponse.status).json(payload);
@@ -68,6 +74,11 @@ exports.realtimeToken = onRequest(
 
       response.status(200).json(payload);
     } catch (error) {
+      if (error.code === "unauthenticated") {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
       // 네트워크나 Secret 접근 같은 서버 내부 실패는 Android 에 상세 key 값을 노출하지 않는다.
       logger.error("Failed to issue OpenAI realtime token", error);
       response.status(500).json({
@@ -76,3 +87,31 @@ exports.realtimeToken = onRequest(
     }
   },
 );
+
+/**
+ * Verifies the Firebase Auth ID token sent by the Android app.
+ *
+ * The function endpoint may still be reachable as an HTTPS URL, but it must not
+ * issue an OpenAI client secret unless the caller proves a valid Firebase login.
+ */
+async function verifyFirebaseIdToken(request) {
+  const authorization = request.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+
+  if (!match) {
+    const error = new Error("Missing Firebase ID token");
+    error.code = "unauthenticated";
+    throw error;
+  }
+
+  try {
+    return await admin.auth().verifyIdToken(match[1]);
+  } catch (error) {
+    logger.warn("Firebase ID token verification failed", {
+      message: error.message,
+    });
+    const authError = new Error("Invalid Firebase ID token");
+    authError.code = "unauthenticated";
+    throw authError;
+  }
+}

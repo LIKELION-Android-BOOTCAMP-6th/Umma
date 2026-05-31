@@ -116,17 +116,22 @@ OpenAI / Firebase 양쪽 모두 PoC 접근성을 우선해 임시 설정이 포�
 
 - API key는 PoC 속도를 위해 개인 사용자 소유(`You`)로 생성했다.
 - API key 권한은 초기 연결 오류를 줄이기 위해 `All`로 생성했다.
-- 운영 또는 장기 테스트 전에는 팀/서비스 계정 소유 key로 교체하고, 가능한 범위에서 권한을 제한한다.
+- 우선 작업 1순위는 팀/서비스 계정 소유 key로 교체하는 것이다.
 - 터미널에 잘못 노출된 key는 폐기하고 새 key를 발급했다. 같은 사고가 다시 발생하면 즉시 revoke 후 재발급한다.
 - 결제는 PoC용으로 최소 크레딧과 월 한도를 설정했다. 장기 테스트 전에는 팀 비용 정책과 사용량 모니터링 기준을 다시 확인한다.
 
 #### Firebase / Cloud Functions
 
-- `realtimeToken` Cloud Function의 공개 액세스 허용은 PoC 중 실제 Android 앱 호출을 확인하기 위한 임시 설정이다.
-- 공개 액세스 상태에서는 URL을 아는 사용자가 token 발급 함수를 호출할 수 있으므로 장시간 방치하지 않는다.
-- PoC 테스트가 끝나면 Cloud Run / Cloud Functions 보안 설정을 다시 `인증 필요`로 되돌린다.
-- 운영 또는 장기 테스트 전에는 Firebase Auth ID token 검증, App Check, userId별 rate limit 중 최소 하나 이상을 적용한다.
-- 이 보안 보강은 `CHAT-POC-001`의 production 전환 범위가 아니라 후속 이슈로 분리한다.
+- `realtimeToken` Cloud Function은 Android 앱이 전달한 Firebase ID token을 검증한 뒤 OpenAI client secret을 발급한다.
+- Firebase ID token이 없거나 잘못된 요청은 token 발급 없이 `401 Unauthorized`로 거부한다.
+- Firebase Auth ID token 검증 배포/동작 확인을 OpenAI key 교체 직후 수행한다.
+
+#### 후속 보안 작업 순서
+
+1. OpenAI key 교체
+2. Firebase Auth ID token 검증 코드 배포/동작 확인
+3. Rate 측정 추가
+4. App Check 추가
 
 ### 실행 설정
 
