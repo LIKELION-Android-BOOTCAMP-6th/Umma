@@ -2,10 +2,14 @@ package com.app.umma.presentation.dashboard
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -21,14 +25,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.core.theme.BackgroundSecondary
+import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
+import com.app.umma.core.theme.SpacingS
+import com.app.umma.core.theme.SpacingXL
+import com.app.umma.core.theme.SpacingXS
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
+import com.app.umma.core.theme.TextSecondary
+import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
@@ -48,6 +60,7 @@ fun MyPageScreen(
     onBackClick: () -> Unit
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showNativeLanguageDialog by remember { mutableStateOf(false) }
     var selectedNativeLanguage by remember { mutableStateOf(LangCode.KO) }
     val uiState by authViewModel.uiState.collectAsState()
@@ -60,8 +73,8 @@ fun MyPageScreen(
         }
     }
 
-    LaunchedEffect(uiState.isLogoutCompleted) {
-        if (uiState.isLogoutCompleted) {
+    LaunchedEffect(uiState.isLogoutCompleted, uiState.isDeleteAccountCompleted) {
+        if (uiState.isLogoutCompleted || uiState.isDeleteAccountCompleted) {
             onNavigateToOnBoarding()
         }
     }
@@ -89,12 +102,8 @@ fun MyPageScreen(
                 UmmaDialog(
                     title = "모국어 선택",
                     modifier = Modifier.padding(horizontal = SpacingL),
-                    onCancel = {
-                        showNativeLanguageDialog = false
-                    },
-                    onConfirm = {
-                        showNativeLanguageDialog = false
-                    },
+                    onCancel = { showNativeLanguageDialog = false },
+                    onConfirm = { showNativeLanguageDialog = false },
                     confirmText = "완료"
                 ) {
                     Column(
@@ -117,7 +126,7 @@ fun MyPageScreen(
             // Dialog 로그아웃
             if (showLogoutDialog) {
                 UmmaDialog(
-                    title = "로그아웃 하시겠습니까?",
+                    title = "로그아웃하시겠어요?",
                     modifier = Modifier.padding(horizontal = SpacingL),
                     confirmText = "확인",
                     onConfirm = {
@@ -126,11 +135,42 @@ fun MyPageScreen(
                     },
                     onCancel = { showLogoutDialog = false }) {
                     Text(
-                        text = "로그아웃 시 서비스 이용을 위해 다시 로그인해야 합니다."
+                        text = "로그아웃 시 서비스 이용을 위해 다시 로그인해야 해요.",
+                        modifier = Modifier
+                            .background(color = BackgroundSecondary, shape = RoundedCornerShape(ChipCornerRadius))
+                            .border(color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
+                                ChipCornerRadius
+                            ))
+                            .padding(horizontal = SpacingS, vertical = SpacingL),
+                        textAlign = TextAlign.Center
                     )
                 }
             }
-            //
+            if (showDeleteAccountDialog) {
+                UmmaDialog(
+                    title = "탈퇴하시겠어요?",
+                    titleColor = TextLogout,
+                    modifier = Modifier.padding(horizontal = SpacingL),
+                    confirmText = "탈퇴",
+                    confirmButtonColor = TextLogout,
+                    onConfirm = {
+                        showDeleteAccountDialog = false
+                        authViewModel.deleteAccount()
+                    },
+                    onCancel = { showDeleteAccountDialog = false }
+                ) {
+                    Text(
+                        text = "회원탈퇴 시 회원님의 계정 및 학습 기록이 영구적으로 삭제되며, 복구가 불가능해져요.",
+                        modifier = Modifier
+                            .background(color = BackgroundSecondary, shape = RoundedCornerShape(ChipCornerRadius))
+                            .border(color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
+                                ChipCornerRadius
+                            ))
+                            .padding(horizontal = SpacingS, vertical = SpacingL),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
             Button(
                 onClick = { showNativeLanguageDialog = true },
                 enabled = !uiState.isLoading,
@@ -138,9 +178,9 @@ fun MyPageScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = TextLogout
+                    contentColor = TextPrimary
                 ),
-                border = BorderStroke(1.dp, TextLogout),
+                border = BorderStroke(1.dp, TextPrimary),
                 shape = RoundedCornerShape(30.dp)
             ) {
                 Text(text = "모국어 설정")
@@ -153,17 +193,31 @@ fun MyPageScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = TextWrong
+                ),
+                border = BorderStroke(1.dp, TextWrong),
+                shape = RoundedCornerShape(30.dp)
+            ) {
+                Text(text = "로그아웃")
+            }
+
+            Button(
+                onClick = { showDeleteAccountDialog = true },
+                enabled = !uiState.isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = TextLogout
                 ),
                 border = BorderStroke(1.dp, TextLogout),
                 shape = RoundedCornerShape(30.dp)
             ) {
-                Text(text = "Logout")
+                Text(text = "회원탈퇴")
             }
         }
     }
 }
-
 
 /**
  * 다이얼로그에 학습 언어 리스트에 사용되는 버튼
