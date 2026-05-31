@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -34,10 +36,15 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,18 +83,37 @@ fun SrsStudyScreen(
     viewModel: SrsStudyViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // 학습 언어 세팅, 초기 로딩 시작
     LaunchedEffect(Unit) {
         viewModel.onEnter()
     }
+
+    // 저장 실패 시 Snackbar 표시 + 재시도
+    LaunchedEffect(uiState.hasSaveError) {
+        if (uiState.hasSaveError) {
+            val result = snackbarHostState.showSnackbar(
+                message = "저장에 실패했습니다",
+                actionLabel = "재시도",
+                duration = SnackbarDuration.Long
+            )
+            // 재시도 버튼 클릭
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.onConfirmRating()
+            }
+            viewModel.onClearSaveError()
+        }
+    }
+
     Scaffold(
         topBar = {
             UmmaAppBar(
                 title = "학습",
                 isCenterTitle = true
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -207,6 +233,7 @@ private fun SrsCardFront(card: Flashcard) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -259,8 +286,8 @@ private fun SrsCardBack(
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
-                .padding()
-                .fillMaxSize(),
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -276,7 +303,9 @@ private fun SrsCardBack(
             // 정답 문장
             Text(
                 text = card.backText,
-                style = PercentageDialogB
+                style = PercentageDialogB,
+                modifier = Modifier.padding(horizontal = SpacingXL)
+
             )
             // Grammar Note 박스
             if (card.explanation.isNotBlank()) {
