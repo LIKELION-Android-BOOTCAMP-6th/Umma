@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.usecase.auth.CheckInitialSetupUseCase
+import com.app.umma.domain.usecase.auth.DeleteAccountUseCase
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.auth.SignInWithGoogleUseCase
@@ -35,6 +36,7 @@ class AuthViewModel @Inject constructor(
     private val initializeUserDataUseCase: InitializeUserDataUseCase,
     private val checkInitialSetupUseCase: CheckInitialSetupUseCase,
     private val logoutUseCase: LogoutUseCase,
+    private val deleteAccountUseCase: DeleteAccountUseCase,
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
@@ -326,6 +328,42 @@ class AuthViewModel @Inject constructor(
                 }
             }
 
+        }
+    }
+
+    /**
+     * 회원탈퇴를 수행한다.
+     */
+    fun deleteAccount() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null
+                )
+            }
+            val result = deleteAccountUseCase()
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        googleState = GoogleAuthState.IDLE,
+                        errorMessage = null,
+                        nickname = "",
+                        initialSetupDialogStep = InitialSetupDialogStep.NONE,
+                        isDeleteAccountCompleted = true,
+                        learningLanguageError = null
+                    )
+                }
+            }.onFailure { e ->
+                Log.e("AuthViewModel", "deleteAccount failed", e)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "회원탈퇴에 실패했습니다. 다시 시도해주세요."
+                    )
+                }
+            }
         }
     }
 }
