@@ -71,7 +71,7 @@ fun AppEntryScreen(
             // 로그인 중 or 일반 상태 : Splash 글씨 or 로고 표시
             else -> {
                 Text(
-                    text = stringResource(id = R.string.app_name),
+                    text = "Umma",
                     fontSize = 52.sp,
                     fontWeight = FontWeight.Bold,
                     color = ThemePrimary
