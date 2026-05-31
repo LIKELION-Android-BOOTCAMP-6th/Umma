@@ -35,6 +35,9 @@ android {
         // Android 앱은 OpenAI API key 를 직접 갖지 않는다.
         // 이 URL 은 Firebase Cloud Function 이 발급하는 short-lived Realtime client secret endpoint 다.
         val openAiRealtimeTokenUrl = properties.getProperty("OPENAI_REALTIME_TOKEN_URL") ?: ""
+        // Usage sync 는 Realtime token 발급과 다른 Cloud Function 이 담당한다.
+        // Cloud Run URL 과 cloudfunctions.net URL 은 형태가 달라 문자열 치환에 의존하지 않고 명시 값으로 분리한다.
+        val openAiUsageSyncUrl = properties.getProperty("OPENAI_USAGE_SYNC_URL") ?: ""
         // 전환 후보 모델은 문서와 백로그에서 결정한 gpt-realtime-mini 로 고정하되,
         // local.properties 로만 바꿀 수 있게 해 코드 변경 없이 비교 테스트할 수 있게 한다.
         val openAiRealtimeModel = properties.getProperty(
@@ -46,6 +49,7 @@ android {
             "OPENAI_REALTIME_WS_URL"
         ) ?: "wss://api.openai.com/v1/realtime"
         buildConfigField("String", "OPENAI_REALTIME_TOKEN_URL", "\"$openAiRealtimeTokenUrl\"")
+        buildConfigField("String", "OPENAI_USAGE_SYNC_URL", "\"$openAiUsageSyncUrl\"")
         buildConfigField("String", "OPENAI_REALTIME_MODEL", "\"$openAiRealtimeModel\"")
         buildConfigField(
             "String",
@@ -116,6 +120,7 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.compose.icons.extended)
     implementation(libs.compose.icons)
+    implementation(libs.androidx.core.splashscreen)
 
     // Hilt
     implementation(libs.hilt.android)

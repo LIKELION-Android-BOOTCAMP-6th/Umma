@@ -70,12 +70,20 @@ fun AppEntryScreen(
 
             // 로그인 중 or 일반 상태 : Splash 글씨 or 로고 표시
             else -> {
-                Text(
-                    text = stringResource(id = R.string.app_name),
-                    fontSize = 52.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ThemePrimary
-                )
+                Column {
+                    Text(
+                        text = "편안한 대화,",
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ThemePrimary
+                    )
+                    Text(
+                        text = "즐거운 학습!",
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ThemePrimary
+                    )
+                }
             }
         }
     }

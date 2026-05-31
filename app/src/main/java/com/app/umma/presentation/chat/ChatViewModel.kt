@@ -5,34 +5,42 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.core.util.NetworkConnectivityMonitor
+import com.app.umma.di.ApplicationScope
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.audio.AudioInputFrame
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.realtime.AppendTurnCommand
+import com.app.umma.domain.model.realtime.ChatUsageRecord
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.CancelPendingUserTurnUseCase
+import com.app.umma.domain.usecase.chat.CleanupChatUsageUseCase
 import com.app.umma.domain.usecase.chat.EndUserTurnUseCase
 import com.app.umma.domain.usecase.chat.ObserveAIEventUseCase
+import com.app.umma.domain.usecase.chat.RecordChatUsageUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
 import com.app.umma.domain.usecase.chat.RetryConnectionUseCase
 import com.app.umma.domain.usecase.chat.SendAudioDataUseCase
 import com.app.umma.domain.usecase.chat.StartSessionUseCase
 import com.app.umma.domain.usecase.chat.StopSessionUseCase
+import com.app.umma.domain.usecase.chat.SyncChatSessionUsageUseCase
+import com.app.umma.domain.usecase.chat.SyncPendingChatUsageUseCase
 import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.app.umma.domain.usecase.user.GetUserProfileUseCase
 import com.app.umma.domain.usecase.user.GetUserNicknameUseCase
 import com.app.umma.domain.usecase.user.SaveInterestTopicsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,7 +70,12 @@ class ChatViewModel @Inject constructor(
     private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
     private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
+    private val recordChatUsageUseCase: RecordChatUsageUseCase,
+    private val syncChatSessionUsageUseCase: SyncChatSessionUsageUseCase,
+    private val syncPendingChatUsageUseCase: SyncPendingChatUsageUseCase,
+    private val cleanupChatUsageUseCase: CleanupChatUsageUseCase,
     private val networkConnectivityMonitor: NetworkConnectivityMonitor,
+    @param:ApplicationScope private val applicationScope: CoroutineScope,
     private val audioRecorder: AudioInput,
     private val audioPlayer: AudioOutput
 ) : ViewModel() {
@@ -94,6 +107,7 @@ class ChatViewModel @Inject constructor(
     private var pendingTurnSaveCount: Int = 0
     private var stopChatJob: Job? = null
     private var enterChatJob: Job? = null
+    private var usageSyncJob: Job? = null
     private var outputLevelJob: Job? = null
     private var outputPlaybackJob: Job? = null
     private var currentUserTurnStartedAtMs: Long? = null
@@ -121,6 +135,11 @@ class ChatViewModel @Inject constructor(
             Log.d(TAG, "enterChat started")
             stopChatJob?.join()
             startObservingAIEvents()
+            // 이전 세션에서 Firestore sync가 실패한 usage가 있으면 새 진입 초기에 best-effort로 복구한다.
+            // 원격 sync는 네트워크 대기를 포함할 수 있으므로 세션 진입 flow와 병렬로 실행한다.
+            viewModelScope.launch {
+                syncPendingChatUsageBestEffort()
+            }
 
             _uiState.update {
                 it.copy(
@@ -422,10 +441,27 @@ class ChatViewModel @Inject constructor(
      * 현재 chat 세션을 종료하고 상태를 초기화합니다.
      */
     fun stopChat() {
+        val sessionIdForUsageSync = _uiState.value.activeSessionId
+        launchChatUsageSync(sessionIdForUsageSync)
+
         stopChatJob?.cancel()
         stopChatJob = viewModelScope.launch {
+            // 사용자가 Chat 화면을 정상적으로 이탈하는 경로다.
+            // usage sync는 applicationScope에서 분리 실행했으므로, 여기서는 UI/오디오/transport만 정리한다.
             stopChatInternal(resetUiState = true)
         }
+    }
+
+    /**
+     * Chat destination 이 back stack 에 저장된 채 화면에서만 내려가는 경우에도 usage sync 를 시도합니다.
+     *
+     * Bottom navigation 의 saveState/restoreState 경로에서는 Composable 이 즉시 dispose 되지 않을 수 있습니다.
+     * 이 경우 [stopChat]이 호출되지 않아 세션 종료 sync가 누락될 수 있으므로,
+     * lifecycle ON_STOP 경계에서 현재 세션의 pending usage만 best-effort로 올립니다.
+     */
+    fun syncCurrentUsageForHiddenScreen() {
+        val sessionId = _uiState.value.activeSessionId
+        launchChatUsageSync(sessionId)
     }
 
     /**
@@ -468,6 +504,7 @@ class ChatViewModel @Inject constructor(
                     is AIEvent.Initialized -> handleInitialized(event)
                     is AIEvent.PartialTranscription -> handlePartialTranscription(event)
                     is AIEvent.FinalTranscription -> handleFinalTranscription(event)
+                    is AIEvent.ChatUsageReported -> handleChatUsageReported(event)
                     is AIEvent.AudioResponse -> handleAudioResponse(event)
                     is AIEvent.StateChanged -> handleStateChanged(event)
                     is AIEvent.SessionInterrupted -> handleSessionInterrupted(event)
@@ -598,6 +635,55 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * OpenAI Realtime usage 이벤트를 local-first usage 저장소로 기록합니다.
+     *
+     * usage는 비용 분석/플랜 설계를 위한 운영 데이터입니다. 화면 자막, SessionMemory 저장,
+     * correctionAvailable 신호와 책임이 다르므로 실패해도 사용자 대화 흐름으로 전파하지 않습니다.
+     *
+     * @param event provider usage payload를 앱 공통 모델로 바꾼 이벤트
+     */
+    private suspend fun handleChatUsageReported(event: AIEvent.ChatUsageReported) {
+        val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+        if (uid.isNullOrBlank()) {
+            Log.w(TAG, "chat usage skipped: signed-in user is required")
+            return
+        }
+
+        // ViewModel은 provider payload를 직접 해석하지 않고,
+        // ChatRepository가 만든 domain usage 이벤트를 저장 usecase 입력으로만 변환한다.
+        val record = ChatUsageRecord(
+            id = event.usageEventId,
+            userId = uid,
+            sessionId = event.sessionId,
+            turnId = event.turnId,
+            language = event.sessionLang,
+            kind = event.kind,
+            model = event.model,
+            transcriptionModel = event.transcriptionModel,
+            createdAt = event.createdAt,
+            usage = event.usage,
+            pricingVersion = CHAT_USAGE_PRICING_VERSION,
+            syncStatus = SyncStatus.PENDING
+        )
+
+        recordChatUsageUseCase(record)
+            .onSuccess {
+                // 수동 검증 시 Logcat만으로도 local-first 기록 여부를 빠르게 확인할 수 있게 한다.
+                Log.i(
+                    TAG,
+                    "CHAT-ENGINE-001-B usage_recorded sessionId=${record.sessionId}, kind=${record.kind}, turnId=${record.turnId}"
+                )
+            }
+            .onFailure { error ->
+                Log.w(
+                    TAG,
+                    "chat usage local record failed: sessionId=${event.sessionId}, kind=${event.kind}, message=${error.message}",
+                    error
+                )
+            }
+    }
+
+    /**
      * 확정된 turn 을 Session Memory 에 저장합니다.
      *
      * @param event 저장할 final transcript 이벤트
@@ -656,6 +742,98 @@ class ChatViewModel @Inject constructor(
 
         applyCorrectionSignalUpdateUseCase(input)
             .onFailure { }
+    }
+
+    /**
+     * 현재 세션의 local usage를 Firestore session aggregate로 동기화합니다.
+     *
+     * 이 함수는 화면 이탈/세션 종료 cleanup 중 호출되는 best-effort 경로입니다.
+     * remote sync가 실패해도 usage 원본은 local PENDING으로 유지되며, 사용자에게 오류 UI를 보여주지 않습니다.
+     */
+    private suspend fun syncCurrentChatSessionUsageBestEffort(sessionId: String?) {
+        if (sessionId.isNullOrBlank()) return
+
+        val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+        if (uid.isNullOrBlank()) return
+
+        syncChatSessionUsageUseCase(uid, sessionId)
+            .onSuccess { syncedCount ->
+                // Firestore session aggregate sync 결과도 테스트 로그로 남긴다.
+                // 실제 데이터 확인은 Firestore 문서가 기준이고, 이 로그는 수동 검증 보조값이다.
+                Log.i(
+                    TAG,
+                    "CHAT-ENGINE-001-B usage_session_synced sessionId=$sessionId, syncedCount=$syncedCount"
+                )
+                cleanupChatUsageBestEffort(uid)
+            }
+            .onFailure { error ->
+                Log.w(
+                    TAG,
+                    "chat usage session sync pending: sessionId=$sessionId, message=${error.message}",
+                    error
+                )
+            }
+    }
+
+    /**
+     * 화면 이탈 시점의 usage sync를 ViewModel 생명주기에서 분리해 실행합니다.
+     *
+     * Bottom navigation 또는 back stack 제거 직후에는 ViewModel scope가 취소될 수 있습니다.
+     * usage 원본은 이미 Room에 PENDING으로 저장되어 있으므로, 이 작업은 실패해도 다음 Chat 진입 때 재시도됩니다.
+     */
+    private fun launchChatUsageSync(sessionId: String?) {
+        if (sessionId.isNullOrBlank()) return
+        if (usageSyncJob?.isActive == true) return
+
+        usageSyncJob = applicationScope.launch {
+            syncCurrentChatSessionUsageBestEffort(sessionId)
+        }
+    }
+
+    /**
+     * 이전 앱 실행이나 네트워크 실패로 남은 pending usage를 재시도합니다.
+     *
+     * pending retry는 Chat 진입의 보조 작업입니다. 실패해도 세션 시작이나 대화 입력을 막지 않습니다.
+     */
+    private suspend fun syncPendingChatUsageBestEffort() {
+        val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+        if (uid.isNullOrBlank()) return
+
+        syncPendingChatUsageUseCase(uid)
+            .onSuccess { syncedCount ->
+                // pending retry는 화면에 노출하지 않으므로 Logcat에 성공 건수만 남긴다.
+                Log.i(TAG, "CHAT-ENGINE-001-B usage_pending_synced syncedCount=$syncedCount")
+                cleanupChatUsageBestEffort(uid)
+            }
+            .onFailure { error ->
+                Log.w(
+                    TAG,
+                    "chat usage pending sync skipped: message=${error.message}",
+                    error
+                )
+            }
+    }
+
+    /**
+     * Firestore sync가 끝난 오래된 usage 원본 row를 정리합니다.
+     *
+     * cleanup은 저장공간 관리 목적의 best-effort 작업입니다. 실패해도 사용자의 대화 흐름,
+     * pending sync 재시도, final turn 저장에 영향을 주지 않아야 하므로 로그만 남깁니다.
+     */
+    private suspend fun cleanupChatUsageBestEffort(uid: String) {
+        cleanupChatUsageUseCase(uid)
+            .onSuccess { deletedCount ->
+                if (deletedCount > 0) {
+                    Log.i(TAG, "CHAT-ENGINE-001-B usage_local_cleanup deletedCount=$deletedCount")
+                }
+            }
+            .onFailure { error ->
+                Log.w(
+                    TAG,
+                    "chat usage local cleanup skipped: message=${error.message}",
+                    error
+                )
+            }
     }
 
     /**
@@ -888,7 +1066,9 @@ class ChatViewModel @Inject constructor(
         outputLevelJob?.cancel()
         outputPlaybackJob?.cancel()
         // onCleared는 Chat back stack이 제거되는 실제 종료 경계다. 화면 회전과 달리
-        // 여기서는 transport와 오디오 리소스를 정리해야 다음 진입 시 잔여 녹음/재생이 남지 않는다.
+        // 여기서는 transport와 오디오 리소스만 즉시 정리한다.
+        // Firestore usage sync는 네트워크 요청이라 onCleared/runBlocking 경계에 묶지 않고,
+        // local PENDING row를 다음 Chat 진입의 pending retry가 처리하도록 둔다.
         runBlocking {
             stopChatInternal(resetUiState = false)
         }
@@ -1088,6 +1268,7 @@ class ChatViewModel @Inject constructor(
     private companion object {
         const val TAG = "ChatViewModel"
         const val REQUIRED_TOPIC_COUNT = 5
+        const val CHAT_USAGE_PRICING_VERSION = "openai-realtime-2026-05"
 
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
