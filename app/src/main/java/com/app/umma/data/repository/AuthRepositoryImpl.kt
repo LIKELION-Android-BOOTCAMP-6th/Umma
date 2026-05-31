@@ -18,7 +18,7 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 /**
- * Firebase Authentication을 사용하는 AuthRepository 구현체입니다.
+ * Firebase Authentication을 사용하는 AuthRepository 구현체입니다
  */
 class AuthRepositoryImpl @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
