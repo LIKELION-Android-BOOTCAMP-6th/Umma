@@ -16,7 +16,10 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Firebase AI 및 Gemini Live API 설정을 담당하는 Hilt 모듈입니다.
+ * 교정 생성과 세션 주제 요약에서 사용하는 Firebase AI 설정을 담당하는 Hilt 모듈입니다.
+ *
+ * AI Chat realtime transport 는 CHAT-ENGINE-001 이후 OpenAI Realtime 경로를 사용하므로,
+ * 이 모듈은 음성 대화 엔진을 제공하지 않는다.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -26,8 +29,7 @@ object AIModule {
      * [FirebaseAI] 인스턴스를 제공합니다.
      *
      * 백엔드로 Google AI(Generative AI)를 사용하도록 구성되어 있습니다.
-     * 시스템 지침(System Instruction)은 이 레이어가 아닌 [ChatRepositoryImpl]에서
-     * 세션 시작 시 동적으로 주입됩니다.
+     * 이 인스턴스는 교정 생성과 topic title 요약 같은 단발 텍스트 호출에만 사용됩니다.
      */
     @Provides
     @Singleton

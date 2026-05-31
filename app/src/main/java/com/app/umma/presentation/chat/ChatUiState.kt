@@ -120,7 +120,7 @@ enum class SessionState {
     READY,
 
     /**
-     * Live transport 재연결 중 상태입니다.
+     * realtime transport 재연결 중 상태입니다.
      */
     RECONNECTING,
 

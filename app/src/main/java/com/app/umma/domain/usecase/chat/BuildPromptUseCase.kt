@@ -20,7 +20,7 @@ class BuildPromptUseCase @Inject constructor() {
      * @param recentFullContext 저장 완료된 최근 대화 context
      * @param recentTopicSummaries 최근 5개 세션 주제 요약 목록. 존재 시 AI 에 전달해 대화 연속성을 높인다. (#162-C)
      *   현재 호출처 wiring 은 후속 PR 에서 완성된다 — 이번 PR 에서는 시그니처와 주입 hook 만 추가.
-     * @return Gemini Live API에 전달할 시스템 지침 문자열
+     * @return OpenAI Realtime 세션에 전달할 시스템 지침 문자열
      */
     operator fun invoke(
         langCode: LangCode,

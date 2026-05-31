@@ -7,7 +7,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.firstOrNull
 
 /**
- * 기존 앱 세션을 기준으로 Live transport 재연결을 시도한다.
+ * 기존 앱 세션을 기준으로 realtime transport 재연결을 시도한다.
  */
 class RetryConnectionUseCase @Inject constructor(
     private val repository: ChatRepository,
