@@ -355,8 +355,7 @@ class AuthViewModel @Inject constructor(
                         learningLanguageError = null
                     )
                 }
-            }.onFailure { e ->
-                Log.e("AuthViewModel", "deleteAccount failed", e)
+            }.onFailure {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
