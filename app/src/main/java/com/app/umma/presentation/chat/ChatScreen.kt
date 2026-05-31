@@ -70,6 +70,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.app.umma.R
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.BackgroundPrimary
@@ -96,6 +99,7 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = context.findActivity()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
@@ -148,8 +152,19 @@ fun ChatScreen(
         viewModel.enterChat()
     }
 
-    DisposableEffect(activity) {
+    DisposableEffect(activity, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && activity?.isChangingConfigurations != true) {
+                // Bottom navigation 의 saveState 경로에서는 Chat composable 이 dispose 되지 않고
+                // back stack 에 보존될 수 있다. 이 경우 stopChat()이 호출되지 않으므로,
+                // 화면이 보이지 않는 ON_STOP 시점에 usage sync 만 별도로 시도한다.
+                viewModel.syncCurrentUsageForHiddenScreen()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             // 화면 회전은 같은 ChatViewModel을 재사용하는 configuration change 이므로
             // 세션과 자막 상태를 유지한다. 실제 navigation 이탈처럼 Activity 재구성이 아닌
             // dispose 에서만 기존 Sprint2 정책대로 녹음/재생/realtime transport 를 정리한다.
