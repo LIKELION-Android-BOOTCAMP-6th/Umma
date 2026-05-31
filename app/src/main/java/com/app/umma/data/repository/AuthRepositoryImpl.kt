@@ -9,6 +9,7 @@ import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.functions.FirebaseFunctions
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -17,10 +18,11 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 /**
- * Firebase Authentication을 사용하는 AuthRepository 구현체입니다.
+ * Firebase Authentication을 사용하는 AuthRepository 구현체입니다
  */
 class AuthRepositoryImpl @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
+    private val firebaseFunctions: FirebaseFunctions,
     @param:ApplicationContext private val context: Context
 ) : AuthRepository {
 
@@ -73,6 +75,18 @@ class AuthRepositoryImpl @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             // Firebase 로그아웃 실패
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deleteAccount(): Result<Unit> {
+        return try {
+            firebaseFunctions
+                .getHttpsCallable("deleteAccount")
+                .call()
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

@@ -35,6 +35,13 @@ interface AuthRepository {
     suspend fun signOut(): Result<Unit>
 
     /**
+     * 현재 로그인한 사용자의 회원탈퇴를 서버에 요청한다.
+     *
+     * Cloud Function이 Firestore 사용자 데이터와 Firebase Auth 계정을 함께 삭제한다.
+     */
+    suspend fun deleteAccount(): Result<Unit>
+
+    /**
      * Firebase 서버에 현재 세션 유효 재확인
      * AUTH-002
      */

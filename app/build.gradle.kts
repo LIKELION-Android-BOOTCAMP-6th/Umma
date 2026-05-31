@@ -120,6 +120,7 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.compose.icons.extended)
     implementation(libs.compose.icons)
+    implementation(libs.androidx.core.splashscreen)
 
     // Hilt
     implementation(libs.hilt.android)
@@ -153,6 +154,8 @@ dependencies {
     implementation(libs.firebase.ai)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.functions)
+    implementation(libs.firebase.functions)
 
     // Google Credential Manager (Auth)
     implementation(libs.androidx.credentials)
