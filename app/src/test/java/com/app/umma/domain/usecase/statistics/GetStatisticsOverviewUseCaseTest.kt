@@ -177,6 +177,8 @@ class GetStatisticsOverviewUseCaseTest {
 
         override suspend fun signOut(): Result<Unit> = Result.success(Unit)
 
+        override suspend fun deleteAccount(): Result<Unit> = Result.success(Unit)
+
         override suspend fun hasValidSession(): Result<Boolean> = Result.success(true)
     }
 }
