@@ -25,6 +25,7 @@ material = "1.11.1"
 ui = "1.11.1"
 vico = "3.0.3"
 kotlinxCoroutinesTest = "1.10.2"
+mockk = "1.14.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,12 +46,15 @@ androidx-compose-material = { group = "androidx.compose.material", name = "mater
 compose-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "materialIconsExtended" }
 compose-icons = { group = "androidx.compose.material", name = "material-icons-core" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+
 
 # Firestore & Firebase
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom"}
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
+firebase-functions = { group = "com.google.firebase", name = "firebase-functions" }
 
 # Google Credential Manager(Auth)
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "googleCredentials" }
