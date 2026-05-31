@@ -149,6 +149,8 @@ dependencies {
     implementation(libs.firebase.ai)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.functions)
+    implementation(libs.firebase.functions)
 
     // Google Credential Manager (Auth)
     implementation(libs.androidx.credentials)
