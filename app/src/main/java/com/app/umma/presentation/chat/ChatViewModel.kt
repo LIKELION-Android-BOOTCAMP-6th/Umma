@@ -95,11 +95,13 @@ class ChatViewModel @Inject constructor(
     private var stopChatJob: Job? = null
     private var enterChatJob: Job? = null
     private var outputLevelJob: Job? = null
+    private var outputPlaybackJob: Job? = null
     private var currentUserTurnStartedAtMs: Long? = null
     private var currentUserTurnEndedAtMs: Long? = null
 
     init {
         observeAudioOutputLevel()
+        observeAudioOutputPlayback()
     }
 
     /**
@@ -131,6 +133,13 @@ class ChatViewModel @Inject constructor(
                     aiState = AIState.IDLE,
                     showSubtitle = false,
                     isAwaitingUserTranscript = false,
+                    // 새 진입 flow는 화면 표시용 자막의 시작점도 새로 잡는다.
+                    // 회전 재진입은 이 분기에 오지 않으므로 기존 자막 보존 요구와 충돌하지 않는다.
+                    subtitleItems = emptyList(),
+                    lastFinalUserTranscript = "",
+                    lastFinalAITranscript = "",
+                    lastHandledFinalTurnId = null,
+                    handledFinalTurnIds = emptySet(),
                     isRecoverableError = false,
                     errorMessage = null
                 )
@@ -325,6 +334,10 @@ class ChatViewModel @Inject constructor(
                 isRecording = true,
                 // 새 발화를 시작하면 이전 turn 의 확정 대기 표시는 더 이상 유효하지 않다.
                 isAwaitingUserTranscript = false,
+                // fallback 완료 안내는 세션 전환 사실을 알려주는 일회성 문구다.
+                // 사용자가 새 발화를 시작하면 이미 대화가 정상 진행되는 상태이므로 화면에서 내린다.
+                didFallbackToNewSession = false,
+                fallbackMessage = null,
                 inputLevel = 0f,
                 errorMessage = null
             )
@@ -508,8 +521,14 @@ class ChatViewModel @Inject constructor(
                 reconnectAttempt = 0,
                 maxReconnectAttempts = 0,
                 isRecoverableError = false,
-                didFallbackToNewSession = false,
-                fallbackMessage = null,
+                // startSession 성공 직후 Initialized가 늦게 도착할 수 있으므로,
+                // 같은 세션에 이미 fallback 완료 안내가 있으면 여기서 지우지 않는다.
+                didFallbackToNewSession = if (isSameSession && it.fallbackMessage != null) {
+                    it.didFallbackToNewSession
+                } else {
+                    false
+                },
+                fallbackMessage = if (isSameSession) it.fallbackMessage else null,
                 microphonePermissionDenied = false,
                 errorMessage = null
             )
@@ -541,11 +560,18 @@ class ChatViewModel @Inject constructor(
         if (event.text.isBlank()) {
             return
         }
-        if (_uiState.value.lastHandledFinalTurnId == event.turnId) {
+        if (_uiState.value.hasHandledFinalTurn(event.turnId)) {
             return
         }
 
         _uiState.update {
+            // final transcript는 저장 트리거이면서 화면 표시용 말풍선의 source event다.
+            // partial/delta는 이 리스트에 넣지 않아 Sprint3 D 범위의 final-only 정책을 지킨다.
+            val subtitleItems = it.subtitleItems.replaceLatestRoleSubtitle(event.toSubtitleItem())
+            // 화면 말풍선은 역할별 최신 1개만 남기지만, 중복 저장/표시 방어는 세션 동안 처리한
+            // turnId 전체를 기준으로 해야 이전 final 이벤트가 늦게 재전달되어도 다시 반영되지 않는다.
+            val handledFinalTurnIds = it.handledFinalTurnIds + event.turnId
+
             when (event.role) {
                 TurnSpeaker.USER -> it.copy(
                     userPartialTranscript = "",
@@ -553,13 +579,17 @@ class ChatViewModel @Inject constructor(
                     // 정지 버튼 이후 기다리던 USER final transcript 가 도착했으므로
                     // 화면의 "발화 인식 중" 상태를 종료한다.
                     isAwaitingUserTranscript = false,
-                    lastHandledFinalTurnId = event.turnId
+                    lastHandledFinalTurnId = event.turnId,
+                    handledFinalTurnIds = handledFinalTurnIds,
+                    subtitleItems = subtitleItems
                 )
 
                 TurnSpeaker.AI -> it.copy(
                     aiPartialTranscript = "",
                     lastFinalAITranscript = event.text,
-                    lastHandledFinalTurnId = event.turnId
+                    lastHandledFinalTurnId = event.turnId,
+                    handledFinalTurnIds = handledFinalTurnIds,
+                    subtitleItems = subtitleItems
                 )
             }
         }
@@ -741,6 +771,7 @@ class ChatViewModel @Inject constructor(
                 isAwaitingUserTranscript = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
+                isAudioOutputPlaying = false,
                 userPartialTranscript = "",
                 aiPartialTranscript = "",
                 aiState = AIState.RECONNECTING,
@@ -803,6 +834,7 @@ class ChatViewModel @Inject constructor(
                 isAwaitingUserTranscript = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
+                isAudioOutputPlaying = false,
                 userPartialTranscript = "",
                 aiPartialTranscript = "",
                 sessionState = SessionState.ERROR,
@@ -835,6 +867,7 @@ class ChatViewModel @Inject constructor(
                 isAwaitingUserTranscript = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
+                isAudioOutputPlaying = false,
                 sessionState = SessionState.ERROR,
                 aiState = AIState.ERROR,
                 isRecoverableError = false,
@@ -853,6 +886,7 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         outputLevelJob?.cancel()
+        outputPlaybackJob?.cancel()
         // onCleared는 Chat back stack이 제거되는 실제 종료 경계다. 화면 회전과 달리
         // 여기서는 transport와 오디오 리소스를 정리해야 다음 진입 시 잔여 녹음/재생이 남지 않는다.
         runBlocking {
@@ -877,6 +911,24 @@ class ChatViewModel @Inject constructor(
         outputLevelJob = viewModelScope.launch {
             audioPlayer.outputLevel.collectLatest { level ->
                 _uiState.update { it.copy(outputLevel = level.coerceIn(0f, 1f)) }
+            }
+        }
+    }
+
+    /**
+     * 실제 로컬 스피커 재생 상태를 UI 입력 방어에 반영합니다.
+     *
+     * OpenAI response.done은 서버의 응답 생성 완료 이벤트이고, 기기 스피커의 재생 완료 이벤트가 아니다.
+     * AudioPlayer 큐에 남은 음성이 있으면 사용자는 아직 Umma의 말을 듣는 중이므로 마이크를 비활성화한다.
+     */
+    private fun observeAudioOutputPlayback() {
+        if (outputPlaybackJob?.isActive == true) return
+
+        outputPlaybackJob = viewModelScope.launch {
+            audioPlayer.isPlaying.collectLatest { isPlaying ->
+                _uiState.update {
+                    it.copy(isAudioOutputPlaying = isPlaying)
+                }
             }
         }
     }
@@ -1039,6 +1091,42 @@ class ChatViewModel @Inject constructor(
 
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
+}
+
+/**
+ * 같은 final event가 화면 말풍선과 저장 요청에 중복 반영되지 않도록 판단합니다.
+ *
+ * lastHandledFinalTurnId는 기존 즉시 중복 방어를 유지하고, handledFinalTurnIds는
+ * 역할별 최신 말풍선 교체 이후에도 과거 turnId를 기억해 늦게 재전달된 final 이벤트를 막는다.
+ */
+private fun ChatUiState.hasHandledFinalTurn(turnId: String): Boolean {
+    return lastHandledFinalTurnId == turnId || handledFinalTurnIds.contains(turnId)
+}
+
+/**
+ * 현재 화면에는 전체 subtitle history가 아니라 역할별 최신 final 자막만 유지합니다.
+ *
+ * 새 USER final이 오면 이전 USER 말풍선을 교체하고, 새 AI final이 오면 이전 AI 말풍선을 교체한다.
+ * 남은 다른 역할의 말풍선은 그대로 둔 뒤 새 항목을 뒤에 붙여, 화면에는 최신 두 역할의 도착 순서만 남긴다.
+ */
+private fun List<ChatSubtitleItem>.replaceLatestRoleSubtitle(
+    item: ChatSubtitleItem
+): List<ChatSubtitleItem> {
+    return filterNot { it.role == item.role }.plus(item)
+}
+
+/**
+ * realtime final event를 현재 화면 전용 말풍선 모델로 변환합니다.
+ *
+ * 저장 모델인 SessionTurn과 분리해 두면 화면 디자인 요구가 바뀌어도
+ * SessionMemory append 계약이나 correctionAvailable 신호를 함께 수정할 필요가 없다.
+ */
+private fun AIEvent.FinalTranscription.toSubtitleItem(): ChatSubtitleItem {
+    return ChatSubtitleItem(
+        id = turnId,
+        role = role,
+        text = text
+    )
 }
 
 /**

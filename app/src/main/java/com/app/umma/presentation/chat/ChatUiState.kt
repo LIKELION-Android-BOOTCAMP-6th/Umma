@@ -1,6 +1,7 @@
 package com.app.umma.presentation.chat
 
 import com.app.umma.domain.model.realtime.AIState
+import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.user.Topic
 
 /**
@@ -16,9 +17,12 @@ import com.app.umma.domain.model.user.Topic
  * @property lastFinalUserTranscript 가장 최근 사용자 final transcript
  * @property lastFinalAITranscript 가장 최근 AI final transcript
  * @property lastHandledFinalTurnId 중복 append 방지를 위한 마지막 turnId
+ * @property handledFinalTurnIds 현재 화면 세션에서 이미 처리한 final turnId 목록
  * @property showSubtitle 자막 on/off 토글용 상태
+ * @property subtitleItems 현재 Chat 화면에 표시할 final subtitle 말풍선 목록
  * @property inputLevel 입력 오디오 레벨
  * @property outputLevel 출력 오디오 레벨
+ * @property isAudioOutputPlaying 로컬 기기에서 AI 음성이 실제로 재생 중인지 여부
  * @property isSavingTurn 현재 확정 turn 저장 중 여부
  * @property saveErrorMessage turn 저장 오류 메시지
  * @property reconnectAttempt 현재 자동 재연결 시도 횟수
@@ -44,9 +48,12 @@ data class ChatUiState(
     val lastFinalAITranscript: String = "",
     val userNickname: String = "",
     val lastHandledFinalTurnId: String? = null,
+    val handledFinalTurnIds: Set<String> = emptySet(),
     val showSubtitle: Boolean = false,
+    val subtitleItems: List<ChatSubtitleItem> = emptyList(),
     val inputLevel: Float = 0f,
     val outputLevel: Float = 0f,
+    val isAudioOutputPlaying: Boolean = false,
     val entryMessageOverride: String? = null,
     val errorMessage: String? = null,
     val reconnectAttempt: Int = 0,
@@ -74,6 +81,9 @@ data class ChatUiState(
      * */
     val canStartUserTurn: Boolean
         get() = sessionState == SessionState.READY && !isRecording
+                // 서버가 response.done을 보냈더라도 로컬 AudioTrack 큐에 음성이 남아 있으면
+                // 사용자는 아직 AI 응답을 듣는 중이다. 이때 새 녹음을 허용하면 AI 음성이 입력에 섞인다.
+                && !isAudioOutputPlaying
                 // AI가 생각하거나 말하는 동안에는 사용자가 새 turn을 시작할 수 없다.
                 // 이 조건이 버튼 비활성화와 ViewModel 중복 녹음 방어의 공통 기준이 된다.
                 && aiState != AIState.SPEAKING
@@ -118,13 +128,25 @@ data class ChatUiState(
             // USER transcript 확정 이후 AI response 생성이 진행 중인 구간이다.
             aiState == AIState.THINKING -> "Umma가 답변을 준비하고 있어요."
             // AI 오디오가 재생되는 동안에는 새 입력을 받을 수 없다는 점을 알려준다.
-            aiState == AIState.SPEAKING -> "Umma가 말하는 중입니다."
+            aiState == AIState.SPEAKING || isAudioOutputPlaying -> "Umma가 말하는 중입니다."
             // transport 재연결 중에는 입력 가능/불가능보다 연결 복구 상태가 더 중요하다.
             aiState == AIState.RECONNECTING || sessionState == SessionState.RECONNECTING ->
                 "연결을 복구하고 있어요."
             else -> null
         }
 }
+
+/**
+ * 현재 Chat 화면에서만 사용하는 final 자막 말풍선 모델입니다.
+ *
+ * SessionMemory 의 저장 모델과 분리한 이유는 이 리스트가 장기 저장 source of truth가 아니라,
+ * 사용자가 현재 화면에서 final transcript 흐름을 확인하기 위한 presentation 상태이기 때문이다.
+ */
+data class ChatSubtitleItem(
+    val id: String,
+    val role: TurnSpeaker,
+    val text: String
+)
 
 /**
  * 하단 마이크 버튼이 사용자에게 보여줘야 하는 세 가지 상태입니다.

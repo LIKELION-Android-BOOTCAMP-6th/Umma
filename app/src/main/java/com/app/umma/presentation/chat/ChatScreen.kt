@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -53,13 +55,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
@@ -79,6 +84,7 @@ import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
+import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.user.Topic
 
@@ -90,13 +96,20 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = context.findActivity()
-    val configuration = LocalConfiguration.current
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
+    // screenHeightDp 대신 실제 Compose window container 높이를 사용한다.
+    // 이렇게 해야 회전, multi-window, split-screen 에서 다이얼로그/자막 높이 계산이 실제 화면과 맞는다.
+    val containerHeightDp = with(density) {
+        windowInfo.containerSize.height.toDp().value.toInt()
+    }
     val topicListMaxHeight = when {
-        configuration.screenHeightDp < 420 -> 160.dp
-        configuration.screenHeightDp < 600 -> 220.dp
+        containerHeightDp < 420 -> 160.dp
+        containerHeightDp < 600 -> 220.dp
         else -> 360.dp
     }
+    val subtitleMaxHeight = calculateSubtitleMaxHeight(containerHeightDp)
 
     fun hasRecordAudioPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -203,93 +216,15 @@ fun ChatScreen(
             )
 
             if (uiState.showSubtitle) {
-                Column(
+                ChatSubtitleConversation(
+                    items = uiState.subtitleItems,
+                    userName = uiState.userNickname.ifBlank { "User" },
+                    maxHeight = subtitleMaxHeight,
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 140.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .wrapContentSize(Alignment.CenterStart)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White)
-                                .border(
-                                    width = 1.5.dp,
-                                    color = ThemePrimary,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "Umma Tutor",
-                                style = TextAnalysisR.copy(fontWeight = FontWeight.Bold),
-                                color = Color.Black
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 22.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(BackgroundSecondary)
-                                .padding(horizontal = 14.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = uiState.lastFinalAITranscript.ifBlank { "-" },
-                                style = TextAnalysisR,
-                                color = Color.Black,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .wrapContentSize(Alignment.CenterEnd)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .padding(bottom = 22.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(ThemePrimary)
-                                .padding(horizontal = 14.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = uiState.lastFinalUserTranscript.ifBlank { "-" },
-                                style = TextAnalysisR,
-                                color = Color.White,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(ThemePrimary)
-                                .border(
-                                    width = 2.dp,
-                                    color = Color.White,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = uiState.userNickname.ifBlank { "User" },
-                                style = TextAnalysisR.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
+                        .padding(bottom = SubtitleBottomPadding)
+                )
             }
 
             // 마이크 버튼은 ChatScreen 에서 session/AI 상태를 다시 조합하지 않고,
@@ -484,6 +419,145 @@ fun ChatScreen(
 }
 
 @Composable
+private fun ChatSubtitleConversation(
+    items: List<ChatSubtitleItem>,
+    userName: String,
+    maxHeight: Dp,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+    val hasScrollableSubtitle = scrollState.maxValue > 0
+
+    // 새 final 자막이 들어오거나 긴 텍스트로 스크롤 범위가 생기면 최신 말풍선 쪽을 우선 보여준다.
+    LaunchedEffect(items, scrollState.maxValue) {
+        if (scrollState.maxValue > 0) {
+            scrollState.scrollTo(scrollState.maxValue)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            // 긴 USER/AI final 자막이 중앙 음성 visual 영역까지 밀고 올라가지 않도록,
+            // 넘치는 텍스트는 제한된 자막 영역 안에서만 스크롤하게 한다.
+            .heightIn(max = maxHeight)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(SpacingS)
+        ) {
+            items.forEach { item ->
+                // 이번 화면은 전체 대화 로그가 아니라 최신 USER/AI final 자막만 보여준다.
+                // 다만 각 말풍선의 텍스트는 생략하지 않고, 길면 자막 영역 안에서 스크롤로 확인한다.
+                ChatSubtitleBubble(
+                    item = item,
+                    userName = userName
+                )
+            }
+        }
+
+        if (hasScrollableSubtitle) {
+            ChatSubtitleScrollHint(modifier = Modifier.align(Alignment.TopCenter))
+        }
+    }
+}
+
+@Composable
+private fun ChatSubtitleScrollHint(
+    modifier: Modifier = Modifier
+) {
+    // 실제 blur 대신 상단 fade 를 올려 긴 자막이 위쪽으로 더 이어진다는 신호를 준다.
+    // blur 효과보다 안정적이고 비용이 낮아 Chat 화면의 음성 애니메이션과 충돌이 적다.
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(SubtitleScrollHintHeight)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        BackgroundPrimary.copy(alpha = 0.96f),
+                        BackgroundPrimary.copy(alpha = 0.72f),
+                        Color.Transparent
+                    )
+                )
+            ),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Icon(
+            imageVector = Icons.Filled.KeyboardArrowUp,
+            contentDescription = "Scroll subtitles up",
+            tint = TextPrimary.copy(alpha = 0.42f),
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun ChatSubtitleBubble(
+    item: ChatSubtitleItem,
+    userName: String,
+    modifier: Modifier = Modifier
+) {
+    val isUser = item.role == TurnSpeaker.USER
+    val bubbleAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
+    val label = if (isUser) userName else "Umma"
+    val bubbleColor = if (isUser) ThemePrimary else BackgroundSecondary
+    val textColor = if (isUser) Color.White else Color.Black
+    val labelBackground = if (isUser) ThemePrimary else Color.White
+    val labelTextColor = if (isUser) Color.White else Color.Black
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .wrapContentSize(bubbleAlignment)
+    ) {
+        Column(
+            // 사용자/AI 말풍선은 저장 순서 그대로 그리되 정렬과 색상으로 역할을 구분한다.
+            // 화면 표시용 UI라 SessionMemory 저장 순서나 correction 신호에는 영향을 주지 않는다.
+            modifier = Modifier.fillMaxWidth(0.84f),
+            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(labelBackground)
+                    .border(
+                        width = if (isUser) 1.5.dp else 1.dp,
+                        color = if (isUser) Color.White else ThemePrimary,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = label,
+                    style = TextAnalysisR.copy(fontWeight = FontWeight.Bold),
+                    color = labelTextColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(bubbleColor)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = item.text,
+                    style = TextAnalysisR,
+                    color = textColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ChatCenterVisual(
     uiState: ChatUiState,
     modifier: Modifier = Modifier
@@ -665,4 +739,20 @@ private tailrec fun Context.findActivity(): Activity? {
     }
 }
 
+private fun calculateSubtitleMaxHeight(screenHeightDp: Int): Dp {
+    // 자막은 말줄임 없이 보여주되 중앙 음성 visual을 덮으면 안 되므로,
+    // 화면 높이에 따라 스크롤 영역의 최대 높이만 조절한다.
+    return (screenHeightDp - SubtitleReservedVerticalSpaceDp)
+        .coerceIn(
+            minimumValue = SubtitleMinHeightDp,
+            maximumValue = SubtitleMaxHeightDp
+        )
+        .dp
+}
+
 private const val REQUIRED_TOPIC_COUNT = 5
+private const val SubtitleReservedVerticalSpaceDp = 500
+private const val SubtitleMinHeightDp = 120
+private const val SubtitleMaxHeightDp = 220
+private val SubtitleBottomPadding = 140.dp
+private val SubtitleScrollHintHeight = 34.dp
