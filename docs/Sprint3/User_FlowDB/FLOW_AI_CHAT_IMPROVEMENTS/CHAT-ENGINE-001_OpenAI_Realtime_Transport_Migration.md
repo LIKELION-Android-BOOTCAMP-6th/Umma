@@ -30,7 +30,6 @@
 - OpenAI PoC: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-POC-001_OpenAI_Realtime_Push_to_Talk_PoC.md`
 - token endpoint 인증 보강: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-ENGINE-001/CHAT-ENGINE-001-A_Token_Endpoint_Auth_Hardening.md`
 - Realtime usage 기록: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-ENGINE-001/CHAT-ENGINE-001-B_Realtime_Usage_Tracking.md`
-- App Check 보강: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-ENGINE-001/CHAT-ENGINE-001-C_App_Check_Hardening.md`
 - 마이크 버튼 상태 UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-C_Mic_Button_State_UX.md`
 - final 자막 대화형 표시: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-D_Final_Subtitle_Conversation_UX.md`
 
@@ -126,8 +125,6 @@
    - AI Chat 대화 중 발생하는 response usage와 transcription usage를 기록한다.
    - Firestore에는 매 이벤트마다 쓰지 않고, local-first 저장 후 세션 단위로 sync한다.
    - 이번 단계에서는 사용량 제한이나 플랜 정책을 적용하지 않는다.
-3. `CHAT-ENGINE-001-C` App Check Hardening
-   - Firebase Auth 검증 이후, 비정상 클라이언트 호출을 줄이기 위한 보강으로 적용한다.
 
 ### 4-2. Security Check Items
 

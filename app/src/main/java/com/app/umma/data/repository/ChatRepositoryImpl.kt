@@ -7,6 +7,8 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
+import com.app.umma.domain.model.realtime.ChatTokenUsage
+import com.app.umma.domain.model.realtime.ChatUsageKind
 import com.app.umma.domain.model.realtime.SessionInterruptedReason
 import com.app.umma.domain.repository.ChatRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -411,10 +413,21 @@ class ChatRepositoryImpl @Inject constructor(
                 // 사용자의 final transcript 를 먼저 emit 한 뒤 response.create 를 보내야
                 // 화면에서 USER 자막이 AI 자막보다 먼저 보이는 UX-002 기반이 됩니다.
                 markUserTranscriptCompleted()
-                emitFinalTranscript(
+                val userTurnId = emitFinalTranscript(
                     sessionId = sessionId,
                     text = payload.string("transcript"),
                     role = TurnSpeaker.USER
+                )
+                // transcription usage는 response usage와 별도 과금/분석 대상이 될 수 있어
+                // final transcript 저장 이벤트와 분리된 usage 이벤트로 ViewModel에 전달한다.
+                emitUsageReport(
+                    sessionId = sessionId,
+                    turnId = userTurnId,
+                    kind = ChatUsageKind.TRANSCRIPTION,
+                    model = INPUT_TRANSCRIPTION_MODEL,
+                    transcriptionModel = INPUT_TRANSCRIPTION_MODEL,
+                    usage = parseTokenUsage(payload.jsonObject("usage")),
+                    usageEventId = payload.string("event_id")
                 )
                 Log.i(TAG, "OpenAI Realtime user transcription usage=${payload["usage"]}")
                 createResponseAfterUserTranscriptIfNeeded()
@@ -445,14 +458,26 @@ class ChatRepositoryImpl @Inject constructor(
             "response.done" -> {
                 // 일부 이벤트 순서에서는 transcript done 이 오기 전에 response.done 이 올 수 있어
                 // 남은 buffer 가 있으면 여기서 final 로 보정해 기존 저장 계약을 지킨다.
+                var aiTurnId: String? = null
                 if (aiTranscriptBuffer.isNotBlank()) {
-                    emitFinalTranscript(
+                    aiTurnId = emitFinalTranscript(
                         sessionId = sessionId,
                         text = aiTranscriptBuffer,
                         role = TurnSpeaker.AI
                     )
                     aiTranscriptBuffer = ""
                 }
+                // response.done usage는 AI 응답 전체의 text/audio breakdown을 포함한다.
+                // usage 저장은 운영 데이터라서, 이 이벤트 실패가 final subtitle/turn 저장을 막지 않아야 한다.
+                emitUsageReport(
+                    sessionId = sessionId,
+                    turnId = aiTurnId,
+                    kind = ChatUsageKind.RESPONSE,
+                    model = BuildConfig.OPENAI_REALTIME_MODEL,
+                    transcriptionModel = null,
+                    usage = extractResponseUsage(payload),
+                    usageEventId = payload.string("event_id")
+                )
                 logResponseDoneUsage(payload)
                 resetTurnTransportState()
                 events.emit(AIEvent.StateChanged(AIState.IDLE))
@@ -514,16 +539,17 @@ class ChatRepositoryImpl @Inject constructor(
         sessionId: String,
         text: String?,
         role: TurnSpeaker
-    ) {
+    ): String? {
         // SessionMemory 에 저장되는 것은 partial 이 아니라 final transcript 뿐입니다.
         // 빈 transcript 는 correctionAvailable 신호를 만들면 안 되므로 여기서 방어합니다.
         val finalText = text?.trim().orEmpty()
-        val sessionLang = currentLang ?: return
-        if (finalText.isBlank()) return
+        val sessionLang = currentLang ?: return null
+        if (finalText.isBlank()) return null
+        val turnId = nextTurnId(sessionId, role)
 
         events.emit(
             AIEvent.FinalTranscription(
-                turnId = nextTurnId(sessionId, role),
+                turnId = turnId,
                 sessionId = sessionId,
                 text = finalText,
                 sessionLang = sessionLang,
@@ -541,6 +567,41 @@ class ChatRepositoryImpl @Inject constructor(
         if (role == TurnSpeaker.USER) {
             pendingUserTurnDurationMs = null
         }
+
+        return turnId
+    }
+
+    private suspend fun emitUsageReport(
+        sessionId: String,
+        turnId: String?,
+        kind: ChatUsageKind,
+        model: String,
+        transcriptionModel: String?,
+        usage: ChatTokenUsage?,
+        usageEventId: String?
+    ) {
+        val sessionLang = currentLang ?: return
+        if (usage == null) return
+
+        // provider event_id가 있으면 그대로 local idempotency key로 쓴다.
+        // 없는 경우도 있어 session/turn/kind 조합으로 fallback을 만든다.
+        // turnId가 없는 provider 예외에서는 생성 시각을 섞어 서로 다른 usage를 덮어쓰지 않게 한다.
+        val stableUsageEventId = usageEventId
+            ?: "$sessionId-${turnId ?: System.currentTimeMillis()}-${kind.name}"
+
+        events.emit(
+            AIEvent.ChatUsageReported(
+                usageEventId = stableUsageEventId,
+                sessionId = sessionId,
+                turnId = turnId,
+                sessionLang = sessionLang,
+                kind = kind,
+                model = model,
+                transcriptionModel = transcriptionModel,
+                createdAt = System.currentTimeMillis(),
+                usage = usage
+            )
+        )
     }
 
     private suspend fun emitAudioDelta(base64Audio: String?) {
@@ -711,9 +772,37 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     private fun logResponseDoneUsage(payload: JsonObject) {
-        val usage = payload.jsonObject("response")?.jsonObject("usage")
-            ?: payload.jsonObject("usage")
+        val usage = extractResponseUsageJson(payload)
         Log.i(TAG, "CHAT-ENGINE-001 response_done_usage=$usage")
+    }
+
+    private fun extractResponseUsage(payload: JsonObject): ChatTokenUsage? {
+        return parseTokenUsage(extractResponseUsageJson(payload))
+    }
+
+    private fun extractResponseUsageJson(payload: JsonObject): JsonObject? {
+        return payload.jsonObject("response")?.jsonObject("usage")
+            ?: payload.jsonObject("usage")
+    }
+
+    private fun parseTokenUsage(usage: JsonObject?): ChatTokenUsage? {
+        if (usage == null) return null
+
+        // OpenAI usage payload는 top-level total/input/output과 세부 breakdown을 함께 내려준다.
+        // 전체 비용 추정에는 total이 편하지만, 실제 단가는 text/audio/input/output별로 달라질 수 있다.
+        val inputDetails = usage.jsonObject("input_token_details")
+        val outputDetails = usage.jsonObject("output_token_details")
+
+        return ChatTokenUsage(
+            totalTokens = usage.long("total_tokens"),
+            inputTokens = usage.long("input_tokens"),
+            outputTokens = usage.long("output_tokens"),
+            inputTextTokens = inputDetails?.long("text_tokens"),
+            inputAudioTokens = inputDetails?.long("audio_tokens"),
+            inputCachedTokens = inputDetails?.long("cached_tokens"),
+            outputTextTokens = outputDetails?.long("text_tokens"),
+            outputAudioTokens = outputDetails?.long("audio_tokens")
+        )
     }
 
     private fun resetTurnTransportState() {
@@ -981,6 +1070,11 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun JsonObject.string(key: String): String? {
         return this[key]?.jsonPrimitiveOrNull()?.contentOrNull
+    }
+
+    private fun JsonObject.long(key: String): Long? {
+        val primitive = this[key]?.jsonPrimitiveOrNull() ?: return null
+        return primitive.contentOrNull?.toLongOrNull()
     }
 
     private fun JsonObject.jsonObject(key: String): JsonObject? {

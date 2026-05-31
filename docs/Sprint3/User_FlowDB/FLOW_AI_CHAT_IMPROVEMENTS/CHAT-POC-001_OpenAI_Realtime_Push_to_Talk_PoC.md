@@ -131,7 +131,6 @@ OpenAI / Firebase 양쪽 모두 PoC 접근성을 우선해 임시 설정이 포�
 1. OpenAI key 교체
 2. Firebase Auth ID token 검증 코드 배포/동작 확인
 3. Rate 측정 추가
-4. App Check 추가
 
 ### 실행 설정
 

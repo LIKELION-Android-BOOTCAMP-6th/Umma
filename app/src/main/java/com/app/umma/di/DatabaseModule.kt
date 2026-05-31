@@ -2,6 +2,8 @@ package com.app.umma.di
 
 import android.content.Context
 import androidx.room.Room
+import com.app.umma.data.source.local.ChatUsageDao
+import com.app.umma.data.source.local.ChatUsageDatabase
 import com.app.umma.data.source.local.CorrectionFlashcardDao
 import com.app.umma.data.source.local.CorrectionFlashcardDatabase
 import com.app.umma.data.source.local.SessionMemoryDatabase
@@ -78,5 +80,26 @@ object DatabaseModule {
         database: StatisticsHistoryDatabase
     ): StatisticsHistoryDao {
         return database.statisticsHistoryDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideChatUsageDatabase(
+        @ApplicationContext context: Context
+    ): ChatUsageDatabase {
+        // Realtime usage는 비용 분석용 운영 데이터라 schema 변화 가능성이 높다.
+        // 다른 Room DB와 분리해 usage migration이 SessionMemory/Statistics 저장소에 영향을 주지 않게 한다.
+        return Room.databaseBuilder(
+            context,
+            ChatUsageDatabase::class.java,
+            "umma_chat_usage_db"
+        ).fallbackToDestructiveMigration(false).build()
+    }
+
+    @Provides
+    fun provideChatUsageDao(
+        database: ChatUsageDatabase
+    ): ChatUsageDao {
+        return database.chatUsageDao()
     }
 }
