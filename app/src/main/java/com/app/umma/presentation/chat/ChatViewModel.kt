@@ -95,11 +95,13 @@ class ChatViewModel @Inject constructor(
     private var stopChatJob: Job? = null
     private var enterChatJob: Job? = null
     private var outputLevelJob: Job? = null
+    private var outputPlaybackJob: Job? = null
     private var currentUserTurnStartedAtMs: Long? = null
     private var currentUserTurnEndedAtMs: Long? = null
 
     init {
         observeAudioOutputLevel()
+        observeAudioOutputPlayback()
     }
 
     /**
@@ -107,9 +109,10 @@ class ChatViewModel @Inject constructor(
      */
     fun enterChat() {
         if (enterChatJob?.isActive == true) return
-        if (_uiState.value.hasActiveChatSession) {
+        if (_uiState.value.shouldKeepChatUiOnReentry) {
             // 화면 회전 후 LaunchedEffect가 다시 실행되어도, 이미 준비된 세션과 화면 상태는
-            // 그대로 유지한다. 여기서 loading 상태를 다시 쓰면 subtitle/final text가 초기화된다.
+            // 그대로 유지한다. 여기서 loading 상태를 다시 쓰면 subtitle/final text와
+            // "발화 중/응답 준비 중" 같은 transient 안내 문구가 초기화된다.
             startObservingAIEvents()
             return
         }
@@ -121,12 +124,22 @@ class ChatViewModel @Inject constructor(
 
             _uiState.update {
                 it.copy(
+                    // 여기부터는 새 세션 진입 flow 이므로 기존 마이크 안내 상태를 유지하면 안 된다.
+                    // 회전 재진입은 위의 shouldKeepChatUiOnReentry guard 에서 이미 빠져나간다.
                     entryStage = ChatEntryStage.GUARDING,
                     blockedReason = null,
                     entryMessageOverride = null,
                     sessionState = SessionState.LOADING,
                     aiState = AIState.IDLE,
                     showSubtitle = false,
+                    isAwaitingUserTranscript = false,
+                    // 새 진입 flow는 화면 표시용 자막의 시작점도 새로 잡는다.
+                    // 회전 재진입은 이 분기에 오지 않으므로 기존 자막 보존 요구와 충돌하지 않는다.
+                    subtitleItems = emptyList(),
+                    lastFinalUserTranscript = "",
+                    lastFinalAITranscript = "",
+                    lastHandledFinalTurnId = null,
+                    handledFinalTurnIds = emptySet(),
                     isRecoverableError = false,
                     errorMessage = null
                 )
@@ -150,11 +163,14 @@ class ChatViewModel @Inject constructor(
 
             _uiState.update {
                 it.copy(
+                    // 기존 active session 복구를 시도하는 동안에는 입력을 막고,
+                    // 화면에는 reconnecting 계열 안내만 노출한다.
                     entryStage = ChatEntryStage.RESTORING,
                     blockedReason = null,
                     entryMessageOverride = null,
                     sessionState = SessionState.LOADING,
                     aiState = AIState.RECONNECTING,
+                    isAwaitingUserTranscript = false,
                     isRecoverableError = false,
                     errorMessage = null
                 )
@@ -172,6 +188,8 @@ class ChatViewModel @Inject constructor(
 
             _uiState.update {
                 it.copy(
+                    // 복구 실패 후 새 세션을 만드는 경계다.
+                    // 이전 turn 의 transient 안내 문구는 새 세션 상태와 섞이면 안 되므로 초기화한다.
                     entryStage = ChatEntryStage.STARTING_NEW,
                     blockedReason = null,
                     entryMessageOverride = when (restoreResult) {
@@ -190,9 +208,16 @@ class ChatViewModel @Inject constructor(
             }
             delay(entryStageDelayMs)
 
+            // restoreResult 를 기준으로 새 세션 전환이 사용자에게 안내되어야 하는지 미리 결정한다.
+            // NO_ACTIVE_SESSION 은 첫 진입에서도 자연스럽게 발생하므로 fallback 완료 메시지를 띄우지 않는다.
+            val fallbackCompletionMessage = restoreResult.toFallbackCompletionMessage()
+
             startSessionUseCase()
                 .onSuccess { sessionId ->
-                    handleSessionStarted(sessionId)
+                    handleSessionStarted(
+                        sessionId = sessionId,
+                        fallbackCompletionMessage = fallbackCompletionMessage
+                    )
                     audioPlayer.startPlaying()
                 }
                 .onFailure { error ->
@@ -218,17 +243,36 @@ class ChatViewModel @Inject constructor(
      *
      * Initialized 이벤트를 늦게 받거나 놓쳐도 UI가 LOADING에 남지 않도록 합니다.
      */
-    private fun handleSessionStarted(sessionId: String) {
+    private fun handleSessionStarted(
+        sessionId: String,
+        fallbackCompletionMessage: String? = null
+    ) {
         _uiState.update {
+            // startSession 성공 콜백이 같은 sessionId로 다시 도착할 수 있다.
+            // 회전 재진입이나 지연 콜백에서 같은 세션을 다시 READY로 쓰는 경우에는
+            // 현재 녹음/발화 확정 대기/AI 응답 상태를 보존해야 하단 안내 문구가 사라지지 않는다.
+            val isSameSession = it.activeSessionId == sessionId
+            val shouldKeepTransientState = isSameSession && it.hasTransientMicStatus
             it.copy(
                 entryStage = ChatEntryStage.READY,
                 blockedReason = null,
                 entryMessageOverride = null,
                 sessionState = SessionState.READY,
-                aiState = AIState.IDLE,
+                // 같은 세션의 확인 콜백이면 현재 AI 상태를 보존한다.
+                // 새 세션이면 IDLE에서 다시 시작해야 버튼이 START 상태로 돌아온다.
+                aiState = if (shouldKeepTransientState) it.aiState else AIState.IDLE,
                 activeSessionId = sessionId,
-                didFallbackToNewSession = false,
-                fallbackMessage = null,
+                // 발화 확정 대기 문구는 새 세션 시작 시에는 내려야 하지만,
+                // 같은 세션의 지연 콜백에서는 사용자가 보던 상태를 유지한다.
+                isAwaitingUserTranscript = if (shouldKeepTransientState) {
+                    it.isAwaitingUserTranscript
+                } else {
+                    false
+                },
+                // 실제 복구 실패/언어 변경 이후 새 세션을 만든 경우에만 완료 안내를 남긴다.
+                // 첫 진입의 NO_ACTIVE_SESSION 은 정상 시작 flow 이므로 fallback 메시지를 띄우지 않는다.
+                didFallbackToNewSession = fallbackCompletionMessage != null,
+                fallbackMessage = fallbackCompletionMessage,
                 reconnectAttempt = 0,
                 maxReconnectAttempts = 0,
                 isRecoverableError = false,
@@ -288,6 +332,12 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 isRecording = true,
+                // 새 발화를 시작하면 이전 turn 의 확정 대기 표시는 더 이상 유효하지 않다.
+                isAwaitingUserTranscript = false,
+                // fallback 완료 안내는 세션 전환 사실을 알려주는 일회성 문구다.
+                // 사용자가 새 발화를 시작하면 이미 대화가 정상 진행되는 상태이므로 화면에서 내린다.
+                didFallbackToNewSession = false,
+                fallbackMessage = null,
                 inputLevel = 0f,
                 errorMessage = null
             )
@@ -313,6 +363,7 @@ class ChatViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isRecording = false,
+                        isAwaitingUserTranscript = false,
                         inputLevel = 0f,
                         sessionState = SessionState.ERROR,
                         aiState = AIState.ERROR,
@@ -338,73 +389,10 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 isRecording = false,
+                isAwaitingUserTranscript = true,
                 inputLevel = 0f
             )
         }
-    }
-
-    /**
-     * 같은 앱 세션 복구가 불가능할 때 새 세션으로 전환합니다.
-     * */
-    private suspend fun fallbackToNewSession(
-        reason: NewSessionReason,
-        targetLang: LangCode?
-    ) {
-        Log.w(TAG, "fallbackToNewSession reason=$reason, targetLang=${targetLang?.code}")
-        stopSessionUseCase()
-
-        _uiState.update {
-            it.copy(
-                entryStage = ChatEntryStage.STARTING_NEW,
-                blockedReason = null,
-                entryMessageOverride = buildEntryMessageForNewSession(reason, targetLang),
-                sessionState = SessionState.LOADING,
-                aiState = AIState.IDLE,
-                isRecoverableError = false,
-                didFallbackToNewSession = false,
-                fallbackMessage = null,
-                errorMessage = null
-            )
-        }
-
-        startSessionUseCase()
-            .onSuccess { sessionId ->
-                audioPlayer.startPlaying()
-                _uiState.update {
-                    it.copy(
-                        entryStage = ChatEntryStage.READY,
-                        blockedReason = null,
-                        entryMessageOverride = null,
-                        sessionState = SessionState.READY,
-                        aiState = AIState.IDLE,
-                        activeSessionId = sessionId,
-                        reconnectAttempt = 0,
-                        maxReconnectAttempts = 0,
-                        isRecoverableError = false,
-                        didFallbackToNewSession = true,
-                        fallbackMessage = "이전 연결 복구에 실패하여 새 대화 세션으로 전환되었습니다.",
-                        errorMessage = null
-                    )
-                }
-            }
-            .onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        entryStage = ChatEntryStage.ERROR,
-                        blockedReason = ChatBlockedReason.UNRECOVERABLE,
-                        entryMessageOverride = null,
-                        sessionState = SessionState.ERROR,
-                        aiState = AIState.ERROR,
-                        isRecoverableError = false,
-                        didFallbackToNewSession = false,
-                        fallbackMessage = null,
-                        errorMessage = toUserFacingErrorMessage(
-                            rawMessage = error.message,
-                            fallback = "세션을 다시 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
-                        )
-                    )
-                }
-            }
     }
 
     /**
@@ -421,6 +409,10 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 isRecording = false,
+                // 사용자가 명시적으로 정지 버튼을 누른 직후에는 USER final transcript 를 기다리는
+                // 짧은 대기 상태를 보여준다. 실제 AI 응답 시작은 repository 가 USER transcript
+                // completed 이후 response.create 를 보낼 때 진행된다.
+                isAwaitingUserTranscript = true,
                 inputLevel = 0f
             )
         }
@@ -506,18 +498,37 @@ class ChatViewModel @Inject constructor(
      */
     private fun handleInitialized(event: AIEvent.Initialized) {
         _uiState.update {
+            // Initialized 이벤트는 startSession 성공 이후 늦게 도착할 수 있다.
+            // 같은 세션 확인 이벤트라면 현재 사용자가 말하는 중이거나 AI 응답을 기다리는
+            // 화면 상태를 IDLE로 되돌리지 않는다.
+            val isSameSession = it.activeSessionId == event.sessionId
+            val shouldKeepTransientState = isSameSession && it.hasTransientMicStatus
             it.copy(
                 entryStage = ChatEntryStage.READY,
                 blockedReason = null,
                 entryMessageOverride = null,
                 sessionState = SessionState.READY,
-                aiState = AIState.IDLE,
+                // transport 초기화 완료 이벤트는 세션 준비 확인이지, 항상 "대화가 쉬는 중"이라는 뜻은 아니다.
+                // 같은 세션에서 이미 말하기/응답 대기가 진행 중이면 그 상태를 유지한다.
+                aiState = if (shouldKeepTransientState) it.aiState else AIState.IDLE,
                 activeSessionId = event.sessionId,
+                // 회전 직후 같은 initialized 이벤트가 재처리되어도 하단 안내 문구가 사라지지 않게 한다.
+                isAwaitingUserTranscript = if (shouldKeepTransientState) {
+                    it.isAwaitingUserTranscript
+                } else {
+                    false
+                },
                 reconnectAttempt = 0,
                 maxReconnectAttempts = 0,
                 isRecoverableError = false,
-                didFallbackToNewSession = false,
-                fallbackMessage = null,
+                // startSession 성공 직후 Initialized가 늦게 도착할 수 있으므로,
+                // 같은 세션에 이미 fallback 완료 안내가 있으면 여기서 지우지 않는다.
+                didFallbackToNewSession = if (isSameSession && it.fallbackMessage != null) {
+                    it.didFallbackToNewSession
+                } else {
+                    false
+                },
+                fallbackMessage = if (isSameSession) it.fallbackMessage else null,
                 microphonePermissionDenied = false,
                 errorMessage = null
             )
@@ -549,22 +560,36 @@ class ChatViewModel @Inject constructor(
         if (event.text.isBlank()) {
             return
         }
-        if (_uiState.value.lastHandledFinalTurnId == event.turnId) {
+        if (_uiState.value.hasHandledFinalTurn(event.turnId)) {
             return
         }
 
         _uiState.update {
+            // final transcript는 저장 트리거이면서 화면 표시용 말풍선의 source event다.
+            // partial/delta는 이 리스트에 넣지 않아 Sprint3 D 범위의 final-only 정책을 지킨다.
+            val subtitleItems = it.subtitleItems.replaceLatestRoleSubtitle(event.toSubtitleItem())
+            // 화면 말풍선은 역할별 최신 1개만 남기지만, 중복 저장/표시 방어는 세션 동안 처리한
+            // turnId 전체를 기준으로 해야 이전 final 이벤트가 늦게 재전달되어도 다시 반영되지 않는다.
+            val handledFinalTurnIds = it.handledFinalTurnIds + event.turnId
+
             when (event.role) {
                 TurnSpeaker.USER -> it.copy(
                     userPartialTranscript = "",
                     lastFinalUserTranscript = event.text,
-                    lastHandledFinalTurnId = event.turnId
+                    // 정지 버튼 이후 기다리던 USER final transcript 가 도착했으므로
+                    // 화면의 "발화 인식 중" 상태를 종료한다.
+                    isAwaitingUserTranscript = false,
+                    lastHandledFinalTurnId = event.turnId,
+                    handledFinalTurnIds = handledFinalTurnIds,
+                    subtitleItems = subtitleItems
                 )
 
                 TurnSpeaker.AI -> it.copy(
                     aiPartialTranscript = "",
                     lastFinalAITranscript = event.text,
-                    lastHandledFinalTurnId = event.turnId
+                    lastHandledFinalTurnId = event.turnId,
+                    handledFinalTurnIds = handledFinalTurnIds,
+                    subtitleItems = subtitleItems
                 )
             }
         }
@@ -666,10 +691,14 @@ class ChatViewModel @Inject constructor(
 
         _uiState.update {
             it.copy(
+                // audio chunk가 도착한 시점부터는 사용자가 아니라 AI 출력이 주 상태다.
+                // 단, 재연결/오류 상태는 더 높은 우선순위이므로 SPEAKING으로 덮지 않는다.
                 aiState = if (
                     it.aiState != AIState.RECONNECTING &&
                     it.aiState != AIState.ERROR
                 ) AIState.SPEAKING else it.aiState,
+                // AI 음성이 시작되면 사용자 발화 확정 대기 상태는 화면에서 더 이상 주 상태가 아니다.
+                isAwaitingUserTranscript = false
             )
         }
         audioPlayer.playAudioChunk(event.audio)
@@ -703,12 +732,20 @@ class ChatViewModel @Inject constructor(
      */
     private fun handleStateChanged(event: AIEvent.StateChanged) {
         if (event.state == AIState.SPEAKING) {
+            // AI가 말하기 시작했는데 사용자가 아직 녹음 중이면 에코와 중복 입력을 막기 위해 즉시 끊는다.
             stopRecordingForAiSpeaking()
         }
 
         _uiState.update {
             it.copy(
-                aiState = event.state
+                aiState = event.state,
+                // SPEAKING 상태는 이미 AI 응답 구간이므로 "발화 인식 중" 안내보다 우선한다.
+                // 그 외 상태에서는 직전 대기 문구가 필요한 짧은 구간이 있어 기존 값을 유지한다.
+                isAwaitingUserTranscript = if (event.state == AIState.SPEAKING) {
+                    false
+                } else {
+                    it.isAwaitingUserTranscript
+                }
             )
         }
     }
@@ -731,8 +768,10 @@ class ChatViewModel @Inject constructor(
             it.copy(
                 sessionState = SessionState.RECONNECTING,
                 isRecording = false,
+                isAwaitingUserTranscript = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
+                isAudioOutputPlaying = false,
                 userPartialTranscript = "",
                 aiPartialTranscript = "",
                 aiState = AIState.RECONNECTING,
@@ -763,6 +802,7 @@ class ChatViewModel @Inject constructor(
                 sessionState = SessionState.READY,
                 aiState = AIState.IDLE,
                 activeSessionId = event.sessionId,
+                isAwaitingUserTranscript = false,
                 reconnectAttempt = 0,
                 didFallbackToNewSession = false,
                 fallbackMessage = null,
@@ -791,8 +831,10 @@ class ChatViewModel @Inject constructor(
                 entryStage = ChatEntryStage.ERROR,
                 entryMessageOverride = null,
                 isRecording = false,
+                isAwaitingUserTranscript = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
+                isAudioOutputPlaying = false,
                 userPartialTranscript = "",
                 aiPartialTranscript = "",
                 sessionState = SessionState.ERROR,
@@ -822,8 +864,10 @@ class ChatViewModel @Inject constructor(
                 entryStage = ChatEntryStage.ERROR,
                 entryMessageOverride = null,
                 isRecording = false,
+                isAwaitingUserTranscript = false,
                 inputLevel = 0f,
                 outputLevel = 0f,
+                isAudioOutputPlaying = false,
                 sessionState = SessionState.ERROR,
                 aiState = AIState.ERROR,
                 isRecoverableError = false,
@@ -842,6 +886,7 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         outputLevelJob?.cancel()
+        outputPlaybackJob?.cancel()
         // onCleared는 Chat back stack이 제거되는 실제 종료 경계다. 화면 회전과 달리
         // 여기서는 transport와 오디오 리소스를 정리해야 다음 진입 시 잔여 녹음/재생이 남지 않는다.
         runBlocking {
@@ -866,6 +911,24 @@ class ChatViewModel @Inject constructor(
         outputLevelJob = viewModelScope.launch {
             audioPlayer.outputLevel.collectLatest { level ->
                 _uiState.update { it.copy(outputLevel = level.coerceIn(0f, 1f)) }
+            }
+        }
+    }
+
+    /**
+     * 실제 로컬 스피커 재생 상태를 UI 입력 방어에 반영합니다.
+     *
+     * OpenAI response.done은 서버의 응답 생성 완료 이벤트이고, 기기 스피커의 재생 완료 이벤트가 아니다.
+     * AudioPlayer 큐에 남은 음성이 있으면 사용자는 아직 Umma의 말을 듣는 중이므로 마이크를 비활성화한다.
+     */
+    private fun observeAudioOutputPlayback() {
+        if (outputPlaybackJob?.isActive == true) return
+
+        outputPlaybackJob = viewModelScope.launch {
+            audioPlayer.isPlaying.collectLatest { isPlaying ->
+                _uiState.update {
+                    it.copy(isAudioOutputPlaying = isPlaying)
+                }
             }
         }
     }
@@ -1030,7 +1093,84 @@ class ChatViewModel @Inject constructor(
     }
 }
 
-private val ChatUiState.hasActiveChatSession: Boolean
+/**
+ * 같은 final event가 화면 말풍선과 저장 요청에 중복 반영되지 않도록 판단합니다.
+ *
+ * lastHandledFinalTurnId는 기존 즉시 중복 방어를 유지하고, handledFinalTurnIds는
+ * 역할별 최신 말풍선 교체 이후에도 과거 turnId를 기억해 늦게 재전달된 final 이벤트를 막는다.
+ */
+private fun ChatUiState.hasHandledFinalTurn(turnId: String): Boolean {
+    return lastHandledFinalTurnId == turnId || handledFinalTurnIds.contains(turnId)
+}
+
+/**
+ * 현재 화면에는 전체 subtitle history가 아니라 역할별 최신 final 자막만 유지합니다.
+ *
+ * 새 USER final이 오면 이전 USER 말풍선을 교체하고, 새 AI final이 오면 이전 AI 말풍선을 교체한다.
+ * 남은 다른 역할의 말풍선은 그대로 둔 뒤 새 항목을 뒤에 붙여, 화면에는 최신 두 역할의 도착 순서만 남긴다.
+ */
+private fun List<ChatSubtitleItem>.replaceLatestRoleSubtitle(
+    item: ChatSubtitleItem
+): List<ChatSubtitleItem> {
+    return filterNot { it.role == item.role }.plus(item)
+}
+
+/**
+ * realtime final event를 현재 화면 전용 말풍선 모델로 변환합니다.
+ *
+ * 저장 모델인 SessionTurn과 분리해 두면 화면 디자인 요구가 바뀌어도
+ * SessionMemory append 계약이나 correctionAvailable 신호를 함께 수정할 필요가 없다.
+ */
+private fun AIEvent.FinalTranscription.toSubtitleItem(): ChatSubtitleItem {
+    return ChatSubtitleItem(
+        id = turnId,
+        role = role,
+        text = text
+    )
+}
+
+/**
+ * 새 세션 시작이 사용자에게 "복구/전환 완료"로 안내되어야 하는지 결정합니다.
+ *
+ * RetryConnectionUseCase 는 첫 진입에서도 NO_ACTIVE_SESSION 을 반환할 수 있다.
+ * 그래서 모든 새 세션 시작을 fallback 으로 보여주지 않고, 실제 복구 실패나 언어 전환처럼
+ * 사용자가 기존 세션에서 다른 세션으로 넘어갔다고 이해해야 하는 경우만 메시지를 만든다.
+ */
+private fun RetryConnectionResult.toFallbackCompletionMessage(): String? {
+    return when (this) {
+        is RetryConnectionResult.Failed ->
+            "이전 연결 복구에 실패하여 새 대화 세션으로 전환되었습니다."
+        is RetryConnectionResult.RequireNewSession -> when (reason) {
+            NewSessionReason.LANG_CHANGED ->
+                "학습 언어가 변경되어 새 대화 세션으로 전환되었습니다."
+            NewSessionReason.RESTORE_UNAVAILABLE ->
+                "이전 연결 복구에 실패하여 새 대화 세션으로 전환되었습니다."
+            NewSessionReason.NO_ACTIVE_SESSION -> null
+        }
+        is RetryConnectionResult.Reconnected -> null
+    }
+}
+
+/**
+ * ChatScreen 이 configuration change 로 다시 compose 될 때 기존 화면 상태를 유지할 수 있는지 판단합니다.
+ *
+ * 정상 READY 세션은 activeSessionId 를 기준으로 보존한다. 다만 회전 중 지연 이벤트 경계에서
+ * transient 마이크 상태가 남아 있으면 새 진입 flow 로 덮어쓰지 않아 하단 안내 문구를 유지한다.
+ */
+private val ChatUiState.shouldKeepChatUiOnReentry: Boolean
     get() = entryStage == ChatEntryStage.READY &&
             (sessionState == SessionState.READY || sessionState == SessionState.RECONNECTING) &&
-            activeSessionId != null
+            (activeSessionId != null || hasTransientMicStatus)
+
+/**
+ * 세션 자체는 같지만 화면에 유지해야 하는 순간 상태가 있는지 판단합니다.
+ *
+ * 같은 sessionId 의 initialized/sessionStarted 이벤트가 늦게 도착해도 이 값이 true 이면
+ * 녹음 중, 발화 인식 대기, AI 응답 중 문구를 IDLE 상태로 덮어쓰지 않는다.
+ */
+private val ChatUiState.hasTransientMicStatus: Boolean
+    get() = isRecording ||
+            isAwaitingUserTranscript ||
+            aiState == AIState.THINKING ||
+            aiState == AIState.SPEAKING ||
+            aiState == AIState.RECONNECTING

@@ -4,7 +4,7 @@
 
 사용자는 AI Chat에서 기존과 같은 대화 흐름을 사용하되, 내부 realtime transport는 OpenAI Realtime 기준으로 동작한다.
 
-이번 작업은 `CHAT-POC-001`에서 검증한 OpenAI Realtime 경로로 AI Chat 음성 대화 엔진을 완전히 교체하는 선행 인프라 작업이다. UX-001/UX-002는 이 전환 경계가 정리된 뒤 그 위에서 입력 UX와 자막 타이밍을 다룬다.
+이번 작업은 `CHAT-POC-001`에서 검증한 OpenAI Realtime 경로로 AI Chat 음성 대화 엔진을 완전히 교체하는 선행 인프라 작업이다. 이후 화면 UX 보강은 `CHAT-FIX-001-C/D/E`에서 마이크 버튼 상태, final 자막 대화형 표시, 음성 레벨 wave로 나누어 다룬다.
 
 ---
 
@@ -28,8 +28,11 @@
 - Realtime Infra: `docs/System_FlowDB/SYS_REALTIME_INFRA.md`
 - Realtime Overview: `docs/System_FlowDB/SYS_REALTIME_INFRA/SYS_REALTIME_INFRA_OVERVIEW.md`
 - OpenAI PoC: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-POC-001_OpenAI_Realtime_Push_to_Talk_PoC.md`
-- Toggle UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-001_Toggle_to_Talk_UX.md`
-- Subtitle Timing: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-002_Subtitle_Timing.md`
+- token endpoint 인증 보강: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-ENGINE-001/CHAT-ENGINE-001-A_Token_Endpoint_Auth_Hardening.md`
+- Realtime usage 기록: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-ENGINE-001/CHAT-ENGINE-001-B_Realtime_Usage_Tracking.md`
+- App Check 보강: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-ENGINE-001/CHAT-ENGINE-001-C_App_Check_Hardening.md`
+- 마이크 버튼 상태 UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-C_Mic_Button_State_UX.md`
+- final 자막 대화형 표시: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-D_Final_Subtitle_Conversation_UX.md`
 
 ---
 
@@ -91,13 +94,13 @@
 - `ChatRepository.endUserTurn(durationMs: Long?)`은 provider별 transport 종료 처리를 담당한다.
 - `CancelPendingUserTurnUseCase`는 화면 이탈, 새 발화 시작 전 초기화처럼 아직 확정되지 않은 user turn을 폐기하는 cleanup 계약으로만 사용한다.
 - final USER transcript metadata 보관은 `ChatRepositoryImpl` 내부 상태로 제한하고, ViewModel/domain 레이어에는 별도 pending duration setter를 노출하지 않는다.
-- 이 정리는 UX-001 버튼 동작과 직접 연결되므로 ENGINE 작업에서 먼저 경계를 잡는다.
+- 이 정리는 `CHAT-FIX-001-C`의 마이크 버튼 상태 UX와 직접 연결되므로 ENGINE 작업에서 먼저 경계를 잡는다.
 
 ### 3. Event Mapping
 
 - OpenAI event는 기존 `AIEvent`로 매핑한다.
 - USER transcript completed는 `AIEvent.FinalTranscription(role = USER)`로 전달한다.
-- AI transcript delta는 현재 응답 subtitle 상태로 전달하되, 저장은 final 기준을 유지한다.
+- AI transcript delta는 provider 이벤트로 수신 가능하지만, MVP 화면 표시는 `CHAT-FIX-001-D` 기준에 따라 final transcript를 사용한다.
 - AI audio delta는 기존 `AIEvent.AudioResponse`로 전달한다.
 - response usage는 운영 판단용 로그 또는 별도 telemetry 후보로 남긴다.
 
@@ -105,19 +108,33 @@
 
 - Android 앱은 OpenAI API key를 갖지 않는다.
 - OpenAI API key는 Firebase Secret Manager에만 둔다.
-- `realtimeToken` Cloud Function은 장기적으로 공개 접근 상태로 두지 않는다.
-- 최소 보안 후보:
-  - Firebase Auth ID token 검증
-  - App Check
-  - userId별 rate limit
+- `realtimeToken` Cloud Function은 Firebase Auth ID token 검증을 통과한 사용자에게만 OpenAI client secret을 발급한다.
+- 모바일 앱은 Cloud Run IAM으로 직접 인증하지 않고, Firebase ID token을 `Authorization: Bearer` header로 전달한다.
+- 함수 URL이 네트워크상 접근 가능하더라도, 인증되지 않은 요청은 `401 Unauthorized`로 거부한다.
 - PoC에서 만든 개인 소유(`You`) / `All` 권한 OpenAI key는 팀/서비스 계정 소유의 제한 권한 key로 교체한다.
-- 운영 수준의 token endpoint 보안 강화는 후속 이슈 `#193`에서 추적한다.
 
-### 4-1. Security Check Items
+### 4-1. Engine 하위 작업 순서
+
+1. `CHAT-ENGINE-001-A` Token Endpoint Auth Hardening
+   - 개인 소유(`You`) / `All` 권한 key를 팀 또는 서비스 계정 기준 key로 교체한다.
+   - 새 key는 Firebase Secret Manager의 `OPENAI_API_KEY`에만 저장한다.
+   - Android 앱, 문서, 로그에는 OpenAI API key를 남기지 않는다.
+   - Android 앱은 token 요청 시 Firebase ID token을 `Authorization: Bearer` header로 전달한다.
+   - Cloud Function은 Firebase Admin SDK로 ID token을 검증한다.
+   - 인증 정보가 없거나 잘못된 요청은 OpenAI 호출 전에 `401 Unauthorized`로 거부한다.
+2. `CHAT-ENGINE-001-B` Realtime Usage Tracking
+   - AI Chat 대화 중 발생하는 response usage와 transcription usage를 기록한다.
+   - Firestore에는 매 이벤트마다 쓰지 않고, local-first 저장 후 세션 단위로 sync한다.
+   - 이번 단계에서는 사용량 제한이나 플랜 정책을 적용하지 않는다.
+3. `CHAT-ENGINE-001-C` App Check Hardening
+   - Firebase Auth 검증 이후, 비정상 클라이언트 호출을 줄이기 위한 보강으로 적용한다.
+
+### 4-2. Security Check Items
 
 - Android 앱, git 추적 파일, Logcat에 OpenAI API key가 노출되지 않는지 확인한다.
-- PoC용 공개 token endpoint와 개인/All 권한 key 설정은 운영 전 정리 대상으로 관리한다.
-- 이번 범위를 넘는 Cloud Function 인증, App Check, rate limit, service account 권한 축소는 후속 이슈 `#193`에서 처리한다.
+- Android 앱이 token 요청 시 Firebase ID token을 전달하는지 확인한다.
+- Firebase ID token이 없거나 잘못된 요청은 token 발급 없이 거부되는지 확인한다.
+- 개인/All 권한 key 설정은 운영 전 팀/서비스 계정 소유의 제한 권한 key로 교체한다.
 
 ### 5. Existing Guard Preservation
 
@@ -154,7 +171,7 @@
 - 화면 회전과 실제 이탈 cleanup 정책이 충돌하지 않음
 - 네트워크 끊김 후 `SessionInterrupted` / `Reconnected` / `ReconnectFailed` 상태가 사용자 화면과 Logcat에서 확인됨
 - Android 앱 또는 git 추적 파일에 OpenAI API key가 포함되지 않음
-- PoC용 공개 token endpoint와 개인/All 권한 key 설정은 후속 보안 이슈 `#193`에서 추적됨
+- Firebase ID token 없는 token 요청은 함수에서 거부됨
 
 ---
 
