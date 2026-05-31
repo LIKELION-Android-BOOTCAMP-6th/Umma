@@ -36,6 +36,8 @@ class AudioPlayer @Inject constructor() : AudioOutput {
     private var playbackJob: Job? = null
     private val _outputLevel = MutableStateFlow(0f)
     override val outputLevel: StateFlow<Float> = _outputLevel.asStateFlow()
+    private val _isPlaying = MutableStateFlow(false)
+    override val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
     private var pendingChunkCount: Int = 0
     private var currentPlaybackStartedAtMs: Long? = null
     private var currentPlaybackEndedAtMs: Long? = null
@@ -88,6 +90,9 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         }
         if (audioQueue.trySend(audio.copyOf()).isSuccess) {
             pendingChunkCount += 1
+            // 서버 response.done은 로컬 스피커 재생 완료보다 먼저 올 수 있다.
+            // UI 입력 방어는 실제 출력 큐에 남은 오디오를 기준으로 해야 하므로 여기서 재생 중 상태를 올린다.
+            _isPlaying.value = true
         }
     }
 
@@ -104,6 +109,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         playbackJob = null
         clearAudioQueue()
         _outputLevel.value = 0f
+        _isPlaying.value = false
         resetPlaybackMetrics()
         audioTrack?.stop()
         audioTrack?.flush()
@@ -114,6 +120,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         playbackJob = null
         clearAudioQueue()
         _outputLevel.value = 0f
+        _isPlaying.value = false
         resetPlaybackMetrics()
         playerScope.cancel()
         audioTrack?.release()
@@ -143,6 +150,9 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                     if (pendingChunkCount == 0) {
                         currentPlaybackEndedAtMs = System.currentTimeMillis()
                         _outputLevel.value = 0f
+                        // 마지막 chunk의 실제 재생 시간이 지난 뒤에야 입력 가능 상태로 돌린다.
+                        // 이 값이 false가 되기 전까지 ChatViewModel은 마이크를 비활성화한다.
+                        _isPlaying.value = false
                     }
                 }
             }

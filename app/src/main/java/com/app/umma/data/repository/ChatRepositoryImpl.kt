@@ -9,6 +9,7 @@ import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.realtime.SessionInterruptedReason
 import com.app.umma.domain.repository.ChatRepository
+import com.google.firebase.auth.FirebaseAuth
 import java.io.IOException
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -56,7 +58,9 @@ import okhttp3.WebSocketListener
  * 하면서, AI Chat realtime transport 를 OpenAI Realtime 단일 경로로 연결합니다.
  */
 @Singleton
-class ChatRepositoryImpl @Inject constructor() : ChatRepository {
+class ChatRepositoryImpl @Inject constructor(
+    private val firebaseAuth: FirebaseAuth
+) : ChatRepository {
 
     // OkHttp WebSocket 과 Cloud Function token endpoint 호출을 함께 처리하는 client 입니다.
     // OpenAI API key 는 Android 에 없고, 이 client 는 short-lived client secret 만 받아 사용합니다.
@@ -833,10 +837,14 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
 
     private suspend fun fetchRealtimeToken(): String = withContext(Dispatchers.IO) {
         // endpoint 는 Firebase Cloud Function 이며, OpenAI API key 는 서버 Secret Manager 에만 있다.
+        val firebaseIdToken = fetchFirebaseIdToken()
         val body = "{}".toRequestBody(JSON_MEDIA_TYPE)
         val request = Request.Builder()
             .url(BuildConfig.OPENAI_REALTIME_TOKEN_URL)
             .post(body)
+            // CHAT-ENGINE-001-A: token endpoint 는 Firebase 로그인 사용자에게만 short-lived client secret 을 발급한다.
+            // Android 앱에는 OpenAI API key 를 두지 않고, Firebase ID token 만 bearer 로 전달한다.
+            .addHeader("Authorization", "Bearer $firebaseIdToken")
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -848,6 +856,16 @@ class ChatRepositoryImpl @Inject constructor() : ChatRepository {
             }
             parseTokenResponse(responseBody)
         }
+    }
+
+    private suspend fun fetchFirebaseIdToken(): String {
+        val user = firebaseAuth.currentUser
+            ?: throw IllegalStateException("Firebase login is required for OpenAI Realtime token.")
+
+        // forceRefresh=false 로 일반 경로에서는 캐시된 유효 token 을 사용한다.
+        // 만료된 경우 Firebase SDK 가 내부적으로 갱신하므로 매 turn 마다 강제 갱신하지 않는다.
+        return user.getIdToken(false).await().token
+            ?: throw IllegalStateException("Firebase ID token is empty.")
     }
 
     private fun parseTokenResponse(body: String): String {
