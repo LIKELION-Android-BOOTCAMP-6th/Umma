@@ -10,9 +10,9 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +29,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -289,7 +292,18 @@ fun ChatScreen(
                 }
             }
 
-            val micEnabled = uiState.canEndUserTurn || uiState.canStartUserTurn
+            // 마이크 버튼은 ChatScreen 에서 session/AI 상태를 다시 조합하지 않고,
+            // ViewModel 이 만든 UiState 파생값만 읽는다. 그래야 회전/이벤트 지연 상황에서도
+            // 화면과 입력 방어 기준이 같은 상태값을 바라본다.
+            val micControlState = uiState.micControlState
+            // DISABLED 상태에서는 버튼 모양은 남기되 클릭만 막아, 다음 행동이 마이크 입력임을 유지한다.
+            val micEnabled = micControlState != ChatMicControlState.DISABLED
+            // 녹음 중 STOP 상태는 위험/정지 의미가 분명해야 하므로 기존 로그아웃 계열 강조색을 재사용한다.
+            val micBackgroundColor = when (micControlState) {
+                ChatMicControlState.START -> ThemePrimary
+                ChatMicControlState.STOP -> TextLogout
+                ChatMicControlState.DISABLED -> BackgroundDeactivated
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -298,10 +312,13 @@ fun ChatScreen(
                     .border(width = 4.dp, color = Color.White, shape = CircleShape)
                     .shadow(8.dp, CircleShape)
                     .background(
-                        color = if (micEnabled) ThemePrimary else BackgroundDeactivated,
+                        color = micBackgroundColor,
                         shape = CircleShape
                     )
                     .clickable(enabled = micEnabled) {
+                        // 클릭 처리도 UiState 의 canStart/canEnd 정책을 다시 사용한다.
+                        // icon state 와 실제 동작 조건이 어긋나면 사용자가 같은 버튼을 눌렀는데
+                        // 다른 결과를 경험할 수 있기 때문이다.
                         when {
                             uiState.canEndUserTurn -> viewModel.endUserTurn()
                             hasRecordAudioPermission() -> {
@@ -317,8 +334,18 @@ fun ChatScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.baseline_mic_24),
-                    contentDescription = if (uiState.isRecording) "Stop talking" else "Start talking",
+                    // 버튼의 실제 동작은 UiState 의 파생 상태가 결정한다.
+                    // 녹음 중에는 명확한 정지 아이콘을 보여 사용자가 두 번째 클릭의 의미를 알 수 있게 한다.
+                    imageVector = when (micControlState) {
+                        ChatMicControlState.STOP -> Icons.Filled.Stop
+                        ChatMicControlState.START,
+                        ChatMicControlState.DISABLED -> Icons.Filled.Mic
+                    },
+                    contentDescription = when (micControlState) {
+                        ChatMicControlState.STOP -> "Stop talking"
+                        ChatMicControlState.START -> "Start talking"
+                        ChatMicControlState.DISABLED -> "Voice input unavailable"
+                    },
                     tint = Color.White
                 )
             }
@@ -340,6 +367,18 @@ fun ChatScreen(
                         color = TextLogout,
                         style = TextAnalysisR,
                         textAlign = TextAlign.Center
+                    )
+                }
+
+                uiState.micStatusMessage?.let { message ->
+                    // 이 문구는 저장되는 subtitle 이 아니라 현재 마이크/AI 처리 상태를 설명하는
+                    // 화면 전용 보조 정보다. 회전 후에도 ViewModel 상태가 유지되면 같은 문구가 다시 그려진다.
+                    Text(
+                        text = message,
+                        color = TextPrimary,
+                        style = TextAnalysisR,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = SpacingS)
                     )
                 }
 
@@ -595,8 +634,8 @@ private fun TopicButton(
     text: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Button(
         onClick = onClick,
