@@ -14,6 +14,7 @@ import com.app.umma.presentation.chat.ChatScreen
 import com.app.umma.presentation.dashboard.DashboardScreen
 import com.app.umma.presentation.dashboard.MyPageScreen
 import com.app.umma.presentation.correction.CorrectionScreen
+import com.app.umma.presentation.srsstudy.SrsCardListScreen
 import com.app.umma.presentation.srsstudy.SrsStudyScreen
 import com.app.umma.presentation.statistics.StatisticsScreen
 
@@ -76,7 +77,9 @@ fun UmmaNavHost(
                     onNavigateToMyPage = { navController.navigate(Route.MyPage) },
                     correctionCompletionMessage = correctionCompletionMessage,
                     onCorrectionCompletionMessageConsumed = {
-                        backStackEntry.savedStateHandle.remove<String>(CorrectionCompletionMessageKey)
+                        backStackEntry.savedStateHandle.remove<String>(
+                            CorrectionCompletionMessageKey
+                        )
                     },
                 )
 
@@ -112,7 +115,15 @@ fun UmmaNavHost(
                             popUpTo<Route.SrsStudyGraph> { inclusive = true }
                             launchSingleTop = true
                         }
+                    },
+                    onNavigateToCardList = {
+                        navController.navigate(Route.SrsCardList)
                     }
+                )
+            }
+            composable<Route.SrsCardList> {
+                SrsCardListScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
         }
