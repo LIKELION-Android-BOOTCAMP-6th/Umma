@@ -43,6 +43,35 @@ sealed interface AIEvent {
         val confidence: Double? = null
     ) : AIEvent
 
+    /**
+     * OpenAI Realtime usage payload가 도착했음을 알리는 운영 데이터 이벤트입니다.
+     *
+     * final transcript는 SessionMemory 저장과 correctionAvailable 신호의 기준이고,
+     * usage event는 비용 분석/플랜 설계를 위한 별도 기준입니다. 두 이벤트를 분리해야
+     * usage 저장 실패가 대화 저장 실패로 전파되지 않습니다.
+     *
+     * @property usageEventId local DB idempotency를 위한 provider event 식별자
+     * @property sessionId usage가 발생한 앱 세션 식별자
+     * @property turnId final transcript와 연결 가능한 경우의 turn 식별자
+     * @property sessionLang 세션 시작 시 고정된 학습 언어
+     * @property kind response usage인지 user transcription usage인지 구분하는 값
+     * @property model 비용 분석 기준이 되는 OpenAI 모델명
+     * @property transcriptionModel STT usage일 때 별도로 기록할 transcription 모델명
+     * @property createdAt usage 이벤트를 앱에서 수신한 시각
+     * @property usage provider가 내려준 token breakdown
+     */
+    data class ChatUsageReported(
+        val usageEventId: String,
+        val sessionId: String,
+        val turnId: String?,
+        val sessionLang: LangCode,
+        val kind: ChatUsageKind,
+        val model: String,
+        val transcriptionModel: String?,
+        val createdAt: Long,
+        val usage: ChatTokenUsage
+    ) : AIEvent
+
     /** AI가 생성한 실시간 오디오(PCM) 데이터입니다. */
     data class AudioResponse(val audio: ByteArray) : AIEvent {
         override fun equals(other: Any?): Boolean {
@@ -68,10 +97,10 @@ sealed interface AIEvent {
         val attempt: Int = 0,
         val maxAttempts: Int = 0,
         val recoverable: Boolean = true,
-        val message: String = "Live session interrupted"
+        val message: String = "Realtime session interrupted"
     ) : AIEvent
 
-    /** 동일한 앱 세션으로 Live transport 복구가 완료되었음을 알리는 이벤트입니다. */
+    /** 동일한 앱 세션으로 realtime transport 복구가 완료되었음을 알리는 이벤트입니다. */
     data class Reconnected(val sessionId: String) : AIEvent
 
     /** 자동 복구 실패 후 사용자 조치가 필요한 상태를 알리는 이벤트입니다. */
@@ -85,7 +114,7 @@ sealed interface AIEvent {
 }
 
 /**
- * Live session 중단 원인입니다.
+ * Realtime session 중단 원인입니다.
  */
 enum class SessionInterruptedReason {
     /** 서버가 정상적인 종료 신호를 전달한 경우 */

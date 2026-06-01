@@ -54,6 +54,6 @@
 ## 5. 연결 문서
 
 - [SYS_REALTIME_INFRA_OVERVIEW.md](./SYS_REALTIME_INFRA/SYS_REALTIME_INFRA_OVERVIEW.md)
-- [FLOW_AI_CHAT.md](../User_FlowDB/FLOW_AI_CHAT.md)
+- [FLOW_AI_CHAT.md](../Sprint2/User_FlowDB/FLOW_AI_CHAT.md)
 - [Umma_Service_Structure.md](../Umma_Service_Structure.md)
 - [Umma_Data_Strategy_and_Language_State.md](../Umma_Data_Strategy_and_Language_State.md)

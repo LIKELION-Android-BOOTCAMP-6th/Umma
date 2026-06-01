@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.usecase.auth.CheckInitialSetupUseCase
+import com.app.umma.domain.usecase.auth.DeleteAccountUseCase
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.auth.SignInWithGoogleUseCase
 import com.app.umma.domain.usecase.user.InitializeUserDataUseCase
+import com.app.umma.domain.usecase.user.ValidateNicknameUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,7 +37,9 @@ class AuthViewModel @Inject constructor(
     private val initializeUserDataUseCase: InitializeUserDataUseCase,
     private val checkInitialSetupUseCase: CheckInitialSetupUseCase,
     private val logoutUseCase: LogoutUseCase,
-    private val authRepository: AuthRepository
+    private val deleteAccountUseCase: DeleteAccountUseCase,
+    private val authRepository: AuthRepository,
+    private val validateNicknameUseCase: ValidateNicknameUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
@@ -169,8 +173,8 @@ class AuthViewModel @Inject constructor(
      * 닉네임 검사, 저장, 다이얼로그 상태 변경
      */
     fun onNicknameConfirm(nickname: String) {
-        // 공백 검사, 글자수 제한
-        if (nickname.isBlank() || nickname.length !in 2..10) {
+        // 닉네임 겅증 실패 시 안내 문구 표시
+        if (!validateNicknameUseCase(nickname)) {
             _uiState.update { it.copy(nicknameError = "닉네임은 2자 이상 10자 이하로 입력해 주세요.") }
             return
         }
@@ -326,6 +330,41 @@ class AuthViewModel @Inject constructor(
                 }
             }
 
+        }
+    }
+
+    /**
+     * 회원탈퇴를 수행한다.
+     */
+    fun deleteAccount() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null
+                )
+            }
+            val result = deleteAccountUseCase()
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        googleState = GoogleAuthState.IDLE,
+                        errorMessage = null,
+                        nickname = "",
+                        initialSetupDialogStep = InitialSetupDialogStep.NONE,
+                        isDeleteAccountCompleted = true,
+                        learningLanguageError = null
+                    )
+                }
+            }.onFailure {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "회원탈퇴에 실패했습니다. 다시 시도해주세요."
+                    )
+                }
+            }
         }
     }
 }

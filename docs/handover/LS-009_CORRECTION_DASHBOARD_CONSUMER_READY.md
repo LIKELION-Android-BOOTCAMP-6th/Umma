@@ -98,5 +98,5 @@ Chat/Realtime 연결이 머지된 뒤 함께 확인할 통합 항목:
 
 - `CorrectionSignalUpdateResult`: `app/src/main/java/com/app/umma/domain/model/learningstate/LearningUpdateModels.kt`
 - `LearningStateRepoImpl.updateCorrectionSignal`: `app/src/main/java/com/app/umma/data/repository/LearningStateRepoImpl.kt`
-- Correction 기준 문서: `docs/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md`
-- Dashboard 기준 문서: `docs/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md`
+- Correction 기준 문서: `docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-001_Initial_State.md`
+- Dashboard 기준 문서: `docs/Sprint2/User_FlowDB/FLOW_DASHBOARD/DASH-003_Correction_Pending_Card.md`

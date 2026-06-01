@@ -3,16 +3,20 @@ package com.app.umma.di
 import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
+import com.app.umma.data.repository.ChatUsageRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.app.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
 import com.app.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
+import com.app.umma.data.source.remote.ChatUsageRemoteDataSource
 import com.app.umma.data.source.remote.FirestoreCorrectionFlashcardRemoteDataSource
+import com.app.umma.data.source.remote.CloudFunctionChatUsageRemoteDataSource
 import com.app.umma.data.source.remote.FirestoreStatisticsHistoryRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.domain.repository.AuthRepository
+import com.app.umma.domain.repository.ChatUsageRepository
 import com.app.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
@@ -75,4 +79,16 @@ abstract class RepositoryModule {
     abstract fun bindStatisticsHistoryRemoteDataSource(
         impl: FirestoreStatisticsHistoryRemoteDataSource
     ): StatisticsHistoryRemoteDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindChatUsageRepository(
+        impl: ChatUsageRepositoryImpl
+    ): ChatUsageRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindChatUsageRemoteDataSource(
+        impl: CloudFunctionChatUsageRemoteDataSource
+    ): ChatUsageRemoteDataSource
 }

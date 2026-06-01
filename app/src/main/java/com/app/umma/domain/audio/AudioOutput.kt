@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface AudioOutput {
     val outputLevel: StateFlow<Float>
+    val isPlaying: StateFlow<Boolean>
 
     fun startPlaying()
 

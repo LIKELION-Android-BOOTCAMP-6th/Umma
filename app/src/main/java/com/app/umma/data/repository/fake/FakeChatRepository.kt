@@ -139,8 +139,19 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
         }
     }
 
-    override fun setPendingUserTurnDuration(durationMs: Long?) {
+    private fun updatePendingUserTurnDuration(durationMs: Long?) {
         pendingUserTurnDurationMs = durationMs
+    }
+
+    override fun cancelPendingUserTurn() {
+        // Fake 구현에서도 cleanup 의미를 production 과 맞춰 pending duration 만 비운다.
+        updatePendingUserTurnDuration(null)
+    }
+
+    override fun endUserTurn(durationMs: Long?) {
+        // Fake 구현은 실제 transport commit 이 없으므로 production 과 같은 duration metadata 만 보관한다.
+        // 시나리오별 final event 발생은 preset 로직이 따로 담당한다.
+        updatePendingUserTurnDuration(durationMs)
     }
 
     private suspend fun emitHandoffTurnIfNeeded() {

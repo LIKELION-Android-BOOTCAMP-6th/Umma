@@ -13,7 +13,7 @@
 
 ### 1.1. 설계 문서 측 (User FlowDB)
 
-`docs/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md` 본문:
+`docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md` 본문:
 
 > ViewModel은 완료 결과를 Done / Retry 상태로 연결한다.
 > **제외 범위: LangState 업데이트 입력 생성 및 적용**
@@ -131,6 +131,6 @@ completionJob = viewModelScope.launch {
 ## 6. 참고
 
 - 본 PR 의 화면 골격, Done 전환, 중복 방지 가드는 모두 `CorrectionUiStateTest` 로 회귀 검증됨.
-- 설계 문서 원문: [`docs/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md`](../User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md)
+- 설계 문서 원문: [`docs/Sprint2/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md`](../Sprint2/User_FlowDB/FLOW_CORRECTION/COR-006_Completion_Pipeline.md)
 - 인프라 문서 원문: [`docs/System_FlowDB/SYS_CORRECTION_INFRA.md`](../System_FlowDB/SYS_CORRECTION_INFRA.md)
 - "충돌 지점을 먼저 정리하여 정합성을 맞춘 뒤 작업 진행" 원칙에 따라 본 PR 은 placeholder + 인계 문서로 마무리. 옵션 결정 후 조치해 주시면 후속 PR에 바로 연결.

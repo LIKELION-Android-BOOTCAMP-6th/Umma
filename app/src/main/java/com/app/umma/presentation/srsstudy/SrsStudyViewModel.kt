@@ -216,6 +216,14 @@ class SrsStudyViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 저장 실패 에러 상태 초기화
+     * 예: 스낵바 닫힘, 재시도 클릭
+     */
+    fun onClearSaveError() {
+        _uiState.update { it.copy(hasSaveError = false) }
+    }
+
 
     /**
      * 스피커 버튼 클릭 -> 텍스트 발음 재생
