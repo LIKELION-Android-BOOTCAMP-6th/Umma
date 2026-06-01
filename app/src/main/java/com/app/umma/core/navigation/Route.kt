@@ -47,4 +47,8 @@ sealed interface Route {
     @Serializable
     data object SrsStudy : Route
 
+    // 9. SRS 저장 카드 목록
+    @Serializable
+    data object SrsCardList : Route
+
 }
