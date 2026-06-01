@@ -1,6 +1,13 @@
 package com.app.umma.presentation.dashboard
 
+import android.Manifest
+import android.app.TimePickerDialog
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.view.ContextThemeWrapper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,10 +19,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,11 +37,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.app.umma.R
+import com.app.umma.core.theme.BackgroundHighlight
+import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
@@ -40,6 +59,7 @@ import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AuthViewModel
+import java.util.TimeZone
 
 /**
  * 마이페이지 화면을 구성하는 컴포저블입니다.
@@ -51,26 +71,79 @@ import com.app.umma.presentation.auth.AuthViewModel
 fun MyPageScreen(
     onNavigateToOnBoarding: () -> Unit,
     authViewModel: AuthViewModel = hiltViewModel(),
+    myPageViewModel: MyPageViewModel = hiltViewModel(),
     onBackClick: () -> Unit
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showNativeLanguageDialog by remember { mutableStateOf(false) }
     var selectedNativeLanguage by remember { mutableStateOf(LangCode.KO) }
-    val uiState by authViewModel.uiState.collectAsState()
-    val context = LocalContext.current
 
-    LaunchedEffect(uiState.errorMessage) {
-        uiState.errorMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+    val authUiState by authViewModel.uiState.collectAsState()
+    val notificationUiState by myPageViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val timezone = remember { TimeZone.getDefault().id }
+
+    fun hasNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            myPageViewModel.onNotificationPermissionGranted(timezone = timezone)
+        } else {
+            myPageViewModel.onNotificationPermissionDenied(timezone = timezone)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        myPageViewModel.onScreenStarted(
+            permissionGranted = hasNotificationPermission(),
+            timezone = timezone
+        )
+    }
+
+    LaunchedEffect(authUiState.errorMessage) {
+        authUiState.errorMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             authViewModel.updateErrorMessage(null)
         }
     }
 
-    LaunchedEffect(uiState.isLogoutCompleted, uiState.isDeleteAccountCompleted) {
-        if (uiState.isLogoutCompleted || uiState.isDeleteAccountCompleted) {
+    LaunchedEffect(notificationUiState.message) {
+        notificationUiState.message?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            myPageViewModel.onMessageConsumed()
+        }
+    }
+    // 알림 권한 재귀
+    LaunchedEffect(notificationUiState.permissionRequired) {
+        if (!notificationUiState.permissionRequired) return@LaunchedEffect
+        if (hasNotificationPermission()) {
+            myPageViewModel.onNotificationPermissionGranted(timezone = timezone)
+        } else {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    LaunchedEffect(authUiState.isLogoutCompleted, authUiState.isDeleteAccountCompleted) {
+        if (authUiState.isLogoutCompleted || authUiState.isDeleteAccountCompleted) {
             onNavigateToOnBoarding()
         }
+    }
+    // 타임피커 노출
+    if (notificationUiState.showTimePicker) {
+        NotificationTimePickerDialog(
+            initialMinutes = notificationUiState.settings.preferredNotificationTimeMinutes,
+            onDismiss = myPageViewModel::onTimePickerDismissed,
+            onTimeConfirmed = myPageViewModel::onTimeSelected
+        )
     }
 
     Scaffold(
@@ -78,7 +151,7 @@ fun MyPageScreen(
             UmmaAppBar(
                 title = "마이페이지",
                 isCenterTitle = true,
-                onBackClick = if (uiState.isLoading) null else onBackClick
+                onBackClick = if (authUiState.isLoading) null else onBackClick
             )
         }
     ) { paddingValues ->
@@ -91,7 +164,17 @@ fun MyPageScreen(
 
 
         ) {
-            // Dialog 모국어 선택
+            NotificationSettingsCard(
+                uiState = notificationUiState,
+                onToggleChanged = { enabled ->
+                    myPageViewModel.onNotificationToggleChanged(
+                        enabled = enabled,
+                        permissionGranted = hasNotificationPermission()
+                    )
+                },
+                onTimeSettingClicked = myPageViewModel::onTimeSettingClicked
+            )
+
             if (showNativeLanguageDialog) {
                 UmmaDialog(
                     title = "모국어 선택",
@@ -107,10 +190,9 @@ fun MyPageScreen(
                     ) {
 
                         nativeLanguageOptions.forEach { (code, label) ->
-                            val isSelected = (selectedNativeLanguage == code)
                             LanguageButton(
                                 text = label,
-                                isSelected = isSelected,
+                                isSelected = selectedNativeLanguage == code,
                                 onClick = { selectedNativeLanguage = code }
                             )
                         }
@@ -131,10 +213,15 @@ fun MyPageScreen(
                     Text(
                         text = "로그아웃 시 서비스 이용을 위해 다시 로그인해야 해요.",
                         modifier = Modifier
-                            .background(color = BackgroundSecondary, shape = RoundedCornerShape(ChipCornerRadius))
-                            .border(color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
-                                ChipCornerRadius
-                            ))
+                            .background(
+                                color = BackgroundSecondary,
+                                shape = RoundedCornerShape(ChipCornerRadius)
+                            )
+                            .border(
+                                color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
+                                    ChipCornerRadius
+                                )
+                            )
                             .padding(horizontal = SpacingS, vertical = SpacingL),
                         textAlign = TextAlign.Center
                     )
@@ -156,10 +243,15 @@ fun MyPageScreen(
                     Text(
                         text = "회원탈퇴 시 회원님의 계정 및 학습 기록이 영구적으로 삭제되며, 복구가 불가능해져요.",
                         modifier = Modifier
-                            .background(color = BackgroundSecondary, shape = RoundedCornerShape(ChipCornerRadius))
-                            .border(color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
-                                ChipCornerRadius
-                            ))
+                            .background(
+                                color = BackgroundSecondary,
+                                shape = RoundedCornerShape(ChipCornerRadius)
+                            )
+                            .border(
+                                color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
+                                    ChipCornerRadius
+                                )
+                            )
                             .padding(horizontal = SpacingS, vertical = SpacingL),
                         textAlign = TextAlign.Center
                     )
@@ -167,7 +259,7 @@ fun MyPageScreen(
             }
             Button(
                 onClick = { showNativeLanguageDialog = true },
-                enabled = !uiState.isLoading,
+                enabled = !authUiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -182,7 +274,7 @@ fun MyPageScreen(
 
             Button(
                 onClick = { showLogoutDialog = true },
-                enabled = !uiState.isLoading,
+                enabled = !authUiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -197,7 +289,7 @@ fun MyPageScreen(
 
             Button(
                 onClick = { showDeleteAccountDialog = true },
-                enabled = !uiState.isLoading,
+                enabled = !authUiState.isLoading,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -209,6 +301,97 @@ fun MyPageScreen(
             ) {
                 Text(text = "회원탈퇴")
             }
+        }
+    }
+}
+
+/**
+ * Card for SRS notification settings.
+ */
+@Composable
+private fun NotificationSettingsCard(
+    uiState: MyPageNotificationUiState,
+    onToggleChanged: (Boolean) -> Unit,
+    onTimeSettingClicked: () -> Unit
+) {
+    val hour = uiState.settings.preferredNotificationTimeMinutes / 60
+    val minute = uiState.settings.preferredNotificationTimeMinutes % 60
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
+                headlineContent = { Text(text = "학습 알림") },
+                supportingContent = { Text(text = "하루 한번 정하신 시간에 학습 알림을 보내드려요.") },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.settings.enabled,
+                        onCheckedChange = onToggleChanged,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ThemePrimary,
+                            checkedTrackColor = BackgroundSecondary,
+                            checkedBorderColor = TextPrimary
+                        )
+                    )
+                }
+            )
+
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
+                headlineContent = { Text(text = "알림 시간") },
+                supportingContent = { Text(text = String.format("%02d:%02d", hour, minute)) },
+                trailingContent = {
+                    Button(
+                        onClick = onTimeSettingClicked,
+                        enabled = !uiState.isSaving,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                        border = BorderStroke(1.dp, TextPrimary),
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Text(text = "시간 변경")
+                    }
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Wrapper that shows the platform time picker dialog.
+ */
+@Composable
+private fun NotificationTimePickerDialog(
+    initialMinutes: Int,
+    onDismiss: () -> Unit,
+    onTimeConfirmed: (Int) -> Unit
+) {
+    val context = LocalContext.current
+
+    DisposableEffect(initialMinutes, context) {
+        val themedContext = ContextThemeWrapper(context, R.style.CustomTimePickerTheme)
+
+        val dialog = TimePickerDialog(
+            themedContext,
+            { _, hourOfDay, minute ->
+                onTimeConfirmed(hourOfDay * 60 + minute)
+            },
+            initialMinutes / 60,
+            initialMinutes % 60,
+            true
+        )
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawableResource(R.drawable.time_picker_bg)
+        }
+        dialog.setOnDismissListener { onDismiss() }
+        dialog.show()
+
+        onDispose {
+            dialog.dismiss()
         }
     }
 }

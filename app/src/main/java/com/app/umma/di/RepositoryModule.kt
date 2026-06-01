@@ -4,6 +4,7 @@ import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
 import com.app.umma.data.repository.ChatUsageRepositoryImpl
+import com.app.umma.data.repository.NotificationSettingsRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.app.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
@@ -17,6 +18,7 @@ import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.ChatUsageRepository
+import com.app.umma.domain.repository.NotificationSettingsRepository
 import com.app.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
@@ -91,4 +93,10 @@ abstract class RepositoryModule {
     abstract fun bindChatUsageRemoteDataSource(
         impl: CloudFunctionChatUsageRemoteDataSource
     ): ChatUsageRemoteDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindNotificationSettingsRepository(
+        impl: NotificationSettingsRepositoryImpl
+    ): NotificationSettingsRepository
 }

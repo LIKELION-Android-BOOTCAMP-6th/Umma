@@ -5,4 +5,17 @@
     <style name="Theme.Umma.Starting" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
+
+    <style name="CustomTimePickerTheme" parent="Theme.AppCompat.Light.Dialog">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorAccent">@color/primary</item>
+        <item name="background">@color/splash_background</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="buttonBarPositiveButtonStyle">@style/CustomButtonStyle</item>
+        <item name="buttonBarNegativeButtonStyle">@style/CustomButtonStyle</item>
+    </style>
+
+    <style name="CustomButtonStyle" parent="Widget.AppCompat.Button.Borderless.Colored">
+        <item name="android:textColor">#6650A4</item>
+    </style>
 </resources>

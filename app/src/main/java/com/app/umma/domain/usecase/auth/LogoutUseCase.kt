@@ -1,6 +1,7 @@
 package com.app.umma.domain.usecase.auth
 
 import com.app.umma.domain.repository.LearningStateRepo
+import com.app.umma.domain.usecase.notification.UnregisterNotificationDeviceUseCase
 import javax.inject.Inject
 
 /**
@@ -16,9 +17,11 @@ import javax.inject.Inject
  */
 class LogoutUseCase @Inject constructor(
     private val signOutUseCase: SignOutUseCase,
-    private val learningStateRepo: LearningStateRepo
+    private val learningStateRepo: LearningStateRepo,
+    private val unregisterNotificationDeviceUseCase: UnregisterNotificationDeviceUseCase
 ) {
     suspend operator fun invoke(): Result<Unit> {
+        unregisterNotificationDeviceUseCase()
         val signOutResult = signOutUseCase()
         // 1단계: Firebase + Google 세션 해제
         // 실패하면 로그인 상태이므로 즉시 중단

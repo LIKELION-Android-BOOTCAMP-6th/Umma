@@ -108,6 +108,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -155,7 +156,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
-    implementation(libs.firebase.functions)
+    implementation(libs.firebase.messaging)
 
     // Google Credential Manager (Auth)
     implementation(libs.androidx.credentials)
