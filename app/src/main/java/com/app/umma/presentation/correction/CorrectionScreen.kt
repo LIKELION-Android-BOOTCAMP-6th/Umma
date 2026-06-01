@@ -42,6 +42,7 @@ import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.presentation.correction.component.CorrectionResultList
+import com.app.umma.presentation.correction.component.CorrectionSelectAllBar
 import kotlinx.coroutines.delay
 
 /**
@@ -136,6 +137,13 @@ fun CorrectionScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    CorrectionSelectAllBar(
+                        totalCount = uiState.suggestions.size,
+                        selectedCount = uiState.selectedSuggestionIds.size,
+                        allSelected = uiState.areAllSuggestionsSelected,
+                        onToggleSelectAll = viewModel::toggleSelectAll,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
                         selectedIds = uiState.selectedSuggestionIds,
@@ -178,6 +186,13 @@ fun CorrectionScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    CorrectionSelectAllBar(
+                        totalCount = uiState.suggestions.size,
+                        selectedCount = uiState.selectedSuggestionIds.size,
+                        allSelected = uiState.areAllSuggestionsSelected,
+                        onToggleSelectAll = viewModel::toggleSelectAll,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
                         selectedIds = uiState.selectedSuggestionIds,

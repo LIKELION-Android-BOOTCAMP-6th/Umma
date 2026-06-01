@@ -342,6 +342,28 @@ class CorrectionViewModel @Inject constructor(
     }
 
     /**
+     * 전체 선택/해제 토글.
+     *
+     * AC:
+     *  - 현재 suggestions 의 id 전부가 selectedSuggestionIds 에 포함된 상태라면 빈 Set 으로 교체(전체 해제).
+     *  - 그렇지 않으면 모든 id 를 Set 으로 교체(전체 선택).
+     *  - suggestions 에 없는 stale id 는 allIds 로 덮어쓰며 함께 정리된다.
+     *  - suggestions 가 비어있으면 아무런 상태 변화가 없다.
+     */
+    fun toggleSelectAll() {
+        _uiState.update { current ->
+            val allIds = current.suggestions.map { it.id }.toSet()
+            if (allIds.isEmpty()) return@update current
+            val next = if (current.selectedSuggestionIds.containsAll(allIds)) {
+                emptySet()
+            } else {
+                allIds
+            }
+            current.copy(selectedSuggestionIds = next)
+        }
+    }
+
+    /**
      * 저장 버튼 진입점.
      *
      * COR-005-A 범위:

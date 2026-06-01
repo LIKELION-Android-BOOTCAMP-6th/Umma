@@ -287,6 +287,15 @@ val CorrectionUiState.canSave: Boolean
             !isCompleting
 
 /**
+ * 현재 suggestions 가 비어있지 않고 전부 선택된 상태인지.
+ *
+ * '전체 선택/해제' 토글 라벨 결정에 사용한다.
+ * suggestions 가 비어있으면 false — 카드 자체가 없어 "전부 선택됨" 이 성립하지 않는다.
+ */
+val CorrectionUiState.areAllSuggestionsSelected: Boolean
+    get() = suggestions.isNotEmpty() && suggestions.all { it.id in selectedSuggestionIds }
+
+/**
  * COR-006-A 완료 파이프라인 트리거 분기.
  *
  * 저장 버튼 한 번의 클릭이 (1) 변환 → (2) 완료 두 단계를 직렬로 진행하므로, 변환이 [SaveRequestOutcome.Prepared]
