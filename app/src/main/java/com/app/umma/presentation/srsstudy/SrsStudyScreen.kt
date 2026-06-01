@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SentimentNeutral
@@ -80,6 +81,7 @@ import com.app.umma.presentation.srsstudy.component.SrsStudyCompletion
 @Composable
 fun SrsStudyScreen(
     onNavigateToDashboard: () -> Unit,
+    onNavigateToCardList: () -> Unit,
     viewModel: SrsStudyViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -110,7 +112,15 @@ fun SrsStudyScreen(
         topBar = {
             UmmaAppBar(
                 title = "학습",
-                isCenterTitle = true
+                isCenterTitle = true,
+                actions = {
+                    IconButton(onClick = onNavigateToCardList) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.List,
+                            contentDescription = "저장된 카드 목록"
+                        )
+                    }
+                }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }

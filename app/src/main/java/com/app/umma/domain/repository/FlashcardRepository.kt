@@ -1,5 +1,6 @@
 package com.app.umma.domain.repository
 
+import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
@@ -38,4 +39,12 @@ interface FlashcardRepository {
      * 실패: Result.failure
      */
     suspend fun syncDirtyFlashcards(userId: String): Result<Int>
+
+    /**
+     * 목록 화면용: 현재 언어로 저장된 카드 전체 조회
+     */
+    suspend fun getFlashcards(
+        userId: String,
+        language: LangCode
+    ): Result<List<Flashcard>>
 }

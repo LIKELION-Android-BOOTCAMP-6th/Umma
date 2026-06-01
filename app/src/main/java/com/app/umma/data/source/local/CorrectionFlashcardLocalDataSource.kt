@@ -56,6 +56,14 @@ interface CorrectionFlashcardLocalDataSource {
     ): List<CorrectionFlashcardDto>
 
     /**
+     * 목록 화면용: 현재 언어로 저장된 카드 전체 조회
+     */
+    suspend fun getFlashcards(
+        uid: String,
+        language: String
+    ): List<CorrectionFlashcardDto>
+
+    /**
      * SRS review 결과를 같은 Flashcard 원본에 반영할 수 있도록 열어두는 갱신 통로다.
      *
      * interval / easeFactor / nextReviewAt 계산은 SRS domain 정책이 맡고,
@@ -181,6 +189,23 @@ interface CorrectionFlashcardDao {
         language: String,
         now: Long,
         limit: Int
+    ): List<CorrectionFlashcardEntity>
+
+    /**
+     * 목록 화면용: 현재 언어로 저장된 카드 전체 조회
+     */
+    @Query(
+        """
+            SELECT *
+            FROM correction_flashcards
+    WHERE userId = :userId
+      AND language = :language
+    ORDER BY createdAt DESC, id ASC
+        """
+    )
+    suspend fun getFlashcards(
+        userId: String,
+        language: String
     ): List<CorrectionFlashcardEntity>
 
     /**
@@ -333,6 +358,15 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
         ).map { entity ->
             entity.toDto()
         }
+    }
+
+    override suspend fun getFlashcards(
+        uid: String,
+        language: String
+    ): List<CorrectionFlashcardDto> {
+        return dao.getFlashcards(
+            userId = uid, language = language
+        ).map { it.toDto() }
     }
 
     override suspend fun updateReviewSchedule(

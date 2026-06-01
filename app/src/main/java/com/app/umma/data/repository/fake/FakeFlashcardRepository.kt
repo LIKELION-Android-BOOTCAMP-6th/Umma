@@ -110,4 +110,15 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
     override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
         return Result.success(0)
     }
+
+    /**
+     * 목록 화면용: 현재 언어로 저장된 카드 전체 조회
+     */
+    override suspend fun getFlashcards(
+        userId: String,
+        language: LangCode
+    ): Result<List<Flashcard>> {
+        val cards = fakeCards.filter { it.language == language }
+        return Result.success(cards)
+    }
 }
