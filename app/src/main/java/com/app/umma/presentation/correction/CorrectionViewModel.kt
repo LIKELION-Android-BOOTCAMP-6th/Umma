@@ -598,6 +598,6 @@ class CorrectionViewModel @Inject constructor(
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
-        const val MIN_LOADING_GUIDE_DURATION_MS = 15_000L
+        const val MIN_LOADING_GUIDE_DURATION_MS = 20_000L
     }
 }
