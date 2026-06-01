@@ -155,6 +155,25 @@ class FlashcardRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * 목록 화면용: 현재 언어로 저장된 카드 전체 조회
+     */
+    override suspend fun getFlashcards(
+        userId: String,
+        language: LangCode
+    ): Result<List<Flashcard>> {
+        return try {
+            val cards = localDataSource.getFlashcards(
+                uid = userId,
+                language = language.code
+            )
+                .map { it.toDomain() }
+            Result.success(cards)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
 
     private fun CorrectionFlashcardDto.toDomain(): Flashcard {
         // correction 이 저장한 원본 필드를 SRS 용 domain 모델로만 변환한다.
@@ -175,3 +194,4 @@ class FlashcardRepositoryImpl @Inject constructor(
         )
     }
 }
+
