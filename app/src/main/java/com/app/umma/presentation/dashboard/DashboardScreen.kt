@@ -82,7 +82,7 @@ import kotlinx.coroutines.delay
  *
  * DASH-001 관련:
  *  - Loading 분기: [DashboardSkeleton]
- *  - Empty 분기 (신규 사용자): [DashboardEmpty]
+ *  - Empty 분기: 신규 사용자용 fallback state
  *  - Content 분기 (기존 placeholder 버튼): [DashboardContent]
  *  - errorMessage Snackbar: AC 7 의 시각 검증용 (cache 유지 + 메시지 노출)
  *  (DASH-001 AC 7: Summary fetch 실패 시 fallback 데이터가 사용된다.)
@@ -573,13 +573,13 @@ private val learningLanguageOptions = listOf(
     LangCode.KO to "한국어",
     LangCode.EN to "English",
     LangCode.JA to "日本語",
-    LangCode.ES to "Español"
+    LangCode.DE to "Deutsch"
 )
 
 /**
  * DASH-006 학습 언어 선택 다이얼로그의 항목 라벨.
  *
- * 와이어프레임 정합으로 한국어 라벨 (영어 / 한국어 / 일본어 / 스페인어) 사용.
+ * 와이어프레임 정합으로 한국어 라벨 (영어 / 한국어 / 일본어 / 독일어) 사용.
  * 닉네임/언어 설정 다이얼로그의 [learningLanguageOptions] (native script) 는
  * 다른 컨텍스트(초기 설정) 이므로 별도 매핑으로 분리.
  */
@@ -587,7 +587,7 @@ private val dashboardLanguageOptions = listOf(
     LangCode.KO to "한국어",
     LangCode.EN to "영어",
     LangCode.JA to "일본어",
-    LangCode.ES to "스페인어"
+    LangCode.DE to "독일어"
 )
 
 /**
@@ -595,8 +595,8 @@ private val dashboardLanguageOptions = listOf(
  *
  * 와이어프레임 정합:
  *  - 흰 배경 + 알약(pill) 형태 + 중앙 텍스트
- *  - 임시 선택된 항목([isSelected]) 은 ThemePrimary 보더 + 텍스트 색으로 강조
- *  - 학습 중인 항목([isLearning]) 은 텍스트 우측에 TextCorrect 색 체크 아이콘
+ *  - 임시 선택된 항목(isSelected)은 ThemePrimary 보더 + 텍스트 색으로 강조
+ *  - 학습 중인 항목(isLearning)은 텍스트 우측에 TextCorrect 색 체크 아이콘
  *  - selectedLang 이면서 학습 중인 경우 두 표시(보더 + 체크) 가 함께 노출됨 — 의도된 동작
  */
 private const val CORRECTION_COMPLETION_TOAST_DURATION_MS = 1_500L

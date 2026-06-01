@@ -6,10 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -25,7 +23,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,11 +32,8 @@ import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
-import com.app.umma.core.theme.SpacingXL
-import com.app.umma.core.theme.SpacingXS
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
-import com.app.umma.core.theme.TextSecondary
 import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
@@ -254,5 +248,5 @@ private val nativeLanguageOptions = listOf(
     LangCode.KO to "한국어",
     LangCode.EN to "English",
     LangCode.JA to "日本語",
-    LangCode.ES to "Español"
+    LangCode.DE to "Deutsch"
 )

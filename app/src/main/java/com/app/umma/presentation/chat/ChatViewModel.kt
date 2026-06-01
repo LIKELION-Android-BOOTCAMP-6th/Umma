@@ -1261,6 +1261,7 @@ class ChatViewModel @Inject constructor(
             LangCode.KO -> "한국어"
             LangCode.EN -> "영어"
             LangCode.JA -> "일본어"
+            LangCode.DE -> "독일어"
             else -> code.uppercase()
         }
     }
