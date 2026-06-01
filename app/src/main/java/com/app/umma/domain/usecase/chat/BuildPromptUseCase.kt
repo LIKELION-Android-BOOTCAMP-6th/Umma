@@ -32,7 +32,7 @@ class BuildPromptUseCase @Inject constructor() {
             LangCode.EN -> "English"
             LangCode.JA -> "Japanese"
             LangCode.KO -> "Korean"
-            LangCode.ES -> "Spanish"
+            LangCode.DE -> "German"
             // LangCode.UNKNOWN 은 정상 흐름에서 여기로 도달하면 안 된다.
             //   상위 layer(DASH-006 AC 9 fallback 등)에서 primaryLang 으로 교체됐어야 함.
             //   여기까지 왔다면 fallback 누락 → AI 프롬프트는 안전 default(English) 로 처리.

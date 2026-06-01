@@ -9,7 +9,7 @@ import java.util.Locale
 import javax.inject.Inject
 
 class TextToSpeechController @Inject constructor(
-    private val context: Context
+    context: Context
 ) {
     // Android TTS 인스턴스 (초기화 전 null)
     private var tts: TextToSpeech? = null
@@ -39,6 +39,7 @@ class TextToSpeechController @Inject constructor(
             LangCode.KO -> Locale.KOREAN
             LangCode.EN -> Locale.ENGLISH
             LangCode.JA -> Locale.JAPANESE
+            LangCode.DE -> Locale.GERMAN
             else -> return false
         }
         // tts가 null이면 초기화 전. 바로 false 반환

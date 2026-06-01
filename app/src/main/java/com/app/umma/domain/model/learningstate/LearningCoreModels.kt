@@ -7,7 +7,7 @@ enum class LangCode(val code: String) {
     KO("ko"),
     EN("en"),
     JA("ja"),
-    ES("es"),
+    DE("de"),
 
     // 미지원/오염 상태 표현용. 정상 학습 언어로는 사용하지 않는다.
     //   - selectedLang 이 어떤 이유(앱 다운그레이드, DB 마이그레이션 실패, 외부 소스 오염 등)로
@@ -20,7 +20,7 @@ enum class LangCode(val code: String) {
     companion object {
         // Firestore나 문자열 입력을 enum으로 되돌릴 때 사용한다.
         fun fromCode(code: String): LangCode? {
-            return values().firstOrNull { it.code.equals(code, ignoreCase = true) }
+            return entries.firstOrNull { it.code.equals(code, ignoreCase = true) }
         }
     }
 }
