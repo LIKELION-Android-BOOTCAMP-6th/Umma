@@ -10,8 +10,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -90,6 +87,7 @@ import com.app.umma.core.ui.component.UmmaDialog
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.user.Topic
+import com.app.umma.presentation.chat.component.VoiceInteractionCharacter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,11 +221,16 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(horizontal = SpacingL)
         ) {
-            ChatCenterVisual(
-                uiState = uiState,
+            VoiceInteractionCharacter(
+                inputLevel = uiState.inputLevel,
+                outputLevel = uiState.outputLevel,
+                isRecording = uiState.isRecording,
+                isAwaitingUserTranscript = uiState.isAwaitingUserTranscript,
+                aiState = uiState.aiState,
+                isAudioOutputPlaying = uiState.isAudioOutputPlaying,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 40.dp)
+                    .padding(top = 28.dp)
             )
 
             if (uiState.showSubtitle) {
@@ -568,74 +571,6 @@ private fun ChatSubtitleBubble(
                     color = textColor
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun ChatCenterVisual(
-    uiState: ChatUiState,
-    modifier: Modifier = Modifier
-) {
-    val inputSignal = uiState.inputLevel.coerceIn(0f, 1f)
-    val outputSignal = uiState.outputLevel.coerceIn(0f, 1f)
-    val innerHaloScale by animateFloatAsState(
-        targetValue = if (inputSignal > 0.01f) 1f + (inputSignal * 0.16f) else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 240f),
-        label = "chat-inner-halo-scale"
-    )
-    val innerHaloAlpha by animateFloatAsState(
-        targetValue = if (inputSignal > 0.01f) (0.18f + inputSignal * 0.34f).coerceAtMost(0.56f) else 0f,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = 220f),
-        label = "chat-inner-halo-alpha"
-    )
-    val outerHaloScale by animateFloatAsState(
-        targetValue = if (outputSignal > 0.01f) 1f + (outputSignal * 0.2f) else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 180f),
-        label = "chat-outer-halo-scale"
-    )
-    val outerHaloAlpha by animateFloatAsState(
-        targetValue = if (outputSignal > 0.01f) (0.10f + outputSignal * 0.26f).coerceAtMost(0.42f) else 0f,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = 180f),
-        label = "chat-outer-halo-alpha"
-    )
-
-    Box(
-        modifier = modifier.size(320.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        if (outerHaloAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .size(320.dp)
-                    .scale(outerHaloScale)
-                    .background(ThemePrimary.copy(alpha = outerHaloAlpha), CircleShape)
-            )
-        }
-
-        if (innerHaloAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .size(256.dp)
-                    .scale(innerHaloScale)
-                    .background(ThemePrimary.copy(alpha = innerHaloAlpha), CircleShape)
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .size(192.dp)
-                .border(width = 8.dp, color = Color.White, shape = CircleShape)
-                .shadow(12.dp, CircleShape)
-                .background(ThemePrimary, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.baseline_record_voice_over_24),
-                contentDescription = "Central visual",
-                tint = Color.White,
-                modifier = Modifier.size(86.dp)
-            )
         }
     }
 }

@@ -18,7 +18,6 @@
 | `CHAT-FIX-001-B` | 관심주제 선택 다이얼로그 안정성 | 필수 선택 단계를 우회하지 못하게 하고, 회전/가로 화면에서도 선택을 완료할 수 있게 한다. |
 | `CHAT-FIX-001-C` | 마이크 버튼 상태 UX | 입력 가능/녹음 중/AI 응답 중 버튼 상태를 명확히 표시한다. |
 | `CHAT-FIX-001-D` | final 자막 대화형 표시 | 사용자/AI final 자막을 메신저 대화처럼 순서대로 표시한다. |
-| `CHAT-FIX-001-E` | 음성 레벨 반응형 웨이브 | 사용자 입력/AI 출력 음성 레벨을 더 직관적인 원형 wave로 표시한다. |
 | `CHAT-FIX-001-F` | AI 음성 재생 연속성 | AI 음성이 중간에 잘려 들리는 원인을 확인하고 끊김 없이 재생되게 한다. |
 | `CHAT-FIX-001-G+` | 추후 Sprint2 후속 수정 | Sprint2 AI Chat 흐름에서 추가로 발견되는 회귀/안정성 문제를 작은 이슈 단위로 추가한다. |
 
@@ -64,14 +63,6 @@
 - [ ] 같은 final 자막이 화면에 중복 표시되지 않는다.
 - [ ] 긴 자막은 중앙 음성 visual을 덮지 않고 자막 영역 안에서 스크롤로 확인할 수 있다.
 
-## CHAT-FIX-001-E 음성 레벨 반응형 웨이브
-
-- [ ] 사용자가 말하는 동안 중앙 애니메이션이 입력 음성 크기에 맞춰 눈에 띄게 반응한다.
-- [ ] AI가 말하는 동안 중앙 애니메이션이 출력 음성 크기에 맞춰 눈에 띄게 반응한다.
-- [ ] 애니메이션은 기존 원형 계열을 유지하되 물결처럼 유동적인 wave 형태로 표시된다.
-- [ ] 음성 레벨이 작거나 없을 때는 과한 움직임 없이 idle 상태로 돌아온다.
-- [ ] wave 변경 후에도 마이크 버튼 상태, final 자막 표시, 대화 저장 흐름은 기존처럼 동작한다.
-
 ## CHAT-FIX-001-F AI 음성 재생 연속성
 
 - [ ] AI 응답 음성이 중간에 단어가 빠진 것처럼 잘려 들리지 않는다.
@@ -91,8 +82,8 @@
 - Sprint3 데모: `docs/Sprint3/Demo/DEMO_FLOW_AI_CHAT_IMPROVEMENTS.md`
 - 마이크 버튼 상태 UX: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-C_Mic_Button_State_UX.md`
 - final 자막 대화형 표시: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-D_Final_Subtitle_Conversation_UX.md`
-- 음성 레벨 반응형 웨이브: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-E_Voice_Level_Wave_UX.md`
 - AI 음성 재생 연속성: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-FIX-001/CHAT-FIX-001-F_AI_Audio_Playback_Continuity.md`
+- Voice Interaction Character: `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-UX-003_Voice_Interaction_Character.md`
 - Reconnect 기준: `docs/System_FlowDB/SYS_REALTIME_INFRA/RT-004_Reconnect.md`
 
 ---
@@ -117,14 +108,13 @@
 - 마이크 버튼의 녹음 시작/정지/응답 중 비활성 상태 정리
 - 현재 화면 표시용 final 자막을 사용자/AI 순서대로 누적 표시
 - 긴 final 자막을 자막 영역 내부 스크롤로 확인
-- 사용자 입력과 AI 출력 상태를 음성 레벨 기반 웨이브 애니메이션으로 강화
 - AI audio 수신부터 단말 재생 종료까지의 경계 확인
 - AI audio가 순서대로 끝까지 재생되도록 `AudioPlayer` 재생 흐름 보강
 - 로컬 재생 완료 전 마이크가 다시 활성화되지 않도록 AI speaking 상태 유지
 
 ## 제외 범위 (Out of Scope)
 
-- `CHAT-FIX-001-C/D/E/F` 범위를 벗어나는 신규 UX 고도화
+- `CHAT-FIX-001-C/D/F` 범위를 벗어나는 신규 UX 고도화
 - prompt tuning 정책 구현
 - 실시간 타이핑형 사용자/AI 자막 구현
 - 장기 백그라운드 세션 유지
@@ -191,13 +181,6 @@
 - 긴 자막은 말줄임 없이 표시하되, 중앙 음성 visual을 덮지 않도록 자막 영역 안에서 스크롤한다.
 - 자막 영역이 스크롤 가능하면 상단 fade와 화살표 힌트로 위쪽 내용을 더 볼 수 있음을 알려준다.
 - 화면 표시용 자막 리스트는 저장 정책이 아니며, SessionMemory 저장은 기존 final turn 기준을 유지한다.
-
-## 음성 레벨 반응형 웨이브 정책
-
-- 음성 반응 애니메이션은 실제 입력/출력 레벨을 더 잘 드러내는 시각 피드백이며, AI 응답 생성 정책이나 저장 정책을 바꾸지 않는다.
-- 사용자 발화 중에는 microphone input level을 반영한다.
-- AI 응답 중에는 output audio level을 반영한다.
-- 기존 원형 계열은 유지하되, 가장자리가 물결처럼 유동적으로 변하는 wave 형태를 지향한다.
 
 ## AI 음성 재생 연속성 정책
 
@@ -280,15 +263,6 @@ AI Chat 진입
 - 실시간 타이핑 자막이 아니라 final 자막 기준으로 표시된다.
 - 긴 자막은 말줄임 없이 자막 영역 안에서 스크롤로 확인된다.
 
-## CHAT-FIX-001-E
-
-- 사용자 입력 애니메이션이 음성 레벨 변화에 따라 더 크게 또는 더 강하게 반응한다.
-- AI 출력 애니메이션이 음성 레벨 변화에 따라 더 크게 또는 더 강하게 반응한다.
-- 원형 가장자리가 완전한 동심원 반복이 아니라 wave 형태로 유동적으로 움직인다.
-- 음성 레벨이 작거나 없으면 과한 움직임 없이 idle 상태로 돌아온다.
-- AI 응답 중 마이크 버튼 비활성화 상태가 유지된다.
-- final 자막 영역과 중앙 wave가 서로 읽기 어렵게 겹치지 않는다.
-
 ## CHAT-FIX-001-F
 
 - 짧은 AI 응답과 긴 AI 응답을 각각 재생했을 때 단어가 중간에 잘려 들리지 않는다.
@@ -316,7 +290,6 @@ AI Chat 진입
 - 사용자 final 자막이 늦게 도착함
 - AI 응답 중 마이크 버튼 연속 클릭
 - 긴 사용자/AI 자막이 여러 줄로 표시됨
-- 입력/출력 음성 레벨이 매우 작거나 거의 0에 가까움
 - AI audio chunk가 짧은 간격으로 연속 도착함
 - 서버 `response.done`이 로컬 재생 완료보다 먼저 도착함
 - AI 음성 재생 중 화면 이탈 또는 화면 회전
