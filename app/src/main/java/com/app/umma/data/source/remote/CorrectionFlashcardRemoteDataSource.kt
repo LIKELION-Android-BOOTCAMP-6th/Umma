@@ -4,6 +4,7 @@ import com.app.umma.core.util.safeFirestoreCall
 import com.app.umma.data.model.correction.CorrectionFlashcardDto
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +31,9 @@ interface CorrectionFlashcardRemoteDataSource {
         nextReviewAt: Long,
         interval: Int,
         easeFactor: Double,
-        updatedAt: Long
+        updatedAt: Long,
+        lastReviewRating: String?,
+        lastReviewedAt: Long?
     ): Result<Unit>
 }
 
@@ -92,7 +95,9 @@ class FirestoreCorrectionFlashcardRemoteDataSource @Inject constructor(
         nextReviewAt: Long,
         interval: Int,
         easeFactor: Double,
-        updatedAt: Long
+        updatedAt: Long,
+        lastReviewRating: String?,
+        lastReviewedAt: Long?
     ): Result<Unit> {
         val uid = firebaseAuth.currentUser?.uid
             ?: return Result.failure(IllegalStateException("signed-in user is required"))
@@ -105,14 +110,17 @@ class FirestoreCorrectionFlashcardRemoteDataSource @Inject constructor(
                 .document(uid)
                 .collection("flashcards")
                 .document(flashcardId)
-                .update(
+                .set(
                     mapOf(
                         "nextReviewAt" to nextReviewAt,
                         "interval" to interval,
                         "easeFactor" to easeFactor,
                         "updatedAt" to updatedAt,
-                        "dirty" to false
-                    )
+                        "dirty" to false,
+                        "lastReviewRating" to lastReviewRating,
+                        "lastReviewedAt" to lastReviewedAt
+                    ),
+                    SetOptions.merge()
                 )
                 .await()
         }

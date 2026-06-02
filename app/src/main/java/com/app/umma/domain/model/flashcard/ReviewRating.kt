@@ -13,4 +13,12 @@ enum class ReviewRating(val value: Int) {
 
     // 매우 쉽게 기억해냄.
     EASY(3)
+
+    ;
+
+    companion object {
+        fun fromName(name: String?): ReviewRating? {
+            return entries.firstOrNull { it.name == name }
+        }
+    }
 }

@@ -2,6 +2,8 @@ package com.app.umma.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.app.umma.data.source.local.ChatUsageDao
 import com.app.umma.data.source.local.ChatUsageDatabase
 import com.app.umma.data.source.local.CorrectionFlashcardDao
@@ -17,6 +19,17 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+
+private val MIGRATION_1_2_CORRECTION_FLASHCARD = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE correction_flashcards ADD COLUMN lastReviewRating TEXT"
+        )
+        db.execSQL(
+            "ALTER TABLE correction_flashcards ADD COLUMN lastReviewedAt INTEGER"
+        )
+    }
+}
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -53,7 +66,10 @@ object DatabaseModule {
             context,
             CorrectionFlashcardDatabase::class.java,
             "umma_correction_flashcard_db"
-        ).fallbackToDestructiveMigration(false).build()
+        )
+            .addMigrations(MIGRATION_1_2_CORRECTION_FLASHCARD)
+            .fallbackToDestructiveMigration(false)
+            .build()
     }
 
     @Provides

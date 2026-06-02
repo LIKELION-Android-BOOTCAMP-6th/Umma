@@ -5,6 +5,7 @@ import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.app.umma.domain.model.flashcard.FlashcardSchedule
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
+import com.app.umma.domain.model.flashcard.ReviewRating
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.repository.FlashcardRepository
@@ -62,7 +63,9 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
     override suspend fun updateFlashcardSchedule(
         userId: String,
         cardId: String,
-        result: ReviewScheduleResult
+        result: ReviewScheduleResult,
+        lastReviewRating: ReviewRating?,
+        lastReviewedAt: Long?
     ): Result<FlashcardUpdateResult> {
         // syncPending / failure 를 바꿔 저장 성공, pending sync, retry 화면을 검증한다.
         // fake 는 저장 payload 자체보다 화면 분기 재현이 더 중요하다.
@@ -81,7 +84,9 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
                 easeFactor = result.easeFactor,
                 nextReviewAt = result.nextReviewAt
             ),
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            lastReviewRating = lastReviewRating,
+            lastReviewedAt = lastReviewedAt
         )
 
         return Result.success(FlashcardUpdateResult(cardId, updateSyncPending))

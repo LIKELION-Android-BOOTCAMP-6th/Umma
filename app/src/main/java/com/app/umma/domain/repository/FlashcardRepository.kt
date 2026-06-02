@@ -4,6 +4,7 @@ import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
+import com.app.umma.domain.model.flashcard.ReviewRating
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.model.learningstate.LangCode
 import kotlinx.coroutines.flow.Flow
@@ -21,7 +22,9 @@ interface FlashcardRepository {
     suspend fun updateFlashcardSchedule(
         userId: String,
         cardId: String,
-        result: ReviewScheduleResult
+        result: ReviewScheduleResult,
+        lastReviewRating: ReviewRating?,
+        lastReviewedAt: Long?
     ): Result<FlashcardUpdateResult>
 
     /**

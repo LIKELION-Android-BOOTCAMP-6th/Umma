@@ -22,9 +22,10 @@ data class CorrectionFlashcardDto(
     val nextReviewAt: Long,
     val interval: Int,
     val easeFactor: Double,
-    val dirty: Boolean
+    val dirty: Boolean,
+    val lastReviewRating: String?,
+    val lastReviewedAt: Long?
 ) {
-
     /**
      * Firestore 저장 필드는 DTO의 camelCase 이름을 그대로 사용한다.
      *
@@ -32,7 +33,7 @@ data class CorrectionFlashcardDto(
      * `interval` / `easeFactor` / `nextReviewAt`은 SRS가 바로 읽을 수 있는 초기 스케줄 값이다.
      * interval은 날짜 단위로 고정하지 않고, SRS 정책이 정하는 간격 값으로 해석한다.
      */
-    fun toFirestoreMap(): Map<String, Any> {
+    fun toFirestoreMap(): Map<String, Any?> {
         return mapOf(
             "id" to id,
             "language" to language,
@@ -46,7 +47,9 @@ data class CorrectionFlashcardDto(
             "nextReviewAt" to nextReviewAt,
             "interval" to interval,
             "easeFactor" to easeFactor,
-            "dirty" to dirty
+            "dirty" to dirty,
+            "lastReviewRating" to lastReviewRating,
+            "lastReviewedAt" to lastReviewedAt
         )
     }
 }
@@ -76,6 +79,8 @@ fun CorrectionFlashcardSaveItem.toCorrectionFlashcardDto(
         interval = 0,
         easeFactor = 2.5,
         // Firestore sync가 끝나기 전까지는 local 원본이 dirty 상태다.
-        dirty = true
+        dirty = true,
+        lastReviewRating = null,
+        lastReviewedAt = null
     )
 }
