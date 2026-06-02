@@ -2,6 +2,8 @@ package com.app.umma.presentation.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.umma.domain.repository.UserProfileRepository
+import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.notification.ObserveSrsNotificationSettingsUseCase
 import com.app.umma.domain.usecase.notification.RefreshNotificationTimezoneUseCase
 import com.app.umma.domain.usecase.notification.SetSrsNotificationEnabledUseCase
@@ -24,7 +26,9 @@ class MyPageViewModel @Inject constructor(
     private val setSrsNotificationEnabledUseCase: SetSrsNotificationEnabledUseCase,
     private val setSrsNotificationTimeUseCase: SetSrsNotificationTimeUseCase,
     private val refreshNotificationTimezoneUseCase: RefreshNotificationTimezoneUseCase,
-    private val syncCurrentNotificationDeviceUseCase: SyncCurrentNotificationDeviceUseCase
+    private val syncCurrentNotificationDeviceUseCase: SyncCurrentNotificationDeviceUseCase,
+    private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
+    private val userProfileRepository: UserProfileRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MyPageNotificationUiState())
@@ -40,6 +44,12 @@ class MyPageViewModel @Inject constructor(
                     )
                 }
             }
+        }
+        // 닉네임 로딩
+        viewModelScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            val profile = userProfileRepository.getUserProfile(uid) ?: return@launch
+            _uiState.update { it.copy(nickname = profile.nickname) }
         }
     }
 

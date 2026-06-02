@@ -10,6 +10,7 @@ import com.app.umma.domain.usecase.auth.DeleteAccountUseCase
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.auth.SignInWithGoogleUseCase
+import com.app.umma.domain.usecase.user.GetSystemLanguageUseCase
 import com.app.umma.domain.usecase.user.InitializeUserDataUseCase
 import com.app.umma.domain.usecase.user.ValidateNicknameUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,7 +40,8 @@ class AuthViewModel @Inject constructor(
     private val logoutUseCase: LogoutUseCase,
     private val deleteAccountUseCase: DeleteAccountUseCase,
     private val authRepository: AuthRepository,
-    private val validateNicknameUseCase: ValidateNicknameUseCase
+    private val validateNicknameUseCase: ValidateNicknameUseCase,
+    private val getSystemLanguageUseCase: GetSystemLanguageUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
@@ -153,9 +155,8 @@ class AuthViewModel @Inject constructor(
      */
     fun startInitialSetupFlow() {
         viewModelScope.launch {
-            // uid 없으면 로그인 상태 아님
-            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
-            if (uid == null) return@launch
+            // uid 없으면 비로그인 상태
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
 
             // Firestore 에서 신규 사용자 여부 확인
             // 판단 기준: users/{uid} 문서 없음 또는 isSetupCompleted == false
@@ -207,7 +208,7 @@ class AuthViewModel @Inject constructor(
                 uid = uid,
                 email = email,
                 nickname = _uiState.value.nickname,
-                nativeLang = LangCode.KO,
+                nativeLang = getSystemLanguageUseCase(),
                 primaryLang = selectedLearningLanguage,
                 topics = emptyList()
             )

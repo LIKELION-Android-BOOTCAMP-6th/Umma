@@ -10,5 +10,6 @@ data class MyPageNotificationUiState(
     val isSaving: Boolean = false, // 저장 중 여부
     val showTimePicker: Boolean = false,
     val permissionRequired: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    val nickname: String = "" // 프로필 카드에 표시할 닉네임
 )
