@@ -22,20 +22,23 @@ class InitializeUserDataUseCase @Inject constructor(
         uid: String,
         email: String,
         nickname: String,
-        nativeLang: LangCode,
         primaryLang: LangCode,
+        selectedLang: LangCode,
         topics: List<String>
     ): Result<Unit> {
         // ***** 기기 시간 사용하는 상태
         val currentTime = System.currentTimeMillis()
         // 초기 데이터 기본값 생성(팩토리 메서드)
         val profile = UserProfile.initial(uid, nickname, email, topics)
-        val langPref = UserLangPref.initial(nativeLang, primaryLang)
-        val langState = LangState.initial(primaryLang, currentTime)
+        val langPref = UserLangPref.initial(
+            primaryLang = primaryLang,
+            selectedLang = selectedLang
+        )
+        val langState = LangState.initial(selectedLang, currentTime)
 
-        val dashSummary = DashSummary.initial(primaryLang)
-        val sessionSummary = SessionSummary.initial(primaryLang)
-        val flashcardSummary = FlashcardSummary.initial(primaryLang)
+        val dashSummary = DashSummary.initial(selectedLang)
+        val sessionSummary = SessionSummary.initial(selectedLang)
+        val flashcardSummary = FlashcardSummary.initial(selectedLang)
         // Repository 에 전달하여 Firestore 에 Batch 저장 실행
         val remoteResult = repository.saveInitialSetup(
             profile = profile,

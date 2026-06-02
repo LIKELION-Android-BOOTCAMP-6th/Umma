@@ -42,7 +42,10 @@ class FakeFlashcardRepositoryTest {
                 interval = 1_440,
                 easeFactor = 2.5,
                 nextReviewAt = 1_000L
-            )
+            ),
+            // fake의 pending 분기만 확인하는 테스트라 평가 메타는 필요하지 않다.
+            lastReviewRating = null,
+            lastReviewedAt = null
         )
 
         assertTrue(result.isSuccess)
@@ -62,7 +65,10 @@ class FakeFlashcardRepositoryTest {
                 interval = 1_440,
                 easeFactor = 2.5,
                 nextReviewAt = System.currentTimeMillis() + 60_000L
-            )
+            ),
+            // due count 변화 검증에 집중하기 위해 review 평가 메타는 비워 둔다.
+            lastReviewRating = null,
+            lastReviewedAt = null
         ).getOrThrow()
 
         val summary = repository.getReviewSummary(

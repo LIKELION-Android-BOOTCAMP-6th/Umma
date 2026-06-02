@@ -61,6 +61,9 @@ Correction 담당자에게 전달할 계약 문서는 구현 문서 번호에서
 - `LearningState`는 학습 상태 시스템 전체를 가리키는 상위 개념이고, 실제 언어별 장기 능력 스냅샷은 `LangState`다.
 - `LangState`는 저장 모델이고 prompt instruction 자체가 아니다.
 - `LearnerAdaptationProfile`은 저장 모델이 아니라 AI 기능이 사용할 교육 전략 read model이다.
+- `primaryLang`은 사용자가 학습을 이해하고 설명을 받을 기준 언어다. 모국어로 단정하지 않으며, 사용자가 익숙한 언어 또는 학습 기준으로 선택한 언어일 수 있다.
+- `selectedLang`은 현재 대화, 교정, LangState, Statistics, SRS가 바라보는 학습 대상 언어다.
+- `primaryLang`과 `selectedLang`은 같을 수도 다를 수도 있으며, 데이터 소속과 능력 측정은 항상 `selectedLang` 기준으로 유지한다.
 - Correction은 교정 결과와 구조화된 learning signal을 제공하지만, 사용자의 최종 점수/레벨/profile을 결정하지 않는다.
 - `difficultyDelta`는 Correction signal에 넣지 않는다. 난이도 변화와 “10% 성장” 판단은 LearningState가 source/corrected 문장, improvement type, 기존 LangState를 비교해 계산한다.
 - unknown enum이나 confidence 범위 오류가 있는 learning signal은 drop하되, correction result 저장 자체는 막지 않는다.
@@ -72,6 +75,7 @@ Correction 담당자에게 전달할 계약 문서는 구현 문서 번호에서
 - focus는 빠르게, score는 천천히, CEFR level은 가장 천천히 움직인다.
 - AI Chat과 Correction은 raw `LangState` metric을 직접 해석하지 않고 같은 `LearnerAdaptationProfile` 계약을 사용한다.
 - Correction prompt builder는 `LearnerAdaptationProfile.correctionPolicy`를 instruction text로 바꾸고, raw `LangState` metric을 직접 해석하지 않는다.
+- Chat/Correction의 보조 설명 언어 정책은 특정 언어명(Korean/English 등)에 고정하지 않고, `primaryLang`과 `selectedLang`의 상대 관계로 결정한다.
 
 ---
 

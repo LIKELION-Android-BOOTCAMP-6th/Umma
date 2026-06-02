@@ -56,7 +56,10 @@ class FlashcardRepositoryImplTest {
                 interval = 1_440,
                 easeFactor = 2.5,
                 nextReviewAt = 1_000L
-            )
+            ),
+            // 이 테스트는 local/remote sync pending 여부만 검증하므로 review 평가 메타는 비워 둔다.
+            lastReviewRating = null,
+            lastReviewedAt = null
         )
 
         assertTrue(result.isSuccess)
@@ -117,10 +120,20 @@ class FlashcardRepositoryImplTest {
             nextReviewAt: Long,
             interval: Int,
             easeFactor: Double,
-            updatedAt: Long
+            updatedAt: Long,
+            lastReviewRating: String?,
+            lastReviewedAt: Long?
         ): Boolean {
             // schedule 저장 성공/실패를 이 함수 하나로 제어한다.
             return updateSchedule()
+        }
+
+        override suspend fun getFlashcards(
+            uid: String,
+            language: String
+        ): List<CorrectionFlashcardDto> {
+            // 목록 조회는 이 repository 단위 테스트의 검증 대상이 아니므로 빈 목록으로 계약만 맞춘다.
+            return emptyList()
         }
 
         override suspend fun countFlashcards(
@@ -171,7 +184,9 @@ class FlashcardRepositoryImplTest {
             nextReviewAt: Long,
             interval: Int,
             easeFactor: Double,
-            updatedAt: Long
+            updatedAt: Long,
+            lastReviewRating: String?,
+            lastReviewedAt: Long?
         ): Result<Unit> {
             // 테스트는 syncResult lambda로 성공/실패를 제어해 pending 분기를 검증
             return syncResult()

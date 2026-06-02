@@ -44,17 +44,17 @@ object StatisticsLearningStateFixtures {
     }
 
     fun normal(): GlobalLangState {
-        val primary = LangCode.EN
+        val primary = LangCode.KO
+        val selected = LangCode.EN
         return GlobalLangState(
             userPref = UserLangPref(
-                nativeLang = LangCode.KO,
                 primaryLang = primary,
-                selectedLang = primary,
+                selectedLang = selected,
                 learningLangs = listOf(LangCode.EN, LangCode.JA),
                 updatedAt = STALE_TIMESTAMP
             ),
             langStates = mapOf(
-                primary to LangState.initial(primary).copy(
+                selected to LangState.initial(selected).copy(
                     external = ExternalMetrics(
                         vocabularyLevel = VocabLevel.C1,
                         grammarAccuracy = 0.88,
@@ -76,8 +76,8 @@ object StatisticsLearningStateFixtures {
                 )
             ),
             dashSummaries = mapOf(
-                primary to DashSummary(
-                    lang = primary,
+                selected to DashSummary(
+                    lang = selected,
                     recentMinutes = 30,
                     recentTopic = "Travel",
                     correctionAvailable = true,
@@ -104,8 +104,8 @@ object StatisticsLearningStateFixtures {
                 )
             ),
             sessionSummaries = mapOf(
-                primary to SessionSummary(
-                    lang = primary,
+                selected to SessionSummary(
+                    lang = selected,
                     correctionAvailable = true,
                     recentMinutes = 30,
                     recentTopic = "Travel",
@@ -120,8 +120,11 @@ object StatisticsLearningStateFixtures {
                 )
             ),
             flashcardSummaries = mapOf(
-                primary to FlashcardSummary(
-                    lang = primary,
+                // Flashcard summary도 LangState/Dashboard/Session과 같은 학습 대상 언어 key를 사용한다.
+                // primaryLang은 설명 기준 언어라, selectedLang의 카드 수를 primary key 밑에 두면
+                // Dashboard/SRS가 현재 학습 언어의 summary를 찾지 못하는 demo 상태가 된다.
+                selected to FlashcardSummary(
+                    lang = selected,
                     dueFlashcards = 12,
                     savedFlashcards = 84,
                     updatedAt = STALE_TIMESTAMP

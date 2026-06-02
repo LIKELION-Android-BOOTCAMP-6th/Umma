@@ -211,7 +211,9 @@ class ApplyReviewDecisionUseCaseTest {
         override suspend fun updateFlashcardSchedule(
             userId: String,
             cardId: String,
-            result: ReviewScheduleResult
+            result: ReviewScheduleResult,
+            lastReviewRating: ReviewRating?,
+            lastReviewedAt: Long?
         ): Result<FlashcardUpdateResult> {
             updateCalls += 1
             lastUserId = userId
@@ -232,6 +234,14 @@ class ApplyReviewDecisionUseCaseTest {
         override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
             // ApplyReviewDecisionUseCase는 단일 카드 schedule 저장과 summary 갱신만 검증한다.
             return Result.success(0)
+        }
+
+        override suspend fun getFlashcards(
+            userId: String,
+            language: LangCode
+        ): Result<List<Flashcard>> {
+            // 목록 조회는 ApplyReviewDecisionUseCase의 검증 범위가 아니므로 빈 결과로 계약만 맞춘다.
+            return Result.success(emptyList())
         }
     }
 

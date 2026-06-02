@@ -51,7 +51,7 @@ data class ChatAdaptationPolicy(
     val challengeLevel: ChallengeLevel,
     val responseLength: ResponseLengthPolicy,
     val questionStyle: QuestionStylePolicy,
-    val nativeSupport: NativeSupportPolicy
+    val primaryLanguageSupport: PrimaryLanguageSupportPolicy
 )
 ```
 
@@ -62,12 +62,14 @@ data class CorrectionAdaptationPolicy(
     val vocabularyStrategy: VocabularyStrategyPolicy,
     val grammarStrategy: GrammarStrategyPolicy,
     val spokenRegisterStrategy: SpokenRegisterStrategy,
-    val nativeSupport: NativeSupportPolicy
+    val primaryLanguageSupport: PrimaryLanguageSupportPolicy
 )
 ```
 
 `CorrectionAdaptationPolicy`는 Correction prompt builder가 직접 사용하는 계약이다.
 Correction 담당자는 이 policy 값을 instruction text로 바꾸되, raw `LangState` metric을 다시 해석하지 않는다.
+`primaryLanguageSupport`는 설명과 힌트를 사용자의 학습 기준 언어(`primaryLang`)로 얼마나 제공할지 결정한다.
+`primaryLang`은 모국어로 단정하지 않으며, 현재 학습 대상 언어(`selectedLang`)와 다를 수 있다.
 
 ---
 
@@ -137,13 +139,20 @@ enum class SpokenRegisterStrategy {
 ```
 
 ```kotlin
-enum class NativeSupportPolicy {
-    KoreanFirst,
-    BriefKoreanHint,
-    EnglishFirstWithKoreanFallback,
-    EnglishOnly
+enum class PrimaryLanguageSupportPolicy {
+    PrimaryLanguageFirst,
+    BriefPrimaryLanguageHint,
+    TargetLanguageFirstWithPrimaryFallback,
+    TargetLanguageOnly
 }
 ```
+
+정책:
+
+- `PrimaryLanguageFirst`: low confidence 또는 Foundation 단계에서 설명을 `primaryLang` 중심으로 제공한다.
+- `BriefPrimaryLanguageHint`: 핵심 힌트만 `primaryLang`으로 짧게 보조한다.
+- `TargetLanguageFirstWithPrimaryFallback`: 기본 설명은 `selectedLang`으로 하되, 이해가 어려운 경우에만 `primaryLang` 보조를 허용한다.
+- `TargetLanguageOnly`: 고신뢰/고급 단계에서 `selectedLang`만 사용한다.
 
 ---
 
@@ -159,12 +168,13 @@ enum class NativeSupportPolicy {
 
 Correction policy 생성 방향:
 
-- `Foundation` 또는 low confidence 상태에서는 `MinimalFix`, `KeepSimpleWords`, `FixBlockingErrorOnly`, `KoreanFirst`를 우선한다.
+- `Foundation` 또는 low confidence 상태에서는 `MinimalFix`, `KeepSimpleWords`, `FixBlockingErrorOnly`, `PrimaryLanguageFirst`를 우선한다.
 - `Developing` 상태에서는 한 번에 하나의 주요 이유만 설명하고, 필요한 경우 유용한 표현 하나만 추가한다.
 - `Stable` 상태에서는 문장을 조금 더 자연스럽게 만들 수 있으나, 사용자의 의도와 길이를 과하게 바꾸지 않는다.
 - `Expanding` 상태에서는 collocation, 연결어, 구어체 표현을 제안할 수 있다.
 - `Refined` 상태에서는 뉘앙스, register, 원어민식 선택지를 설명할 수 있다.
 - active focus가 있으면 correction explanation은 상위 1개 focus를 우선 설명하고, 한 번에 여러 약점을 나열하지 않는다.
+- `primaryLanguageSupport`는 `primaryLang`이 어느 언어인지 직접 판단하지 않고, prompt builder가 `primaryLang`/`selectedLang` 값을 받아 최종 instruction text로 변환한다.
 
 ---
 
@@ -201,4 +211,5 @@ Profile 자체는 자유 텍스트가 아니라 테스트 가능한 정책값을
 - Chat/Correction policy가 같은 core를 공유한다.
 - prompt builder가 raw metric을 직접 해석하지 않는다.
 - Correction prompt builder가 `CorrectionAdaptationPolicy`를 사용해 난이도와 설명 방식을 결정한다.
+- 보조 설명 정책이 특정 언어명에 고정되지 않고 `primaryLang` 기준으로 생성된다.
 - active focus가 많아도 Correction prompt에는 상위 1개 또는 최대 2개만 반영된다.

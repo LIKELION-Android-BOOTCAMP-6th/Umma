@@ -78,20 +78,43 @@ class TestCorrectionFlashcardLocalDataSource : CorrectionFlashcardLocalDataSourc
         nextReviewAt: Long,
         interval: Int,
         easeFactor: Double,
-        updatedAt: Long
+        updatedAt: Long,
+        lastReviewRating: String?,
+        lastReviewedAt: Long?
     ): Boolean {
         val key = key(uid, flashcardId)
         val current = flashcardsByUserAndId[key] ?: return false
 
         // SRS review 결과가 반영된 카드는 remote sync 전까지 다시 dirty 상태가 된다.
+        // 평가 메타도 함께 저장해 production local source와 같은 row 상태를 재현한다.
         flashcardsByUserAndId[key] = current.copy(
             nextReviewAt = nextReviewAt,
             interval = interval,
             easeFactor = easeFactor,
             updatedAt = updatedAt,
+            lastReviewRating = lastReviewRating,
+            lastReviewedAt = lastReviewedAt,
             dirty = true
         )
         return true
+    }
+
+    override suspend fun getFlashcards(
+        uid: String,
+        language: String
+    ): List<CorrectionFlashcardDto> {
+        // 목록 화면과 SRS 테스트가 production DAO와 같은 userId/language 필터를 검증할 수 있게 한다.
+        return flashcardsByUserAndId.entries
+            .asSequence()
+            .filter { (key, flashcard) ->
+                belongsToUser(key, uid) && flashcard.language == language
+            }
+            .map { it.value }
+            .sortedWith(
+                compareBy<CorrectionFlashcardDto> { it.createdAt }
+                    .thenBy { it.id }
+            )
+            .toList()
     }
 
     override suspend fun countFlashcards(

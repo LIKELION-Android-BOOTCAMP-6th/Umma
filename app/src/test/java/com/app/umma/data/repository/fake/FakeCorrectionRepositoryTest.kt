@@ -157,7 +157,9 @@ class FakeCorrectionRepositoryTest {
             nextReviewAt: Long,
             interval: Int,
             easeFactor: Double,
-            updatedAt: Long
+            updatedAt: Long,
+            lastReviewRating: String?,
+            lastReviewedAt: Long?
         ): Result<Unit> = Result.success(Unit)
     }
 

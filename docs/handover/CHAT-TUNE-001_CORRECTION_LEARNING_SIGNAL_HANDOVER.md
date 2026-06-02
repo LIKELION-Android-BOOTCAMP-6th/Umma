@@ -10,6 +10,13 @@ Correction은 교정 결과를 만들면서 이미 보고 있는 source/correcte
 이 문서는 Correction 담당자가 먼저 구현해야 하는 출력 계약을 고정한다.
 Correction prompt가 사용할 사용자 능력 해석은 `LearnerAdaptationProfile` 계약을 따르며, 이 문서의 learning signal은 교정 후 LearningState가 장기 능력을 갱신하기 위한 입력이다.
 
+언어 기준:
+
+- `primaryLang`은 사용자가 학습을 이해하고 설명을 받을 기준 언어다. 모국어로 단정하지 않는다.
+- `selectedLang`은 현재 교정 대상이 되는 학습 언어다.
+- Correction 결과의 앞면/보조 설명은 `primaryLang` 기준으로 생성하고, 교정 후 문장은 `selectedLang` 기준으로 생성한다.
+- 기존 응답 필드명 `nativeText`는 호환을 위해 유지할 수 있지만, 의미는 “모국어 문장”이 아니라 “`primaryLang` 기준 앞면 문장”이다.
+
 ---
 
 # Correction이 제공할 것
@@ -163,7 +170,7 @@ Correction 담당자는 LearningState/Chat 담당자가 제공하는 `LearnerAda
 - `vocabularyStrategy`: 쉬운 단어 유지, 한 개의 새 표현 추가, collocation 개선 같은 어휘 전략을 결정한다.
 - `grammarStrategy`: 한 번에 하나의 구조만 고칠지, 문장 확장까지 허용할지 결정한다.
 - `spokenRegisterStrategy`: `Simple`, `EverydaySpoken`, `NativeLikeCasual`, `Formal` 중 어떤 말투로 correctedText를 만들지 결정한다.
-- `nativeSupport`: 한국어 보조 설명을 어느 정도 포함할지 결정한다.
+- `primaryLanguageSupport`: `primaryLang` 기준 보조 설명을 어느 정도 포함할지 결정한다.
 
 금지:
 
@@ -174,6 +181,9 @@ Correction 담당자는 LearningState/Chat 담당자가 제공하는 `LearnerAda
 ---
 
 # JSON 응답 예시
+
+아래 예시는 `primaryLang=KO`, `selectedLang=EN`인 경우다.
+`nativeText`라는 필드명은 기존 저장/화면 계약과의 호환명이며, 내용은 `primaryLang` 기준 앞면 문장이다.
 
 ```json
 {
