@@ -9,10 +9,29 @@
 
 ---
 
+# 완료 기준(AC)
+
+- [ ] 기존 LearningState 업데이트 결과가 정책 분리 전과 동일하게 유지된다.
+- [ ] 언어능력 계산 로직은 `LangStateAnalysisPolicy`에서만 수행된다.
+- [ ] `ApplyLanguageStateUpdateUseCase`는 중복 분석 방어와 저장 흐름 조율만 담당한다.
+- [ ] Repository와 Data layer는 점수 계산이나 학습 초점 판단을 하지 않는다.
+- [ ] 같은 `analysisEventId`가 다시 들어오면 기존처럼 중복 반영되지 않는다.
+- [ ] 입력 metric이 비어 있거나 일부만 들어와도 기존 값이 사라지지 않는다.
+- [ ] Correction learning signal이 코드에 연결되기 전에는 난이도 guard를 추정 구현하지 않는다.
+
 # 포함 범위
 
 - `LangStateAnalysisPolicy` interface 추가
 - 기존 `prepareNextState()` 로직 보존 이동
+- `ApplyLanguageStateUpdateUseCase`에 policy 위임 구조 적용
+- 기존 중복 분석 방어와 저장 흐름 유지
+- null/empty 입력에서 기존 metric 보존 확인
+- 기존 LearningState update 테스트를 policy 기준으로 보강
+
+# 후속 범위
+
+Correction learning signal이 실제 코드 계약으로 들어온 뒤에만 아래 정책을 확장한다.
+
 - `analysisMeta.metricEvidence` 갱신
 - `analysisMeta.activeFocus` 갱신
 - source/corrected 난이도 guard 계산
@@ -36,6 +55,19 @@ interface LangStateAnalysisPolicy {
 ```
 
 `ApplyLanguageStateUpdateUseCase`는 중복 분석 방어와 저장 orchestration을 유지하고, 실제 계산만 `LangStateAnalysisPolicy`에 위임한다.
+
+구현 순서:
+
+1. 기존 `prepareNextState(input)` 결과와 동일한 결과를 내는 `DefaultLangStateAnalysisPolicy`를 먼저 만든다.
+2. `ApplyLanguageStateUpdateUseCase`는 `input.preparedState ?: analysisPolicy.analyze(input)`만 호출하도록 바꾼다.
+3. 이 단계에서는 `LangState` 점수, `lastAnalyzedAt`, `lastAnalysisEventId`, ExternalMetrics 결과가 기존 테스트와 같아야 한다.
+4. 이후 Correction 코드가 handover의 `CorrectionLearningSignal`을 domain 입력으로 제공하면, 그 signal을 근거로 evidence/focus/difficulty guard를 확장한다.
+
+이 순서를 지키는 이유:
+
+- 리팩토링과 정책 변경을 한 번에 하면 점수 변화가 회귀인지 의도된 튜닝인지 구분하기 어렵다.
+- `LangStateAnalysisPolicy`는 기존 `input.currentState`를 기준으로 다음 snapshot을 계산한다.
+- Repository는 여전히 prepared state 저장만 담당하고, evidence/focus 판단을 하지 않는다.
 
 ---
 
@@ -94,6 +126,12 @@ Level slowest
 `difficultyDelta`는 Correction AI에게 받지 않는다.
 LearningState가 source/corrected 문장을 비교해 correctedText가 현재 사용자에게 과하게 어려운지 판단한다.
 
+전제:
+
+- 이 guard는 handover 문서의 `CorrectionLearningSignal.sourceText`, `correctedText`, `improvementTypes`, `register`, `meaningPreserved`, `confidence`가 `LangStateUpdateInput` 경로로 들어온 뒤 적용한다.
+- 현재 코드의 `CorrectionResult`에 learning signal이 없는 상태에서는 기존 휴리스틱 계산만 유지한다.
+- signal 계약을 구현하기 전에는 difficulty guard를 추정 구현하지 않는다. source/corrected 문장 없이 난이도 차이를 계산하면 정책이 흔들린다.
+
 계산 후보:
 
 - source/corrected token 수 차이
@@ -148,12 +186,12 @@ LearningState가 source/corrected 문장을 비교해 correctedText가 현재 �
 
 # 검증 기준
 
-- `LangStateAnalysisPolicy` 도입 직후 기존 `prepareNextState()` 결과가 보존된다.
+- `git diff --check`가 성공한다.
+- `:app:compileDevDebugKotlin`이 성공한다.
+- `:app:compileMockDebugKotlin`이 성공한다.
+- `LangStateAnalysisPolicy` 도입 후 기존 LearningState 업데이트 결과가 보존된다.
 - `analysisEventId` 중복 방어가 유지된다.
-- null/empty signal에서 기존 metric이 보존된다.
-- single correction outlier가 score/level을 크게 흔들지 않는다.
-- repeated focus는 activeFocus에 누적된다.
-- 오래된 focus는 제거 대상이 된다.
-- `vocabularyLevel`은 충분한 같은 방향 evidence 없이 이동하지 않는다.
-- confidence 범위 오류와 unknown enum signal은 evidence/focus에 잘못 저장되지 않는다.
-- 과한 challenge correction은 focus에는 남을 수 있지만 장기 score를 크게 올리지 않는다.
+- `forceReanalysis` 동작이 기존 정책과 동일하게 유지된다.
+- null/empty 입력에서 기존 metric이 보존된다.
+- Repository/Data layer에 점수 계산이나 focus 판단 로직이 새로 들어가지 않는다.
+- Correction signal 기반 evidence/focus/difficulty guard는 코드 계약이 들어오기 전까지 구현되지 않는다.

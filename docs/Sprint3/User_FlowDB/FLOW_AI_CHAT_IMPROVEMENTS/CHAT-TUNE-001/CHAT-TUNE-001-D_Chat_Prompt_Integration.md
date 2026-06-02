@@ -16,6 +16,16 @@ OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcrip
 - `RetryConnectionUseCase`가 start와 같은 prompt 경로를 사용
 - null/initial/low-confidence profile fallback 적용
 
+# 완료 기준(AC)
+
+- [ ] Chat system instruction은 raw LangState 숫자가 아니라 `LearnerAdaptationProfile` 정책을 기준으로 생성된다.
+- [ ] prompt에는 `grammarAccuracy = 0.42` 같은 raw numeric metric이 직접 들어가지 않는다.
+- [ ] 새 대화 시작은 `primaryLang`, `selectedLang`, selected LangState를 함께 사용해 profile 기반 prompt를 만든다.
+- [ ] 재연결도 새 대화 시작과 같은 profile/prompt 생성 경로를 사용한다.
+- [ ] 현재 세션 언어가 `selectedLang`과 다르면 기존처럼 새 세션 시작이 필요하다.
+- [ ] `primaryLang`은 설명/힌트 보조 언어로만 쓰이고, AI가 대화할 언어는 `selectedLang` 기준으로 유지된다.
+- [ ] OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcript, 마이크 UX는 변경하지 않는다.
+
 # 제외 범위
 
 - OpenAI Realtime transport 변경
@@ -30,9 +40,9 @@ OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcrip
 # 책임 경계
 
 - `BuildLearnerAdaptationProfileUseCase`: `LangState?`를 profile로 해석
-- `BuildPromptUseCase`: profile을 Chat system instruction으로 변환
-- `StartSessionUseCase`: 선택 언어의 LangState를 읽고 prompt 생성
-- `RetryConnectionUseCase`: 같은 profile/prompt 경로로 재연결 prompt 생성
+- `BuildPromptUseCase`: profile과 `primaryLang`/`selectedLang`을 Chat system instruction으로 변환
+- `StartSessionUseCase`: `userPref.selectedLang`의 LangState를 읽고, `userPref.primaryLang`과 함께 prompt 생성
+- `RetryConnectionUseCase`: start와 같은 profile/prompt 경로로 재연결 prompt 생성
 - `ChatRepositoryImpl`: 완성된 instruction 전달만 담당
 
 ---
@@ -52,19 +62,30 @@ OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcrip
 
 ```text
 StartSessionUseCase
-→ observe current LangState
+→ observe UserLangPref(primaryLang, selectedLang)
+→ observe selectedLang LangState
 → BuildLearnerAdaptationProfileUseCase
-→ BuildPromptUseCase(profile)
+→ BuildPromptUseCase(profile, primaryLang, selectedLang)
 → ChatRepository.startSession(instruction)
 
 RetryConnectionUseCase
-→ observe current LangState
+→ observe UserLangPref(primaryLang, selectedLang)
+→ verify active session language == selectedLang
+→ observe selectedLang LangState
 → BuildLearnerAdaptationProfileUseCase
-→ BuildPromptUseCase(profile)
+→ BuildPromptUseCase(profile, primaryLang, selectedLang)
 → ChatRepository.reconnectSession(instruction)
 ```
 
 start와 retry가 서로 다른 prompt 정책을 쓰면 같은 세션에서 난이도가 바뀔 수 있으므로, 반드시 같은 builder 경로를 사용한다.
+
+언어 정책:
+
+- `selectedLang`은 AI가 대화할 학습 대상 언어다.
+- `primaryLang`은 설명/힌트가 필요할 때 사용할 학습 기준 언어다.
+- `primaryLanguageSupport`가 `PrimaryLanguageFirst` 또는 `BriefPrimaryLanguageHint`인 경우에만 `primaryLang` 보조 설명을 prompt에 허용한다.
+- `primaryLanguageSupport`가 `TargetLanguageOnly`이면 `primaryLang`과 `selectedLang`이 달라도 대화 지시는 selected language 중심으로 유지한다.
+- prompt에는 `grammarAccuracy = 0.42` 같은 raw metric을 넣지 않고, profile policy를 사람이 읽을 수 있는 instruction으로만 변환한다.
 
 ---
 

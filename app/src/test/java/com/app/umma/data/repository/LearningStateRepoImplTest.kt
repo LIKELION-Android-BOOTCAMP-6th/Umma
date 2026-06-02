@@ -1,18 +1,32 @@
 package com.app.umma.data.repository
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.app.umma.data.model.learningstate.ExternalMetricsDto
+import com.app.umma.data.model.learningstate.InternalMetricsDto
+import com.app.umma.data.model.learningstate.LangStateAnalysisMetaDto
+import com.app.umma.data.model.learningstate.LangStateDto
+import com.app.umma.data.model.learningstate.LearningFocusDto
+import com.app.umma.data.model.learningstate.MetricEvidenceDto
 import com.app.umma.data.model.learningstate.UserLangPrefDto
 import com.app.umma.data.model.learningstate.toDomain
+import com.app.umma.data.model.learningstate.toDto
 import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
 import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummary
+import com.app.umma.domain.model.learningstate.LangStateAnalysisMeta
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
+import com.app.umma.domain.model.learningstate.LearningFocus
+import com.app.umma.domain.model.learningstate.LearningFocusType
+import com.app.umma.domain.model.learningstate.LearningMetricKey
+import com.app.umma.domain.model.learningstate.LearningSignalSource
+import com.app.umma.domain.model.learningstate.MetricEvidence
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
@@ -55,6 +69,12 @@ class LearningStateRepoImplTest {
         assertEquals("ko", remoteDataSource.lastUpdate?.userPref?.primaryLanguage)
         assertEquals("en", remoteDataSource.lastUpdate?.userPref?.selectedLearningLanguage)
         assertEquals("en", remoteDataSource.lastUpdate?.langStates?.single()?.language)
+        // CHAT-TUNE-001-A: 신규 LangState는 schema v2와 빈 analysisMeta를 함께 write-back한다.
+        assertEquals(2, remoteDataSource.lastUpdate?.langStates?.single()?.schemaVersion)
+        assertEquals(
+            LangStateAnalysisMeta.initial(),
+            remoteDataSource.lastUpdate?.langStates?.single()?.analysisMeta?.toDomain()
+        )
         assertEquals("en", remoteDataSource.lastUpdate?.dashSummaries?.single()?.language)
 
         repo.sync().getOrThrow()
@@ -80,6 +100,145 @@ class LearningStateRepoImplTest {
         assertEquals(LangCode.KO, restored.primaryLang)
         assertEquals(LangCode.EN, restored.selectedLang)
         assertEquals(listOf(LangCode.EN, LangCode.JA), restored.learningLangs)
+    }
+
+    @Test
+    fun `new lang state uses schema v2 and initial analysis meta`() {
+        val state = LangState.initial(LangCode.EN, createdAt = 1_000L)
+
+        // schema v2는 저장 구조가 바뀌었다는 신호이고, initial meta는 아직 근거가 없다는 안전 상태다.
+        assertEquals(2, state.schema)
+        assertEquals(LangStateAnalysisMeta.initial(), state.analysisMeta)
+    }
+
+    @Test
+    fun `lang state dto preserves valid analysis meta round trip`() {
+        val state = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+            analysisMeta = LangStateAnalysisMeta(
+                // metricEvidence는 이후 policy/profile이 "왜 이 metric을 움직일 수 있는지"를 판단하는 근거다.
+                metricEvidence = mapOf(
+                    LearningMetricKey.GrammarAccuracy to MetricEvidence(
+                        observedCount = 3,
+                        confidence = 0.82,
+                        sourceTypes = setOf(
+                            LearningSignalSource.CorrectionSignal,
+                            LearningSignalSource.UserTurn
+                        ),
+                        direction = EvidenceDirection.Up,
+                        directionCount = 2,
+                        lastObservedAt = 2_000L
+                    )
+                ),
+                // activeFocus는 다음 Chat/Correction에서 우선 도와줄 반복 약점 후보를 담는다.
+                activeFocus = listOf(
+                    LearningFocus(
+                        type = LearningFocusType.Article,
+                        observedCount = 2,
+                        confidence = 0.7,
+                        firstObservedAt = 1_500L,
+                        lastObservedAt = 2_000L
+                    )
+                ),
+                lastSignalAt = 2_000L
+            )
+        )
+
+        val restored = state.toDto().toDomain()
+
+        // DTO/DataStore/Remote 공통 계약에서 evidence와 focus가 손실되지 않아야 이후 profile이 같은 근거를 읽는다.
+        assertEquals(state.analysisMeta, restored.analysisMeta)
+    }
+
+    @Test
+    fun `schema v1 lang state dto restores initial analysis meta`() {
+        val legacyDto = langStateDto(
+            schemaVersion = 1,
+            analysisMeta = null
+        )
+
+        val restored = legacyDto.toDomain()
+
+        // 기존 사용자 데이터에는 analysisMeta가 없으므로 빈 evidence/focus로 복원해야 앱 진입이 깨지지 않는다.
+        assertEquals(1, restored.schema)
+        assertEquals(LangStateAnalysisMeta.initial(), restored.analysisMeta)
+    }
+
+    @Test
+    fun `invalid analysis meta enum and confidence are dropped`() {
+        val dto = langStateDto(
+            schemaVersion = 2,
+            analysisMeta = LangStateAnalysisMetaDto(
+                metricEvidence = mapOf(
+                    // 정상 evidence는 그대로 복원되어야 한다.
+                    "GrammarAccuracy" to MetricEvidenceDto(
+                        observedCount = 3,
+                        confidence = 0.8,
+                        sourceTypes = listOf("CorrectionSignal"),
+                        direction = "Up",
+                        directionCount = 2,
+                        lastObservedAt = 2_000L
+                    ),
+                    // unknown metric key는 어떤 InternalMetrics와도 연결할 수 없어 drop한다.
+                    "UnknownMetric" to MetricEvidenceDto(
+                        observedCount = 3,
+                        confidence = 0.8,
+                        sourceTypes = listOf("CorrectionSignal"),
+                        direction = "Up",
+                        directionCount = 2
+                    ),
+                    // confidence 범위가 깨진 값은 장기 능력 근거를 오염시킬 수 있어 drop한다.
+                    "VocabularyLevel" to MetricEvidenceDto(
+                        observedCount = 1,
+                        confidence = 1.5,
+                        sourceTypes = listOf("CorrectionSignal"),
+                        direction = "Up",
+                        directionCount = 1
+                    ),
+                    // direction enum이 unknown이면 score 이동 방향을 알 수 없어 drop한다.
+                    "SentenceComplexity" to MetricEvidenceDto(
+                        observedCount = 1,
+                        confidence = 0.6,
+                        sourceTypes = listOf("CorrectionSignal"),
+                        direction = "Sideways",
+                        directionCount = 1
+                    )
+                ),
+                activeFocus = listOf(
+                    // 정상 focus는 prompt/profile 후보로 복원되어야 한다.
+                    LearningFocusDto(
+                        type = "Article",
+                        observedCount = 2,
+                        confidence = 0.7,
+                        firstObservedAt = 1_000L,
+                        lastObservedAt = 2_000L
+                    ),
+                    // unknown focus type은 Chat/Correction이 행동으로 바꿀 수 없으므로 drop한다.
+                    LearningFocusDto(
+                        type = "UnknownFocus",
+                        observedCount = 2,
+                        confidence = 0.7,
+                        firstObservedAt = 1_000L,
+                        lastObservedAt = 2_000L
+                    ),
+                    // confidence 범위가 깨진 focus는 prompt에 노출되지 않도록 drop한다.
+                    LearningFocusDto(
+                        type = "Tense",
+                        observedCount = 2,
+                        confidence = -0.1,
+                        firstObservedAt = 1_000L,
+                        lastObservedAt = 2_000L
+                    )
+                ),
+                lastSignalAt = 2_000L
+            )
+        )
+
+        val restored = dto.toDomain().analysisMeta
+
+        // 오염된 enum/confidence는 domain으로 올리지 않고, 유효한 근거만 유지한다.
+        assertEquals(setOf(LearningMetricKey.GrammarAccuracy), restored.metricEvidence.keys)
+        assertEquals(EvidenceDirection.Up, restored.metricEvidence[LearningMetricKey.GrammarAccuracy]?.direction)
+        assertEquals(listOf(LearningFocusType.Article), restored.activeFocus.map { it.type })
     }
 
     @Test
@@ -425,5 +584,38 @@ class LearningStateRepoImplTest {
 
     private companion object {
         const val USER_UID = "uid-1"
+
+        fun langStateDto(
+            schemaVersion: Int,
+            analysisMeta: LangStateAnalysisMetaDto?
+        ): LangStateDto {
+            // LangStateDto 복원 테스트는 analysisMeta 정책에 집중하므로 나머지 metric은 안정적인 기본값으로 둔다.
+            return LangStateDto(
+                language = "en",
+                internalMetrics = InternalMetricsDto(
+                    grammarAccuracy = 0.0,
+                    vocabularyAppropriateness = 0.0,
+                    lexicalDiversity = 0.0,
+                    vocabularyLevel = "A1",
+                    sentenceComplexity = 0.0,
+                    speechRate = 0.0,
+                    pauseFrequency = 0.0,
+                    avgUtteranceLength = 0.0,
+                    spokenNaturalness = 0.0,
+                    naturalExpressionUsage = 0.0,
+                    errorRecurrence = 0.0,
+                    reviewRetention = 0.0
+                ),
+                externalMetrics = ExternalMetricsDto(
+                    vocabularyLevel = "A1",
+                    grammarAccuracy = 0.0,
+                    expressionRange = 0,
+                    fluencyScore = 0.0,
+                    naturalnessScore = 0.0
+                ),
+                analysisMeta = analysisMeta,
+                schemaVersion = schemaVersion
+            )
+        }
     }
 }
