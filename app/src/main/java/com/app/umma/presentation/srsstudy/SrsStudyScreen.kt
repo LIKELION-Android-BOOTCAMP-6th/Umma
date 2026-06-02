@@ -72,6 +72,7 @@ import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleDialogSB
 import com.app.umma.core.ui.component.UmmaAppBar
+import com.app.umma.core.ui.modifier.attentionBorder
 import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.flashcard.ReviewRating
 import com.app.umma.presentation.srsstudy.component.SrsStudyCompletion
@@ -224,6 +225,16 @@ private fun SrsFlashCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(280.dp)
+            // 카드가 앞면일때만 클릭 유도를 위한 강조 테두리
+            .then(
+                if (!isFlipped) {
+                    Modifier.attentionBorder(
+                        shape = RoundedCornerShape(20.dp), animated = true
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .clickable { onFlip() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
