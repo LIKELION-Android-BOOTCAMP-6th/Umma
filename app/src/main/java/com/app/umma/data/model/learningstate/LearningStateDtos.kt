@@ -20,10 +20,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class UserLangPrefDto(
     // 외부 저장소에서 읽기 쉬운 필드명.
-    val nativeLanguage: String,
-    val primaryLearningLanguage: String,
+    val primaryLanguage: String,
     val selectedLearningLanguage: String,
-    val learningLanguages: List<String>,
+    val learningLanguages: List<String> = emptyList(),
     val schemaVersion: Int,
     val updatedAt: Long? = null
 )
@@ -101,24 +100,23 @@ data class FlashcardSummaryDto(
 fun UserLangPref.toDto(): UserLangPrefDto {
     // Domain의 짧은 필드를 저장 친화적인 이름으로 풀어 쓴다.
     return UserLangPrefDto(
-        nativeLanguage = nativeLang.code,
-        primaryLearningLanguage = primaryLang.code,
+        primaryLanguage = nativeLang.code,
         selectedLearningLanguage = selectedLang.code,
         learningLanguages = learningLangs.map { it.code },
         schemaVersion = schema,
         updatedAt = updatedAt
     )
 }
-
 fun UserLangPrefDto.toDomain(): UserLangPref {
     // 저장값이 일부 비어 있어도 MVP 기본 언어로 복원되게 둔다.
+    val restoredLearningLangs  = learningLanguages.mapNotNull(LangCode::fromCode).ifEmpty {
+        listOf(LangCode.fromCode(selectedLearningLanguage) ?: LangCode.EN)
+    }
     return UserLangPref(
-        nativeLang = LangCode.fromCode(nativeLanguage) ?: LangCode.KO,
-        primaryLang = LangCode.fromCode(primaryLearningLanguage) ?: LangCode.EN,
+        nativeLang = LangCode.fromCode(primaryLanguage) ?: LangCode.KO,
+        primaryLang = restoredLearningLangs.first(),
         selectedLang = LangCode.fromCode(selectedLearningLanguage) ?: LangCode.EN,
-        learningLangs = learningLanguages.mapNotNull(LangCode::fromCode).ifEmpty {
-            listOf(LangCode.fromCode(primaryLearningLanguage) ?: LangCode.EN)
-        },
+        learningLangs = restoredLearningLangs,
         schema = schemaVersion,
         updatedAt = updatedAt
     )

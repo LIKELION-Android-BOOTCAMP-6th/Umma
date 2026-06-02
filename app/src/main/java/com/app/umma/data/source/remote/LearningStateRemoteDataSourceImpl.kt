@@ -123,8 +123,7 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
 
     private fun Map<String, Any?>.toUserLangPrefDto(): UserLangPrefDto? {
         return UserLangPrefDto(
-            nativeLanguage = string("nativeLanguage") ?: return null,
-            primaryLearningLanguage = string("primaryLearningLanguage") ?: return null,
+            primaryLanguage = string("primaryLanguage") ?: return null,
             selectedLearningLanguage = string("selectedLearningLanguage") ?: return null,
             learningLanguages = stringList("learningLanguages"),
             schemaVersion = int("schemaVersion") ?: 1,
