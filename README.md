@@ -135,7 +135,7 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 ## 📆 개발 인원 및 기간
 
 - **개발 기간**: 2026.5.4 ~ 2026.6.17
-- **개발 인원**: Android 5명
+- **개발 인원**: Android 4명
 
 ---
 
@@ -143,11 +143,10 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 
 | 이름 | GitHub |
 |------|--------|
-| 박재민 | TBD |
-| 정원화 | TBD |
-| 김명준 | TBD |
-| 김태환 | TBD |
-| 정재훈 | TBD |
+| 박재민 | [woals6318-hash](https://github.com/woals6318-hash) |
+| 정원화 | [sangsangcat](https://github.com/sangsangcat) |
+| 김명준 | [jssmt247-crypto](https://github.com/jssmt247-crypto) |
+| 김태환 | [taehwan-dev](https://github.com/taehwan-dev) |
 
 ---
 
@@ -157,18 +156,18 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 |------|------|-----------|
 | F1 | 인증·세션 | 소셜 로그인, 자동 로그인, 로그아웃, 회원 탈퇴 |
 | F2 | 앱 골격·네비·디자인 시스템 | 패키지 구조, Navigation Graph, 공통 테마/컴포넌트 |
-| F3 | AI 회화 | Firebase AI Logic / Gemini Live 연동, 실시간 음성 입출력 |
-| F4 | 문장 교정 (Correction) | 세션 맥락 기반 문장 추출 및 AI 교정 파이프라인 구현 |
-| F5 | 플래시카드 & SRS | 카드 저장(Room), 5단계 자기 평가 기반 복습 스케줄링 |
-| F6 | 성장 통계 & 마이페이지 | 언어 데이터 분석 시각화, 프로필·설정 |
+| F3 | UI/UX 디자인 | 사용자 플로우 설계, 와이어프레임 제작, Figma 프로토타이핑, 브랜드 컬러 및 아이덴티티 구축 |
+| F4 | AI 회화 | Firebase AI Logic / Gemini Live 연동, 실시간 음성 입출력 |
+| F5 | 문장 교정 (Correction) | 세션 맥락 기반 문장 추출 및 AI 교정 파이프라인 구현 |
+| F6 | 플래시카드 & SRS | 카드 저장(Room), 5단계 자기 평가 기반 복습 스케줄링 |
+| F7 | 성장 통계 & 마이페이지 | 언어 데이터 분석 시각화, 프로필·설정 |
 
 | 이름 | 담당 |
 |------|------|
-| 박재민 | TBD |
-| 정원화 | TBD |
-| 김명준 | TBD |
-| 김태환 | TBD |
-| 정재훈 | TBD |
+| 박재민 | F1, F2, F4 |
+| 정원화 | F3, F4, F7 |
+| 김명준 | F1, F3, F6, F7 |
+| 김태환 | F3, F5 |
 
 ---
 
