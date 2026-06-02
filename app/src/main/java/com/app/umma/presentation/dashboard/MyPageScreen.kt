@@ -11,17 +11,32 @@ import androidx.appcompat.view.ContextThemeWrapper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Scaffold
@@ -36,9 +51,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,14 +64,12 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.R
 import com.app.umma.core.theme.BackgroundHighlight
-import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
-import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
@@ -161,9 +177,10 @@ fun MyPageScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
-
-
         ) {
+            // 상단 프로필 카드 (아바타 원 + 닉네임)
+            ProfileCard(nickname = notificationUiState.nickname)
+            // 학습 알림 카드
             NotificationSettingsCard(
                 uiState = notificationUiState,
                 onToggleChanged = { enabled ->
@@ -174,6 +191,46 @@ fun MyPageScreen(
                 },
                 onTimeSettingClicked = myPageViewModel::onTimeSettingClicked
             )
+            // 설정 섹션 헤더
+            Text(
+                text = "설정",
+                fontSize = 18.sp,
+                color = TextPrimary,
+                modifier = Modifier.padding(SpacingS)
+            )
+            // 설정 카드
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    SettingRow(
+                        icon = Icons.Default.Language,
+                        label = "모국어 설정",
+                        enabled = !authUiState.isLoading,
+                        onClick = { showNativeLanguageDialog = true }
+                    )
+                    HorizontalDivider(color = BackgroundHighlight)
+                    SettingRow(
+                        icon = Icons.AutoMirrored.Filled.Logout,
+                        label = "로그아웃",
+                        enabled = !authUiState.isLoading,
+                        onClick = { showLogoutDialog = true }
+                    )
+                }
+            }
+            // 회원탈퇴
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+            ) {
+                SettingRow(
+                    icon = Icons.Default.Warning,
+                    label = "회원탈퇴",
+                    enabled = !authUiState.isLoading,
+                    onClick = { showDeleteAccountDialog = true }
+                )
+            }
 
             if (showNativeLanguageDialog) {
                 UmmaDialog(
@@ -257,52 +314,81 @@ fun MyPageScreen(
                     )
                 }
             }
-            Button(
-                onClick = { showNativeLanguageDialog = true },
-                enabled = !authUiState.isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = TextPrimary
-                ),
-                border = BorderStroke(1.dp, TextPrimary),
-                shape = RoundedCornerShape(30.dp)
-            ) {
-                Text(text = "모국어 설정")
-            }
+        }
+    }
+}
 
-            Button(
-                onClick = { showLogoutDialog = true },
-                enabled = !authUiState.isLoading,
+/**
+ * 상단 프로필 카드
+ */
+@Composable
+private fun ProfileCard(nickname: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(SpacingL),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SpacingL)
+        ) {
+            // 이미지 원
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = TextWrong
-                ),
-                border = BorderStroke(1.dp, TextWrong),
-                shape = RoundedCornerShape(30.dp)
-            ) {
-                Text(text = "로그아웃")
-            }
-
-            Button(
-                onClick = { showDeleteAccountDialog = true },
-                enabled = !authUiState.isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = TextLogout
-                ),
-                border = BorderStroke(1.dp, TextLogout),
-                shape = RoundedCornerShape(30.dp)
-            ) {
-                Text(text = "회원탈퇴")
+                    .size(64.dp)
+                    .background(color = ThemePrimary, shape = CircleShape)
+            )
+            Column {
+                Text(
+                    text = "${nickname}님",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "오늘도 Umma와 함께 학습해요 🧡",
+                    fontSize = 14.sp,
+                    color = TextPrimary
+                )
             }
         }
     }
+}
+
+// 아이콘, 레이블, 화살표
+@Composable
+private fun SettingRow(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    tint: Color = TextPrimary
+) {
+    ListItem(
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(color = BackgroundHighlight, shape = CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = label, tint = tint)
+            }
+        },
+        headlineContent = { Text(text = label, color = tint) },
+        trailingContent = {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = tint
+            )
+        }
+    )
 }
 
 /**
@@ -326,6 +412,20 @@ private fun NotificationSettingsCard(
         ) {
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
+                leadingContent = {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(color = BackgroundHighlight, shape = CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = ThemePrimary
+                        )
+                    }
+                },
                 headlineContent = { Text(text = "학습 알림") },
                 supportingContent = { Text(text = "하루 한번 정하신 시간에 학습 알림을 보내드려요.") },
                 trailingContent = {
@@ -343,14 +443,28 @@ private fun NotificationSettingsCard(
 
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
+                leadingContent = {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(color = BackgroundHighlight, shape = CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = ThemePrimary
+                        )
+
+                    }
+                },
                 headlineContent = { Text(text = "알림 시간") },
                 supportingContent = { Text(text = String.format("%02d:%02d", hour, minute)) },
                 trailingContent = {
                     Button(
                         onClick = onTimeSettingClicked,
                         enabled = !uiState.isSaving,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
-                        border = BorderStroke(1.dp, TextPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
                         shape = RoundedCornerShape(20.dp)
                     ) {
                         Text(text = "시간 변경")
