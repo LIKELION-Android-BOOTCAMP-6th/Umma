@@ -5,13 +5,18 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.TurnSpeaker
+import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.statistics.StatisticsHistory
 import com.app.umma.domain.model.statistics.StatisticsHistoryRecordResult
 import com.app.umma.domain.model.realtime.AppendTurnCommand
@@ -349,22 +354,22 @@ class CompleteCorrectionUseCaseTest {
         var lastUpdateInput: LangStateUpdateInput? = null
         var failUpdate: Boolean = false
 
-        override fun observeLearningState(): Flow<com.app.umma.domain.model.learningstate.GlobalLangState> =
-            flowOf(com.app.umma.domain.model.learningstate.GlobalLangState.initial())
+        override fun observeLearningState(): Flow<GlobalLangState> =
+            flowOf(GlobalLangState.initial())
 
-        override fun observeUserPref(): Flow<com.app.umma.domain.model.learningstate.UserLangPref?> =
+        override fun observeUserPref(): Flow<UserLangPref?> =
             flowOf(null)
 
-        override fun observeLangState(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.LangState?> =
+        override fun observeLangState(lang: LangCode): Flow<LangState?> =
             flowOf(null)
 
-        override fun observeDashSummary(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.DashSummary?> =
+        override fun observeDashSummary(lang: LangCode): Flow<DashSummary?> =
             flowOf(null)
 
-        override fun observeSessionSummary(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.SessionSummary?> =
+        override fun observeSessionSummary(lang: LangCode): Flow<SessionSummary?> =
             flowOf(null)
 
-        override fun observeFlashcardSummary(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.FlashcardSummary?> =
+        override fun observeFlashcardSummary(lang: LangCode): Flow<FlashcardSummary?> =
             flowOf(null)
 
         override suspend fun preload(): Result<Unit> = Result.success(Unit)
@@ -425,11 +430,11 @@ class CompleteCorrectionUseCaseTest {
 
         override suspend fun createInitial(
             userUid: String,
-            userPref: com.app.umma.domain.model.learningstate.UserLangPref,
-            langState: com.app.umma.domain.model.learningstate.LangState,
-            dashSummary: com.app.umma.domain.model.learningstate.DashSummary,
-            sessionSummary: com.app.umma.domain.model.learningstate.SessionSummary,
-            flashcardSummary: com.app.umma.domain.model.learningstate.FlashcardSummary
+            userPref: UserLangPref,
+            langState: LangState,
+            dashSummary: DashSummary,
+            sessionSummary: SessionSummary,
+            flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)

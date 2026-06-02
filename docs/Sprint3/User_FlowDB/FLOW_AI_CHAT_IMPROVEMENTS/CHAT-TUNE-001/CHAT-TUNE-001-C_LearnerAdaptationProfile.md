@@ -17,13 +17,13 @@ Chat과 Correction이 raw metric을 각자 해석하면 난이도 정책이 갈�
 
 # 완료 기준(AC)
 
-- [ ] Chat과 Correction이 같은 profile을 통해 사용자의 언어능력을 해석할 수 있다.
-- [ ] 저장된 raw metric 숫자는 Chat/Correction에 직접 노출되지 않는다.
-- [ ] `LangState`가 없거나 아직 분석 근거가 부족하면 보수적인 beginner-safe 정책이 만들어진다.
-- [ ] 문법, 어휘, 유창성, 자연스러움은 하나의 총점이 아니라 각각의 단계로 해석된다.
-- [ ] 반복 학습 초점이 여러 개 있어도 profile에는 중요한 1~2개만 요약된다.
-- [ ] Chat용 대화 정책과 Correction용 교정 정책은 같은 core 능력 판단을 공유한다.
-- [ ] `primaryLang`과 `selectedLang`은 profile에 저장하지 않고, prompt 문장을 만들 때만 함께 사용한다.
+- [x] Chat과 Correction이 같은 profile을 통해 사용자의 언어능력을 해석할 수 있다.
+- [x] 저장된 raw metric 숫자는 Chat/Correction에 직접 노출되지 않는다.
+- [x] `LangState`가 없거나 아직 분석 근거가 부족하면 보수적인 beginner-safe 정책이 만들어진다.
+- [x] 문법, 어휘, 유창성, 자연스러움은 하나의 총점이 아니라 각각의 단계로 해석된다.
+- [x] 반복 학습 초점이 여러 개 있어도 profile에는 중요한 1~2개만 요약된다.
+- [x] Chat용 대화 정책과 Correction용 교정 정책은 같은 core 능력 판단을 공유한다.
+- [x] `primaryLang`과 `selectedLang`은 profile에 저장하지 않고, prompt 문장을 만들 때만 함께 사용한다.
 
 # 제외 범위
 
