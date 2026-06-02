@@ -32,6 +32,7 @@ import com.app.umma.domain.repository.StatisticsRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
 import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
+import com.app.umma.domain.usecase.learningstate.DefaultLangStateAnalysisPolicy
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
 import com.app.umma.domain.usecase.realtime.SummarizeRecentTopicsUseCase
@@ -57,7 +58,10 @@ class CompleteCorrectionUseCaseTest {
     private val statisticsRepository = RecordingStatisticsRepository(events)
     private val sessionMemoryRepository = RecordingSessionMemoryRepository(events)
     private val flashcardRepository = RecordingFlashcardRepository()
-    private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(learningStateRepo)
+    private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(
+        learningStateRepo,
+        DefaultLangStateAnalysisPolicy()
+    )
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
         correctionRepository = correctionRepository,

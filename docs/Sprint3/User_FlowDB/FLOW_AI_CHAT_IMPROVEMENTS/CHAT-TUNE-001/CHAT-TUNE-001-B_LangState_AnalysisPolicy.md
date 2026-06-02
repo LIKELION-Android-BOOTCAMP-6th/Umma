@@ -11,13 +11,13 @@
 
 # 완료 기준(AC)
 
-- [ ] 기존 LearningState 업데이트 결과가 정책 분리 전과 동일하게 유지된다.
-- [ ] 언어능력 계산 로직은 `LangStateAnalysisPolicy`에서만 수행된다.
-- [ ] `ApplyLanguageStateUpdateUseCase`는 중복 분석 방어와 저장 흐름 조율만 담당한다.
-- [ ] Repository와 Data layer는 점수 계산이나 학습 초점 판단을 하지 않는다.
-- [ ] 같은 `analysisEventId`가 다시 들어오면 기존처럼 중복 반영되지 않는다.
-- [ ] 입력 metric이 비어 있거나 일부만 들어와도 기존 값이 사라지지 않는다.
-- [ ] Correction learning signal이 코드에 연결되기 전에는 난이도 guard를 추정 구현하지 않는다.
+- [x] 기존 LearningState 업데이트 결과가 정책 분리 전과 동일하게 유지된다.
+- [x] 언어능력 계산 로직은 `LangStateAnalysisPolicy`에서만 수행된다.
+- [x] `ApplyLanguageStateUpdateUseCase`는 중복 분석 방어와 저장 흐름 조율만 담당한다.
+- [x] Repository와 Data layer는 점수 계산이나 학습 초점 판단을 하지 않는다.
+- [x] 같은 `analysisEventId`가 다시 들어오면 기존처럼 중복 반영되지 않는다.
+- [x] 입력 metric이 비어 있거나 일부만 들어와도 기존 값이 사라지지 않는다.
+- [x] Correction learning signal이 코드에 연결되기 전에는 난이도 guard를 추정 구현하지 않는다.
 
 # 포함 범위
 
