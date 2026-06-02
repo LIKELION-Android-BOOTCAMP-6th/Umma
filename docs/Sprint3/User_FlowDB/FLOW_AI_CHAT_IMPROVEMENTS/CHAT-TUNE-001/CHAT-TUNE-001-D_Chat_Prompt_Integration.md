@@ -18,13 +18,13 @@ OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcrip
 
 # 완료 기준(AC)
 
-- [ ] Chat system instruction은 raw LangState 숫자가 아니라 `LearnerAdaptationProfile` 정책을 기준으로 생성된다.
-- [ ] prompt에는 `grammarAccuracy = 0.42` 같은 raw numeric metric이 직접 들어가지 않는다.
-- [ ] 새 대화 시작은 `primaryLang`, `selectedLang`, selected LangState를 함께 사용해 profile 기반 prompt를 만든다.
-- [ ] 재연결도 새 대화 시작과 같은 profile/prompt 생성 경로를 사용한다.
-- [ ] 현재 세션 언어가 `selectedLang`과 다르면 기존처럼 새 세션 시작이 필요하다.
-- [ ] `primaryLang`은 설명/힌트 보조 언어로만 쓰이고, AI가 대화할 언어는 `selectedLang` 기준으로 유지된다.
-- [ ] OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcript, 마이크 UX는 변경하지 않는다.
+- [x] Chat system instruction은 raw LangState 숫자가 아니라 `LearnerAdaptationProfile` 정책을 기준으로 생성된다.
+- [x] prompt에는 `grammarAccuracy = 0.42` 같은 raw numeric metric이 직접 들어가지 않는다.
+- [x] 새 대화 시작은 `primaryLang`, `selectedLang`, selected LangState를 함께 사용해 profile 기반 prompt를 만든다.
+- [x] 재연결도 새 대화 시작과 같은 profile/prompt 생성 경로를 사용한다.
+- [x] 현재 세션 언어가 `selectedLang`과 다르면 기존처럼 새 세션 시작이 필요하다.
+- [x] `primaryLang`은 설명/힌트 보조 언어로만 쓰이고, AI가 대화할 언어는 `selectedLang` 기준으로 유지된다.
+- [x] OpenAI Realtime transport, SessionMemory 저장, usage tracking, final transcript, 마이크 UX는 변경하지 않는다.
 
 # 제외 범위
 

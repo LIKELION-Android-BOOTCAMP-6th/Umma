@@ -3,6 +3,7 @@ package com.app.umma.domain.usecase.chat
 import com.app.umma.domain.repository.ChatRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.SessionMemoryRepository
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import javax.inject.Inject
 import kotlinx.coroutines.flow.firstOrNull
 
@@ -13,6 +14,7 @@ class RetryConnectionUseCase @Inject constructor(
     private val repository: ChatRepository,
     private val learningStateRepo: LearningStateRepo,
     private val sessionMemoryRepository: SessionMemoryRepository,
+    private val buildLearnerAdaptationProfileUseCase: BuildLearnerAdaptationProfileUseCase,
     private val buildPromptUseCase: BuildPromptUseCase
 ) {
     /**
@@ -43,6 +45,7 @@ class RetryConnectionUseCase @Inject constructor(
         }
 
         val langState = learningStateRepo.observeLangState(userPref.selectedLang).firstOrNull()
+        val profile = buildLearnerAdaptationProfileUseCase(langState)
 
         val recentFullContext = sessionMemoryRepository
             .getSessionMemory(userPref.selectedLang)
@@ -60,8 +63,9 @@ class RetryConnectionUseCase @Inject constructor(
 
         val prompt = runCatching {
             buildPromptUseCase(
-                langCode = userPref.selectedLang,
-                langState = langState,
+                profile = profile,
+                primaryLang = userPref.primaryLang,
+                selectedLang = userPref.selectedLang,
                 recentFullContext = recentFullContext
             )
         }.getOrElse {

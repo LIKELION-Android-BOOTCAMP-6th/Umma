@@ -404,13 +404,13 @@ class CompleteCorrectionUseCaseTest {
             // (#162-D) 파이프라인에서 saveFlashcards 직후, applyLanguageStateUpdateUseCase 직전 위치를 검증한다.
             events += "update-flashcard-summary"
             val flashcardSummary =
-                com.app.umma.domain.model.learningstate.FlashcardSummary(
+                FlashcardSummary(
                     lang = input.lang,
                     dueFlashcards = input.dueFlashcards,
                     savedFlashcards = input.savedFlashcards,
                     updatedAt = input.updatedAt
                 )
-            val dashSummary = com.app.umma.domain.model.learningstate.DashSummary.initial(input.lang)
+            val dashSummary = DashSummary.initial(input.lang)
                 .copy(
                     dueFlashcards = input.dueFlashcards,
                     savedFlashcards = input.savedFlashcards,
