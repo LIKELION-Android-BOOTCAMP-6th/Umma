@@ -297,7 +297,10 @@ class CorrectionRepositoryImplTest {
             nextReviewAt = 10_000L,
             interval = 3,
             easeFactor = 2.6,
-            updatedAt = 2_500L
+            updatedAt = 2_500L,
+            // 이 테스트는 due 대상 제외 여부만 확인하므로 review 평가 메타는 비워 둔다.
+            lastReviewRating = null,
+            lastReviewedAt = null
         )
 
         val dueCards = localDataSource.getDueFlashcards(
@@ -400,7 +403,9 @@ class CorrectionRepositoryImplTest {
             nextReviewAt: Long,
             interval: Int,
             easeFactor: Double,
-            updatedAt: Long
+            updatedAt: Long,
+            lastReviewRating: String?,
+            lastReviewedAt: Long?
         ): Result<Unit> = Result.success(Unit)
     }
 }

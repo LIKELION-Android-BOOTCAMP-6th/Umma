@@ -186,26 +186,26 @@ class DashboardViewModel @Inject constructor(
                     return@collect
                 }
 
-                // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → primaryLang fallback.
-                //   복구 저장도 시도 (fire-and-forget). 다음 emit 에선 정합 상태로 들어옴.
-                // (AC 9: selectedLearningLanguage가 없는 경우 primaryLearningLanguage로 fallback된다.)
+                // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → 학습 언어 목록 내부 fallback.
+                //   primaryLang은 학습 기준 언어이지 현재 학습 데이터 key가 아니므로 fallback 후보에서 제외한다.
 
                 // UI 가 실제로 쓸 lang. selectedLang 을 그대로 쓰지 않고 정합성 가드 한 번 거친 값.
                 //  - null : userPref 자체 없음 (신규/preload 직후)
                 //  - selectedLang : 정상 케이스
-                //  - primaryLang : selectedLang ∉ learningLangs 인 오염 케이스 (AC 9 fallback)
+                //  - learningLangs.first() : selectedLang ∉ learningLangs 인 오염 케이스 (AC 9 fallback)
                 val effectiveLang: LangCode? = when {
                     userPref == null -> null
                     userPref.selectedLang in learningLangs -> userPref.selectedLang
                     else -> {
+                        val fallbackLang = learningLangs.first()
                         Log.w(
                             TAG,
                             "AC 9 fallback — selectedLang=${userPref.selectedLang} " +
-                                    "not in learningLangs=$learningLangs, using primary=${userPref.primaryLang}"
+                                    "not in learningLangs=$learningLangs, using fallback=$fallbackLang"
                         )
                         // 복구 저장. 실패해도 다음 emit 까진 effectiveLang 으로 계속 동작.
-                        launch { changeSelectedLang(userPref.primaryLang) }
-                        userPref.primaryLang
+                        launch { changeSelectedLang(fallbackLang) }
+                        fallbackLang
                     }
                 }
 

@@ -64,10 +64,7 @@ class GetStatisticsOverviewUseCaseTest {
     fun `fails when current language state is missing`() = runBlocking {
         val repo = RecordingLearningStateRepo(
             state = GlobalLangState(
-                userPref = UserLangPref.initial(
-                    nativeLang = LangCode.KO,
-                    primaryLang = LangCode.EN
-                ),
+                userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
                 langStates = emptyMap(),
                 dashSummaries = emptyMap(),
                 sessionSummaries = emptyMap(),
@@ -100,10 +97,7 @@ class GetStatisticsOverviewUseCaseTest {
         )
         val langState = LangState.initial(lang).copy(external = external)
         return GlobalLangState(
-            userPref = UserLangPref.initial(
-                nativeLang = LangCode.KO,
-                primaryLang = lang
-            ),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang),
             langStates = mapOf(lang to langState),
             dashSummaries = mapOf(lang to DashSummary.initial(lang)),
             sessionSummaries = mapOf(lang to SessionSummary.initial(lang)),

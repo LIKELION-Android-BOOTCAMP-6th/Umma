@@ -57,7 +57,7 @@ class CorrectionUiStateTest {
         // userPref / langState 는 있지만 sessionSummaries 가 비어있는 케이스.
         val lang = LangCode.EN
         val global = GlobalLangState(
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = lang),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang),
             langStates = mapOf(lang to LangState.initial(lang)),
             dashSummaries = emptyMap(),
             sessionSummaries = emptyMap(),
@@ -80,7 +80,7 @@ class CorrectionUiStateTest {
         // sessionSummary 는 살아있고 correctionAvailable=true 인데 langStates 만 비어 있는 케이스.
         val lang = LangCode.EN
         val global = GlobalLangState(
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = lang),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang),
             langStates = emptyMap(),
             dashSummaries = emptyMap(),
             sessionSummaries = mapOf(
@@ -721,7 +721,7 @@ class CorrectionUiStateTest {
         sessionSummary: SessionSummary,
         dashSummary: DashSummary = DashSummary.initial(lang),
     ): GlobalLangState = GlobalLangState(
-        userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = lang),
+        userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang),
         langStates = mapOf(lang to LangState.initial(lang)),
         dashSummaries = mapOf(lang to dashSummary),
         sessionSummaries = mapOf(lang to sessionSummary),

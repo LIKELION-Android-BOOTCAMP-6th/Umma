@@ -18,9 +18,11 @@ import com.app.umma.domain.model.realtime.AppendTurnCommand
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
+import com.app.umma.domain.model.flashcard.ReviewRating
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.model.realtime.TopicSummarySaveResult
 import com.app.umma.domain.repository.CorrectionRepository
@@ -545,7 +547,9 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun updateFlashcardSchedule(
             userId: String,
             cardId: String,
-            result: ReviewScheduleResult
+            result: ReviewScheduleResult,
+            lastReviewRating: ReviewRating?,
+            lastReviewedAt: Long?
         ): Result<FlashcardUpdateResult> = Result.failure(UnsupportedOperationException("not used"))
 
         override suspend fun getReviewSummary(
@@ -562,6 +566,14 @@ class CompleteCorrectionUseCaseTest {
         override suspend fun syncDirtyFlashcards(userId: String): Result<Int> {
             // CompleteCorrectionUseCase는 저장 직후 summary 경계만 검증하므로 dirty sync는 이 테스트 범위가 아니다.
             return Result.success(0)
+        }
+
+        override suspend fun getFlashcards(
+            userId: String,
+            language: LangCode
+        ): Result<List<Flashcard>> {
+            // 이 테스트는 correction 완료 후 summary 갱신만 다루므로 목록 조회는 사용하지 않는다.
+            return Result.success(emptyList())
         }
     }
 

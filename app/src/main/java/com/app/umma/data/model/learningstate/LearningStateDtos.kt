@@ -98,9 +98,9 @@ data class FlashcardSummaryDto(
 )
 
 fun UserLangPref.toDto(): UserLangPrefDto {
-    // Domain의 짧은 필드를 저장 친화적인 이름으로 풀어 쓴다.
+    // primaryLanguage는 학습 기준 언어이고, selectedLearningLanguage는 현재 학습 대상 언어다.
     return UserLangPrefDto(
-        primaryLanguage = nativeLang.code,
+        primaryLanguage = primaryLang.code,
         selectedLearningLanguage = selectedLang.code,
         learningLanguages = learningLangs.map { it.code },
         schemaVersion = schema,
@@ -108,14 +108,23 @@ fun UserLangPref.toDto(): UserLangPrefDto {
     )
 }
 fun UserLangPrefDto.toDomain(): UserLangPref {
-    // 저장값이 일부 비어 있어도 MVP 기본 언어로 복원되게 둔다.
-    val restoredLearningLangs  = learningLanguages.mapNotNull(LangCode::fromCode).ifEmpty {
-        listOf(LangCode.fromCode(selectedLearningLanguage) ?: LangCode.EN)
+    // primaryLanguage는 기준 언어라 learningLanguages 밖이어도 정상이다. 포함 여부로 primary를 버리지 않는다.
+    val primary = LangCode.fromCode(primaryLanguage) ?: LangCode.KO
+    val rawSelected = LangCode.fromCode(selectedLearningLanguage)
+    val validLearningLangs = learningLanguages.mapNotNull(LangCode::fromCode)
+    val selected = when {
+        rawSelected != null && rawSelected in validLearningLangs -> rawSelected
+        rawSelected != null && validLearningLangs.isEmpty() -> rawSelected
+        validLearningLangs.isNotEmpty() -> validLearningLangs.first()
+        else -> LangCode.EN
     }
+    val restoredLearningLangs = validLearningLangs
+        .toMutableSet()
+        .apply { add(selected) }
+        .toList()
     return UserLangPref(
-        nativeLang = LangCode.fromCode(primaryLanguage) ?: LangCode.KO,
-        primaryLang = restoredLearningLangs.first(),
-        selectedLang = LangCode.fromCode(selectedLearningLanguage) ?: LangCode.EN,
+        primaryLang = primary,
+        selectedLang = selected,
         learningLangs = restoredLearningLangs,
         schema = schemaVersion,
         updatedAt = updatedAt
@@ -190,7 +199,8 @@ fun LangState.toDto(): LangStateDto {
 }
 
 fun LangStateDto.toDomain(): LangState {
-    // 분석 상태는 최신 저장 구조가 없을 때도 기본 언어로 안전하게 복원한다.
+    // 분석 상태는 최신 저장 구조가 없을 때도 안전 기본값으로 복원한다.
+    // 여기의 EN은 primaryLang이 아니라 오염된 LangState key에 대한 fallback이다.
     return LangState(
         lang = LangCode.fromCode(language) ?: LangCode.EN,
         internal = internalMetrics.toDomain(),

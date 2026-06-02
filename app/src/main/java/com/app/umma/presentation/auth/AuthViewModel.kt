@@ -208,8 +208,8 @@ class AuthViewModel @Inject constructor(
                 uid = uid,
                 email = email,
                 nickname = _uiState.value.nickname,
-                nativeLang = getSystemLanguageUseCase(),
-                primaryLang = selectedLearningLanguage,
+                primaryLang = getSystemLanguageUseCase(),
+                selectedLang = selectedLearningLanguage,
                 topics = emptyList()
             )
             result.onSuccess {

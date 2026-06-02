@@ -222,10 +222,7 @@ class StatisticsViewModelTest {
 
         // ViewModel은 selectedLang과 currentLangState.updatedAt을 signature로 삼아 reload 여부를 판단한다.
         return GlobalLangState(
-            userPref = UserLangPref.initial(
-                nativeLang = LangCode.KO,
-                primaryLang = LangCode.EN
-            ).copy(
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN).copy(
                 selectedLang = lang,
                 learningLangs = listOf(LangCode.EN, LangCode.KO)
             ),

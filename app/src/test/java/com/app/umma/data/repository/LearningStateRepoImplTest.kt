@@ -1,6 +1,8 @@
 package com.app.umma.data.repository
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.app.umma.data.model.learningstate.UserLangPrefDto
+import com.app.umma.data.model.learningstate.toDomain
 import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
@@ -39,7 +41,7 @@ class LearningStateRepoImplTest {
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),
@@ -50,6 +52,8 @@ class LearningStateRepoImplTest {
 
         // 첫 sync는 createInitial에서 남긴 pending key를 Firestore write-back으로 밀어낸다.
         assertEquals(1, remoteDataSource.syncCalls)
+        assertEquals("ko", remoteDataSource.lastUpdate?.userPref?.primaryLanguage)
+        assertEquals("en", remoteDataSource.lastUpdate?.userPref?.selectedLearningLanguage)
         assertEquals("en", remoteDataSource.lastUpdate?.langStates?.single()?.language)
         assertEquals("en", remoteDataSource.lastUpdate?.dashSummaries?.single()?.language)
 
@@ -61,13 +65,49 @@ class LearningStateRepoImplTest {
     }
 
     @Test
+    fun `primary language outside learning languages is preserved`() {
+        val legacyDto = UserLangPrefDto(
+            // primaryLanguage는 학습 기준 언어라 학습 대상 목록 밖이어도 정상이다.
+            primaryLanguage = "ko",
+            selectedLearningLanguage = "en",
+            learningLanguages = listOf("en", "ja"),
+            schemaVersion = 1,
+            updatedAt = 1_000L
+        )
+
+        val restored = legacyDto.toDomain()
+
+        assertEquals(LangCode.KO, restored.primaryLang)
+        assertEquals(LangCode.EN, restored.selectedLang)
+        assertEquals(listOf(LangCode.EN, LangCode.JA), restored.learningLangs)
+    }
+
+    @Test
+    fun `invalid selected language is restored to first learning language`() {
+        val legacyDto = UserLangPrefDto(
+            primaryLanguage = "ko",
+            selectedLearningLanguage = "ko",
+            learningLanguages = listOf("en", "ja"),
+            schemaVersion = 1,
+            updatedAt = 1_000L
+        )
+
+        val restored = legacyDto.toDomain()
+
+        // Chat 직접 진입은 Dashboard fallback을 거치지 않을 수 있으므로 selected 학습 언어를 DTO 복원 단계에서 정규화한다.
+        assertEquals(LangCode.KO, restored.primaryLang)
+        assertEquals(LangCode.EN, restored.selectedLang)
+        assertEquals(listOf(LangCode.EN, LangCode.JA), restored.learningLangs)
+    }
+
+    @Test
     fun `sync keeps pending marker when remote write fails`() = runBlocking {
         val remoteDataSource = RecordingLearningStateRemoteDataSource(failSync = true)
         val repo = createRepository(remoteDataSource)
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),
@@ -94,7 +134,7 @@ class LearningStateRepoImplTest {
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),
@@ -123,7 +163,7 @@ class LearningStateRepoImplTest {
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),
@@ -172,7 +212,7 @@ class LearningStateRepoImplTest {
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),
@@ -235,7 +275,7 @@ class LearningStateRepoImplTest {
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),
@@ -267,7 +307,7 @@ class LearningStateRepoImplTest {
 
         repo.createInitial(
             userUid = USER_UID,
-            userPref = UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = LangCode.EN),
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
             langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
             dashSummary = DashSummary.initial(LangCode.EN),
             sessionSummary = SessionSummary.initial(LangCode.EN),

@@ -110,9 +110,9 @@ class LearningStateRepoImpl @Inject constructor(
             // 현재 선택 언어만 바꾸고, 언어별 요약은 없으면 기본값으로 채운다.
             //   기존 userPref 가 있으면 selectedLang 갱신 + learningLangs 자동 확장.
             //   userPref 가 아직 없는 신규 사용자/mock 진입 케이스(=Dashboard 진입 시
-            //   닉네임/언어 다이얼로그를 거치지 않은 상태) 에서도 selector 로 첫 언어 설정이
-            //   동작하도록 UserLangPref.initial 로 최소 정보 userPref 를 생성한다. nativeLang
-            //   기본값은 KO. 이후 sync / Initial Setup 흐름에서 더 정확한 값으로 덮어쓰임.
+            //   닉네임/언어 다이얼로그를 거치지 않은 상태) 에서도 selector 로 첫 학습 언어 설정이
+            //   동작하도록 최소 정보 userPref 를 생성한다. 이 fallback에서는 학습 기준 언어를 알 수 없으므로
+            //   primaryLang은 안전 기본값으로 두고, 데이터 소속은 selectedLang 기준으로 만든다.
             val existingPref = current.userPref
             val normalizedPref = if (existingPref != null) {
                 existingPref.copy(
@@ -120,7 +120,7 @@ class LearningStateRepoImpl @Inject constructor(
                     learningLangs = existingPref.learningLangs.toMutableSet().apply { add(lang) }.toList()
                 )
             } else {
-                UserLangPref.initial(nativeLang = LangCode.KO, primaryLang = lang)
+                UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang)
             }
 
             current.copy(
@@ -404,24 +404,23 @@ class LearningStateRepoImpl @Inject constructor(
         return persistStateSafely(
             addPendingSyncKeys = setOf(
                 PendingSyncKey.userPref(),
-                PendingSyncKey.langState(userPref.primaryLang),
-                PendingSyncKey.dashSummary(userPref.primaryLang),
-                PendingSyncKey.sessionSummary(userPref.primaryLang),
-                PendingSyncKey.flashcardSummary(userPref.primaryLang)
+                PendingSyncKey.langState(userPref.selectedLang),
+                PendingSyncKey.dashSummary(userPref.selectedLang),
+                PendingSyncKey.sessionSummary(userPref.selectedLang),
+                PendingSyncKey.flashcardSummary(userPref.selectedLang)
             )
         ) {
-            // Initial Setup은 primaryLang을 기준으로 하나의 시작 스냅샷을 만든다.
-            // Initial Setup에서 만든 시작값을 현재 선택 언어 기준으로 정규화한다.
+            // Initial Setup의 학습 데이터는 사용자가 처음 선택한 학습 대상 언어(selectedLang)에 소속된다.
+            // primaryLang은 기준 언어이며, LangState/Summary key는 현재 학습 대상인 selectedLang을 사용한다.
             val normalizedPref = userPref.copy(
-                selectedLang = userPref.primaryLang,
                 learningLangs = userPref.learningLangs.toMutableSet()
-                    .apply { add(userPref.primaryLang) }.toList()
+                    .apply { add(userPref.selectedLang) }.toList()
             )
 
-            val normalizedLang = langState.copy(lang = userPref.primaryLang)
-            val normalizedDash = dashSummary.copy(lang = userPref.primaryLang)
-            val normalizedSession = sessionSummary.copy(lang = userPref.primaryLang)
-            val normalizedFlashcard = flashcardSummary.copy(lang = userPref.primaryLang)
+            val normalizedLang = langState.copy(lang = userPref.selectedLang)
+            val normalizedDash = dashSummary.copy(lang = userPref.selectedLang)
+            val normalizedSession = sessionSummary.copy(lang = userPref.selectedLang)
+            val normalizedFlashcard = flashcardSummary.copy(lang = userPref.selectedLang)
 
             GlobalLangState(
                 userPref = normalizedPref,

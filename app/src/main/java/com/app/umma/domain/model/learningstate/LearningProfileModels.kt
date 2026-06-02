@@ -4,13 +4,11 @@ package com.app.umma.domain.model.learningstate
  * 사용자의 앱 전역 학습 언어 컨텍스트.
  */
 data class UserLangPref(
-    // 사용자의 모국어.
-    val nativeLang: LangCode,
-    // 앱이 우선적으로 다루는 학습 언어.
+    // 사용자가 학습 기준으로 삼는 언어. UI 안내, 교정 설명, 번역/source 문장의 기준이 된다.
     val primaryLang: LangCode,
-    // 현재 화면에서 선택된 언어.
+    // 현재 사용자가 학습하려는 언어. LangState, Chat, Correction, SRS 데이터 소속의 기준이다.
     val selectedLang: LangCode,
-    // 사용자가 학습 가능한 언어 목록.
+    // 사용자가 학습 대상으로 추가한 언어 목록. primaryLang도 학습 대상이면 별도 선택을 통해 포함될 수 있다.
     val learningLangs: List<LangCode>,
     // 저장 구조 버전.
     val schema: Int = SCHEMA,
@@ -21,15 +19,14 @@ data class UserLangPref(
         const val SCHEMA = 1
 
         fun initial(
-            nativeLang: LangCode,
-            primaryLang: LangCode
+            primaryLang: LangCode,
+            selectedLang: LangCode
         ): UserLangPref {
-            // 신규 사용자 최초 설정값.
+            // 최초 설정은 학습 기준 언어(primary)와 현재 학습 대상 언어(selected)를 분리해 저장한다.
             return UserLangPref(
-                nativeLang = nativeLang,
                 primaryLang = primaryLang,
-                selectedLang = primaryLang,
-                learningLangs = listOf(primaryLang),
+                selectedLang = selectedLang,
+                learningLangs = listOf(selectedLang),
                 schema = SCHEMA,
                 updatedAt = null
             )
