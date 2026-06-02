@@ -128,7 +128,7 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
         private const val CHANNEL_ID_SRS_REVIEW = "srs_review_notifications"
         private const val REQUEST_CODE_SRS_NOTIFICATION = 1001
 
-        private const val CHANNEL_ID_MARKETING = "srs_review_notifications"
+        private const val CHANNEL_ID_MARKETING = "marketing_notifications"
         private const val REQUEST_CODE_MARKETING_NOTIFICATION = 1002
 
     }
