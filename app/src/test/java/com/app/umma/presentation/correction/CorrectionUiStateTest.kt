@@ -4,6 +4,7 @@ import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionFlashcardSaveItem
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
+import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.GlobalLangState
@@ -750,4 +751,65 @@ class CorrectionUiStateTest {
             sessionMemoryKey = "",
             completedAt = 1_700_000_000_000L,
         )
+
+    // ─── COR-FIX-06: areAllSuggestionsSelected 회귀 ──────────────────────────
+
+    @Test
+    fun `areAllSuggestionsSelected is false when no cards are selected`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            suggestions = suggestions,
+            selectedSuggestionIds = emptySet(),
+        )
+
+        assertFalse(state.areAllSuggestionsSelected)
+    }
+
+    @Test
+    fun `areAllSuggestionsSelected is false when only some cards are selected`() {
+        // 픽스처 기본값이 후보 1개라 직접 2개짜리 리스트를 만든다.
+        val suggestions = listOf(
+            CorrectionSuggestion(
+                id = "s-1", lang = LangCode.EN, sourceCandidateIds = listOf("c-1"),
+                sourceTurnIndex = 0, beforeText = "a", nativeText = "a",
+                afterText = "b", explanation = "e",
+            ),
+            CorrectionSuggestion(
+                id = "s-2", lang = LangCode.EN, sourceCandidateIds = listOf("c-2"),
+                sourceTurnIndex = 1, beforeText = "c", nativeText = "c",
+                afterText = "d", explanation = "e",
+            ),
+        )
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            suggestions = suggestions,
+            selectedSuggestionIds = setOf("s-1"),
+        )
+
+        assertFalse(state.areAllSuggestionsSelected)
+    }
+
+    @Test
+    fun `areAllSuggestionsSelected is true when all cards are selected`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            suggestions = suggestions,
+            selectedSuggestionIds = suggestions.map { it.id }.toSet(),
+        )
+
+        assertTrue(state.areAllSuggestionsSelected)
+    }
+
+    @Test
+    fun `areAllSuggestionsSelected is false when suggestions list is empty`() {
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            suggestions = emptyList(),
+            selectedSuggestionIds = emptySet(),
+        )
+
+        assertFalse(state.areAllSuggestionsSelected)
+    }
 }

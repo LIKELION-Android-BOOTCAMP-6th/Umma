@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,6 +42,7 @@ import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.presentation.correction.component.CorrectionResultList
+import com.app.umma.presentation.correction.component.CorrectionSelectAllBar
 import kotlinx.coroutines.delay
 
 /**
@@ -134,6 +137,13 @@ fun CorrectionScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    CorrectionSelectAllBar(
+                        totalCount = uiState.suggestions.size,
+                        selectedCount = uiState.selectedSuggestionIds.size,
+                        allSelected = uiState.areAllSuggestionsSelected,
+                        onToggleSelectAll = viewModel::toggleSelectAll,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
                         selectedIds = uiState.selectedSuggestionIds,
@@ -176,6 +186,13 @@ fun CorrectionScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    CorrectionSelectAllBar(
+                        totalCount = uiState.suggestions.size,
+                        selectedCount = uiState.selectedSuggestionIds.size,
+                        allSelected = uiState.areAllSuggestionsSelected,
+                        onToggleSelectAll = viewModel::toggleSelectAll,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
                         selectedIds = uiState.selectedSuggestionIds,
@@ -285,10 +302,9 @@ private fun CorrectionLoading(
     val steps = remember { CorrectionLoadingGuideStep.entries }
 
     LaunchedEffect(Unit) {
-        stepIndex = 0
-        while (stepIndex < steps.lastIndex) {
+        for (i in steps.indices) {
+            stepIndex = i
             delay(LOADING_GUIDE_STEP_INTERVAL_MS)
-            stepIndex += 1
         }
     }
 
@@ -302,8 +318,10 @@ private fun CorrectionLoading(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(SpacingM),
         ) {
-            // Material3 기본 stroke 크기를 유지하고 앱 테마 색만 적용한다.
-            CircularProgressIndicator(color = ThemePrimary)
+            CorrectionLoadingStepIndicator(
+                currentStep = stepIndex,
+                stepCount = steps.size,
+            )
             CorrectionLoadingGuideText(label = currentStep.label)
         }
     }
@@ -316,11 +334,44 @@ private fun CorrectionLoadingPreview() {
 }
 
 /**
+ * 교정 준비 흐름의 진행 위치를 5개의 가로 막대로 시각화하는 단계 인디케이터.
+ *
+ * 실제 작업 완료율과 1:1 대응시키지 않는다 — AI 응답 대기 시간이 예측 불가능하기 때문이다.
+ * 현재 단계까지는 [ThemePrimary]로 채우고, 이후 단계는 [BackgroundDeactivated]로 표시한다.
+ *
+ * @param currentStep 현재 진행 중인 단계 인덱스 (0-based).
+ * @param stepCount 전체 단계 수.
+ */
+@Composable
+private fun CorrectionLoadingStepIndicator(
+    currentStep: Int,
+    stepCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(SpacingS),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(stepCount) { i ->
+            val color = if (i <= currentStep) ThemePrimary else BackgroundDeactivated
+            Box(
+                modifier = Modifier
+                    .width(LOADING_STEP_BAR_WIDTH)
+                    .height(LOADING_STEP_BAR_HEIGHT)
+                    .clip(RoundedCornerShape(50))
+                    .background(color),
+            )
+        }
+    }
+}
+
+/**
  * 긴 AI 대기 시간을 실제 진행률처럼 꾸미지 않고, 준비 흐름의 체감 단계를 안내하기 위한 화면 전용 가이드.
  *
  * 실제 작업 완료율과 1:1 대응시키지 않는 이유는 AI 응답 대기 시간이 예측 불가능하기 때문이다.
- * 화면은 3초 간격으로 마지막 단계까지 진행하고, 각 문구의 말줄임표를 짧게 반복해 진행감을 만든다.
- * ViewModel 은 최소 15초 로딩 보장 뒤 결과 상태로 전환한다.
+ * 화면은 4초 간격으로 각 단계(마지막 단계 포함)를 순차 노출하고, 각 문구의 말줄임표를 짧게 반복해 진행감을 만든다.
+ * ViewModel 은 최소 20초 로딩 보장 뒤 결과 상태로 전환한다.
  */
 private enum class CorrectionLoadingGuideStep(val label: String) {
     ReviewingConversation("최근 대화를 확인하고 있어요"),
@@ -366,10 +417,12 @@ private fun animatedEllipsis(): String {
     return ".".repeat(dotCount)
 }
 
-private const val LOADING_GUIDE_STEP_INTERVAL_MS = 3_000L
+private const val LOADING_GUIDE_STEP_INTERVAL_MS = 4_000L
 private const val LOADING_ELLIPSIS_INTERVAL_MS = 600L
 private const val LOADING_ELLIPSIS_MAX_DOTS = 3
 private val LOADING_ELLIPSIS_WIDTH = 18.dp
+private val LOADING_STEP_BAR_WIDTH = 24.dp
+private val LOADING_STEP_BAR_HEIGHT = 4.dp
 
 /**
  * COR-001-B: 결손 케이스 Empty UI.
