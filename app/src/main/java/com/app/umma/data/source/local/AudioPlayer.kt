@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -179,65 +180,84 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         if (playbackJob?.isActive == true) return
 
         playbackJob = playerScope.launch {
-            for (chunk in audioQueue) {
-                if (currentPlaybackStartedAtMs == null) {
-                    currentPlaybackStartedAtMs = System.currentTimeMillis()
-                    currentPlaybackEndedAtMs = null
-                }
-                _outputLevel.value = calculateLevel(chunk)
+            try {
+                for (chunk in audioQueue) {
+                    if (currentPlaybackStartedAtMs == null) {
+                        currentPlaybackStartedAtMs = System.currentTimeMillis()
+                        currentPlaybackEndedAtMs = null
+                    }
+                    _outputLevel.value = calculateLevel(chunk)
 
-                val shouldStartPlayback =
-                    audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING
-                if (shouldStartPlayback) {
-                    waitForPrebuffer()
-                    audioTrack?.play()
-                    Log.d(
-                        TAG,
-                        "playback started: pending=${pendingChunkCount.get()}, underruns=${getUnderrunCountCompat()}"
-                    )
-                }
-
-                // Android 기기별 AudioTrack 구현은 play 전 write에서 0 byte를 반복 반환할 수 있다.
-                // 따라서 pre-buffer로 앱 큐를 먼저 채운 뒤, play 상태에서 chunk를 끝까지 write한다.
-                val writeSucceeded = writeChunkFully(chunk)
-                val submittedFramesAfterChunk = if (writeSucceeded) {
-                    submittedFrameCount.addAndGet(calculateFrameCount(chunk.size))
-                } else {
-                    submittedFrameCount.get()
-                }
-                logUnderrunIfChanged()
-                val pendingAfterPlayback = decrementPendingChunkCount()
-                val played = playedChunkCount.incrementAndGet()
-                if (writeSucceeded) {
-                    Log.d(
-                        TAG,
-                        "chunk played: index=$played, bytes=${chunk.size}, pending=$pendingAfterPlayback"
-                    )
-                } else {
-                    Log.w(
-                        TAG,
-                        "chunk playback incomplete: index=$played, bytes=${chunk.size}, pending=$pendingAfterPlayback"
-                    )
-                }
-
-                if (pendingAfterPlayback == 0) {
-                    val submittedFramesAfterPadding = writeSilencePaddingAfterLastChunk(
-                        submittedFramesAfterChunk
-                    )
-                    waitUntilSubmittedFramesArePlayed(submittedFramesAfterPadding)
-                    if (pendingChunkCount.get() == 0) {
-                        currentPlaybackEndedAtMs = System.currentTimeMillis()
-                        _outputLevel.value = 0f
-                        // 마지막 chunk의 실제 재생 시간이 지난 뒤에야 입력 가능 상태로 돌린다.
-                        // 이 값이 false가 되기 전까지 ChatViewModel은 마이크를 비활성화한다.
-                        _isPlaying.value = false
-                        pausePlaybackAfterDrain()
+                    val shouldStartPlayback =
+                        audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING
+                    if (shouldStartPlayback) {
+                        waitForPrebuffer()
+                        audioTrack?.play()
                         Log.d(
                             TAG,
-                            "playback drained: enqueued=${enqueuedChunkCount.get()}, played=${playedChunkCount.get()}, failedWrites=${failedWriteCount.get()}"
+                            "playback started: pending=${pendingChunkCount.get()}, underruns=${getUnderrunCountCompat()}"
                         )
                     }
+
+                    // Android 기기별 AudioTrack 구현은 play 전 write에서 0 byte를 반복 반환할 수 있다.
+                    // 따라서 pre-buffer로 앱 큐를 먼저 채운 뒤, play 상태에서 chunk를 끝까지 write한다.
+                    val writeSucceeded = writeChunkFully(chunk)
+                    val submittedFramesAfterChunk = if (writeSucceeded) {
+                        submittedFrameCount.addAndGet(calculateFrameCount(chunk.size))
+                    } else {
+                        submittedFrameCount.get()
+                    }
+                    logUnderrunIfChanged()
+                    val pendingAfterPlayback = decrementPendingChunkCount()
+                    val played = playedChunkCount.incrementAndGet()
+                    if (writeSucceeded) {
+                        Log.d(
+                            TAG,
+                            "chunk played: index=$played, bytes=${chunk.size}, pending=$pendingAfterPlayback"
+                        )
+                    } else {
+                        Log.w(
+                            TAG,
+                            "chunk playback incomplete: index=$played, bytes=${chunk.size}, pending=$pendingAfterPlayback"
+                        )
+                    }
+
+                    if (pendingAfterPlayback == 0) {
+                        val submittedFramesAfterPadding = writeSilencePaddingAfterLastChunk(
+                            submittedFramesAfterChunk
+                        )
+                        waitUntilSubmittedFramesArePlayed(submittedFramesAfterPadding)
+                        if (pendingChunkCount.get() == 0) {
+                            currentPlaybackEndedAtMs = System.currentTimeMillis()
+                            _outputLevel.value = 0f
+                            // 마지막 chunk의 실제 재생 시간이 지난 뒤에야 입력 가능 상태로 돌린다.
+                            // 이 값이 false가 되기 전까지 ChatViewModel은 마이크를 비활성화한다.
+                            _isPlaying.value = false
+                            pausePlaybackAfterDrain()
+                            Log.d(
+                                TAG,
+                                "playback drained: enqueued=${enqueuedChunkCount.get()}, played=${playedChunkCount.get()}, failedWrites=${failedWriteCount.get()}"
+                            )
+                        }
+                    }
                 }
+            } catch (error: CancellationException) {
+                // stop/release 는 정상 종료 경로이므로 호출자에게 cancellation 을 그대로 전파한다.
+                throw error
+            } catch (error: Throwable) {
+                Log.e(
+                    TAG,
+                    "playback worker failed: type=${error::class.java.simpleName}, message=${error.message}",
+                    error
+                )
+            } finally {
+                // AudioTrack write/drain 경계에서 예외가 나도 UI가 영구 SPEAKING 상태에 머무르면 안 된다.
+                // 따라서 worker 종료 경계에서는 출력 레벨과 playing flag 를 항상 안전 상태로 내린다.
+                if (currentPlaybackStartedAtMs != null && currentPlaybackEndedAtMs == null) {
+                    currentPlaybackEndedAtMs = System.currentTimeMillis()
+                }
+                _outputLevel.value = 0f
+                _isPlaying.value = false
             }
         }
     }

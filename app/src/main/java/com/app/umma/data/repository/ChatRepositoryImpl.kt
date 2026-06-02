@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -100,6 +101,10 @@ class ChatRepositoryImpl @Inject constructor(
     private var reconnectJob: Job? = null
     // session.updated 를 받기 전에는 수동 turn 설정이 반영됐다고 볼 수 없으므로 READY 처리를 막는다.
     private var sessionReadySignal: CompletableDeferred<Unit>? = null
+    // OkHttp onMessage callback 은 연속으로 들어오지만, callback 마다 launch 하면 처리 완료 순서가 뒤집힐 수 있다.
+    // response.done 이후 늦게 처리된 audio delta 가 SPEAKING 을 다시 emit 하지 않도록 서버 이벤트는 단일 queue 로 직렬 처리한다.
+    private var serverEventChannel: Channel<ServerRealtimeEvent>? = null
+    private var serverEventJob: Job? = null
 
     // 기존 AIEvent.FinalTranscription 계약은 turnId 를 요구하므로 OpenAI 구현도 세션 내부 순번을 만든다.
     private var turnSequence: Long = 0L
@@ -118,6 +123,11 @@ class ChatRepositoryImpl @Inject constructor(
     private var aiTranscriptBuffer: String = ""
     // OpenAI는 오디오 재생기를 직접 알지 않으므로, 수신한 PCM byte 수로 AI 응답 길이를 계산한다.
     private var aiAudioByteCount: Long = 0L
+    // response lifecycle 은 late audio delta 방어의 기준이다.
+    // provider response id 가 없는 이벤트도 있어, id guard 와 fallback guard 를 함께 둔다.
+    private var activeResponseId: String? = null
+    private val completedResponseIds = mutableListOf<String>()
+    private var responseDoneUntilNextCreate: Boolean = false
     // response.create 기준 첫 audio/transcript delta 지연시간을 측정하기 위한 타임스탬프들이다.
     private var responseCreatedAtMs: Long? = null
     private var firstAudioReceivedAtMs: Long? = null
@@ -293,7 +303,8 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun buildWebSocketListener(
         sessionId: String,
-        systemInstruction: String
+        systemInstruction: String,
+        eventChannel: Channel<ServerRealtimeEvent>
     ): WebSocketListener {
         return object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -304,8 +315,11 @@ class ChatRepositoryImpl @Inject constructor(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                repositoryScope.launch {
-                    handleServerEvent(sessionId, text)
+                // WebSocket 메시지는 서버가 보낸 순서대로 queue 에 넣고, 하나의 consumer 에서만 처리한다.
+                // 별도 coroutine 을 메시지마다 띄우면 response.done 과 audio delta 의 처리 완료 순서가 뒤집힐 수 있다.
+                val result = eventChannel.trySend(ServerRealtimeEvent(sessionId, text))
+                if (result.isFailure) {
+                    Log.w(TAG, "OpenAI Realtime event dropped: event queue is closed")
                 }
             }
 
@@ -357,6 +371,7 @@ class ChatRepositoryImpl @Inject constructor(
         val token = fetchRealtimeToken()
         val readySignal = CompletableDeferred<Unit>()
         sessionReadySignal = readySignal
+        val eventChannel = startServerEventQueue()
 
         // app session 상태는 WebSocket 생성 전에 먼저 기록합니다.
         // 그래야 setup 실패가 onFailure 로 먼저 들어와도 cleanup/retry 경로가 어떤 session 을 다루는지 알 수 있습니다.
@@ -371,7 +386,8 @@ class ChatRepositoryImpl @Inject constructor(
             buildWebSocketRequest(token),
             buildWebSocketListener(
                 sessionId = sessionId,
-                systemInstruction = systemInstruction
+                systemInstruction = systemInstruction,
+                eventChannel = eventChannel
             )
         )
 
@@ -434,12 +450,11 @@ class ChatRepositoryImpl @Inject constructor(
             }
             "response.output_audio.delta",
             "response.audio.delta" -> {
-                // 첫 audio delta 기준으로 실제 사용자가 듣기 시작할 수 있는 지연시간을 남긴다.
-                markFirstAudioLatencyIfNeeded()
-                emitAudioDelta(payload.string("delta"))
+                emitAudioDelta(payload)
             }
             "response.output_audio_transcript.delta",
             "response.audio_transcript.delta" -> {
+                if (shouldIgnoreResponseDelta(payload, "transcript")) return
                 markFirstAiTranscriptDeltaIfNeeded()
                 val delta = payload.string("delta")
                 aiTranscriptBuffer += delta.orEmpty()
@@ -447,6 +462,7 @@ class ChatRepositoryImpl @Inject constructor(
             }
             "response.output_audio_transcript.done",
             "response.audio_transcript.done" -> {
+                if (shouldIgnoreResponseDelta(payload, "transcript_done")) return
                 val transcript = payload.string("transcript").orEmpty()
                 // 기존 Gemini 구현은 turnComplete 시점에 AI final 을 저장했다.
                 // OpenAI에서도 transcript done 직후가 아니라 response.done 에서 저장해야
@@ -456,6 +472,7 @@ class ChatRepositoryImpl @Inject constructor(
                 }
             }
             "response.done" -> {
+                markResponseDone(payload)
                 // 일부 이벤트 순서에서는 transcript done 이 오기 전에 response.done 이 올 수 있어
                 // 남은 buffer 가 있으면 여기서 final 로 보정해 기존 저장 계약을 지킨다.
                 var aiTurnId: String? = null
@@ -524,6 +541,10 @@ class ChatRepositoryImpl @Inject constructor(
         responseCreatedAtMs = System.currentTimeMillis()
         firstAudioReceivedAtMs = null
         firstAiTranscriptDeltaAtMs = null
+        // 새 response.create 이후에는 이전 response.done 의 fallback guard 를 해제한다.
+        // 아직 provider response id 를 모르는 구간이므로 첫 delta/done 에서 id 를 확정한다.
+        activeResponseId = null
+        responseDoneUntilNextCreate = false
         webSocket?.send(buildResponseCreateEvent())
         repositoryScope.launch {
             events.emit(AIEvent.StateChanged(AIState.THINKING))
@@ -616,6 +637,13 @@ class ChatRepositoryImpl @Inject constructor(
         }.onFailure { error ->
             Log.w(TAG, "OpenAI Realtime audio delta decode failed: ${error.message}")
         }
+    }
+
+    private suspend fun emitAudioDelta(payload: JsonObject) {
+        if (shouldIgnoreResponseDelta(payload, "audio")) return
+        // 첫 audio delta 기준으로 실제 사용자가 듣기 시작할 수 있는 지연시간을 남긴다.
+        markFirstAudioLatencyIfNeeded()
+        emitAudioDelta(payload.string("delta"))
     }
 
     /**
@@ -820,6 +848,70 @@ class ChatRepositoryImpl @Inject constructor(
         aiAudioByteCount = 0L
     }
 
+    private fun resetResponseLifecycleState() {
+        // transport 자체가 닫힐 때는 이전 response 의 done/delta guard 도 함께 폐기한다.
+        // 새 WebSocket 에 오래된 completed id 를 남기면 다음 응답을 잘못 late delta 로 볼 수 있다.
+        activeResponseId = null
+        responseDoneUntilNextCreate = false
+        completedResponseIds.clear()
+    }
+
+    private fun startServerEventQueue(): Channel<ServerRealtimeEvent> {
+        // reconnect/start 경계에서 이전 socket 의 consumer 가 남아 있으면 오래된 이벤트가 새 세션 상태를 덮을 수 있다.
+        // 새 WebSocket 을 만들기 전에 이전 queue 를 닫아 현재 transport 이벤트만 받도록 한다.
+        stopServerEventQueue()
+        val channel = Channel<ServerRealtimeEvent>(capacity = Channel.UNLIMITED)
+        serverEventChannel = channel
+        serverEventJob = repositoryScope.launch {
+            for (event in channel) {
+                handleServerEvent(event.sessionId, event.rawJson)
+            }
+        }
+        return channel
+    }
+
+    private fun stopServerEventQueue() {
+        serverEventChannel?.close()
+        serverEventChannel = null
+        serverEventJob?.cancel()
+        serverEventJob = null
+    }
+
+    private fun markResponseEventObserved(payload: JsonObject): String? {
+        val responseId = payload.responseIdOrNull() ?: return null
+        activeResponseId = responseId
+        return responseId
+    }
+
+    private fun shouldIgnoreResponseDelta(payload: JsonObject, label: String): Boolean {
+        val responseId = payload.responseIdOrNull()
+        if (responseId != null && responseId in completedResponseIds) {
+            // response.done 이 처리된 같은 response 의 late delta 는 UI 상태를 SPEAKING 으로 되돌리면 안 된다.
+            Log.w(TAG, "OpenAI Realtime late $label delta ignored: responseId=$responseId")
+            return true
+        }
+        if (responseId == null && responseDoneUntilNextCreate) {
+            // 일부 provider 이벤트에는 response_id 가 없을 수 있다.
+            // done 이후 다음 response.create 전이면 늦게 도착한 delta 로 보고 상태 전환을 막는다.
+            Log.w(TAG, "OpenAI Realtime late $label delta ignored after response.done")
+            return true
+        }
+        markResponseEventObserved(payload)
+        return false
+    }
+
+    private fun markResponseDone(payload: JsonObject) {
+        val responseId = payload.responseIdOrNull() ?: activeResponseId
+        if (responseId != null) {
+            completedResponseIds += responseId
+            while (completedResponseIds.size > COMPLETED_RESPONSE_ID_LIMIT) {
+                completedResponseIds.removeAt(0)
+            }
+        }
+        activeResponseId = null
+        responseDoneUntilNextCreate = true
+    }
+
     private fun buildSessionUpdateEvent(systemInstruction: String): String {
         return buildJsonObject {
             put("type", "session.update")
@@ -986,6 +1078,7 @@ class ChatRepositoryImpl @Inject constructor(
      * realtime transport 만 정리합니다.
      */
     private suspend fun closeRealtimeTransport() {
+        stopServerEventQueue()
         webSocket?.let { socket ->
             requestedCloseSockets.add(socket)
             socket.close(WEBSOCKET_NORMAL_CLOSE, "chat session stopped")
@@ -995,6 +1088,7 @@ class ChatRepositoryImpl @Inject constructor(
         sessionReadySignal = null
         aiTranscriptBuffer = ""
         resetTurnTransportState()
+        resetResponseLifecycleState()
     }
 
     /**
@@ -1081,6 +1175,15 @@ class ChatRepositoryImpl @Inject constructor(
         return this[key] as? JsonObject
     }
 
+    private fun JsonObject.responseIdOrNull(): String? {
+        // OpenAI Realtime event 는 type 별로 response_id 를 top-level 로 주거나,
+        // response.done 처럼 response 객체 안의 id 로 제공할 수 있다.
+        // 두 위치를 모두 확인해야 lifecycle guard 가 provider event shape 변화에 덜 취약하다.
+        return string("response_id")
+            ?: jsonObject("response")?.string("id")
+            ?: string("id")
+    }
+
     private fun JsonElement.jsonPrimitiveOrNull() = runCatching {
         jsonPrimitive
     }.getOrNull()
@@ -1088,6 +1191,7 @@ class ChatRepositoryImpl @Inject constructor(
     private companion object {
         const val TAG = "OpenAIRealtime"
         const val EVENT_BUFFER_CAPACITY = 64
+        const val COMPLETED_RESPONSE_ID_LIMIT = 24
         const val SESSION_READY_TIMEOUT_MS = 10_000L
         const val COMMIT_GRACE_DELAY_MS = 150L
         const val WEBSOCKET_NORMAL_CLOSE = 1000
@@ -1101,6 +1205,17 @@ class ChatRepositoryImpl @Inject constructor(
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }
 }
+
+/**
+ * WebSocket callback 에서 받은 원본 server event 입니다.
+ *
+ * OkHttp callback 마다 별도 coroutine 을 만들면 이벤트 처리 완료 순서가 바뀔 수 있으므로,
+ * 이 모델을 단일 Channel 에 넣어 수신 순서대로 provider event mapping 을 수행한다.
+ */
+private data class ServerRealtimeEvent(
+    val sessionId: String,
+    val rawJson: String
+)
 
 /**
  * RT-004 자동 재연결 정책입니다.

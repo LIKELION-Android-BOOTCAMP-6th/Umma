@@ -914,17 +914,23 @@ class ChatViewModel @Inject constructor(
             stopRecordingForAiSpeaking()
         }
 
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            val next = current.copy(
                 aiState = event.state,
                 // SPEAKING 상태는 이미 AI 응답 구간이므로 "발화 인식 중" 안내보다 우선한다.
                 // 그 외 상태에서는 직전 대기 문구가 필요한 짧은 구간이 있어 기존 값을 유지한다.
                 isAwaitingUserTranscript = if (event.state == AIState.SPEAKING) {
                     false
                 } else {
-                    it.isAwaitingUserTranscript
+                    current.isAwaitingUserTranscript
                 }
             )
+            Log.d(
+                TAG,
+                "aiState changed: ${current.aiState}->${next.aiState}, " +
+                    "isAudioOutputPlaying=${next.isAudioOutputPlaying}, mic=${next.micControlState}"
+            )
+            next
         }
     }
 
@@ -1106,8 +1112,14 @@ class ChatViewModel @Inject constructor(
 
         outputPlaybackJob = viewModelScope.launch {
             audioPlayer.isPlaying.collectLatest { isPlaying ->
-                _uiState.update {
-                    it.copy(isAudioOutputPlaying = isPlaying)
+                _uiState.update { current ->
+                    val next = current.copy(isAudioOutputPlaying = isPlaying)
+                    Log.d(
+                        TAG,
+                        "audio playback changed: isPlaying=$isPlaying, " +
+                            "aiState=${next.aiState}, mic=${next.micControlState}"
+                    )
+                    next
                 }
             }
         }
