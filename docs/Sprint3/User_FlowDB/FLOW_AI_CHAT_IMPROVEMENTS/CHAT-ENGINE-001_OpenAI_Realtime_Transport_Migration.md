@@ -4,7 +4,7 @@
 
 사용자는 AI Chat에서 기존과 같은 대화 흐름을 사용하되, 내부 realtime transport는 OpenAI Realtime 기준으로 동작한다.
 
-이번 작업은 `CHAT-POC-001`에서 검증한 OpenAI Realtime 경로로 AI Chat 음성 대화 엔진을 완전히 교체하는 선행 인프라 작업이다. 이후 화면 UX 보강은 `CHAT-FIX-001-C/D/E`에서 마이크 버튼 상태, final 자막 대화형 표시, 음성 레벨 wave로 나누어 다룬다.
+이번 작업은 `CHAT-POC-001`에서 검증한 OpenAI Realtime 경로로 AI Chat 음성 대화 엔진을 완전히 교체하는 선행 인프라 작업이다. 이후 화면 UX 보강은 `CHAT-FIX-001-C/D`의 마이크 버튼 상태/final 자막 표시와 `CHAT-UX-003`의 voice interaction character로 나누어 다룬다.
 
 ---
 
