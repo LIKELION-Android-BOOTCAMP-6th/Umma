@@ -331,7 +331,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         const val SRS_REVIEW_DOCUMENT_ID = "srs_review"
         const val ANDROID_PLATFORM = "android"
         const val DEFAULT_TIMEZONE = "Asia/Seoul"
-        const val DEFAULT_NOTIFICATION_TIME_MINUTES = 19 * 60
+        const val DEFAULT_NOTIFICATION_TIME_MINUTES = 18 * 60
         const val MINUTES_PER_HOUR = 60
         const val MINUTES_PER_DAY = 24 * 60
         const val NOTIFICATION_DEVICE_PREFERENCES = "notification_device_preferences"

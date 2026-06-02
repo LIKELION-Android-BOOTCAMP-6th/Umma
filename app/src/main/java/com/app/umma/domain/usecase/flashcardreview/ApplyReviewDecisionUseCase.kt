@@ -37,7 +37,9 @@ class ApplyReviewDecisionUseCase @Inject constructor(
         val updateResult = flashcardRepository.updateFlashcardSchedule(
             userId = userId,
             cardId = card.id,
-            result = nextResult
+            result = nextResult,
+            lastReviewRating = decision.rating,
+            lastReviewedAt = decision.reviewedAt
         )
 
         val savedUpdate = updateResult.getOrElse { throwable ->
@@ -89,7 +91,9 @@ class ApplyReviewDecisionUseCase @Inject constructor(
                 interval = card.schedule.interval,
                 easeFactor = card.schedule.easeFactor,
                 nextReviewAt = card.schedule.nextReviewAt
-            )
+            ),
+            lastReviewRating = card.lastReviewRating,
+            lastReviewedAt = card.lastReviewedAt
         )
     }
 }

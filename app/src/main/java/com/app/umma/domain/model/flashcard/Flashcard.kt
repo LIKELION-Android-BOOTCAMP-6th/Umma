@@ -12,7 +12,9 @@ data class Flashcard(
     val hint: String? = null,
     val schedule: FlashcardSchedule,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val lastReviewRating: ReviewRating? = null,
+    val lastReviewedAt: Long? = null
 )
 
 /** 플래시카드의 복습 스케줄 상태를 담는 값 객체입니다. */

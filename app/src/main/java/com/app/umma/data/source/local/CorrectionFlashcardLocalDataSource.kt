@@ -76,7 +76,9 @@ interface CorrectionFlashcardLocalDataSource {
         nextReviewAt: Long,
         interval: Int,
         easeFactor: Double,
-        updatedAt: Long
+        updatedAt: Long,
+        lastReviewRating: String?,
+        lastReviewedAt: Long?
     ): Boolean
 
     /**
@@ -139,7 +141,9 @@ data class CorrectionFlashcardEntity(
     val interval: Int,
     val easeFactor: Double,
     // true면 최초 저장 또는 review schedule 갱신이 local에만 반영되어 remote sync가 남은 카드다.
-    val dirty: Boolean
+    val dirty: Boolean,
+    val lastReviewRating: String?,
+    val lastReviewedAt: Long?
 )
 
 @Dao
@@ -220,6 +224,8 @@ interface CorrectionFlashcardDao {
             interval = :interval,
             easeFactor = :easeFactor,
             updatedAt = :updatedAt,
+            lastReviewRating = :lastReviewRating,
+            lastReviewedAt = :lastReviewedAt,
             dirty = 1
         WHERE userId = :userId AND id = :flashcardId
         """
@@ -230,7 +236,9 @@ interface CorrectionFlashcardDao {
         nextReviewAt: Long,
         interval: Int,
         easeFactor: Double,
-        updatedAt: Long
+        updatedAt: Long,
+        lastReviewRating: String?,
+        lastReviewedAt: Long?
     ): Int
 
     /**
@@ -298,7 +306,7 @@ interface CorrectionFlashcardDao {
 
 @Database(
     entities = [CorrectionFlashcardEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class CorrectionFlashcardDatabase : RoomDatabase() {
@@ -375,7 +383,9 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
         nextReviewAt: Long,
         interval: Int,
         easeFactor: Double,
-        updatedAt: Long
+        updatedAt: Long,
+        lastReviewRating: String?,
+        lastReviewedAt: Long?
     ): Boolean {
         // SRS가 계산한 schedule을 같은 원본 row에 반영한다.
         // 갱신된 카드는 다시 Firestore sync가 필요하므로 DAO에서 dirty=true로 바꾼다.
@@ -385,7 +395,9 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
             nextReviewAt = nextReviewAt,
             interval = interval,
             easeFactor = easeFactor,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            lastReviewRating = lastReviewRating,
+            lastReviewedAt = lastReviewedAt
         ) > 0
     }
 
@@ -448,7 +460,9 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
             nextReviewAt = nextReviewAt,
             interval = interval,
             easeFactor = easeFactor,
-            dirty = dirty
+            dirty = dirty,
+            lastReviewRating = lastReviewRating,
+            lastReviewedAt = lastReviewedAt
         )
     }
 
@@ -466,7 +480,9 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
             nextReviewAt = nextReviewAt,
             interval = interval,
             easeFactor = easeFactor,
-            dirty = dirty
+            dirty = dirty,
+            lastReviewRating = lastReviewRating,
+            lastReviewedAt = lastReviewedAt
         )
     }
 }

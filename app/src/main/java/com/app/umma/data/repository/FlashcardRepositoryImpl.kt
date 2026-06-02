@@ -8,6 +8,7 @@ import com.app.umma.domain.model.flashcard.FlashcardReviewSummary
 import com.app.umma.domain.model.flashcard.FlashcardSchedule
 import com.app.umma.domain.model.flashcard.FlashcardUpdateResult
 import com.app.umma.domain.model.flashcard.ReviewDeckState
+import com.app.umma.domain.model.flashcard.ReviewRating
 import com.app.umma.domain.model.flashcard.ReviewScheduleResult
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.repository.FlashcardRepository
@@ -49,7 +50,9 @@ class FlashcardRepositoryImpl @Inject constructor(
     override suspend fun updateFlashcardSchedule(
         userId: String,
         cardId: String,
-        result: ReviewScheduleResult
+        result: ReviewScheduleResult,
+        lastReviewRating: ReviewRating?,
+        lastReviewedAt: Long?
     ): Result<FlashcardUpdateResult> {
         return try {
             val updatedAt = System.currentTimeMillis()
@@ -61,7 +64,9 @@ class FlashcardRepositoryImpl @Inject constructor(
                 nextReviewAt = result.nextReviewAt,
                 interval = result.interval,
                 easeFactor = result.easeFactor,
-                updatedAt = updatedAt
+                updatedAt = updatedAt,
+                lastReviewRating = lastReviewRating?.name,
+                lastReviewedAt = lastReviewedAt
             )
 
             if (!success) {
@@ -75,7 +80,9 @@ class FlashcardRepositoryImpl @Inject constructor(
                 nextReviewAt = result.nextReviewAt,
                 interval = result.interval,
                 easeFactor = result.easeFactor,
-                updatedAt = updatedAt
+                updatedAt = updatedAt,
+                lastReviewRating = lastReviewRating?.name,
+                lastReviewedAt = lastReviewedAt
             )
 
 
@@ -190,8 +197,9 @@ class FlashcardRepositoryImpl @Inject constructor(
                 nextReviewAt = nextReviewAt
             ),
             createdAt = createdAt,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            lastReviewRating = ReviewRating.fromName(lastReviewRating),
+            lastReviewedAt = lastReviewedAt
         )
     }
 }
-
