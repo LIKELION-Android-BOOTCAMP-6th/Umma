@@ -9,6 +9,7 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
+import com.app.umma.domain.model.realtime.ChatResponseOverrideProvider
 import com.app.umma.domain.repository.ChatRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -40,16 +41,11 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
     private var preset: ChatDemoPreset = ChatDemoPresetConfig.activePreset
     private var usesInjectedPreset: Boolean = false
 
-    internal constructor(
-        preset: ChatDemoPreset
-    ) : this() {
-        this.preset = preset
-        this.usesInjectedPreset = true
-    }
-
     override suspend fun startSession(
         langCode: LangCode,
-        systemInstruction: String
+        systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider?
     ): Result<String> {
         stopInternal(clearAppSession = true)
         if (!usesInjectedPreset) {
@@ -59,7 +55,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
         currentLang = langCode
         emittedUserTurn = false
         interruptionEmitted = false
-        logPreset("startSession lang=${langCode.code}, preset=$preset")
+        logPreset("startSession lang=${langCode.code}, preset=$preset, speed=$outputAudioSpeed")
         events.emit(AIEvent.Initializing)
         val sessionId = activeSessionId!!
         events.emit(AIEvent.Initialized(sessionId))
@@ -83,7 +79,11 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
         return Result.success(sessionId)
     }
 
-    override suspend fun reconnectSession(systemInstruction: String): Result<String> {
+    override suspend fun reconnectSession(
+        systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider?
+    ): Result<String> {
         val sessionId = activeSessionId
             ?: return Result.failure(IllegalStateException("Active session not found"))
 
@@ -93,7 +93,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
             ChatDemoPreset.SaveSignalOnly,
             ChatDemoPreset.HandoffDuplicateFinal,
             ChatDemoPreset.SilentInputNoFinal -> {
-                logPreset("reconnectSession success preset=$preset, sessionId=$sessionId")
+                logPreset("reconnectSession success preset=$preset, sessionId=$sessionId, speed=$outputAudioSpeed")
                 events.emit(AIEvent.StateChanged(AIState.RECONNECTING))
                 events.emit(AIEvent.Reconnected(sessionId))
                 events.emit(AIEvent.StateChanged(AIState.IDLE))
@@ -332,7 +332,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
         }
     }
 
-    private suspend fun stopInternal(clearAppSession: Boolean) {
+    private fun stopInternal(clearAppSession: Boolean) {
         activeJob?.cancel()
         activeJob = null
         pendingUserTurnDurationMs = null

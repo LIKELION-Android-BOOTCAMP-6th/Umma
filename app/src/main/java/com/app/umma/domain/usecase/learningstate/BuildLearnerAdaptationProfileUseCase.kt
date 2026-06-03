@@ -2,19 +2,25 @@ package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionAdaptationPolicy
 import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
 import com.app.umma.domain.model.learningstate.EvidenceDirection
+import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
 import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
+import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LearnerAbilityProfile
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.LearningFocus
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
+import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
 import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
-import com.app.umma.domain.model.learningstate.QuestionStylePolicy
+import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
+import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
+import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -42,7 +48,12 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             averageOf(
                 langState.internal.vocabularyAppropriateness,
                 langState.internal.lexicalDiversity,
-                vocabLevelScore(langState.internal.vocabularyLevel)
+                // expressionRange는 external에 남아 있지만 현재 누적 표현 폭의 유일한 source다.
+                // vocabularyLevel도 expressionRange에서 영향을 받으므로 둘을 더하지 않고 더 강한 단서 하나만 쓴다.
+                maxOf(
+                    vocabLevelScore(langState.internal.vocabularyLevel),
+                    expressionRangeScore(langState.external.expressionRange)
+                )
             )
         )
         // 유창성은 속도만 높다고 좋아지지 않으므로 pause와 발화 길이를 같이 묶어 본다.
@@ -50,16 +61,14 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             averageOf(
                 langState.internal.speechRate,
                 1.0 - langState.internal.pauseFrequency,
-                langState.internal.avgUtteranceLength,
-                langState.external.fluencyScore
+                langState.internal.avgUtteranceLength
             )
         )
-        // 자연스러움은 구어체 선택과 외부 요약 점수를 같이 봐야 "문법은 맞지만 어색한" 상태를 잡을 수 있다.
+        // 자연스러움은 표시용 external이 아니라 내부 구어체/표현 선택 지표만으로 판단한다.
         val naturalnessStage = stageFromScore(
             averageOf(
                 langState.internal.spokenNaturalness,
-                langState.internal.naturalExpressionUsage,
-                langState.external.naturalnessScore
+                langState.internal.naturalExpressionUsage
             )
         )
         // active focus는 그대로 넘기지 않고, prompt에 실제로 유효한 상위 항목만 요약한다.
@@ -83,8 +92,12 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         return LearnerAdaptationProfile(
             core = core,
             chatPolicy = buildChatPolicy(
-                challenge = challenge,
-                confidence = confidence
+                langState = langState,
+                confidence = confidence,
+                grammarStage = grammarStage,
+                vocabularyStage = vocabularyStage,
+                fluencyStage = fluencyStage,
+                naturalnessStage = naturalnessStage
             ),
             correctionPolicy = buildCorrectionPolicy(
                 challenge = challenge,
@@ -116,8 +129,12 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         return LearnerAdaptationProfile(
             core = core,
             chatPolicy = buildChatPolicy(
-                challenge = ChallengeLevel.Support,
-                confidence = ProfileConfidence.Low
+                langState = null,
+                confidence = ProfileConfidence.Low,
+                grammarStage = SkillStage.Foundation,
+                vocabularyStage = SkillStage.Foundation,
+                fluencyStage = SkillStage.Foundation,
+                naturalnessStage = SkillStage.Foundation
             ),
             correctionPolicy = buildCorrectionPolicy(
                 challenge = ChallengeLevel.Support,
@@ -148,8 +165,19 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             listOf(
                 stageFromScore(langState.internal.grammarAccuracy),
                 stageFromScore(langState.internal.vocabularyAppropriateness),
-                stageFromScore(langState.external.fluencyScore),
-                stageFromScore(langState.external.naturalnessScore)
+                stageFromScore(
+                    averageOf(
+                        langState.internal.speechRate,
+                        1.0 - langState.internal.pauseFrequency,
+                        langState.internal.avgUtteranceLength
+                    )
+                ),
+                stageFromScore(
+                    averageOf(
+                        langState.internal.spokenNaturalness,
+                        langState.internal.naturalExpressionUsage
+                    )
+                )
             )
         )
 
@@ -205,45 +233,162 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
     }
 
     private fun buildChatPolicy(
-        challenge: ChallengeLevel,
-        confidence: ProfileConfidence
+        langState: LangState?,
+        confidence: ProfileConfidence,
+        grammarStage: SkillStage,
+        vocabularyStage: SkillStage,
+        fluencyStage: SkillStage,
+        naturalnessStage: SkillStage
     ): ChatAdaptationPolicy {
-        // low confidence에서는 challenge와 무관하게 짧고 구체적인 대화를 우선한다.
-        if (confidence == ProfileConfidence.Low) {
-            return ChatAdaptationPolicy(
-                challengeLevel = ChallengeLevel.Support,
+        // Chat은 Correction의 4단계 challenge보다 대화 지속 가능성을 더 세밀하게 봐야 한다.
+        val band = chooseConversationBand(
+            langState = langState,
+            confidence = confidence,
+            grammarStage = grammarStage,
+            vocabularyStage = vocabularyStage,
+            fluencyStage = fluencyStage,
+            naturalnessStage = naturalnessStage
+        )
+
+        // band별 정책은 prompt에 enum 이름으로 노출되지 않고, BuildPromptUseCase가 행동 문장으로 압축한다.
+        return when (band) {
+            ConversationAbilityBand.IntentOnly -> ChatAdaptationPolicy(
+                // 의미 단서가 거의 없으므로 AI가 먼저 의도를 복원하고, 사용자는 단어/선택지만 말해도 이어갈 수 있게 한다.
+                conversationBand = band,
+                intentSupport = IntentSupportPolicy.InferActively,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                recastStyle = RecastStylePolicy.TinyInline,
+                expressionGrowth = ExpressionGrowthPolicy.OneTinyPhrase,
+                questionLoad = QuestionLoadPolicy.ConcreteChoice,
                 responseLength = ResponseLengthPolicy.OneShortSentence,
-                questionStyle = QuestionStylePolicy.OneConcreteQuestion,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
+                speechSpeed = SpeechSpeedPolicy.SlowBeginner
             )
+            ConversationAbilityBand.PhraseEmerging -> ChatAdaptationPolicy(
+                // 단어와 짧은 구는 보이지만 문장 생성 부담이 크므로, 짧은 확인과 쉬운 패턴 하나를 우선한다.
+                conversationBand = band,
+                intentSupport = IntentSupportPolicy.ConfirmBriefly,
+                primaryBridge = PrimaryBridgePolicy.Brief,
+                recastStyle = RecastStylePolicy.SimpleInline,
+                expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
+                questionLoad = QuestionLoadPolicy.ConcreteChoice,
+                responseLength = ResponseLengthPolicy.ShortTwoStep,
+                speechSpeed = SpeechSpeedPolicy.Guided
+            )
+            ConversationAbilityBand.SimpleSentence -> ChatAdaptationPolicy(
+                // 짧은 문장 생산은 가능하므로 의도 확인은 줄이되, 질문은 실제 내용 하나로 제한해 다음 발화를 보호한다.
+                conversationBand = band,
+                intentSupport = IntentSupportPolicy.ConfirmBriefly,
+                primaryBridge = PrimaryBridgePolicy.Brief,
+                recastStyle = RecastStylePolicy.SimpleInline,
+                expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
+                questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+                responseLength = ResponseLengthPolicy.ShortTwoStep,
+                speechSpeed = SpeechSpeedPolicy.Guided
+            )
+            ConversationAbilityBand.BasicConversation -> ChatAdaptationPolicy(
+                // 기본 왕복 대화가 가능하므로 target 언어 중심으로 반응하고, 자연스러운 일상 표현 하나만 확장한다.
+                conversationBand = band,
+                intentSupport = IntentSupportPolicy.TrustMeaning,
+                primaryBridge = PrimaryBridgePolicy.FallbackOnly,
+                recastStyle = RecastStylePolicy.NaturalInline,
+                expressionGrowth = ExpressionGrowthPolicy.OneEverydayExpression,
+                questionLoad = QuestionLoadPolicy.OpenShort,
+                responseLength = ResponseLengthPolicy.NaturalBrief,
+                speechSpeed = SpeechSpeedPolicy.NormalLearning
+            )
+            ConversationAbilityBand.ConnectedExpression -> ChatAdaptationPolicy(
+                // 이유/감정/상황 설명이 가능하므로 대화 흐름을 넓히되, prompt 비대를 막기 위해 확장은 한 표현으로 제한한다.
+                conversationBand = band,
+                intentSupport = IntentSupportPolicy.TrustMeaning,
+                primaryBridge = PrimaryBridgePolicy.FallbackOnly,
+                recastStyle = RecastStylePolicy.NaturalInline,
+                expressionGrowth = ExpressionGrowthPolicy.OneEverydayExpression,
+                questionLoad = QuestionLoadPolicy.OpenShort,
+                responseLength = ResponseLengthPolicy.NaturalBrief,
+                speechSpeed = SpeechSpeedPolicy.SlightlyFast
+            )
+            ConversationAbilityBand.NuanceControl -> ChatAdaptationPolicy(
+                // 의미 전달은 안정적인 단계이므로 보조 언어를 닫고, 사용자가 이끄는 일반 대화 안에서 뉘앙스만 미세 조정한다.
+                conversationBand = band,
+                intentSupport = IntentSupportPolicy.FollowUserLead,
+                primaryBridge = PrimaryBridgePolicy.None,
+                recastStyle = RecastStylePolicy.NuanceOnly,
+                expressionGrowth = ExpressionGrowthPolicy.OneNativeLikeChoice,
+                questionLoad = QuestionLoadPolicy.NuanceFollowUp,
+                responseLength = ResponseLengthPolicy.Flexible,
+                speechSpeed = SpeechSpeedPolicy.Advanced
+            )
+        }
+    }
+
+    private fun chooseConversationBand(
+        langState: LangState?,
+        confidence: ProfileConfidence,
+        grammarStage: SkillStage,
+        vocabularyStage: SkillStage,
+        fluencyStage: SkillStage,
+        naturalnessStage: SkillStage
+    ): ConversationAbilityBand {
+        // meaningful LangState가 없으면 "초급 확정"이 아니라 첫 selectedLang fallback으로 둔다.
+        // 실제 첫 발화가 fluent하면 prompt가 현재 발화를 우선 보고 더 자연스럽게 따라가도록 별도 지시한다.
+        if (langState == null || !hasMeaningfulLangState(langState)) {
+            return ConversationAbilityBand.IntentOnly
         }
 
-        return when (challenge) {
-            ChallengeLevel.Support -> ChatAdaptationPolicy(
-                challengeLevel = ChallengeLevel.Support,
-                responseLength = ResponseLengthPolicy.OneShortSentence,
-                questionStyle = QuestionStylePolicy.OneConcreteQuestion,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
-            )
-            ChallengeLevel.Match -> ChatAdaptationPolicy(
-                challengeLevel = ChallengeLevel.Match,
-                responseLength = ResponseLengthPolicy.ShortTwoStep,
-                questionStyle = QuestionStylePolicy.GuidedChoiceQuestion,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.BriefPrimaryLanguageHint
-            )
-            ChallengeLevel.Stretch -> ChatAdaptationPolicy(
-                challengeLevel = ChallengeLevel.Stretch,
-                responseLength = ResponseLengthPolicy.NaturalBrief,
-                questionStyle = QuestionStylePolicy.OpenFollowUp,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.TargetLanguageFirstWithPrimaryFallback
-            )
-            ChallengeLevel.Refine -> ChatAdaptationPolicy(
-                challengeLevel = ChallengeLevel.Refine,
-                responseLength = ResponseLengthPolicy.Flexible,
-                questionStyle = QuestionStylePolicy.NuanceFollowUp,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.TargetLanguageOnly
-            )
+        // confidence가 낮고 핵심 대화 지표가 대부분 Foundation이면 의도 복원 우선 단계로 둔다.
+        val foundationCount = listOf(grammarStage, vocabularyStage, fluencyStage)
+            .count { it == SkillStage.Foundation }
+        if (confidence == ProfileConfidence.Low && foundationCount >= 2) {
+            return ConversationAbilityBand.IntentOnly
         }
+
+        // 발화 길이와 pause는 "대화를 계속할 수 있는가"에 직접 영향을 주므로 낮은 단계로 보수 조정한다.
+        val pauseStage = stageFromScore(1.0 - (langState.internal.pauseFrequency.coerceIn(0.0, 1.0)))
+        val utteranceStage = stageFromScore(langState.internal.avgUtteranceLength)
+        val structureStage = stageFromScore(langState.internal.sentenceComplexity)
+        val weakestCoreStage = listOf(grammarStage, vocabularyStage, fluencyStage).minByOrNull { it.ordinal }
+            ?: SkillStage.Foundation
+
+        // 단어/구는 보이지만 문장 유지 근거가 부족하면 PhraseEmerging으로 둔다.
+        if (
+            weakestCoreStage.ordinal <= SkillStage.Foundation.ordinal ||
+            pauseStage == SkillStage.Foundation ||
+            utteranceStage == SkillStage.Foundation
+        ) {
+            return ConversationAbilityBand.PhraseEmerging
+        }
+
+        // 짧은 문장 근거는 있으나 structure나 grammar가 아직 낮으면 SimpleSentence가 더 안전하다.
+        if (
+            grammarStage == SkillStage.Developing ||
+            structureStage.ordinal <= SkillStage.Developing.ordinal
+        ) {
+            return ConversationAbilityBand.SimpleSentence
+        }
+
+        // 안정적인 왕복 대화는 grammar/vocabulary/fluency 중 최소 두 영역이 Stable 이상이어야 한다.
+        val stableConversationCount = listOf(grammarStage, vocabularyStage, fluencyStage)
+            .count { it.ordinal >= SkillStage.Stable.ordinal }
+        if (stableConversationCount >= 2) {
+            // 표현 연결 단계는 vocabulary/structure/naturalness가 함께 올라온 경우에만 허용한다.
+            val connectedCount = listOf(vocabularyStage, structureStage, naturalnessStage)
+                .count { it.ordinal >= SkillStage.Expanding.ordinal }
+            if (connectedCount >= 2) {
+                // NuanceControl은 높은 confidence와 자연스러움/어휘 고점이 같이 있어야 과잉 평가를 막을 수 있다.
+                if (
+                    confidence == ProfileConfidence.High &&
+                    naturalnessStage == SkillStage.Refined &&
+                    vocabularyStage.ordinal >= SkillStage.Expanding.ordinal &&
+                    fluencyStage.ordinal >= SkillStage.Stable.ordinal
+                ) {
+                    return ConversationAbilityBand.NuanceControl
+                }
+                return ConversationAbilityBand.ConnectedExpression
+            }
+            return ConversationAbilityBand.BasicConversation
+        }
+
+        return ConversationAbilityBand.SimpleSentence
     }
 
     private fun buildCorrectionPolicy(
@@ -393,25 +538,41 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         return level.ordinal.toDouble() / (VocabLevel.entries.size - 1).toDouble()
     }
 
+    private fun expressionRangeScore(expressionRange: Int): Double {
+        // expressionRange는 external에 있지만 누적 표현 폭 source라 profile에서만 예외적으로 읽는다.
+        // C2 후보 기준인 80개 이상을 상한으로 둬 표시용 큰 숫자가 profile을 과도하게 밀지 못하게 한다.
+        return (expressionRange.coerceAtLeast(0).toDouble() / EXPRESSION_RANGE_C2_THRESHOLD)
+            .coerceIn(0.0, 1.0)
+    }
+
     private fun hasMeaningfulMetric(langState: LangState): Boolean {
         // initial snapshot의 0 값은 "초급" 근거가 아니라 "아직 모름"에 가깝다.
         return listOf(
             langState.internal.grammarAccuracy,
             langState.internal.vocabularyAppropriateness,
             langState.internal.lexicalDiversity,
-            vocabLevelScore(langState.internal.vocabularyLevel),
+            maxOf(
+                vocabLevelScore(langState.internal.vocabularyLevel),
+                expressionRangeScore(langState.external.expressionRange)
+            ),
             langState.internal.speechRate,
             langState.internal.pauseFrequency,
             langState.internal.avgUtteranceLength,
             langState.internal.spokenNaturalness,
-            langState.internal.naturalExpressionUsage,
-            langState.external.grammarAccuracy,
-            langState.external.fluencyScore,
-            langState.external.naturalnessScore
+            langState.internal.naturalExpressionUsage
         ).any { value ->
             // 아주 작은 흔들림은 분석 근거로 보지 않고, 실제 관측된 metric만 confidence에 반영한다.
             value.coerceIn(0.0, 1.0) >= MEANINGFUL_METRIC_MIN
         }
+    }
+
+    private fun hasMeaningfulLangState(langState: LangState): Boolean {
+        // selectedLang LangState가 있더라도 분석 시각이 없으면 아직 실제 대화 능력 근거로 보기 어렵다.
+        if (langState.lastAnalyzedAt == null) return false
+        // metricEvidence는 분석이 단순 초기값 저장이 아니라 실제 관측에서 왔는지 보여주는 핵심 근거다.
+        if (langState.analysisMeta.metricEvidence.isEmpty()) return false
+        // 주요 internal metric이 전부 초기값이면 evidence가 있어도 첫 대화 fallback으로 유지한다.
+        return hasMeaningfulMetric(langState)
     }
 
     private fun stageSpread(stages: List<SkillStage>): Int {
@@ -446,5 +607,6 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         private const val MAX_PROMPT_FOCUS_COUNT = 2
         private const val HIGH_SPREAD_STAGE_DISTANCE = 3
         private const val MEANINGFUL_METRIC_MIN = 0.05
+        private const val EXPRESSION_RANGE_C2_THRESHOLD = 80.0
     }
 }

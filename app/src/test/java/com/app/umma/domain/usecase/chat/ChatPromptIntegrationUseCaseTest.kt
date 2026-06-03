@@ -16,6 +16,7 @@ import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AppendTurnCommand
+import com.app.umma.domain.model.realtime.ChatResponseOverrideProvider
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
@@ -53,6 +54,8 @@ class ChatPromptIntegrationUseCaseTest {
             learningStateRepo = learningStateRepo,
             sessionMemoryRepository = sessionMemoryRepository,
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = BuildPromptUseCase()
         )
 
@@ -61,11 +64,26 @@ class ChatPromptIntegrationUseCaseTest {
         // StartSessionUseCase 는 selectedLang 으로 transport 세션을 시작해야 한다.
         assertTrue(result.isSuccess)
         assertEquals(LangCode.EN, chatRepository.startedLang)
-        // initial LangState 는 low-confidence profile 로 해석되어 primaryLang 보조 설명을 허용한다.
-        assertTrue(chatRepository.startedInstruction.contains("Speak primarily in English."))
-        assertTrue(chatRepository.startedInstruction.contains("Korean"))
+        // 초기 low-confidence profile 은 첫 발화가 아주 낮은 수준일 수 있어 가장 안전한 속도로 시작해야 한다.
+        assertEquals(0.8, chatRepository.startedOutputAudioSpeed!!, 0.0)
+        // initial LangState 는 meaningful LangState 가 아니므로 첫 selectedLang fallback 정책으로 시작한다.
+        assertTrue(chatRepository.startedInstruction.contains("- target: 영어"))
+        assertTrue(chatRepository.startedInstruction.contains("- support: 한국어"))
+        assertTrue(chatRepository.startedInstruction.contains("저장된 근거가 적어도 현재 발화가 이어질 수 있게 이해 가능한 반응을 우선한다."))
+        assertTrue(chatRepository.startedInstruction.contains("불완전한 말에서도 사용자의 의도를 먼저 추론하고 대화를 이어간다."))
+        // Chat prompt 는 단순 답변 AI 가 아니라 초보도 이해 가능한 반응을 받아 다음 말을 이어갈 수 있어야 한다.
+        assertTrue(chatRepository.startedInstruction.contains("fragment: 뜻만 있는 단어 조각이면 기준언어(한국어)로 의미를 먼저 잡고 영어 핵심 표현 하나를 자연스럽게 붙인다."))
+        assertTrue(chatRepository.startedInstruction.contains("필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 준다."))
+        assertTrue(chatRepository.startedInstruction.contains("첫 발화가 조각나도 천천히 말하며 한 가지 의미씩 이해하게 한다."))
         // 최근 확정 대화 context 는 기존 prompt 정책처럼 유지되어야 한다.
-        assertTrue(chatRepository.startedInstruction.contains("Use this confirmed recent conversation context"))
+        assertTrue(chatRepository.startedInstruction.contains("- USER: hello"))
+        assertTrue(chatRepository.startedInstruction.contains("최근 맥락은 주제 이해에만 쓰고"))
+        // USER final transcript 이후 response.create 전용 override를 만들 provider가 transport에 전달되어야 한다.
+        val override = chatRepository.startedResponseOverrideProvider!!.build("I apple hungry")
+            ?: error("response override should be created for a fragment user turn")
+        // initial profile의 기본 초급 정책과 같은 turn이면 같은 "천천히/쉽게" 지시를 반복하지 않는다.
+        assertEquals(null, override.responseInstructions)
+        assertEquals(0.8, override.outputAudioSpeed!!, 0.0)
     }
 
     @Test
@@ -89,6 +107,8 @@ class ChatPromptIntegrationUseCaseTest {
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
             buildLearnerAdaptationProfileUseCase = profileUseCase,
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = promptUseCase
         )()
 
@@ -97,12 +117,21 @@ class ChatPromptIntegrationUseCaseTest {
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
             buildLearnerAdaptationProfileUseCase = profileUseCase,
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = promptUseCase
         )()
 
         // 같은 입력이면 start 와 retry 가 같은 prompt builder 경로를 타야 난이도가 중간에 바뀌지 않는다.
         assertTrue(retryResult is RetryConnectionResult.Reconnected)
         assertEquals(startRepository.startedInstruction, retryRepository.reconnectedInstruction)
+        assertEquals(startRepository.startedOutputAudioSpeed!!, retryRepository.reconnectedOutputAudioSpeed!!, 0.0)
+        val startOverride = startRepository.startedResponseOverrideProvider!!.build("I apple hungry")
+            ?: error("start response override should be created")
+        val retryOverride = retryRepository.reconnectedResponseOverrideProvider!!.build("I apple hungry")
+            ?: error("retry response override should be created")
+        assertEquals(startOverride.responseInstructions, retryOverride.responseInstructions)
+        assertEquals(startOverride.outputAudioSpeed!!, retryOverride.outputAudioSpeed!!, 0.0)
     }
 
     @Test
@@ -123,6 +152,8 @@ class ChatPromptIntegrationUseCaseTest {
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = BuildPromptUseCase()
         )()
 
@@ -143,19 +174,36 @@ class ChatPromptIntegrationUseCaseTest {
         lateinit var startedInstruction: String
         lateinit var reconnectedInstruction: String
         var startedLang: LangCode? = null
+        var startedOutputAudioSpeed: Double? = null
+        var reconnectedOutputAudioSpeed: Double? = null
+        var startedResponseOverrideProvider: ChatResponseOverrideProvider? = null
+        var reconnectedResponseOverrideProvider: ChatResponseOverrideProvider? = null
 
-        override suspend fun startSession(langCode: LangCode, systemInstruction: String): Result<String> {
+        override suspend fun startSession(
+            langCode: LangCode,
+            systemInstruction: String,
+            outputAudioSpeed: Double,
+            responseOverrideProvider: ChatResponseOverrideProvider?
+        ): Result<String> {
             // test fake 는 transport 를 열지 않고, domain usecase 가 넘긴 언어와 prompt 만 기록한다.
             activeSessionId = "session-1"
             currentLang = langCode
             startedLang = langCode
             startedInstruction = systemInstruction
+            startedOutputAudioSpeed = outputAudioSpeed
+            startedResponseOverrideProvider = responseOverrideProvider
             return Result.success(activeSessionId!!)
         }
 
-        override suspend fun reconnectSession(systemInstruction: String): Result<String> {
-            // retry 경로에서도 같은 prompt 생성 결과가 들어오는지 비교하기 위해 instruction 을 보관한다.
+        override suspend fun reconnectSession(
+            systemInstruction: String,
+            outputAudioSpeed: Double,
+            responseOverrideProvider: ChatResponseOverrideProvider?
+        ): Result<String> {
+            // retry 경로에서도 같은 prompt/속도 생성 결과가 들어오는지 비교하기 위해 값을 보관한다.
             reconnectedInstruction = systemInstruction
+            reconnectedOutputAudioSpeed = outputAudioSpeed
+            reconnectedResponseOverrideProvider = responseOverrideProvider
             return Result.success(activeSessionId ?: "session-1")
         }
 
