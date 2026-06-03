@@ -7,9 +7,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.app.umma.data.model.notification.MarketingNotificationSettingsDto
 import com.app.umma.data.model.notification.SrsNotificationSettingsDto
 import com.app.umma.data.model.notification.toDomain
 import com.app.umma.data.model.notification.toDto
+import com.app.umma.domain.model.notification.MarketingNotificationSettings
 import com.app.umma.domain.model.notification.SrsNotificationSettings
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.NotificationSettingsRepository
@@ -34,7 +36,7 @@ import javax.inject.Named
 import javax.inject.Singleton
 
 /**
- * Firestore source of truth + DataStore cache based repository for SRS notification settings.
+ * Firestore 원본 + DataStore 캐시 기반 알림 설정 저장소.
  */
 @Singleton
 class NotificationSettingsRepositoryImpl @Inject constructor(
@@ -55,21 +57,16 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         return callbackFlow {
             val uid = authRepository.getCurrentUserUid()
             if (uid.isNullOrBlank()) {
-                trySend(readCachedSettings() ?: SrsNotificationSettings.initial())
+                trySend(readCachedSrsSettings() ?: SrsNotificationSettings.initial())
                 close()
                 return@callbackFlow
             }
 
-            val documentRef = firestore
-                .collection(USERS_COLLECTION)
-                .document(uid)
-                .collection(NOTIFICATION_SETTINGS_COLLECTION)
-                .document(SRS_REVIEW_DOCUMENT_ID)
-
+            val documentRef = notificationSettingsCollection(uid).document(SRS_REVIEW_DOCUMENT_ID)
             val registration = documentRef.addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     launch {
-                        trySend(readCachedSettings() ?: SrsNotificationSettings.initial())
+                        trySend(readCachedSrsSettings() ?: SrsNotificationSettings.initial())
                     }
                     return@addSnapshotListener
                 }
@@ -83,7 +80,41 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
 
             awaitClose { registration.remove() }
         }.map { settings ->
-            cacheSettings(settings)
+            cacheSrsSettings(settings)
+            settings
+        }
+    }
+
+    override fun observeMarketingNotificationSettings(): Flow<MarketingNotificationSettings> {
+        return callbackFlow {
+            val uid = authRepository.getCurrentUserUid()
+            if (uid.isNullOrBlank()) {
+                trySend(readCachedMarketingSettings() ?: MarketingNotificationSettings.initial())
+                close()
+                return@callbackFlow
+            }
+
+            val documentRef = notificationSettingsCollection(uid).document(MARKETING_DOCUMENT_ID)
+            val registration = documentRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    launch {
+                        trySend(
+                            readCachedMarketingSettings() ?: MarketingNotificationSettings.initial()
+                        )
+                    }
+                    return@addSnapshotListener
+                }
+
+                val settings = snapshot?.data
+                    ?.toMarketingNotificationSettingsDto()
+                    ?.toDomain()
+                    ?: MarketingNotificationSettings.initial()
+                trySend(settings)
+            }
+
+            awaitClose { registration.remove() }
+        }.map { settings ->
+            cacheMarketingSettings(settings)
             settings
         }
     }
@@ -91,7 +122,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun setSrsNotificationEnabled(enabled: Boolean): Result<Unit> {
         return runCatching {
-            val current = currentSettings()
+            val current = currentSrsSettings()
             val nextNotificationAt = if (enabled) {
                 computeNextNotificationAt(
                     timezone = current.timezone,
@@ -102,10 +133,21 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 null
             }
 
-            saveSettings(
+            saveSrsSettings(
                 current.copy(
                     enabled = enabled,
                     nextNotificationAt = nextNotificationAt,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    override suspend fun setMarketingNotificationEnabled(enabled: Boolean): Result<Unit> {
+        return runCatching {
+            saveMarketingSettings(
+                MarketingNotificationSettings(
+                    enabled = enabled,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -119,7 +161,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 "totalMinutes must be between 0 and 1439"
             }
 
-            val current = currentSettings()
+            val current = currentSrsSettings()
             val nextNotificationAt = if (current.enabled) {
                 computeNextNotificationAt(
                     timezone = current.timezone,
@@ -130,7 +172,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 null
             }
 
-            saveSettings(
+            saveSrsSettings(
                 current.copy(
                     preferredNotificationTimeMinutes = totalMinutes,
                     nextNotificationAt = nextNotificationAt,
@@ -143,7 +185,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun refreshTimezone(timezone: String): Result<Unit> {
         return runCatching {
-            val current = currentSettings()
+            val current = currentSrsSettings()
             val nextNotificationAt = if (current.enabled) {
                 computeNextNotificationAt(
                     timezone = timezone,
@@ -154,7 +196,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 null
             }
 
-            saveSettings(
+            saveSrsSettings(
                 current.copy(
                     timezone = timezone,
                     nextNotificationAt = nextNotificationAt,
@@ -176,9 +218,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
             val now = System.currentTimeMillis()
             val deviceId = currentDeviceId()
 
-            firestore.collection(USERS_COLLECTION)
-                .document(uid)
-                .collection(NOTIFICATION_DEVICES_COLLECTION)
+            notificationDevicesCollection(uid)
                 .document(deviceId)
                 .set(
                     mapOf(
@@ -196,18 +236,25 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun syncCurrentDeviceRegistration(
+    override suspend fun syncNotificationPermissionState(
         permissionGranted: Boolean,
         timezone: String
     ): Result<Unit> {
         return runCatching {
             val uid = authRepository.getCurrentUserUid() ?: return@runCatching
-            val token = FirebaseMessaging.getInstance().token.await()
-            registerCurrentDevice(
-                token = token,
-                permissionGranted = permissionGranted,
-                timezone = timezone
-            ).getOrThrow()
+
+            if (permissionGranted) {
+                val token = FirebaseMessaging.getInstance().token.await()
+                registerCurrentDevice(
+                    token = token,
+                    permissionGranted = true,
+                    timezone = timezone
+                ).getOrThrow()
+                return@runCatching
+            }
+
+            unregisterCurrentDevice().getOrThrow()
+            disableAllNotificationSettings(uid)
         }
     }
 
@@ -216,9 +263,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
             val uid = authRepository.getCurrentUserUid() ?: return@runCatching
             val deviceId = currentDeviceId()
 
-            firestore.collection(USERS_COLLECTION)
-                .document(uid)
-                .collection(NOTIFICATION_DEVICES_COLLECTION)
+            notificationDevicesCollection(uid)
                 .document(deviceId)
                 .set(
                     mapOf(
@@ -234,15 +279,13 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun currentSettings(): SrsNotificationSettings {
-        readCachedSettings()?.let { return it }
+    private suspend fun currentSrsSettings(): SrsNotificationSettings {
+        readCachedSrsSettings()?.let { return it }
 
         val uid = authRepository.getCurrentUserUid()
         if (uid.isNullOrBlank()) return SrsNotificationSettings.initial()
 
-        val snapshot = firestore.collection(USERS_COLLECTION)
-            .document(uid)
-            .collection(NOTIFICATION_SETTINGS_COLLECTION)
+        val snapshot = notificationSettingsCollection(uid)
             .document(SRS_REVIEW_DOCUMENT_ID)
             .get()
             .await()
@@ -253,29 +296,72 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
             ?: SrsNotificationSettings.initial()
     }
 
-    private suspend fun saveSettings(settings: SrsNotificationSettings) {
+    private suspend fun saveSrsSettings(settings: SrsNotificationSettings) {
         val uid = authRepository.getCurrentUserUid()
             ?: throw IllegalStateException("signed-in user is required")
 
-        firestore.collection(USERS_COLLECTION)
-            .document(uid)
-            .collection(NOTIFICATION_SETTINGS_COLLECTION)
+        notificationSettingsCollection(uid)
             .document(SRS_REVIEW_DOCUMENT_ID)
             .set(settings.toDto(), SetOptions.merge())
             .await()
 
-        cacheSettings(settings)
+        cacheSrsSettings(settings)
     }
 
-    private suspend fun readCachedSettings(): SrsNotificationSettings? {
+    private suspend fun saveMarketingSettings(settings: MarketingNotificationSettings) {
+        val uid = authRepository.getCurrentUserUid()
+            ?: throw IllegalStateException("signed-in user is required")
+
+        notificationSettingsCollection(uid)
+            .document(MARKETING_DOCUMENT_ID)
+            .set(settings.toDto(), SetOptions.merge())
+            .await()
+
+        cacheMarketingSettings(settings)
+    }
+
+    private suspend fun disableAllNotificationSettings(uid: String) {
+        val now = System.currentTimeMillis()
+
+        val srsSettings = currentSrsSettings().copy(
+            enabled = false,
+            nextNotificationAt = null,
+            updatedAt = now
+        )
+        saveSrsSettings(srsSettings)
+
+        val marketingSettings = MarketingNotificationSettings(
+            enabled = false,
+            updatedAt = now
+        )
+        notificationSettingsCollection(uid)
+            .document(MARKETING_DOCUMENT_ID)
+            .set(marketingSettings.toDto(), SetOptions.merge())
+            .await()
+        cacheMarketingSettings(marketingSettings)
+    }
+
+    private suspend fun readCachedSrsSettings(): SrsNotificationSettings? {
         val preferences = dataStore.data.first()
-        val raw = preferences[SETTINGS_CACHE_KEY] ?: return null
+        val raw = preferences[SRS_SETTINGS_CACHE_KEY] ?: return null
         return json.decodeFromString<SrsNotificationSettingsDto>(raw).toDomain()
     }
 
-    private suspend fun cacheSettings(settings: SrsNotificationSettings) {
+    private suspend fun readCachedMarketingSettings(): MarketingNotificationSettings? {
+        val preferences = dataStore.data.first()
+        val raw = preferences[MARKETING_SETTINGS_CACHE_KEY] ?: return null
+        return json.decodeFromString<MarketingNotificationSettingsDto>(raw).toDomain()
+    }
+
+    private suspend fun cacheSrsSettings(settings: SrsNotificationSettings) {
         dataStore.edit { preferences ->
-            preferences[SETTINGS_CACHE_KEY] = json.encodeToString(settings.toDto())
+            preferences[SRS_SETTINGS_CACHE_KEY] = json.encodeToString(settings.toDto())
+        }
+    }
+
+    private suspend fun cacheMarketingSettings(settings: MarketingNotificationSettings) {
+        dataStore.edit { preferences ->
+            preferences[MARKETING_SETTINGS_CACHE_KEY] = json.encodeToString(settings.toDto())
         }
     }
 
@@ -312,6 +398,16 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         return generated
     }
 
+    private fun notificationSettingsCollection(uid: String) = firestore
+        .collection(USERS_COLLECTION)
+        .document(uid)
+        .collection(NOTIFICATION_SETTINGS_COLLECTION)
+
+    private fun notificationDevicesCollection(uid: String) = firestore
+        .collection(USERS_COLLECTION)
+        .document(uid)
+        .collection(NOTIFICATION_DEVICES_COLLECTION)
+
     private fun Map<String, Any?>.toSrsNotificationSettingsDto(): SrsNotificationSettingsDto {
         return SrsNotificationSettingsDto(
             type = this["type"] as? String ?: SRS_REVIEW_DOCUMENT_ID,
@@ -324,11 +420,20 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         )
     }
 
+    private fun Map<String, Any?>.toMarketingNotificationSettingsDto(): MarketingNotificationSettingsDto {
+        return MarketingNotificationSettingsDto(
+            type = this["type"] as? String ?: MARKETING_DOCUMENT_ID,
+            enabled = this["enabled"] as? Boolean ?: false,
+            updatedAt = (this["updatedAt"] as? Number)?.toLong()
+        )
+    }
+
     private companion object {
         const val USERS_COLLECTION = "users"
         const val NOTIFICATION_SETTINGS_COLLECTION = "notification_settings"
         const val NOTIFICATION_DEVICES_COLLECTION = "notification_devices"
         const val SRS_REVIEW_DOCUMENT_ID = "srs_review"
+        const val MARKETING_DOCUMENT_ID = "marketing"
         const val ANDROID_PLATFORM = "android"
         const val DEFAULT_TIMEZONE = "Asia/Seoul"
         const val DEFAULT_NOTIFICATION_TIME_MINUTES = 18 * 60
@@ -336,6 +441,8 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         const val MINUTES_PER_DAY = 24 * 60
         const val NOTIFICATION_DEVICE_PREFERENCES = "notification_device_preferences"
         const val NOTIFICATION_INSTALLATION_ID_KEY = "notification_installation_id"
-        val SETTINGS_CACHE_KEY = stringPreferencesKey("srs_notification_settings_cache")
+        val SRS_SETTINGS_CACHE_KEY = stringPreferencesKey("srs_notification_settings_cache")
+        val MARKETING_SETTINGS_CACHE_KEY =
+            stringPreferencesKey("marketing_notification_settings_cache")
     }
 }

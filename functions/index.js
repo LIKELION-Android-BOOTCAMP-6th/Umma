@@ -30,11 +30,20 @@ const NOTIFICATION_DEVICES_COLLECTION = "notification_devices";
 const NOTIFICATION_HISTORY_COLLECTION = "notification_history";
 const SRS_REVIEW_NOTIFICATION_TYPE = "srs_review";
 const SRS_REVIEW_ROUTE = "srs_study";
+const MARKETING_NOTIFICATION_TYPE = "marketing";
+const MARKETING_NOTIFICATION_ROUTE = "home";
+const MARKETING_NOTIFICATION_CHANNEL_ID = "marketing_notifications";
+const MARKETING_NOTIFICATION_TITLE = "Umma";
+const MARKETING_SLOT_MORNING = "morning";
+const MARKETING_SLOT_NOON = "noon";
+const MARKETING_SLOT_MORNING_HOUR = 7;
+const MARKETING_SLOT_NOON_HOUR = 12;
 const DEFAULT_NOTIFICATION_TIMEZONE = "Asia/Seoul";
 const DEFAULT_NOTIFICATION_TIME_MINUTES = 18 * 60;
 const MINUTES_PER_HOUR = 60;
 const MINUTES_PER_DAY = 24 * 60;
 const SRS_NOTIFICATION_SCAN_LIMIT = 300;
+const MARKETING_NOTIFICATION_SCAN_LIMIT = 500;
 const SUPPORTED_SRS_REVIEW_RATINGS = new Set(["HARD", "GOOD", "EASY"]);
 const INVALID_FCM_ERROR_CODES = new Set([
   "messaging/registration-token-not-registered",
@@ -296,6 +305,72 @@ exports.dispatchSrsReviewNotifications = onSchedule(
 );
 
 /**
+ * Sends marketing push notifications twice a day using each user's local time.
+ *
+ * Eligible users are those who explicitly enabled marketing notifications and
+ * still have at least one active device with notification permission.
+ */
+exports.dispatchMarketingNotifications = onSchedule(
+  {
+    region: "us-central1",
+    schedule: "* * * * *",
+    timeZone: "Etc/UTC",
+  },
+  async () => {
+    const now = Date.now();
+    const candidateSnapshot = await firestore
+      .collectionGroup(NOTIFICATION_SETTINGS_COLLECTION)
+      .where("enabled", "==", true)
+      .limit(MARKETING_NOTIFICATION_SCAN_LIMIT)
+      .get();
+
+    if (candidateSnapshot.empty) {
+      logger.info("marketing notification dispatch skipped: no enabled settings");
+      return;
+    }
+
+    const summary = {
+      candidateCount: candidateSnapshot.size,
+      processedCount: 0,
+      sentCount: 0,
+      skippedCount: 0,
+      invalidTokenCount: 0,
+      failureCount: 0,
+    };
+
+    for (const settingsDoc of candidateSnapshot.docs) {
+      if (
+        settingsDoc.id !== MARKETING_NOTIFICATION_TYPE ||
+        settingsDoc.ref.parent.id !== NOTIFICATION_SETTINGS_COLLECTION
+      ) {
+        continue;
+      }
+
+      summary.processedCount += 1;
+
+      try {
+        const result = await processMarketingNotificationCandidate(settingsDoc, now);
+        summary.invalidTokenCount += result.invalidTokenCount;
+
+        if (result.status === "sent") {
+          summary.sentCount += 1;
+        } else {
+          summary.skippedCount += 1;
+        }
+      } catch (error) {
+        summary.failureCount += 1;
+        logger.error("marketing notification dispatch failed for user", {
+          path: settingsDoc.ref.path,
+          message: error.message,
+        });
+      }
+    }
+
+    logger.info("marketing notification dispatch completed", summary);
+  },
+);
+
+/**
  * Verifies the Firebase Auth ID token sent by the Android app.
  *
  * The function endpoint may still be reachable as an HTTPS URL, but it must not
@@ -435,6 +510,88 @@ async function processSrsReviewNotificationCandidate(settingsDoc, now) {
   };
 }
 
+async function processMarketingNotificationCandidate(settingsDoc, now) {
+  const userRef = settingsDoc.ref.parent.parent;
+  if (!userRef) {
+    logger.warn("marketing notification skipped: missing user reference", {
+      path: settingsDoc.ref.path,
+    });
+    return { status: "skipped", reason: "missing-user-ref", invalidTokenCount: 0 };
+  }
+
+  const activeDevices = await loadActiveNotificationDevices(userRef);
+  if (activeDevices.length === 0) {
+    return { status: "skipped", reason: "no-active-devices", invalidTokenCount: 0 };
+  }
+
+  const timezone = getReferenceMarketingTimezone(activeDevices);
+  const slot = resolveMarketingCampaignSlot(now, timezone);
+  if (!slot) {
+    return { status: "skipped", reason: "outside-campaign-window", invalidTokenCount: 0 };
+  }
+
+  const historyId = `${slot.localDate}_${MARKETING_NOTIFICATION_TYPE}_${slot.name}`;
+  const historyRef = userRef
+    .collection(NOTIFICATION_HISTORY_COLLECTION)
+    .doc(historyId);
+
+  const historyClaimed = await createMarketingHistoryClaim(
+    historyRef,
+    slot,
+    timezone,
+    now,
+  );
+  if (!historyClaimed) {
+    return { status: "skipped", reason: "already-sent-today", invalidTokenCount: 0 };
+  }
+
+  const message = buildMarketingNotificationMessage(slot.name);
+  const multicastResponse = await admin.messaging().sendEachForMulticast({
+    tokens: activeDevices.map((device) => device.fcmToken),
+    notification: {
+      title: message.title,
+      body: message.body,
+    },
+    data: {
+      type: MARKETING_NOTIFICATION_TYPE,
+      route: MARKETING_NOTIFICATION_ROUTE,
+      historyId,
+      campaignSlot: slot.name,
+    },
+    android: {
+      priority: "high",
+      notification: {
+        channelId: MARKETING_NOTIFICATION_CHANNEL_ID,
+      },
+    },
+  });
+
+  const invalidDevices = extractInvalidNotificationDevices(
+    activeDevices,
+    multicastResponse.responses,
+  );
+  if (invalidDevices.length > 0) {
+    await disableInvalidNotificationDevices(userRef, invalidDevices, now);
+  }
+
+  await historyRef.set(
+    {
+      deliveryStatus: multicastResponse.successCount > 0 ? "sent" : "failed",
+      deliveredDeviceCount: multicastResponse.successCount,
+      invalidTokenCount: invalidDevices.length,
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+
+  return {
+    status: multicastResponse.successCount > 0 ? "sent" : "skipped",
+    reason:
+      multicastResponse.successCount > 0 ? "sent" : "all-deliveries-failed",
+    invalidTokenCount: invalidDevices.length,
+  };
+}
+
 async function createNotificationHistoryClaim(
   historyRef,
   localDate,
@@ -448,6 +605,29 @@ async function createNotificationHistoryClaim(
       localDate,
       selectedLangAtSend: selectedLearningLanguage,
       dueCount,
+      sentAt: now,
+      deliveryStatus: "processing",
+      deliveredDeviceCount: 0,
+      invalidTokenCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return true;
+  } catch (error) {
+    if (error.code === 6 || error.code === "already-exists") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function createMarketingHistoryClaim(historyRef, slot, timezone, now) {
+  try {
+    await historyRef.create({
+      type: MARKETING_NOTIFICATION_TYPE,
+      campaignSlot: slot.name,
+      localDate: slot.localDate,
+      timezone,
       sentAt: now,
       deliveryStatus: "processing",
       deliveredDeviceCount: 0,
@@ -498,6 +678,8 @@ async function loadActiveNotificationDevices(userRef) {
       deviceId: doc.id,
       permissionGranted: Boolean(doc.get("permissionGranted")),
       fcmToken: stringValue(doc.get("fcmToken")).trim(),
+      timezone: sanitizeTimeZone(doc.get("timezone")),
+      updatedAt: numberValue(doc.get("updatedAt")),
     }))
     .filter((device) => device.permissionGranted && device.fcmToken.length > 0);
 }
@@ -508,6 +690,55 @@ function buildSrsReviewNotificationMessage(selectedLearningLanguage, dueCount) {
     title: "학습 알림",
     body: `복습할 ${languageLabel} 카드 ${dueCount}개가 있습니다. 앱에서 확인해보세요.`,
   };
+}
+
+function buildMarketingNotificationMessage(slotName) {
+  if (slotName === MARKETING_SLOT_MORNING) {
+    return {
+      title: MARKETING_NOTIFICATION_TITLE,
+      body: "AI와 대화를 하며 하루를 시작해보세요!",
+    };
+  }
+
+  return {
+    title: MARKETING_NOTIFICATION_TITLE,
+    body: "Umma에서는 다양한 언어를 학습할 수 있어요! 지금 접속해서 언어 능력을 향상 시켜보세요!",
+  };
+}
+
+function getReferenceMarketingTimezone(activeDevices) {
+  const latestDevice = activeDevices.reduce((currentLatest, device) => {
+    if (!currentLatest) {
+      return device;
+    }
+
+    return device.updatedAt > currentLatest.updatedAt ? device : currentLatest;
+  }, null);
+
+  return latestDevice?.timezone || DEFAULT_NOTIFICATION_TIMEZONE;
+}
+
+function resolveMarketingCampaignSlot(now, timezone) {
+  const zonedNow = getZonedDateTimeParts(now, timezone);
+  if (zonedNow.minute !== 0) {
+    return null;
+  }
+
+  if (zonedNow.hour === MARKETING_SLOT_MORNING_HOUR) {
+    return {
+      name: MARKETING_SLOT_MORNING,
+      localDate: `${zonedNow.year}${padNumber(zonedNow.month)}${padNumber(zonedNow.day)}`,
+    };
+  }
+
+  if (zonedNow.hour === MARKETING_SLOT_NOON_HOUR) {
+    return {
+      name: MARKETING_SLOT_NOON,
+      localDate: `${zonedNow.year}${padNumber(zonedNow.month)}${padNumber(zonedNow.day)}`,
+    };
+  }
+
+  return null;
 }
 
 function extractInvalidNotificationDevices(activeDevices, responses) {

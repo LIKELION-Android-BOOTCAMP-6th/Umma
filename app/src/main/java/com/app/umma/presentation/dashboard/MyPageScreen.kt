@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Schedule
@@ -156,7 +157,7 @@ fun MyPageScreen(
     // 타임피커 노출
     if (notificationUiState.showTimePicker) {
         NotificationTimePickerDialog(
-            initialMinutes = notificationUiState.settings.preferredNotificationTimeMinutes,
+            initialMinutes = notificationUiState.srsSettings.preferredNotificationTimeMinutes,
             onDismiss = myPageViewModel::onTimePickerDismissed,
             onTimeConfirmed = myPageViewModel::onTimeSelected
         )
@@ -183,8 +184,14 @@ fun MyPageScreen(
             // 학습 알림 카드
             NotificationSettingsCard(
                 uiState = notificationUiState,
-                onToggleChanged = { enabled ->
-                    myPageViewModel.onNotificationToggleChanged(
+                onMarketingToggleChanged = { enabled ->
+                    myPageViewModel.onMarketingNotificationToggleChanged(
+                        enabled = enabled,
+                        permissionGranted = hasNotificationPermission()
+                    )
+                },
+                onSrsToggleChanged = { enabled ->
+                    myPageViewModel.onSrsNotificationToggleChanged(
                         enabled = enabled,
                         permissionGranted = hasNotificationPermission()
                     )
@@ -266,7 +273,8 @@ fun MyPageScreen(
                         showLogoutDialog = false
                         authViewModel.signOut()
                     },
-                    onCancel = { showLogoutDialog = false }) {
+                    onCancel = { showLogoutDialog = false }
+                ) {
                     Text(
                         text = "로그아웃 시 서비스 이용을 위해 다시 로그인해야 해요.",
                         modifier = Modifier
@@ -275,15 +283,16 @@ fun MyPageScreen(
                                 shape = RoundedCornerShape(ChipCornerRadius)
                             )
                             .border(
-                                color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
-                                    ChipCornerRadius
-                                )
+                                color = ThemePrimary,
+                                width = 2.dp,
+                                shape = RoundedCornerShape(ChipCornerRadius)
                             )
                             .padding(horizontal = SpacingS, vertical = SpacingL),
                         textAlign = TextAlign.Center
                     )
                 }
             }
+
             if (showDeleteAccountDialog) {
                 UmmaDialog(
                     title = "탈퇴하시겠어요?",
@@ -298,16 +307,16 @@ fun MyPageScreen(
                     onCancel = { showDeleteAccountDialog = false }
                 ) {
                     Text(
-                        text = "회원탈퇴 시 회원님의 계정 및 학습 기록이 영구적으로 삭제되며, 복구가 불가능해져요.",
+                        text = "회원탈퇴 시 회원님의 계정 및 학습 기록은 영구적으로 삭제되며, 복구가 불가능해요.",
                         modifier = Modifier
                             .background(
                                 color = BackgroundSecondary,
                                 shape = RoundedCornerShape(ChipCornerRadius)
                             )
                             .border(
-                                color = ThemePrimary, width = 2.dp, shape = RoundedCornerShape(
-                                    ChipCornerRadius
-                                )
+                                color = ThemePrimary,
+                                width = 2.dp,
+                                shape = RoundedCornerShape(ChipCornerRadius)
                             )
                             .padding(horizontal = SpacingS, vertical = SpacingL),
                         textAlign = TextAlign.Center
@@ -319,10 +328,12 @@ fun MyPageScreen(
 }
 
 /**
- * 상단 프로필 카드
+ * 상단 프로필 카드.
  */
 @Composable
 private fun ProfileCard(nickname: String) {
+    val displayName = nickname.ifBlank { "사용자" }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
@@ -334,7 +345,6 @@ private fun ProfileCard(nickname: String) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SpacingL)
         ) {
-            // 이미지 원
             Box(
                 modifier = Modifier
                     .size(64.dp)
@@ -342,14 +352,14 @@ private fun ProfileCard(nickname: String) {
             )
             Column {
                 Text(
-                    text = "${nickname}님",
+                    text = "${displayName}님",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "오늘도 Umma와 함께 학습해요 🧡",
+                    text = "오늘도 Umma와 함께 학습해요",
                     fontSize = 14.sp,
                     color = TextPrimary
                 )
@@ -358,7 +368,6 @@ private fun ProfileCard(nickname: String) {
     }
 }
 
-// 아이콘, 레이블, 화살표
 @Composable
 private fun SettingRow(
     icon: ImageVector,
@@ -392,46 +401,37 @@ private fun SettingRow(
 }
 
 /**
- * Card for SRS notification settings.
+ * 알림 설정 카드.
  */
 @Composable
 private fun NotificationSettingsCard(
     uiState: MyPageNotificationUiState,
-    onToggleChanged: (Boolean) -> Unit,
+    onMarketingToggleChanged: (Boolean) -> Unit,
+    onSrsToggleChanged: (Boolean) -> Unit,
     onTimeSettingClicked: () -> Unit
 ) {
-    val hour = uiState.settings.preferredNotificationTimeMinutes / 60
-    val minute = uiState.settings.preferredNotificationTimeMinutes % 60
+    val hour = uiState.srsSettings.preferredNotificationTimeMinutes / 60
+    val minute = uiState.srsSettings.preferredNotificationTimeMinutes % 60
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
                 leadingContent = {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(color = BackgroundHighlight, shape = CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = ThemePrimary
-                        )
-                    }
+                    NotificationLeadingIcon(
+                        icon = Icons.Default.Campaign,
+                        contentDescription = "마케팅 알림"
+                    )
                 },
-                headlineContent = { Text(text = "학습 알림") },
-                supportingContent = { Text(text = "하루 한번 정하신 시간에 학습 알림을 보내드려요.") },
+                headlineContent = { Text(text = "마케팅 알림") },
+                supportingContent = { Text(text = "이벤트, 혜택, 신규 소식을 알려드려요.") },
                 trailingContent = {
                     Switch(
-                        checked = uiState.settings.enabled,
-                        onCheckedChange = onToggleChanged,
+                        checked = uiState.marketingSettings.enabled,
+                        onCheckedChange = onMarketingToggleChanged,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = ThemePrimary,
                             checkedTrackColor = BackgroundSecondary,
@@ -441,22 +441,40 @@ private fun NotificationSettingsCard(
                 }
             )
 
+            HorizontalDivider(color = BackgroundHighlight)
+
             ListItem(
                 colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
                 leadingContent = {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(color = BackgroundHighlight, shape = CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = ThemePrimary
+                    NotificationLeadingIcon(
+                        icon = Icons.Default.Notifications,
+                        contentDescription = "학습 알림"
+                    )
+                },
+                headlineContent = { Text(text = "학습 알림") },
+                supportingContent = { Text(text = "하루 한 번 설정한 시간에 복습 알림을 보내드려요.") },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.srsSettings.enabled,
+                        onCheckedChange = onSrsToggleChanged,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ThemePrimary,
+                            checkedTrackColor = BackgroundSecondary,
+                            checkedBorderColor = TextPrimary
                         )
+                    )
+                }
+            )
 
-                    }
+            HorizontalDivider(color = BackgroundHighlight)
+
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
+                leadingContent = {
+                    NotificationLeadingIcon(
+                        icon = Icons.Default.Schedule,
+                        contentDescription = "알림 시간"
+                    )
                 },
                 headlineContent = { Text(text = "알림 시간") },
                 supportingContent = { Text(text = String.format("%02d:%02d", hour, minute)) },
@@ -475,8 +493,27 @@ private fun NotificationSettingsCard(
     }
 }
 
+@Composable
+private fun NotificationLeadingIcon(
+    icon: ImageVector,
+    contentDescription: String
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .background(color = BackgroundHighlight, shape = CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = ThemePrimary
+        )
+    }
+}
+
 /**
- * Wrapper that shows the platform time picker dialog.
+ * 플랫폼 TimePickerDialog 래퍼.
  */
 @Composable
 private fun NotificationTimePickerDialog(
@@ -488,7 +525,6 @@ private fun NotificationTimePickerDialog(
 
     DisposableEffect(initialMinutes, context) {
         val themedContext = ContextThemeWrapper(context, R.style.CustomTimePickerTheme)
-
         val dialog = TimePickerDialog(
             themedContext,
             { _, hourOfDay, minute ->
@@ -504,14 +540,12 @@ private fun NotificationTimePickerDialog(
         dialog.setOnDismissListener { onDismiss() }
         dialog.show()
 
-        onDispose {
-            dialog.dismiss()
-        }
+        onDispose { dialog.dismiss() }
     }
 }
 
 /**
- * 다이얼로그에 학습 언어 리스트에 사용되는 버튼
+ * 다이얼로그의 모국어 선택 버튼.
  */
 @Composable
 private fun LanguageButton(
@@ -523,16 +557,13 @@ private fun LanguageButton(
     Button(
         onClick = onClick,
         border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = BackgroundSecondary
-        ),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = BackgroundSecondary),
         shape = RoundedCornerShape(30.dp),
         modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
             .padding(vertical = 4.dp)
-    )
-    {
+    ) {
         Text(
             text = text,
             fontSize = 16.sp,
