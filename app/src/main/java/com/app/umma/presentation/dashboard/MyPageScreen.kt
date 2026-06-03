@@ -473,10 +473,10 @@ private fun NotificationSettingsCard(
                 leadingContent = {
                     NotificationLeadingIcon(
                         icon = Icons.Default.Schedule,
-                        contentDescription = "알림 시간"
+                        contentDescription = "학습 알림 시간"
                     )
                 },
-                headlineContent = { Text(text = "알림 시간") },
+                headlineContent = { Text(text = "학습 알림 시간") },
                 supportingContent = { Text(text = String.format("%02d:%02d", hour, minute)) },
                 trailingContent = {
                     Button(
