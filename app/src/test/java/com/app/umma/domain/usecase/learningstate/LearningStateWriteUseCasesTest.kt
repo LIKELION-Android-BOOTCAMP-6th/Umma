@@ -31,8 +31,10 @@ class LearningStateWriteUseCasesTest {
 
     @Test
     fun `skips duplicate analysisEventId before repository write`() = runBlocking {
+        // duplicate event 재입력은 계산 자체를 막아야 하므로, policy 호출 여부까지 같이 본다.
         val repo = RecordingLearningStateRepo()
-        val useCase = ApplyLanguageStateUpdateUseCase(repo)
+        val policy = RecordingLangStateAnalysisPolicy()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, policy)
         val current = LangState.initial(
             lang = LangCode.EN,
             createdAt = 1_000L,
@@ -57,10 +59,84 @@ class LearningStateWriteUseCasesTest {
         assertFalse(result.applied)
         assertEquals("analysis-1", result.sourceEventId)
         assertEquals(0, repo.languageStateUpdateCalls)
+        assertEquals(0, policy.analyzeCalls)
+    }
+
+    @Test
+    fun `force reanalysis bypasses duplicate guard and delegates to policy`() = runBlocking {
+        // forceReanalysis는 중복 이벤트라도 사용자가 다시 분석을 요청한 상황을 재현한다.
+        val repo = RecordingLearningStateRepo()
+        val policy = RecordingLangStateAnalysisPolicy()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, policy)
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        ).copy(lastAnalysisEventId = "analysis-1")
+
+        val result = useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "analysis-1",
+                currentState = current,
+                recentUserTurns = emptyList(),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L,
+                forceReanalysis = true
+            )
+        ).getOrThrow()
+
+        // forceReanalysis는 같은 eventId라도 정책 계산을 다시 수행해야 하는 명시적 override다.
+        assertTrue(result.applied)
+        assertEquals(1, policy.analyzeCalls)
+        assertEquals(1, repo.languageStateUpdateCalls)
+        assertEquals("analysis-1", result.savedState.lastAnalysisEventId)
+    }
+
+    @Test
+    fun `uses prepared state without recalculating policy`() = runBlocking {
+        // caller가 미리 preparedState를 만든 경우에는 재계산 없이 그대로 저장소로 넘겨야 한다.
+        val repo = RecordingLearningStateRepo()
+        val policy = RecordingLangStateAnalysisPolicy()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, policy)
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        )
+        val prepared = current.copy(
+            updatedAt = 3_000L,
+            lastAnalyzedAt = 3_000L,
+            lastAnalysisEventId = "prepared-1"
+        )
+
+        val result = useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "prepared-1",
+                currentState = current,
+                preparedState = prepared,
+                recentUserTurns = emptyList(),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        ).getOrThrow()
+
+        // caller가 이미 preparedState를 만든 경우에는 기존 계약대로 그 snapshot을 그대로 저장소에 넘긴다.
+        assertEquals(prepared, result.savedState)
+        assertEquals(0, policy.analyzeCalls)
+        assertEquals(1, repo.languageStateUpdateCalls)
     }
 
     @Test
     fun `passes valid flashcard summary update to repository`() = runBlocking {
+        // SRS가 계산한 요약값은 그대로 전역 summary에 반영되어야 한다.
         val repo = RecordingLearningStateRepo()
         val useCase = ApplyFlashcardSummaryUpdateUseCase(repo)
 
@@ -84,8 +160,9 @@ class LearningStateWriteUseCasesTest {
 
     @Test
     fun `calculates vocabulary and expression metrics from correction batch`() = runBlocking {
+        // 실제 user turn이 있을 때만 policy가 내부 metric을 채우는지 확인한다.
         val repo = RecordingLearningStateRepo()
-        val useCase = ApplyLanguageStateUpdateUseCase(repo)
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
         val current = LangState.initial(
             lang = LangCode.EN,
             createdAt = 1_000L,
@@ -143,8 +220,9 @@ class LearningStateWriteUseCasesTest {
 
     @Test
     fun `keeps expression range when repeated batch has fewer unique tokens`() = runBlocking {
+        // 반복 표현이 적은 batch가 기존 expressionRange를 떨어뜨리지 않는지 확인한다.
         val repo = RecordingLearningStateRepo()
-        val useCase = ApplyLanguageStateUpdateUseCase(repo)
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
         val current = LangState.initial(
             lang = LangCode.EN,
             createdAt = 1_000L,
@@ -186,7 +264,62 @@ class LearningStateWriteUseCasesTest {
     }
 
     @Test
+    fun `default policy keeps existing metrics when input has no analyzable signal`() {
+        // 분석할 사용자 발화가 없으면 null을 0으로 바꾸지 않고 기존 snapshot을 유지해야 한다.
+        val policy = DefaultLangStateAnalysisPolicy()
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        ).copy(
+            internal = LangState.initial(LangCode.EN).internal.copy(
+                grammarAccuracy = 0.64,
+                vocabularyAppropriateness = 0.55,
+                lexicalDiversity = 0.48,
+                vocabularyLevel = VocabLevel.B1,
+                sentenceComplexity = 0.42,
+                speechRate = 0.51,
+                pauseFrequency = 0.12,
+                avgUtteranceLength = 0.46,
+                spokenNaturalness = 0.58,
+                naturalExpressionUsage = 0.49,
+                errorRecurrence = 0.22,
+                reviewRetention = 0.7
+            ),
+            external = LangState.initial(LangCode.EN).external.copy(
+                vocabularyLevel = VocabLevel.B1,
+                grammarAccuracy = 0.64,
+                expressionRange = 30,
+                fluencyScore = 0.46,
+                naturalnessScore = 0.53
+            )
+        )
+
+        val next = policy.analyze(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "empty-1",
+                currentState = current,
+                recentUserTurns = emptyList(),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        )
+
+        // null/empty 입력에서는 측정값이 없으므로 내부 metric과 expressionRange가 사라지면 안 된다.
+        assertEquals(current.internal, next.internal)
+        assertEquals(30, next.external.expressionRange)
+        assertEquals(VocabLevel.B1, next.external.vocabularyLevel)
+        assertEquals(3_000L, next.updatedAt)
+        assertEquals("empty-1", next.lastAnalysisEventId)
+    }
+
+    @Test
     fun `passes correction signal update to repository`() = runBlocking {
+        // lightweight signal 경로는 LangState 계산 없이 summary flag만 갱신해야 한다.
         val repo = RecordingLearningStateRepo()
         val useCase = ApplyCorrectionSignalUpdateUseCase(repo)
 
@@ -216,6 +349,7 @@ class LearningStateWriteUseCasesTest {
 
     @Test
     fun `rejects negative flashcard summary counts`() = runBlocking {
+        // 음수 due count는 repository에 전달하기 전에 바로 차단한다.
         val repo = RecordingLearningStateRepo()
         val useCase = ApplyFlashcardSummaryUpdateUseCase(repo)
 
@@ -236,6 +370,7 @@ class LearningStateWriteUseCasesTest {
     }
 
     private class RecordingLearningStateRepo : LearningStateRepo {
+        // fake repo는 저장 여부만 기록하고, 실제 계산/저장소 부작용은 만들지 않는다.
         private val state = MutableStateFlow(GlobalLangState.initial())
         var languageStateUpdateCalls: Int = 0
         var flashcardSummaryUpdateCalls: Int = 0
@@ -265,8 +400,8 @@ class LearningStateWriteUseCasesTest {
         override suspend fun updateLanguageState(
             input: LangStateUpdateInput
         ): Result<LearningStateUpdateResult> {
+            // UseCase가 만든 preparedState가 그대로 저장소로 넘어왔는지 확인하려고 echo한다.
             languageStateUpdateCalls += 1
-            // UseCase가 계산한 preparedState가 저장소에 그대로 전달되는지 확인하기 위해 echo한다.
             val savedState = input.preparedState ?: input.currentState
             return Result.success(
                 LearningStateUpdateResult(
@@ -310,8 +445,7 @@ class LearningStateWriteUseCasesTest {
         override suspend fun updateCorrectionSignal(
             input: CorrectionSignalUpdateInput
         ): Result<CorrectionSignalUpdateResult> {
-            // UseCase 테스트에서는 "입력 검증 후 repo에 정확히 전달됐는지"만 보려 한다.
-            // Fake 응답도 input.correctionAvailable을 그대로 써야 UseCase가 정책 값을 바꾸지 않음을 볼 수 있다.
+            // 입력 검증 후 repo에 정확히 전달됐는지만 확인하고, 정책 값은 바꾸지 않는다.
             correctionSignalUpdateCalls += 1
             lastCorrectionSignalInput = input
             val sessionSummary = SessionSummary(
@@ -358,5 +492,21 @@ class LearningStateWriteUseCasesTest {
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
+    }
+
+    private class RecordingLangStateAnalysisPolicy : LangStateAnalysisPolicy {
+        // duplicate 방어 이후에만 policy가 호출되는지 세기 위한 계측값이다.
+        var analyzeCalls: Int = 0
+
+        override fun analyze(input: LangStateUpdateInput): LangState {
+            analyzeCalls += 1
+            // 테스트용 policy는 계산 책임이 UseCase 밖으로 분리됐는지만 확인한다.
+            // 실제 산출식 검증은 DefaultLangStateAnalysisPolicy가 담당한다.
+            return input.currentState.copy(
+                updatedAt = input.analyzedAt,
+                lastAnalyzedAt = input.analyzedAt,
+                lastAnalysisEventId = input.analysisEventId ?: input.currentState.lastAnalysisEventId
+            )
+        }
     }
 }

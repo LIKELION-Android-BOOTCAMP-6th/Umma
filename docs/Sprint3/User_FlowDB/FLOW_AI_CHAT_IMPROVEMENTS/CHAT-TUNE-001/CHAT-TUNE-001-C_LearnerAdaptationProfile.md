@@ -15,6 +15,16 @@ Chat과 Correction이 raw metric을 각자 해석하면 난이도 정책이 갈�
 - 초기/저신뢰 상태 conservative 처리
 - active focus 상위 1~2개 선택
 
+# 완료 기준(AC)
+
+- [x] Chat과 Correction이 같은 profile을 통해 사용자의 언어능력을 해석할 수 있다.
+- [x] 저장된 raw metric 숫자는 Chat/Correction에 직접 노출되지 않는다.
+- [x] `LangState`가 없거나 아직 분석 근거가 부족하면 보수적인 beginner-safe 정책이 만들어진다.
+- [x] 문법, 어휘, 유창성, 자연스러움은 하나의 총점이 아니라 각각의 단계로 해석된다.
+- [x] 반복 학습 초점이 여러 개 있어도 profile에는 중요한 1~2개만 요약된다.
+- [x] Chat용 대화 정책과 Correction용 교정 정책은 같은 core 능력 판단을 공유한다.
+- [x] `primaryLang`과 `selectedLang`은 profile에 저장하지 않고, prompt 문장을 만들 때만 함께 사용한다.
+
 # 제외 범위
 
 - 저장 모델로 profile 저장
@@ -45,6 +55,22 @@ data class LearnerAbilityProfile(
     val focus: LearningFocusSummary
 )
 ```
+
+```kotlin
+data class LearningFocusSummary(
+    val primaryFocus: LearningFocusType?,
+    val secondaryFocus: LearningFocusType?,
+    val confidence: ProfileConfidence,
+    val observedCount: Int
+)
+```
+
+정책:
+
+- `LearningFocusSummary`는 저장 모델이 아니라 profile 요약 모델이다.
+- 저장 모델의 `analysisMeta.activeFocus` 중 confidence와 최근성이 높은 상위 1~2개만 노출한다.
+- focus가 없거나 confidence가 낮으면 `primaryFocus = null`, `secondaryFocus = null`로 둔다.
+- Chat/Correction prompt builder는 이 요약만 보고 학습 초점을 반영하고, `analysisMeta.activeFocus` 전체를 직접 순회하지 않는다.
 
 ```kotlin
 data class ChatAdaptationPolicy(
@@ -101,6 +127,46 @@ enum class ChallengeLevel {
 - `Stable`: 자연스러운 follow-up, 이유/경험 질문
 - `Expanding`: 다양한 표현, 연결어, 구어체 표현 추가
 - `Refined`: 뉘앙스, register, collocation, 원어민식 표현
+
+```kotlin
+enum class ProfileConfidence {
+    Low,
+    Medium,
+    High
+}
+```
+
+```kotlin
+enum class ResponseLengthPolicy {
+    OneShortSentence,
+    ShortTwoStep,
+    NaturalBrief,
+    Flexible
+}
+```
+
+```kotlin
+enum class QuestionStylePolicy {
+    OneConcreteQuestion,
+    GuidedChoiceQuestion,
+    OpenFollowUp,
+    NuanceFollowUp
+}
+```
+
+정책:
+
+- `ProfileConfidence.Low`: 분석 이력이 없거나 지표가 서로 충돌하는 상태다. Chat/Correction은 conservative 하게 동작한다.
+- `ProfileConfidence.Medium`: 반복 관측은 있지만 아직 level 확정에는 부족한 상태다. 작은 challenge만 허용한다.
+- `ProfileConfidence.High`: 여러 근거가 같은 방향으로 누적된 상태다. profile의 stage/challenge 정책을 그대로 사용할 수 있다.
+- `OneShortSentence`: Foundation/low confidence 상태에서 한 번에 하나의 짧은 응답만 제공한다.
+- `ShortTwoStep`: 짧은 답변과 쉬운 후속 질문 하나를 제공한다.
+- `NaturalBrief`: 일반 대화처럼 자연스럽지만 장황하지 않게 답한다.
+- `Flexible`: 고급 사용자에게 설명, 예시, 뉘앙스를 필요에 따라 조금 더 허용한다.
+- `OneConcreteQuestion`: yes/no 또는 짧은 답이 가능한 구체 질문을 우선한다.
+- `GuidedChoiceQuestion`: 선택지를 주어 사용자가 다음 발화를 만들 수 있게 돕는다.
+- `OpenFollowUp`: 이유, 경험, 선호를 묻는 자연스러운 follow-up을 사용한다.
+- `NuanceFollowUp`: register, 뉘앙스, 더 자연스러운 표현 선택을 유도한다.
 
 ```kotlin
 enum class CorrectionStylePolicy {
@@ -175,6 +241,12 @@ Correction policy 생성 방향:
 - `Refined` 상태에서는 뉘앙스, register, 원어민식 선택지를 설명할 수 있다.
 - active focus가 있으면 correction explanation은 상위 1개 focus를 우선 설명하고, 한 번에 여러 약점을 나열하지 않는다.
 - `primaryLanguageSupport`는 `primaryLang`이 어느 언어인지 직접 판단하지 않고, prompt builder가 `primaryLang`/`selectedLang` 값을 받아 최종 instruction text로 변환한다.
+
+입력 경계:
+
+- `BuildLearnerAdaptationProfileUseCase`는 `LangState?`만 보고 능력/profile 정책을 계산한다.
+- `primaryLang`과 `selectedLang`은 profile 자체에 저장하지 않고, prompt builder가 policy를 문장으로 바꿀 때 함께 받는다.
+- 이 분리를 유지해야 같은 profile을 Chat과 Correction에서 재사용하면서도, 화면/프롬프트별 언어 표현만 다르게 만들 수 있다.
 
 ---
 

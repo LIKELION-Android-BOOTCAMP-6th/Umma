@@ -4,7 +4,10 @@ import com.app.umma.data.model.learningstate.DashSummaryDto
 import com.app.umma.data.model.learningstate.ExternalMetricsDto
 import com.app.umma.data.model.learningstate.FlashcardSummaryDto
 import com.app.umma.data.model.learningstate.InternalMetricsDto
+import com.app.umma.data.model.learningstate.LangStateAnalysisMetaDto
 import com.app.umma.data.model.learningstate.LangStateDto
+import com.app.umma.data.model.learningstate.LearningFocusDto
+import com.app.umma.data.model.learningstate.MetricEvidenceDto
 import com.app.umma.data.model.learningstate.SessionSummaryDto
 import com.app.umma.data.model.learningstate.UserLangPrefDto
 import com.google.firebase.firestore.DocumentReference
@@ -142,11 +145,54 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
             language = string("language") ?: return null,
             internalMetrics = internal,
             externalMetrics = external,
+            // schema v1 remote 문서에는 analysisMeta가 없다. null로 두면 DTO mapper가 initial meta로 복원한다.
+            analysisMeta = map("analysisMeta")?.toLangStateAnalysisMetaDto(),
             schemaVersion = int("schemaVersion") ?: 1,
             createdAt = long("createdAt"),
             updatedAt = long("updatedAt"),
             lastAnalyzedAt = long("lastAnalyzedAt"),
             lastAnalysisEventId = string("lastAnalysisEventId")
+        )
+    }
+
+    private fun Map<String, Any?>.toLangStateAnalysisMetaDto(): LangStateAnalysisMetaDto {
+        // analysisMeta는 schema v2부터 존재한다.
+        // Firestore에 일부 필드만 있더라도 기본값으로 비어 있는 meta를 만들 수 있어야 v1/v2 혼합 데이터를 읽을 수 있다.
+        return LangStateAnalysisMetaDto(
+            // metricEvidence는 metric key별 map이다. 개별 evidence가 깨져 있으면 그 entry만 제외한다.
+            metricEvidence = map("metricEvidence")?.mapValuesNotNull { (_, value) ->
+                (value as? Map<*, *>)?.toStringAnyMap()?.toMetricEvidenceDto()
+            }.orEmpty(),
+            // activeFocus는 배열 형태다. focus 하나가 깨져도 나머지 focus는 유지한다.
+            activeFocus = list("activeFocus").mapNotNull { rawFocus ->
+                (rawFocus as? Map<*, *>)?.toStringAnyMap()?.toLearningFocusDto()
+            },
+            lastSignalAt = long("lastSignalAt")
+        )
+    }
+
+    private fun Map<String, Any?>.toMetricEvidenceDto(): MetricEvidenceDto? {
+        // confidence/direction은 evidence 판단의 핵심이므로 없으면 해당 evidence만 버린다.
+        // enum 값 자체의 유효성은 공통 DTO mapper에서 다시 검증한다.
+        return MetricEvidenceDto(
+            observedCount = int("observedCount") ?: 0,
+            confidence = double("confidence") ?: return null,
+            sourceTypes = stringList("sourceTypes"),
+            direction = string("direction") ?: return null,
+            directionCount = int("directionCount") ?: 0,
+            lastObservedAt = long("lastObservedAt")
+        )
+    }
+
+    private fun Map<String, Any?>.toLearningFocusDto(): LearningFocusDto? {
+        // focus는 type/confidence/관측 시각이 있어야 prompt 후보로 쓸 수 있다.
+        // 필수 필드가 없으면 해당 focus만 제외해 전체 LangState 복원을 막지 않는다.
+        return LearningFocusDto(
+            type = string("type") ?: return null,
+            observedCount = int("observedCount") ?: 0,
+            confidence = double("confidence") ?: return null,
+            firstObservedAt = long("firstObservedAt") ?: return null,
+            lastObservedAt = long("lastObservedAt") ?: return null
         )
     }
 
@@ -224,6 +270,10 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
         return (this[key] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
     }
 
+    private fun Map<String, Any?>.list(key: String): List<*> {
+        return this[key] as? List<*> ?: emptyList<Any?>()
+    }
+
     private fun Map<String, Any?>.boolean(key: String): Boolean? = this[key] as? Boolean
 
     private fun Map<String, Any?>.int(key: String): Int? = (this[key] as? Number)?.toInt()
@@ -231,4 +281,20 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
     private fun Map<String, Any?>.long(key: String): Long? = (this[key] as? Number)?.toLong()
 
     private fun Map<String, Any?>.double(key: String): Double? = (this[key] as? Number)?.toDouble()
+
+    private fun Map<*, *>.toStringAnyMap(): Map<String, Any?> {
+        // Firestore nested map은 Map<*, *>로 들어오므로, string key만 살려 DTO mapper에 넘긴다.
+        return entries.mapNotNull { (key, value) ->
+            (key as? String)?.let { it to value }
+        }.toMap()
+    }
+
+    private inline fun <T, R : Any> Map<String, T>.mapValuesNotNull(
+        transform: (Map.Entry<String, T>) -> R?
+    ): Map<String, R> {
+        // metricEvidence는 key별로 일부 항목만 오염될 수 있으므로 전체 meta를 버리지 않고 유효 항목만 살린다.
+        return mapNotNull { entry ->
+            transform(entry)?.let { entry.key to it }
+        }.toMap()
+    }
 }

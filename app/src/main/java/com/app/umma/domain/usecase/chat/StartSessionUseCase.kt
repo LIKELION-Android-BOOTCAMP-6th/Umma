@@ -3,6 +3,7 @@ package com.app.umma.domain.usecase.chat
 import com.app.umma.domain.repository.ChatRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.SessionMemoryRepository
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import kotlinx.coroutines.flow.firstOrNull
 import javax.inject.Inject
 
@@ -17,6 +18,7 @@ class StartSessionUseCase @Inject constructor(
     private val repository: ChatRepository,
     private val learningStateRepo: LearningStateRepo,
     private val sessionMemoryRepository: SessionMemoryRepository,
+    private val buildLearnerAdaptationProfileUseCase: BuildLearnerAdaptationProfileUseCase,
     private val buildPromptUseCase: BuildPromptUseCase
 ) {
     /**
@@ -38,6 +40,9 @@ class StartSessionUseCase @Inject constructor(
         /** 해당 언어에 대한 사용자의 장기 학습 데이터 및 레벨 정보를 조회합니다. */
         val langState = learningStateRepo.observeLangState(userPref.selectedLang).firstOrNull()
 
+        /** LangState raw metric 은 Chat 이 직접 해석하지 않고, LearningState domain profile 로 먼저 변환합니다. */
+        val profile = buildLearnerAdaptationProfileUseCase(langState)
+
         /** 저장 완료된 최근 대화 context 를 조회합니다. 실패해도 세션 시작은 막지 않습니다. */
         val recentFullContext = sessionMemoryRepository
             .getSessionMemory(userPref.selectedLang)
@@ -47,8 +52,9 @@ class StartSessionUseCase @Inject constructor(
         
         /** 조회된 언어와 레벨을 바탕으로 개인화된 AI 튜터 시스템 프롬프트를 생성합니다. */
         val prompt = buildPromptUseCase(
-            langCode = userPref.selectedLang,
-            langState = langState,
+            profile = profile,
+            primaryLang = userPref.primaryLang,
+            selectedLang = userPref.selectedLang,
             recentFullContext = recentFullContext
         )
 

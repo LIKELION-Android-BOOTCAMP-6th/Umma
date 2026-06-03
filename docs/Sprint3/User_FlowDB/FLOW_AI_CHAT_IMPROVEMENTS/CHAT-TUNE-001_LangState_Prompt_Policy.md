@@ -9,17 +9,17 @@ Umma는 사용자가 아이처럼 부족하게 말해도 대화를 끊지 않고
 
 # 완료 기준(AC)
 
-- [ ] `LearningState`, `GlobalLangState`, `LangState`, `LearnerAdaptationProfile`의 용어와 책임이 문서와 코드에서 구분된다.
-- [ ] 사용자의 언어능력 분석/저장 정책은 `LearningState` domain에 있고, Chat/Correction/Data layer가 최종 점수화를 직접 수행하지 않는다.
-- [ ] Correction은 최종 능력 점수가 아니라 `CorrectionLearningSignal` 같은 구조화된 관찰 데이터를 LearningState에 제공한다.
-- [ ] `LangState`는 schema v2에서 `analysisMeta`를 저장해 metric evidence와 active focus를 장기적으로 추적한다.
-- [ ] `LangStateAnalysisPolicy`는 evidence, confidence, smoothing, max delta를 사용해 단일 세션이나 낮은 신뢰도 signal이 장기 능력을 과도하게 흔들지 않게 한다.
-- [ ] 단일 교정 결과는 focus에는 빠르게 반영할 수 있지만, 장기 score는 천천히, CEFR level은 가장 천천히 움직인다.
-- [ ] AI Chat과 Correction은 raw `LangState` metric을 각자 해석하지 않고, 공통 `LearnerAdaptationProfile`을 통해 언어능력을 재사용한다.
-- [ ] AI Chat session start와 reconnect는 같은 profile 기반 prompt policy를 사용한다.
-- [ ] Correction 담당자가 prompt tune을 시작할 수 있도록 profile 계약과 learning signal 계약이 문서화된다.
-- [ ] Correction learning signal의 unknown enum/confidence 오류는 correction 저장을 막지 않고 해당 signal만 drop한다.
-- [ ] Correction prompt tune은 raw `LangState` metric이 아니라 `LearnerAdaptationProfile.correctionPolicy`를 사용한다.
+- [ ] 신규 사용자와 기존 사용자 모두 `LangState`를 정상 로딩할 수 있다.
+- [ ] `LangState`에는 장기 능력 판단에 필요한 근거와 반복 학습 초점만 저장된다.
+- [ ] 언어능력 계산 로직은 `LearningState` domain에 있고, Repository/Data layer는 저장과 sync만 담당한다.
+- [ ] 기존 LearningState 업데이트 결과는 정책 분리 후에도 유지된다.
+- [ ] 같은 분석 이벤트가 중복으로 들어와도 사용자의 능력 점수가 중복 반영되지 않는다.
+- [ ] Chat과 Correction은 raw metric 숫자를 직접 해석하지 않고 같은 `LearnerAdaptationProfile`을 사용한다.
+- [ ] 분석 근거가 부족한 사용자는 낮은 실력으로 단정하지 않고 보수적인 profile로 처리한다.
+- [ ] 반복 학습 초점이 많아도 Chat/Correction에는 중요한 1~2개만 전달된다.
+- [ ] Chat 새 대화 시작과 재연결은 같은 profile 기반 prompt 생성 경로를 사용한다.
+- [ ] Correction 담당자가 prompt tune을 시작할 수 있도록 learning signal 계약과 profile 사용 방식이 문서화된다.
+- [ ] Correction learning signal의 unknown enum/confidence 오류는 correction 저장을 막지 않고 해당 signal만 제외한다.
 - [ ] transport, SessionMemory 저장, usage tracking, final transcript, 마이크 버튼 상태는 이번 tune 작업으로 변경하지 않는다.
 
 ---
@@ -34,7 +34,7 @@ Correction 담당자에게 전달할 계약 문서는 구현 문서 번호에서
 | `CHAT-TUNE-001_LangState_Prompt_Policy.md` | 전체 overview, 책임 경계, 작업 순서 | 전체 |
 | `docs/handover/CHAT-TUNE-001_CORRECTION_LEARNING_SIGNAL_HANDOVER.md` | Correction 담당자 전달용 signal 계약 | Correction 담당자 |
 | `CHAT-TUNE-001/CHAT-TUNE-001-A_LangState_AnalysisMeta_Schema_v2.md` | `analysisMeta` 저장 모델과 schema v2 | LearningState 담당 |
-| `CHAT-TUNE-001/CHAT-TUNE-001-B_LangState_AnalysisPolicy.md` | 실제 점수/근거/focus 계산 정책 | LearningState 담당 |
+| `CHAT-TUNE-001/CHAT-TUNE-001-B_LangState_AnalysisPolicy.md` | 기존 계산 로직을 domain policy로 분리하고 이후 evidence/focus 계산을 확장할 위치 정리 | LearningState 담당 |
 | `CHAT-TUNE-001/CHAT-TUNE-001-C_LearnerAdaptationProfile.md` | LangState를 Chat/Correction 정책으로 해석하는 read model | LearningState/Chat/Correction |
 | `CHAT-TUNE-001/CHAT-TUNE-001-D_Chat_Prompt_Integration.md` | Chat prompt 적용 경로 | Chat 담당 |
 
@@ -99,10 +99,17 @@ Correction 담당자에게 전달할 계약 문서는 구현 문서 번호에서
 
 1. Correction 담당자에게 `docs/handover/CHAT-TUNE-001_CORRECTION_LEARNING_SIGNAL_HANDOVER.md`를 전달해 병렬 작업 기준을 맞춘다.
 2. `CHAT-TUNE-001-A`에서 `LangState.analysisMeta` schema v2와 schema v1 fallback을 구현한다.
-3. `CHAT-TUNE-001-B`에서 기존 `prepareNextState()`를 `LangStateAnalysisPolicy`로 보존 이동하고, evidence/focus/difficulty guard를 추가한다.
-4. `CHAT-TUNE-001-C`에서 `LearnerAdaptationProfile`과 `BuildLearnerAdaptationProfileUseCase`를 추가한다.
-5. `CHAT-TUNE-001-D`에서 Chat `BuildPromptUseCase`, `StartSessionUseCase`, `RetryConnectionUseCase`를 profile 기반으로 연결한다.
-6. Correction 실제 prompt tune은 Correction 담당자가 같은 handover/profile 계약 위에서 진행한다.
+3. `CHAT-TUNE-001-B` 1차에서 기존 `prepareNextState()`를 `LangStateAnalysisPolicy`로 보존 이동한다.
+4. `CHAT-TUNE-001-B` 2차에서 Correction learning signal이 코드 계약에 들어온 뒤 evidence/focus/difficulty guard를 추가한다.
+5. `CHAT-TUNE-001-C`에서 `LearnerAdaptationProfile`과 `BuildLearnerAdaptationProfileUseCase`를 추가한다.
+6. `CHAT-TUNE-001-D`에서 Chat `BuildPromptUseCase`, `StartSessionUseCase`, `RetryConnectionUseCase`를 profile 기반으로 연결한다.
+7. Correction 실제 prompt tune은 Correction 담당자가 같은 handover/profile 계약 위에서 진행한다.
+
+주의:
+
+- handover 문서는 Correction 담당자에게 전달된 외부 계약이므로, enum/필드 의미를 바꾸지 않는다.
+- 우리 구현 문서의 보완은 handover 계약 변경이 아니라, handover signal이 `LangStateUpdateInput`과 `LangStateAnalysisPolicy`로 들어오는 내부 연결 경로를 명확히 하는 작업이다.
+- handover 계약 자체를 바꿔야 하는 경우에만 Correction 담당자에게 수정본을 다시 공유한다.
 
 ---
 

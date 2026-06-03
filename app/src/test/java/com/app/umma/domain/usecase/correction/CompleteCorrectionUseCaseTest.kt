@@ -5,13 +5,18 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.TurnSpeaker
+import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.statistics.StatisticsHistory
 import com.app.umma.domain.model.statistics.StatisticsHistoryRecordResult
 import com.app.umma.domain.model.realtime.AppendTurnCommand
@@ -32,6 +37,7 @@ import com.app.umma.domain.repository.StatisticsRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
 import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
+import com.app.umma.domain.usecase.learningstate.DefaultLangStateAnalysisPolicy
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
 import com.app.umma.domain.usecase.realtime.SummarizeRecentTopicsUseCase
@@ -57,7 +63,10 @@ class CompleteCorrectionUseCaseTest {
     private val statisticsRepository = RecordingStatisticsRepository(events)
     private val sessionMemoryRepository = RecordingSessionMemoryRepository(events)
     private val flashcardRepository = RecordingFlashcardRepository()
-    private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(learningStateRepo)
+    private val applyLanguageStateUpdateUseCase = ApplyLanguageStateUpdateUseCase(
+        learningStateRepo,
+        DefaultLangStateAnalysisPolicy()
+    )
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
         correctionRepository = correctionRepository,
@@ -345,22 +354,22 @@ class CompleteCorrectionUseCaseTest {
         var lastUpdateInput: LangStateUpdateInput? = null
         var failUpdate: Boolean = false
 
-        override fun observeLearningState(): Flow<com.app.umma.domain.model.learningstate.GlobalLangState> =
-            flowOf(com.app.umma.domain.model.learningstate.GlobalLangState.initial())
+        override fun observeLearningState(): Flow<GlobalLangState> =
+            flowOf(GlobalLangState.initial())
 
-        override fun observeUserPref(): Flow<com.app.umma.domain.model.learningstate.UserLangPref?> =
+        override fun observeUserPref(): Flow<UserLangPref?> =
             flowOf(null)
 
-        override fun observeLangState(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.LangState?> =
+        override fun observeLangState(lang: LangCode): Flow<LangState?> =
             flowOf(null)
 
-        override fun observeDashSummary(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.DashSummary?> =
+        override fun observeDashSummary(lang: LangCode): Flow<DashSummary?> =
             flowOf(null)
 
-        override fun observeSessionSummary(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.SessionSummary?> =
+        override fun observeSessionSummary(lang: LangCode): Flow<SessionSummary?> =
             flowOf(null)
 
-        override fun observeFlashcardSummary(lang: LangCode): Flow<com.app.umma.domain.model.learningstate.FlashcardSummary?> =
+        override fun observeFlashcardSummary(lang: LangCode): Flow<FlashcardSummary?> =
             flowOf(null)
 
         override suspend fun preload(): Result<Unit> = Result.success(Unit)
@@ -395,13 +404,13 @@ class CompleteCorrectionUseCaseTest {
             // (#162-D) 파이프라인에서 saveFlashcards 직후, applyLanguageStateUpdateUseCase 직전 위치를 검증한다.
             events += "update-flashcard-summary"
             val flashcardSummary =
-                com.app.umma.domain.model.learningstate.FlashcardSummary(
+                FlashcardSummary(
                     lang = input.lang,
                     dueFlashcards = input.dueFlashcards,
                     savedFlashcards = input.savedFlashcards,
                     updatedAt = input.updatedAt
                 )
-            val dashSummary = com.app.umma.domain.model.learningstate.DashSummary.initial(input.lang)
+            val dashSummary = DashSummary.initial(input.lang)
                 .copy(
                     dueFlashcards = input.dueFlashcards,
                     savedFlashcards = input.savedFlashcards,
@@ -421,11 +430,11 @@ class CompleteCorrectionUseCaseTest {
 
         override suspend fun createInitial(
             userUid: String,
-            userPref: com.app.umma.domain.model.learningstate.UserLangPref,
-            langState: com.app.umma.domain.model.learningstate.LangState,
-            dashSummary: com.app.umma.domain.model.learningstate.DashSummary,
-            sessionSummary: com.app.umma.domain.model.learningstate.SessionSummary,
-            flashcardSummary: com.app.umma.domain.model.learningstate.FlashcardSummary
+            userPref: UserLangPref,
+            langState: LangState,
+            dashSummary: DashSummary,
+            sessionSummary: SessionSummary,
+            flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
