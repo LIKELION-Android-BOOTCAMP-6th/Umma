@@ -1,32 +1,40 @@
 package com.app.umma.domain.usecase.chat
 
-import com.app.umma.domain.model.learningstate.ChallengeLevel
+import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
+import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
+import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
-import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
-import com.app.umma.domain.model.learningstate.QuestionStylePolicy
+import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
+import com.app.umma.domain.model.learningstate.PrimaryBridgeReason
+import com.app.umma.domain.model.learningstate.ProfileConfidence
+import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
+import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
+import com.app.umma.domain.model.learningstate.SentenceDensityPolicy
+import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
+import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.realtime.SessionTurn
 import javax.inject.Inject
 
 /**
- * LearnerAdaptationProfile 과 언어 설정을 기반으로 AI 튜터의 시스템 프롬프트를 생성하는 유스케이스입니다.
+ * LearningState domain 이 만든 profile 을 Chat Realtime system instruction 으로 변환한다.
  *
- * 이 UseCase 는 raw LangState metric 을 직접 해석하지 않는다.
- * LearningState domain 이 만든 profile policy 만 사람이 읽을 수 있는 instruction 으로 바꾼다.
+ * 이 UseCase 는 LangState 숫자와 저장 스키마를 직접 해석하지 않는다.
+ * LangState 해석은 BuildLearnerAdaptationProfileUseCase 의 책임이고,
+ * 여기서는 이미 정규화된 대화 정책만 짧은 prompt 데이터로 바꾼다.
  */
 class BuildPromptUseCase @Inject constructor() {
     /**
-     * 프롬프트를 생성합니다.
+     * OpenAI Realtime 세션에 전달할 system instruction 을 만든다.
      *
-     * @param profile LearningState domain 이 계산한 학습자 적응 정책
-     * @param primaryLang 설명/힌트 보조에 사용할 학습 기준 언어
-     * @param selectedLang AI 가 대화해야 하는 학습 대상 언어
-     * @param recentFullContext 저장 완료된 최근 대화 context
-     * @param recentTopicSummaries 최근 5개 세션 주제 요약 목록. 존재 시 AI 에 전달해 대화 연속성을 높인다. (#162-C)
-     * @return OpenAI Realtime 세션에 전달할 시스템 지침 문자열
+     * @param profile LangState 를 해석해 만든 공통 AI 적응 profile
+     * @param primaryLang 사용자가 학습 기준으로 삼는 언어
+     * @param selectedLang 사용자가 현재 배우며 대화하려는 언어
+     * @param recentFullContext 저장이 확정된 최근 대화 turn
+     * @param recentTopicSummaries 최근 세션의 주제 요약
      */
     operator fun invoke(
         profile: LearnerAdaptationProfile,
@@ -35,142 +43,419 @@ class BuildPromptUseCase @Inject constructor() {
         recentFullContext: List<SessionTurn> = emptyList(),
         recentTopicSummaries: List<String> = emptyList()
     ): String {
-        // selectedLang 은 대화 언어이고, primaryLang 은 설명 보조 언어다.
-        // 두 값을 분리해 prompt 에 써야 primaryLang 이 대화 언어를 덮어쓰지 않는다.
-        val selectedLanguageName = languageName(selectedLang)
+        // 언어명은 prompt 가 읽기 쉬운 자연어로만 주입한다.
         val primaryLanguageName = languageName(primaryLang)
-        // Chat 정책 enum 은 prompt 에 그대로 노출하지 않고 행동 지시 문장으로 바꾼다.
-        val responseInstruction = responseInstruction(profile.chatPolicy.responseLength)
-        val questionInstruction = questionInstruction(profile.chatPolicy.questionStyle)
-        val challengeInstruction = challengeInstruction(profile.chatPolicy.challengeLevel)
-        val primarySupportInstruction = primarySupportInstruction(
-            support = profile.chatPolicy.primaryLanguageSupport,
+        val selectedLanguageName = languageName(selectedLang)
+        // profile 은 원점수가 아니라 대화 난이도와 보조 강도만 전달해야 한다.
+        val profileBlock = profileBlock(profile)
+        // 언어 보조 정책은 낮은 단계에서 대화 이해를 먼저 보장하도록 짧게 축약한다.
+        val languageBlock = languageBlock(
+            primaryBridge = profile.chatPolicy.primaryBridge,
             primaryLanguageName = primaryLanguageName,
             selectedLanguageName = selectedLanguageName
         )
-        // 반복 약점은 전체 목록을 넣지 않고 profile 이 요약한 1~2개만 짧게 전달한다.
-        val focusInstruction = focusInstruction(profile.core.focus)
-        val recentContext = recentFullContext
-            .takeLast(12)
-            .joinToString(separator = "\n") { turn ->
-                "${turn.role.name}: ${turn.text}"
-            }
-
-        val contextInstruction = if (recentContext.isBlank()) {
-            "There is no confirmed conversation context yet."
-        } else {
-            """
-            Use this confirmed recent conversation context when continuing:
-            $recentContext
-            """.trimIndent()
-        }
-
-        // 최근 세션 주제 요약이 있으면 AI 가 대화 방향을 자연스럽게 이어갈 수 있도록 주입한다.
-        // 호출처가 emptyList() 를 전달할 경우 이 블록은 프롬프트에 포함되지 않는다. (#162-C)
-        val topicsInstruction = if (recentTopicSummaries.isNotEmpty()) {
-            val topicsList = recentTopicSummaries.joinToString(separator = "\n") { "- $it" }
-            "\nRecent topics the student has discussed:\n$topicsList"
-        } else {
-            ""
-        }
+        // 발화 수준별 분기는 prompt 의 핵심이다. 장문 설명보다 짧은 분기 데이터가 더 안정적이다.
+        val branchBlock = branchBlock(
+            selectedLanguageName = selectedLanguageName,
+            primaryLanguageName = primaryLanguageName
+        )
+        // Chat 세부 정책은 내부 enum 이름을 숨기고 4~6줄의 행동 지시로 압축한다.
+        val policyBlock = policyBlock(profile)
+        // 응답 길이와 질문 방식은 profile 의 chatPolicy 를 그대로 행동 문장으로 낮춘다.
+        val responseBlock = responseBlock(
+            responseLength = profile.chatPolicy.responseLength,
+            questionLoad = profile.chatPolicy.questionLoad,
+            speechSpeed = profile.chatPolicy.speechSpeed,
+            confidence = profile.core.levelConfidence
+        )
+        // focus 는 신뢰 가능한 상위 약점만 대화 안에서 가볍게 다루도록 한다.
+        val focusBlock = focusBlock(profile.core.focus)
+        // 최근 맥락은 topic continuity 용도이며, 이전 AI 응답 스타일을 모방하라는 지시가 아니다.
+        val contextBlock = contextBlock(recentFullContext, recentTopicSummaries)
 
         return """
-            You are Umma, a warm $selectedLanguageName conversation tutor.
-            Speak primarily in $selectedLanguageName.
-            $primarySupportInstruction
-            $challengeInstruction
-            $responseInstruction
-            $questionInstruction
-            $focusInstruction
-            $contextInstruction$topicsInstruction
-            Lead a natural conversation and keep the learner speaking.
-            Do not mention internal scores, numeric metrics, or stored learning state fields.
+            persona:
+            - name: Umma
+            - role: 수업을 진행하는 선생님이 아니라 $selectedLanguageName 일상 대화를 자연스럽게 이어 주는 원어민 대화 파트너
+            - goal: 모든 응답의 첫 원칙은 실제 일상 대화처럼 자연스럽게 반응하는 것이다.
+            - style: 학습 보조는 대화를 깨지 않는 범위에서만 조용히 섞고, 원어민이 자주 쓰는 자연스러운 구어체를 우선한다.
+
+            languages:
+            - target: $selectedLanguageName
+            - support: $primaryLanguageName
+            $languageBlock
+
+            response_flow:
+            - infer_intent: 사용자의 조각난 말에서도 먼저 뜻을 추론한다.
+            - natural_reaction: 교정 설명보다 일상 대화 반응을 먼저 한다.
+            - inline_recast: 필요할 때만 사용자가 말하려던 뜻을 원어민이 실제 자주 쓰는 $selectedLanguageName 문장 안에 자연스럽게 한 번 녹인다.
+            - flow: 대화가 끊기지 않게 짧게 이어가되, 매번 같은 질문 형식으로 끝내지 않는다.
+
+            branches:
+            $branchBlock
+
+            learner_policy:
+            $policyBlock
+            $responseBlock
+            $focusBlock
+
+            learner_profile:
+            $profileBlock
+
+            context:
+            $contextBlock
         """.trimIndent()
     }
 
+    /**
+     * 이번 AI 응답에만 적용할 `response.create.instructions` override를 만든다.
+     *
+     * 세션 시작 prompt 전체를 다시 보내지 않고, 방금 USER final transcript가 보여준
+     * 막힘/회복 신호에 따라 이번 응답에서 바뀌는 값만 2~4줄로 압축한다.
+     */
+    fun buildTurnOverrideInstruction(
+        basePolicy: ChatTurnAdaptationPolicy,
+        turnPolicy: ChatTurnAdaptationPolicy,
+        primaryLang: LangCode,
+        selectedLang: LangCode
+    ): String? {
+        // turn override도 내부 enum 이름을 노출하지 않기 위해 언어명을 자연어로 변환한다.
+        val primaryLanguageName = languageName(primaryLang)
+        val selectedLanguageName = languageName(selectedLang)
+        // 같은 초급 지시가 매 turn 반복되면 모델이 "더 느리게/더 쉽게"를 누적 강화할 수 있다.
+        // 그래서 baseline과 달라진 항목만 response.create.instructions에 넣는다.
+        val overrideLines = buildList {
+            if (turnPolicy.responseLength != basePolicy.responseLength) {
+                add(turnResponseLengthLine(turnPolicy.responseLength))
+            }
+            if (turnPolicy.sentenceDensity != basePolicy.sentenceDensity) {
+                add(sentenceDensityLine(turnPolicy.sentenceDensity))
+            }
+            if (
+                turnPolicy.primaryBridge != basePolicy.primaryBridge ||
+                turnPolicy.primaryBridgeReason == PrimaryBridgeReason.ExplicitSupportRequest
+            ) {
+                add(
+                    turnPrimaryBridgeLine(
+                        policy = turnPolicy.primaryBridge,
+                        reason = turnPolicy.primaryBridgeReason,
+                        primaryLanguageName = primaryLanguageName,
+                        selectedLanguageName = selectedLanguageName
+                    )
+                )
+            }
+            if (turnPolicy.questionLoad != basePolicy.questionLoad) {
+                add(turnQuestionLoadLine(turnPolicy.questionLoad))
+            }
+            if (turnPolicy.speechSpeed != basePolicy.speechSpeed) {
+                add(turnSpeechDeliveryLine(turnPolicy.speechSpeed))
+            }
+        }
+
+        // 바뀐 항목이 없으면 이번 응답은 세션 시작 prompt만 따르게 해서 중복 instruction을 없앤다.
+        if (overrideLines.isEmpty()) return null
+
+        return buildString {
+            appendLine("current_turn_override:")
+            overrideLines.forEach { line ->
+                appendLine("- $line")
+            }
+        }.trimEnd()
+    }
+
     private fun languageName(langCode: LangCode): String {
+        // UNKNOWN 은 정상 사용자 설정이 아니지만 session start 실패보다 안전한 기본값이 낫다.
         return when (langCode) {
-            LangCode.EN -> "English"
-            LangCode.JA -> "Japanese"
-            LangCode.KO -> "Korean"
-            LangCode.DE -> "German"
-            // UNKNOWN 은 정상 selectedLang 으로 오면 안 되지만, prompt 생성 실패가 session start 를 막지 않도록 안전값을 둔다.
-            LangCode.UNKNOWN -> "English"
+            LangCode.EN -> "영어"
+            LangCode.JA -> "일본어"
+            LangCode.KO -> "한국어"
+            LangCode.DE -> "독일어"
+            LangCode.UNKNOWN -> "영어"
         }
     }
 
-    private fun responseInstruction(policy: ResponseLengthPolicy): String {
-        // 응답 길이는 대화 피로도를 좌우하므로 profile policy 를 직접적인 행동 지시로 변환한다.
-        return when (policy) {
-            ResponseLengthPolicy.OneShortSentence -> "Reply with one short sentence at a time."
-            ResponseLengthPolicy.ShortTwoStep -> "Reply briefly, then add one easy follow-up question."
-            ResponseLengthPolicy.NaturalBrief -> "Keep replies natural and brief without over-explaining."
-            ResponseLengthPolicy.Flexible -> "Use flexible response length only when nuance or examples help the learner."
-        }
-    }
-
-    private fun questionInstruction(policy: QuestionStylePolicy): String {
-        // 질문 방식은 사용자가 다음 발화를 만들 수 있는지에 직접 영향을 준다.
-        return when (policy) {
-            QuestionStylePolicy.OneConcreteQuestion -> "Ask one concrete question that can be answered simply."
-            QuestionStylePolicy.GuidedChoiceQuestion -> "Offer simple choices when the learner may need help continuing."
-            QuestionStylePolicy.OpenFollowUp -> "Ask natural follow-up questions about reasons, experiences, or preferences."
-            QuestionStylePolicy.NuanceFollowUp -> "Invite nuance, register, and more natural expression choices when appropriate."
-        }
-    }
-
-    private fun challengeInstruction(policy: ChallengeLevel): String {
-        // Challenge 는 "현재 능력보다 얼마나 밀어도 되는지"를 정하는 가장 상위의 대화 난이도 지시다.
-        return when (policy) {
-            ChallengeLevel.Support -> "Use very familiar patterns and avoid introducing new expressions unless necessary."
-            ChallengeLevel.Match -> "Stay close to the learner's current ability and introduce only small extensions."
-            ChallengeLevel.Stretch -> "Add at most one useful new spoken expression when it clearly helps the conversation."
-            ChallengeLevel.Refine -> "Refine nuance, register, and natural phrasing while keeping the conversation fluid."
-        }
-    }
-
-    private fun primarySupportInstruction(
-        support: PrimaryLanguageSupportPolicy,
+    private fun languageBlock(
+        primaryBridge: PrimaryBridgePolicy,
         primaryLanguageName: String,
         selectedLanguageName: String
     ): String {
-        // primaryLang 은 보조 설명 언어일 뿐이므로, selectedLang 중심 대화 지시와 항상 함께 둔다.
-        return when (support) {
-            PrimaryLanguageSupportPolicy.PrimaryLanguageFirst ->
-                "You may use $primaryLanguageName for short explanations or hints, but keep the conversation in $selectedLanguageName."
-            PrimaryLanguageSupportPolicy.BriefPrimaryLanguageHint ->
-                "Use brief $primaryLanguageName hints only when they help the learner continue in $selectedLanguageName."
-            PrimaryLanguageSupportPolicy.TargetLanguageFirstWithPrimaryFallback ->
-                "Use $selectedLanguageName first, and fall back to short $primaryLanguageName support only if the learner seems stuck."
-            PrimaryLanguageSupportPolicy.TargetLanguageOnly ->
-                "Do not use $primaryLanguageName support unless the learner explicitly asks for it."
+        // primaryLang 은 낮은 단계에서 이해를 보장하는 대화 지속 장치이고, selectedLang 은 실제 대화 목표 언어다.
+        val supportRule = when (primaryBridge) {
+            PrimaryBridgePolicy.Active ->
+                "support_rule: 사용자가 학습언어($selectedLanguageName)를 거의 못 쓰거나 도움을 요청하면 기준언어($primaryLanguageName)로 의미를 먼저 잡고 $selectedLanguageName 핵심 표현을 짧게 붙인다."
+            PrimaryBridgePolicy.Brief ->
+                "support_rule: 사용자가 막히면 $primaryLanguageName 힌트로 이해를 돕고 $selectedLanguageName 표현은 짧게 둔다."
+            PrimaryBridgePolicy.FallbackOnly ->
+                "support_rule: 먼저 학습언어($selectedLanguageName)로 답하고, 의도 복원이 어려울 때만 기준언어($primaryLanguageName)를 짧게 섞는다."
+            PrimaryBridgePolicy.None ->
+                "support_rule: 사용자가 요청한 경우를 제외하고 ${selectedLanguageName}만 사용한다."
+        }
+        return """
+            - $supportRule
+            - priority_rule: $selectedLanguageName 노출보다 사용자가 이해하고 다음 말을 할 수 있게 하는 것이 먼저다.
+            - third_language_rule: ${primaryLanguageName}와 $selectedLanguageName 외 언어를 섞지 않는다.
+        """.trimIndent()
+    }
+
+    private fun branchBlock(
+        selectedLanguageName: String,
+        primaryLanguageName: String
+    ): String {
+        // 분기는 band 이름 없이 현재 발화 모양에 따라 모델이 즉시 적용할 행동만 남긴다.
+        return """
+            - fragment: 뜻만 있는 단어 조각이면 기준언어($primaryLanguageName)로 의미를 먼저 잡고 $selectedLanguageName 핵심 표현 하나를 자연스럽게 붙인다.
+            - simple: 뜻이 대략 통하면 자연 반응 안에 $selectedLanguageName 재표현을 한 번만 섞고, 필요할 때만 짧게 이어 묻는다.
+            - fluent: 말이 충분히 자연스러우면 교정 없이 대화를 이어가고, 필요할 때만 더 구어체다운 표현을 대화 문장 안에 자연스럽게 섞는다.
+        """.trimIndent()
+    }
+
+    private fun policyBlock(profile: LearnerAdaptationProfile): String {
+        // 여러 Chat 정책 enum을 1:1로 모두 노출하면 prompt가 길어지므로 실행 가능한 문장만 고른다.
+        val policy = profile.chatPolicy
+        return listOf(
+            intentSupportLine(policy.intentSupport),
+            primaryBridgeLine(policy.primaryBridge),
+            recastLine(policy.recastStyle),
+            growthLine(policy.expressionGrowth),
+            confidenceLine(profile.core.levelConfidence)
+        ).joinToString(separator = "\n") { "- $it" }
+    }
+
+    private fun intentSupportLine(policy: IntentSupportPolicy): String {
+        // 의도 추론 강도는 초저숙련 사용자가 대화를 끊기지 않게 만드는 핵심 정책이다.
+        return when (policy) {
+            IntentSupportPolicy.InferActively -> "불완전한 말에서도 사용자의 의도를 먼저 추론하고 대화를 이어간다."
+            IntentSupportPolicy.ConfirmBriefly -> "오해 가능성이 있으면 아주 짧게 의도만 확인한 뒤 대화를 이어간다."
+            IntentSupportPolicy.TrustMeaning -> "뜻이 보이면 확인 질문보다 자연스러운 대화 반응을 우선한다."
+            IntentSupportPolicy.FollowUserLead -> "사용자가 이끄는 주제와 말투를 따라가며 일반 대화처럼 답한다."
         }
     }
 
-    private fun focusInstruction(focus: LearningFocusSummary): String {
-        // focus 가 없거나 신뢰도가 낮으면 특정 약점을 강제로 끼워 넣지 않는다.
-        val primary = focus.primaryFocus ?: return "Do not force a correction focus unless the learner's current utterance needs it."
-        val secondary = focus.secondaryFocus
+    private fun primaryBridgeLine(policy: PrimaryBridgePolicy): String {
+        // primaryLang은 학습 보조 언어일 뿐이며 selectedLang 대화 경험을 대체하면 안 된다.
+        return when (policy) {
+            PrimaryBridgePolicy.Active -> "이해가 끊길 것 같으면 보조 언어로 짧게 확인하고 바로 목표 언어로 돌아온다."
+            PrimaryBridgePolicy.Brief -> "사용자가 막힐 때만 보조 언어 힌트를 짧게 사용한다."
+            PrimaryBridgePolicy.FallbackOnly -> "기본은 목표 언어이고, 오해가 생길 때만 보조 언어를 한 줄 쓴다."
+            PrimaryBridgePolicy.None -> "사용자가 요청하지 않으면 목표 언어만 사용한다."
+        }
+    }
+
+    private fun recastLine(policy: RecastStylePolicy): String {
+        // recast는 별도 수업 예문이 아니라 응답 문장 안에 자연스럽게 들어가야 한다.
+        return when (policy) {
+            RecastStylePolicy.TinyInline -> "사용자가 말하려던 뜻을 아주 쉬운 표현으로 응답 안에 한 번만 보여준다."
+            RecastStylePolicy.SimpleInline -> "사용자의 뜻을 쉬운 자연 문장으로 한 번만 다시 보여준다."
+            RecastStylePolicy.NaturalInline -> "더 자연스러운 구어 표현을 대화 문장 안에 한 번만 녹인다."
+            RecastStylePolicy.NuanceOnly -> "필요할 때만 더 원어민다운 뉘앙스를 자연스럽게 섞는다."
+        }
+    }
+
+    private fun growthLine(policy: ExpressionGrowthPolicy): String {
+        // 10% 성장 목적은 한 번에 많은 표현을 주입하는 것이 아니라 작은 확장을 꾸준히 보여주는 것이다.
+        return when (policy) {
+            ExpressionGrowthPolicy.OneTinyPhrase -> "새 표현은 아주 작은 표현 하나만 둔다."
+            ExpressionGrowthPolicy.OneSimplePattern -> "쉬운 일상 패턴 하나만 자연스럽게 더한다."
+            ExpressionGrowthPolicy.OneEverydayExpression -> "상황에 맞는 일상 구어 표현 하나만 더한다."
+            ExpressionGrowthPolicy.OneNativeLikeChoice -> "필요할 때만 원어민다운 표현 선택지를 미세하게 보여준다."
+        }
+    }
+
+    private fun confidenceLine(confidence: ProfileConfidence): String {
+        // confidence는 실력 라벨이 아니라 저장된 판단 근거의 신뢰도라 현재 발화 우선 여부를 정한다.
+        return when (confidence) {
+            ProfileConfidence.Low -> "저장된 근거가 적어도 현재 발화가 이어질 수 있게 이해 가능한 반응을 우선한다."
+            ProfileConfidence.Medium -> "저장된 profile을 참고하되 현재 발화가 더 쉽거나 어렵다면 즉시 맞춘다."
+            ProfileConfidence.High -> "저장된 profile을 적극 참고하되 대화 흐름을 우선한다."
+        }
+    }
+
+    private fun profileBlock(profile: LearnerAdaptationProfile): String {
+        // profile block은 내부 enum/점수를 설명하지 않고 영역별 대화 지원 방향만 담는다.
+        return """
+            - grammar: ${stageLabel(profile.core.grammarStage)}
+            - vocabulary: ${stageLabel(profile.core.vocabularyStage)}
+            - fluency: ${stageLabel(profile.core.fluencyStage)}
+            - naturalness: ${stageLabel(profile.core.naturalnessStage)}
+        """.trimIndent()
+    }
+
+    private fun stageLabel(stage: SkillStage): String {
+        // stage 는 raw 점수보다 prompt 에 안정적으로 들어가는 능력 단위다.
+        return when (stage) {
+            SkillStage.Foundation -> "기초 표현을 안전하게 만든다"
+            SkillStage.Developing -> "짧은 문장을 조금씩 넓힌다"
+            SkillStage.Stable -> "기본 대화를 안정적으로 이어간다"
+            SkillStage.Expanding -> "표현 폭을 자연스럽게 넓힌다"
+            SkillStage.Refined -> "뉘앙스와 말투를 다듬는다"
+        }
+    }
+
+    private fun responseBlock(
+        responseLength: ResponseLengthPolicy,
+        questionLoad: QuestionLoadPolicy,
+        speechSpeed: SpeechSpeedPolicy,
+        confidence: ProfileConfidence
+    ): String {
+        // 응답 길이와 질문 방식은 사용자가 다음 turn 을 만들 수 있는지에 직접 영향을 준다.
+        val lengthRule = when (responseLength) {
+            ResponseLengthPolicy.OneShortSentence -> "response_length: 짧은 반응으로 한 가지 의미만 전달한다."
+            ResponseLengthPolicy.ShortTwoStep -> "response_length: 짧은 반응에 필요한 경우 가벼운 후속 여지를 둔다."
+            ResponseLengthPolicy.NaturalBrief -> "response_length: 자연스럽고 간결하게 말한다."
+            ResponseLengthPolicy.Flexible -> "response_length: 필요할 때만 조금 길게 설명한다."
+        }
+        val questionRule = when (questionLoad) {
+            QuestionLoadPolicy.ConcreteChoice -> "turn_space: 필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 준다."
+            QuestionLoadPolicy.OneConcreteFollowUp -> "turn_space: 사용자의 말에서 자연스럽게 이어지는 짧은 여지를 둔다."
+            QuestionLoadPolicy.OpenShort -> "turn_space: 너무 넓지 않은 짧은 open-ended 여지를 둔다."
+            QuestionLoadPolicy.NuanceFollowUp -> "turn_space: 대화가 안정될 때만 이유나 뉘앙스로 가볍게 넓힌다."
+        }
+        // Realtime speed 값만 낮추면 문장 자체가 길 때 초저숙련 사용자는 여전히 이해하기 어렵다.
+        // 그래서 근거 부족/초급 속도 정책에서는 같은 turn 안에서 말의 밀도와 pause 느낌까지 함께 지시한다.
+        val deliveryRule = when {
+            confidence == ProfileConfidence.Low ->
+                "speech_delivery: 첫 발화가 조각나도 천천히 말하며 한 가지 의미씩 이해하게 한다."
+            speechSpeed == SpeechSpeedPolicy.SlowBeginner ->
+                "speech_delivery: 쉬운 단어를 또박또박 쓰고 문장 사이를 쉬어 의미를 놓치지 않게 한다."
+            speechSpeed == SpeechSpeedPolicy.Guided ->
+                "speech_delivery: 자연스럽되 빠르게 몰아 말하지 않는다."
+            speechSpeed == SpeechSpeedPolicy.NormalLearning ->
+                "speech_delivery: 일반 학습자가 듣기 좋은 자연스러운 속도로 말한다."
+            speechSpeed == SpeechSpeedPolicy.SlightlyFast ->
+                "speech_delivery: 자연스러운 속도를 유지하되 핵심 의미는 분명하게 말한다."
+            speechSpeed == SpeechSpeedPolicy.Advanced ->
+                "speech_delivery: 원어민 대화에 가까운 자연스러운 속도와 리듬으로 말한다."
+            else ->
+                "speech_delivery: 사용자가 이해할 수 있는 속도와 문장 밀도를 우선한다."
+        }
+        return """
+            - $lengthRule
+            - $questionRule
+            - $deliveryRule
+        """.trimIndent()
+    }
+
+    private fun turnResponseLengthLine(policy: ResponseLengthPolicy): String {
+        // 이번 응답 길이는 세션 기본값보다 더 보수적으로 낮아질 수 있다.
+        return when (policy) {
+            ResponseLengthPolicy.OneShortSentence -> "이번 응답은 짧게 반응하고 한 가지 의미만 전달한다."
+            ResponseLengthPolicy.ShortTwoStep -> "이번 응답은 짧은 반응에 필요한 후속 여지만 둔다."
+            ResponseLengthPolicy.NaturalBrief -> "이번 응답은 자연스럽지만 간결하게 유지한다."
+            ResponseLengthPolicy.Flexible -> "이번 응답은 필요할 때만 조금 더 자세히 말한다."
+        }
+    }
+
+    private fun sentenceDensityLine(policy: SentenceDensityPolicy): String {
+        // 정보 밀도는 실제 속도와 별개다. 초저숙련 사용자는 한 의미씩 들어야 다음 말을 만들 수 있다.
+        return when (policy) {
+            SentenceDensityPolicy.OneIdea -> "한 번에 하나의 의미만 담아 사용자가 놓치지 않게 한다."
+            SentenceDensityPolicy.SimpleTwoStep -> "정보는 두 단계 이하로 나누고, 필요할 때만 구체 상황으로 이어 간다."
+            SentenceDensityPolicy.NaturalBrief -> "일상 대화처럼 짧고 자연스러운 정보량을 유지한다."
+            SentenceDensityPolicy.Flexible -> "대화가 안정적이면 필요한 맥락을 조금 더 담아도 된다."
+        }
+    }
+
+    private fun turnPrimaryBridgeLine(
+        policy: PrimaryBridgePolicy,
+        reason: PrimaryBridgeReason,
+        primaryLanguageName: String,
+        selectedLanguageName: String
+    ): String {
+        // turn 단위 primary bridge는 이번 응답에서만 열리며, selectedLang 대화를 대체하면 안 된다.
+        if (reason == PrimaryBridgeReason.ExplicitSupportRequest) {
+            return "${primaryLanguageName} 보조 요청을 반영해 ${primaryLanguageName}로 이해를 먼저 보장하고, ${selectedLanguageName}는 짧은 핵심 표현만 붙인다."
+        }
+        return when (policy) {
+            PrimaryBridgePolicy.Active ->
+                "${primaryLanguageName}로 의미를 먼저 잡고 ${selectedLanguageName} 쉬운 표현을 짧게 붙인다."
+            PrimaryBridgePolicy.Brief ->
+                "막힌 부분만 ${primaryLanguageName} 힌트로 짧게 돕고 ${selectedLanguageName} 대화로 자연스럽게 돌아온다."
+            PrimaryBridgePolicy.FallbackOnly ->
+                "기본은 ${selectedLanguageName}이고 오해가 클 때만 ${primaryLanguageName} 한 줄을 보조로 쓴다."
+            PrimaryBridgePolicy.None ->
+                "사용자가 요청하지 않으면 ${selectedLanguageName}만 사용한다."
+        }
+    }
+
+    private fun turnQuestionLoadLine(policy: QuestionLoadPolicy): String {
+        // 질문은 학습 설명보다 다음 발화를 가능하게 하는 장치라 turn별로 가장 체감이 크다.
+        return when (policy) {
+            QuestionLoadPolicy.ConcreteChoice -> "필요할 때 음식, 장소, 감정, 행동 중 하나로 짧게 답할 여지를 둔다."
+            QuestionLoadPolicy.OneConcreteFollowUp -> "필요할 때 사용자의 말에서 이어지는 실제 상황 여지만 둔다."
+            QuestionLoadPolicy.OpenShort -> "필요할 때 너무 넓지 않은 짧은 open-ended 여지를 둔다."
+            QuestionLoadPolicy.NuanceFollowUp -> "대화가 안정적일 때만 이유나 뉘앙스로 가볍게 넓힌다."
+        }
+    }
+
+    private fun turnSpeechDeliveryLine(policy: SpeechSpeedPolicy): String {
+        // Realtime speed가 적용되더라도 모델이 빠른 리듬의 긴 문장을 만들지 않도록 전달 방식을 같이 제어한다.
+        return when (policy) {
+            SpeechSpeedPolicy.SlowBeginner -> "천천히 또박또박 말하되, 한 번에 한 가지 의미만 전달한다."
+            SpeechSpeedPolicy.Guided -> "속도를 낮춰 사용자가 따라올 수 있는 리듬으로 말한다."
+            SpeechSpeedPolicy.NormalLearning -> "일반 학습 대화에 맞는 자연스러운 속도감으로 말한다."
+            SpeechSpeedPolicy.SlightlyFast -> "자연스러운 리듬을 유지하되 핵심 의미는 분명하게 말한다."
+            SpeechSpeedPolicy.Advanced -> "원어민 대화에 가까운 자연스러운 리듬으로 말한다."
+        }
+    }
+
+    private fun focusBlock(focus: LearningFocusSummary): String {
+        // focus 는 confidence 가 낮으면 장기 약점으로 단정하지 않는다.
+        val primaryFocus = focus.primaryFocus
+        if (primaryFocus == null || focus.confidence == ProfileConfidence.Low || focus.observedCount <= 0) {
+            return "- focus: 현재 발화에 꼭 필요할 때만 가볍게 돕고, 특정 약점을 억지로 꺼내지 않는다."
+        }
         val focusText = listOfNotNull(
-            focusLabel(primary),
-            secondary?.let(::focusLabel)
+            focusLabel(primaryFocus),
+            focus.secondaryFocus?.let(::focusLabel)
         ).joinToString(separator = ", ")
-        return "When a natural opportunity appears, gently support these recurring weak points: $focusText."
+        return "- focus: 자연스러운 기회가 있을 때 $focusText 를 한 번만 가볍게 돕는다."
     }
 
     private fun focusLabel(type: LearningFocusType): String {
-        // enum 이름을 prompt 에 그대로 넣지 않고, 모델이 바로 이해할 수 있는 학습 표현으로 바꾼다.
+        // enum 이름을 그대로 노출하지 않고, 모델이 바로 이해할 수 있는 표현으로 바꾼다.
         return when (type) {
-            LearningFocusType.Article -> "articles"
-            LearningFocusType.Tense -> "tense choices"
-            LearningFocusType.Preposition -> "prepositions"
-            LearningFocusType.WordOrder -> "word order"
-            LearningFocusType.SentenceFragment -> "complete sentences"
-            LearningFocusType.VocabularyChoice -> "word choice"
-            LearningFocusType.LimitedVerbRange -> "a wider verb range"
-            LearningFocusType.UnnaturalCollocation -> "natural collocations"
-            LearningFocusType.TooFormal -> "more natural spoken register"
-            LearningFocusType.MissingContext -> "missing context"
+            LearningFocusType.Article -> "관사"
+            LearningFocusType.Tense -> "시제"
+            LearningFocusType.Preposition -> "전치사"
+            LearningFocusType.WordOrder -> "어순"
+            LearningFocusType.SentenceFragment -> "완전한 문장"
+            LearningFocusType.VocabularyChoice -> "단어 선택"
+            LearningFocusType.LimitedVerbRange -> "동사 표현"
+            LearningFocusType.UnnaturalCollocation -> "자연스러운 단어 조합"
+            LearningFocusType.TooFormal -> "구어체 말투"
+            LearningFocusType.MissingContext -> "맥락 보완"
         }
+    }
+
+    private fun contextBlock(
+        recentFullContext: List<SessionTurn>,
+        recentTopicSummaries: List<String>
+    ): String {
+        // 최근 turn 은 대화 주제 연속성을 위한 자료이며 이전 답변 패턴을 복제하라는 의미가 아니다.
+        val recentTurns = recentFullContext
+            .takeLast(MAX_CONTEXT_TURN_COUNT)
+            .joinToString(separator = "\n") { turn ->
+                "- ${turn.role.name}: ${turn.text}"
+            }
+            .ifBlank { "- none" }
+        // topic summary 도 너무 많이 넣으면 prompt 가 다시 장황해져 상위 몇 개만 보낸다.
+        val topicLines = recentTopicSummaries
+            .take(MAX_TOPIC_COUNT)
+            .joinToString(separator = "\n") { "- $it" }
+            .ifBlank { "- none" }
+        return """
+            - recent_turns:
+            $recentTurns
+            - recent_topics:
+            $topicLines
+            - rule: 최근 맥락은 주제 이해에만 쓰고, 이전 AI의 응답 습관은 모방하지 않는다.
+        """.trimIndent()
+    }
+
+    private companion object {
+        // 최근 맥락은 많을수록 좋은 것이 아니라 핵심 주제를 유지할 만큼만 필요하다.
+        private const val MAX_CONTEXT_TURN_COUNT = 8
+        // 주제 요약도 모델 지시보다 길어지지 않도록 작게 제한한다.
+        private const val MAX_TOPIC_COUNT = 3
     }
 }

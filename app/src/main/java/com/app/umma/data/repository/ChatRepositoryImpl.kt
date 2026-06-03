@@ -7,6 +7,8 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
+import com.app.umma.domain.model.realtime.ChatResponseOverride
+import com.app.umma.domain.model.realtime.ChatResponseOverrideProvider
 import com.app.umma.domain.model.realtime.ChatTokenUsage
 import com.app.umma.domain.model.realtime.ChatUsageKind
 import com.app.umma.domain.model.realtime.SessionInterruptedReason
@@ -93,6 +95,10 @@ class ChatRepositoryImpl @Inject constructor(
     // 재연결 시 최신 prompt 를 다시 session.update 로 보낼 수 있도록 현재 언어와 prompt 를 캐시합니다.
     private var currentLang: LangCode? = null
     private var currentSystemInstruction: String? = null
+    // 자동/수동 재연결 때도 학습자 수준에 맞춘 음성 속도를 동일하게 복원하기 위해 함께 캐시한다.
+    private var currentOutputAudioSpeed: Double? = null
+    // USER final transcript 이후 이번 response에만 적용할 override provider. 정책 판단은 domain/usecase가 맡는다.
+    private var currentResponseOverrideProvider: ChatResponseOverrideProvider? = null
     // 실제 이탈/명시적 reconnect 로 닫은 socket 을 인스턴스 단위로 추적해 불필요한 자동 재연결을 막는다.
     // OkHttp callback 과 coroutine cleanup 이 서로 다른 thread 에서 접근하므로 synchronized set 으로 둔다.
     private val requestedCloseSockets: MutableSet<WebSocket> =
@@ -137,7 +143,9 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun startSession(
         langCode: LangCode,
-        systemInstruction: String
+        systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider?
     ): Result<String> = sessionMutex.withLock {
         // 화면 회전이나 LaunchedEffect 재실행으로 같은 조건의 startSession 이 다시 들어오면
         // 기존 transport 를 그대로 재사용한다. 이 guard 가 없으면 subtitle/저장 흐름이 중복될 수 있다.
@@ -145,8 +153,10 @@ class ChatRepositoryImpl @Inject constructor(
             webSocket != null &&
             activeSessionId != null &&
             currentLang == langCode &&
-            currentSystemInstruction == systemInstruction
+            currentSystemInstruction == systemInstruction &&
+            currentOutputAudioSpeed == outputAudioSpeed
         ) {
+            currentResponseOverrideProvider = responseOverrideProvider
             return Result.success(activeSessionId!!)
         }
 
@@ -161,6 +171,8 @@ class ChatRepositoryImpl @Inject constructor(
             connectRealtimeTransport(
                 langCode = langCode,
                 systemInstruction = systemInstruction,
+                outputAudioSpeed = outputAudioSpeed,
+                responseOverrideProvider = responseOverrideProvider,
                 sessionId = newSessionId,
                 resetTurnSequence = true
             )
@@ -168,14 +180,18 @@ class ChatRepositoryImpl @Inject constructor(
             events.emit(AIEvent.Initialized(newSessionId))
             events.emit(AIEvent.StateChanged(AIState.IDLE))
             newSessionId
-        }.onFailure { error ->
+        }.onFailure {
             // 시작 실패 화면 처리는 StartSessionUseCase 결과를 받은 ViewModel 이 담당한다.
             // 여기서 AIEvent.Error 까지 emit 하면 동일 실패가 이벤트 경로와 Result 경로로 중복 반영될 수 있다.
             stopInternal(clearAppSession = true)
         }
     }
 
-    override suspend fun reconnectSession(systemInstruction: String): Result<String> = sessionMutex.withLock {
+    override suspend fun reconnectSession(
+        systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider?
+    ): Result<String> = sessionMutex.withLock {
         // 수동 재시도는 "새 대화 시작"이 아니라 "현재 앱 세션의 transport 복구"입니다.
         // 따라서 activeSessionId 와 currentLang 이 없으면 복구할 기준이 없어 실패로 반환합니다.
         val sessionId = activeSessionId
@@ -195,6 +211,8 @@ class ChatRepositoryImpl @Inject constructor(
             connectRealtimeTransport(
                 langCode = langCode,
                 systemInstruction = systemInstruction,
+                outputAudioSpeed = outputAudioSpeed,
+                responseOverrideProvider = responseOverrideProvider,
                 sessionId = sessionId,
                 resetTurnSequence = false
             )
@@ -304,6 +322,7 @@ class ChatRepositoryImpl @Inject constructor(
     private fun buildWebSocketListener(
         sessionId: String,
         systemInstruction: String,
+        outputAudioSpeed: Double,
         eventChannel: Channel<ServerRealtimeEvent>
     ): WebSocketListener {
         return object : WebSocketListener() {
@@ -311,7 +330,7 @@ class ChatRepositoryImpl @Inject constructor(
                 Log.i(TAG, "OpenAI Realtime WebSocket opened code=${response.code}")
                 // Cloud Function 이 만든 session 은 기본 VAD 설정일 수 있으므로
                 // 앱이 원하는 수동 turn 제어 설정을 WebSocket 연결 직후 다시 적용한다.
-                webSocket.send(buildSessionUpdateEvent(systemInstruction))
+                webSocket.send(buildSessionUpdateEvent(systemInstruction, outputAudioSpeed))
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -362,6 +381,8 @@ class ChatRepositoryImpl @Inject constructor(
     private suspend fun connectRealtimeTransport(
         langCode: LangCode,
         systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider?,
         sessionId: String,
         resetTurnSequence: Boolean
     ) {
@@ -378,6 +399,8 @@ class ChatRepositoryImpl @Inject constructor(
         activeSessionId = sessionId
         currentLang = langCode
         currentSystemInstruction = systemInstruction
+        currentOutputAudioSpeed = outputAudioSpeed
+        currentResponseOverrideProvider = responseOverrideProvider
         if (resetTurnSequence) {
             turnSequence = 0L
         }
@@ -387,6 +410,7 @@ class ChatRepositoryImpl @Inject constructor(
             buildWebSocketListener(
                 sessionId = sessionId,
                 systemInstruction = systemInstruction,
+                outputAudioSpeed = outputAudioSpeed,
                 eventChannel = eventChannel
             )
         )
@@ -429,9 +453,10 @@ class ChatRepositoryImpl @Inject constructor(
                 // 사용자의 final transcript 를 먼저 emit 한 뒤 response.create 를 보내야
                 // 화면에서 USER 자막이 AI 자막보다 먼저 보이는 UX-002 기반이 됩니다.
                 markUserTranscriptCompleted()
+                val userTranscript = payload.string("transcript")
                 val userTurnId = emitFinalTranscript(
                     sessionId = sessionId,
-                    text = payload.string("transcript"),
+                    text = userTranscript,
                     role = TurnSpeaker.USER
                 )
                 // transcription usage는 response usage와 별도 과금/분석 대상이 될 수 있어
@@ -446,7 +471,7 @@ class ChatRepositoryImpl @Inject constructor(
                     usageEventId = payload.string("event_id")
                 )
                 Log.i(TAG, "OpenAI Realtime user transcription usage=${payload["usage"]}")
-                createResponseAfterUserTranscriptIfNeeded()
+                createResponseAfterUserTranscriptIfNeeded(userTranscript)
             }
             "response.output_audio.delta",
             "response.audio.delta" -> {
@@ -526,17 +551,53 @@ class ChatRepositoryImpl @Inject constructor(
         events.emit(AIEvent.StateChanged(AIState.THINKING))
     }
 
-    private fun createResponseAfterUserTranscriptIfNeeded() {
+    private suspend fun createResponseAfterUserTranscriptIfNeeded(userFinalTranscript: String?) {
         if (!responsePendingUntilUserTranscript) return
 
         // CHAT-ENGINE-001의 핵심 확인값은 "사용자 발화 종료 후 사용자 자막을 먼저 보여준 뒤
         // AI 응답을 시작할 수 있는가"이다. 따라서 commit 직후가 아니라 user transcription
         // completed 이벤트를 받은 다음 response.create를 보낸다.
         responsePendingUntilUserTranscript = false
-        createResponse()
+        val responseOverride = buildResponseOverride(userFinalTranscript)
+        applyTurnSpeedOverrideIfNeeded(responseOverride)
+        createResponse(responseOverride?.responseInstructions)
     }
 
-    private fun createResponse() {
+    private suspend fun buildResponseOverride(userFinalTranscript: String?): ChatResponseOverride? {
+        val provider = currentResponseOverrideProvider ?: return null
+        val transcript = userFinalTranscript?.trim().orEmpty()
+        if (transcript.isBlank()) return null
+
+        // Repository는 transcript를 분석하지 않고, domain/usecase가 제공한 provider의 결과만 적용한다.
+        return runCatching {
+            provider.build(transcript)
+        }.getOrElse { error ->
+            // override 계산 실패가 대화 응답 생성을 막으면 안 된다. 기존 세션 설정으로 계속 진행한다.
+            Log.w(TAG, "chat turn override skipped: ${error.message}", error)
+            null
+        }
+    }
+
+    private fun applyTurnSpeedOverrideIfNeeded(responseOverride: ChatResponseOverride?) {
+        val speed = responseOverride?.outputAudioSpeed ?: return
+        val systemInstruction = currentSystemInstruction ?: return
+        val previousSpeed = currentOutputAudioSpeed
+
+        // 같은 speed이면 session.update를 반복하지 않아 응답 시작 지연을 줄인다.
+        if (previousSpeed != null && kotlin.math.abs(previousSpeed - speed) < SPEED_EPSILON) return
+
+        val sent = webSocket?.send(buildSessionUpdateEvent(systemInstruction, speed)) == true
+        if (sent) {
+            // WebSocket 이벤트는 순서대로 처리되므로 response.create 전에 update를 보낸 사실을 현재 설정으로 기록한다.
+            currentOutputAudioSpeed = speed
+            Log.i(TAG, "CHAT-TUNE-002 turn speed update sent speed=$speed")
+        } else {
+            // send 실패 시에도 response.create는 이어져야 한다. 대화 단절보다 기존 speed fallback이 낫다.
+            Log.w(TAG, "CHAT-TUNE-002 turn speed update skipped: websocket send failed")
+        }
+    }
+
+    private fun createResponse(responseInstructionsOverride: String? = null) {
         // response.create 를 보낸 시각이 first audio/transcript delta latency 의 기준점이다.
         responseCreatedAtMs = System.currentTimeMillis()
         firstAudioReceivedAtMs = null
@@ -545,7 +606,7 @@ class ChatRepositoryImpl @Inject constructor(
         // 아직 provider response id 를 모르는 구간이므로 첫 delta/done 에서 id 를 확정한다.
         activeResponseId = null
         responseDoneUntilNextCreate = false
-        webSocket?.send(buildResponseCreateEvent())
+        webSocket?.send(buildResponseCreateEvent(responseInstructionsOverride))
         repositoryScope.launch {
             events.emit(AIEvent.StateChanged(AIState.THINKING))
         }
@@ -578,7 +639,7 @@ class ChatRepositoryImpl @Inject constructor(
                 createdAt = System.currentTimeMillis(),
                 durationMs = when (role) {
                     TurnSpeaker.USER -> pendingUserTurnDurationMs
-                    TurnSpeaker.AI -> computePcmDurationMs(aiAudioByteCount, OPENAI_PCM_SAMPLE_RATE)
+                    TurnSpeaker.AI -> computePcmDurationMs(aiAudioByteCount)
                 },
                 tokenCount = computeTokenCount(finalText),
                 confidence = null
@@ -665,11 +726,12 @@ class ChatRepositoryImpl @Inject constructor(
         val sessionId = activeSessionId
         val langCode = currentLang
         val systemInstruction = currentSystemInstruction
+        val outputAudioSpeed = currentOutputAudioSpeed
 
-        if (sessionId == null || langCode == null || systemInstruction == null) {
+        if (sessionId == null || langCode == null || systemInstruction == null || outputAudioSpeed == null) {
             Log.e(
                 TAG,
-                "automatic reconnect aborted: missing session context sessionId=$sessionId, langCode=$langCode, hasPrompt=${systemInstruction != null}"
+                "automatic reconnect aborted: missing session context sessionId=$sessionId, langCode=$langCode, hasPrompt=${systemInstruction != null}, hasSpeed=${outputAudioSpeed != null}"
             )
             events.emit(
                 AIEvent.ReconnectFailed(
@@ -712,6 +774,8 @@ class ChatRepositoryImpl @Inject constructor(
                         connectRealtimeTransport(
                             langCode = langCode,
                             systemInstruction = systemInstruction,
+                            outputAudioSpeed = outputAudioSpeed,
+                            responseOverrideProvider = currentResponseOverrideProvider,
                             sessionId = sessionId,
                             resetTurnSequence = false
                         )
@@ -835,7 +899,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun resetTurnTransportState() {
         // 한 user turn / AI response 에만 유효한 transport 상태를 정리합니다.
-        // activeSessionId, currentLang, currentSystemInstruction 은 앱 세션 상태이므로 여기서 지우지 않습니다.
+        // activeSessionId/currentLang/currentSystemInstruction/currentOutputAudioSpeed 는 앱 세션 상태이므로 여기서 지우지 않습니다.
         hasBufferedAudioForTurn = false
         hasClearedInputForTurn = false
         commitInFlight = false
@@ -912,7 +976,10 @@ class ChatRepositoryImpl @Inject constructor(
         responseDoneUntilNextCreate = true
     }
 
-    private fun buildSessionUpdateEvent(systemInstruction: String): String {
+    private fun buildSessionUpdateEvent(
+        systemInstruction: String,
+        outputAudioSpeed: Double
+    ): String {
         return buildJsonObject {
             put("type", "session.update")
             put(
@@ -964,6 +1031,9 @@ class ChatRepositoryImpl @Inject constructor(
                                         }
                                     )
                                     put("voice", OPENAI_VOICE)
+                                    // Realtime의 speed는 생성된 audio 후처리 속도다.
+                                    // 프롬프트의 발화 속도 지시와 함께 써야 초급자에게 더 안정적으로 느리게 들린다.
+                                    put("speed", outputAudioSpeed)
                                 }
                             )
                         }
@@ -992,12 +1062,16 @@ class ChatRepositoryImpl @Inject constructor(
         }.toString()
     }
 
-    private fun buildResponseCreateEvent(): String {
+    private fun buildResponseCreateEvent(responseInstructionsOverride: String? = null): String {
         return buildJsonObject {
             put("type", "response.create")
             put(
                 "response",
                 buildJsonObject {
+                    if (!responseInstructionsOverride.isNullOrBlank()) {
+                        // turn override는 세션 instruction을 교체하지 않고 이번 response에만 적용한다.
+                        put("instructions", responseInstructionsOverride)
+                    }
                     put(
                         "output_modalities",
                         buildJsonArray {
@@ -1077,7 +1151,7 @@ class ChatRepositoryImpl @Inject constructor(
     /**
      * realtime transport 만 정리합니다.
      */
-    private suspend fun closeRealtimeTransport() {
+    private fun closeRealtimeTransport() {
         stopServerEventQueue()
         webSocket?.let { socket ->
             requestedCloseSockets.add(socket)
@@ -1096,7 +1170,7 @@ class ChatRepositoryImpl @Inject constructor(
      *
      * @param clearAppSession 앱 레벨 세션 정보까지 정리할지 여부
      */
-    private suspend fun stopInternal(clearAppSession: Boolean) {
+    private fun stopInternal(clearAppSession: Boolean) {
         reconnectJob?.cancel()
         reconnectJob = null
 
@@ -1108,6 +1182,8 @@ class ChatRepositoryImpl @Inject constructor(
         activeSessionId = null
         currentLang = null
         currentSystemInstruction = null
+        currentOutputAudioSpeed = null
+        currentResponseOverrideProvider = null
         turnSequence = 0L
     }
 
@@ -1122,11 +1198,11 @@ class ChatRepositoryImpl @Inject constructor(
         return ceil(normalized.length / 4.0).toInt().coerceAtLeast(1)
     }
 
-    private fun computePcmDurationMs(byteCount: Long, sampleRate: Int): Long? {
-        if (byteCount <= 0L || sampleRate <= 0) return null
+    private fun computePcmDurationMs(byteCount: Long): Long? {
+        if (byteCount <= 0L) return null
         // PCM 16-bit mono 이므로 2 bytes 를 1 sample 로 보고 재생 길이를 계산한다.
         val sampleCount = byteCount / BYTES_PER_SAMPLE
-        return ((sampleCount * 1000L) / sampleRate).coerceAtLeast(1L)
+        return ((sampleCount * 1000L) / OPENAI_PCM_SAMPLE_RATE).coerceAtLeast(1L)
     }
 
     private fun upsamplePcm16Mono16kTo24k(source: ByteArray): ByteArray {
@@ -1202,6 +1278,8 @@ class ChatRepositoryImpl @Inject constructor(
         const val BYTE_MASK = 0xFF
         const val INPUT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
         const val OPENAI_VOICE = "marin"
+        // Double 비교 오차 때문에 같은 speed를 매 turn 반복 update하지 않도록 작은 허용치를 둔다.
+        const val SPEED_EPSILON = 0.0001
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }
 }

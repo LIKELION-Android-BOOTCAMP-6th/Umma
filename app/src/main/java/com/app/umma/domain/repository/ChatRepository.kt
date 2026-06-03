@@ -1,6 +1,7 @@
 package com.app.umma.domain.repository
 
 import com.app.umma.domain.model.realtime.AIEvent
+import com.app.umma.domain.model.realtime.ChatResponseOverrideProvider
 import com.app.umma.domain.model.learningstate.LangCode
 import kotlinx.coroutines.flow.Flow
 
@@ -27,9 +28,16 @@ interface ChatRepository {
      *
      * @param langCode 현재 대화에 사용할 학습 언어
      * @param systemInstruction 세션 시작 시 모델에 주입할 system prompt
+     * @param outputAudioSpeed 학습자 수준에 맞춘 AI 음성 출력 속도. `1.0`이 기본 속도입니다.
+     * @param responseOverrideProvider USER final transcript 이후 이번 응답 전용 override를 계산하는 provider
      * @return 성공 시 활성 세션 ID를 담은 [Result], 실패 시 예외를 담은 [Result]
      */
-    suspend fun startSession(langCode: LangCode, systemInstruction: String): Result<String>
+    suspend fun startSession(
+        langCode: LangCode,
+        systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider? = null
+    ): Result<String>
 
     /**
      * 기존 앱 레벨 세션 ID를 유지한 채 realtime transport만 다시 연결합니다.
@@ -38,9 +46,15 @@ interface ChatRepository {
      * 호출자는 최신 context를 반영한 [systemInstruction]을 전달해야 합니다.
      *
      * @param systemInstruction 새 realtime session에 주입할 최신 system prompt
+     * @param outputAudioSpeed 최신 학습자 profile 기준으로 다시 계산한 AI 음성 출력 속도
+     * @param responseOverrideProvider 재연결된 세션에서도 동일한 turn override 정책을 적용하기 위한 provider
      * @return 성공 시 유지된 활성 세션 ID를 담은 [Result], 실패 시 예외를 담은 [Result]
      */
-    suspend fun reconnectSession(systemInstruction: String): Result<String>
+    suspend fun reconnectSession(
+        systemInstruction: String,
+        outputAudioSpeed: Double,
+        responseOverrideProvider: ChatResponseOverrideProvider? = null
+    ): Result<String>
 
     /**
      * 현재 활성화된 앱 레벨 세션 ID를 반환합니다.

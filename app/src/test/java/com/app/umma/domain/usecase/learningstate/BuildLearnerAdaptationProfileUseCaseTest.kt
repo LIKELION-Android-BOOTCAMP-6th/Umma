@@ -1,6 +1,7 @@
 package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.ChallengeLevel
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
 import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.ExternalMetrics
@@ -14,9 +15,9 @@ import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.MetricEvidence
-import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
-import com.app.umma.domain.model.learningstate.QuestionStylePolicy
+import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
+import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
@@ -38,10 +39,10 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         // 근거가 없으면 짧고 구체적인 대화를 우선해 과한 challenge를 막는다.
         assertEquals(ProfileConfidence.Low, profile.core.levelConfidence)
         assertEquals(SkillStage.Foundation, profile.core.grammarStage)
-        assertEquals(ChallengeLevel.Support, profile.chatPolicy.challengeLevel)
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
         assertEquals(ResponseLengthPolicy.OneShortSentence, profile.chatPolicy.responseLength)
-        assertEquals(QuestionStylePolicy.OneConcreteQuestion, profile.chatPolicy.questionStyle)
-        assertEquals(PrimaryLanguageSupportPolicy.PrimaryLanguageFirst, profile.chatPolicy.primaryLanguageSupport)
+        assertEquals(QuestionLoadPolicy.ConcreteChoice, profile.chatPolicy.questionLoad)
+        assertEquals(PrimaryBridgePolicy.Active, profile.chatPolicy.primaryBridge)
         assertEquals(CorrectionStylePolicy.MinimalFix, profile.correctionPolicy.correctionStyle)
         assertEquals(GrammarStrategyPolicy.FixBlockingErrorOnly, profile.correctionPolicy.grammarStrategy)
     }
@@ -53,7 +54,7 @@ class BuildLearnerAdaptationProfileUseCaseTest {
 
         // initial 값은 A1 확정이 아니라 low-confidence fallback으로 해석한다.
         assertEquals(ProfileConfidence.Low, profile.core.levelConfidence)
-        assertEquals(ChallengeLevel.Support, profile.chatPolicy.challengeLevel)
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
         assertEquals(ChallengeLevel.Support, profile.correctionPolicy.challengeLevel)
         assertNull(profile.core.focus.primaryFocus)
         assertNull(profile.core.focus.secondaryFocus)
@@ -98,7 +99,7 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(ProfileConfidence.Low, profile.core.levelConfidence)
         assertEquals(SkillStage.Refined, profile.core.grammarStage)
         assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
-        assertEquals(ChallengeLevel.Support, profile.chatPolicy.challengeLevel)
+        assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
         assertEquals(ChallengeLevel.Support, profile.correctionPolicy.challengeLevel)
     }
 
@@ -137,7 +138,47 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(SkillStage.Stable, profile.core.vocabularyStage)
         assertEquals(SkillStage.Expanding, profile.core.fluencyStage)
         assertEquals(SkillStage.Expanding, profile.core.naturalnessStage)
-        assertEquals(ChallengeLevel.Match, profile.chatPolicy.challengeLevel)
+        assertEquals(ConversationAbilityBand.SimpleSentence, profile.chatPolicy.conversationBand)
+    }
+
+    @Test
+    fun `chat profile ignores external display scores but keeps expression range exception`() {
+        // external은 사용자 표시용 projection이므로, 내부 분석용 profile을 끌어올리는 근거가 되면 안 된다.
+        val state = analyzedState(
+            internal = InternalMetrics(
+                grammarAccuracy = 0.22,
+                vocabularyAppropriateness = 0.24,
+                lexicalDiversity = 0.2,
+                vocabularyLevel = VocabLevel.A1,
+                sentenceComplexity = 0.18,
+                speechRate = 0.16,
+                pauseFrequency = 0.82,
+                avgUtteranceLength = 0.18,
+                spokenNaturalness = 0.2,
+                naturalExpressionUsage = 0.18,
+                errorRecurrence = 0.7,
+                reviewRetention = 0.2
+            ),
+            external = ExternalMetrics(
+                vocabularyLevel = VocabLevel.C2,
+                grammarAccuracy = 0.98,
+                expressionRange = 120,
+                fluencyScore = 0.96,
+                naturalnessScore = 0.97
+            ),
+            evidence = highConfidenceEvidence()
+        )
+
+        val profile = useCase(state)
+
+        // expressionRange는 누적 표현 폭 source라 vocabulary에는 제한적으로 반영된다.
+        assertEquals(SkillStage.Stable, profile.core.vocabularyStage)
+        // 나머지 표시용 external 점수가 높아도 Chat/Correction profile은 internal 병목을 기준으로 보수적으로 유지된다.
+        assertEquals(SkillStage.Foundation, profile.core.grammarStage)
+        assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
+        assertEquals(SkillStage.Foundation, profile.core.naturalnessStage)
+        assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
+        assertEquals(ChallengeLevel.Support, profile.correctionPolicy.challengeLevel)
     }
 
     @Test
@@ -192,9 +233,9 @@ class BuildLearnerAdaptationProfileUseCaseTest {
 
         val profile = useCase(state)
 
-        // Chat과 Correction은 같은 core 판단을 공유하되, 각 기능에 맞는 정책 enum만 다르게 가진다.
+        // Chat과 Correction은 같은 core 판단을 공유하되, Chat은 6단계 band, Correction은 기존 4단계 challenge를 쓴다.
         assertEquals(ProfileConfidence.High, profile.core.levelConfidence)
-        assertEquals(ChallengeLevel.Stretch, profile.chatPolicy.challengeLevel)
+        assertEquals(ConversationAbilityBand.ConnectedExpression, profile.chatPolicy.conversationBand)
         assertEquals(ChallengeLevel.Stretch, profile.correctionPolicy.challengeLevel)
         assertEquals(ResponseLengthPolicy.NaturalBrief, profile.chatPolicy.responseLength)
         assertEquals(VocabularyStrategyPolicy.ImproveCollocation, profile.correctionPolicy.vocabularyStrategy)
