@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingNotificationTarget = intent.toNotificationNavigationTarget()
         enableEdgeToEdge()
+        UmmaFirebaseMessagingService.ensureNotificationChannels(this)
         lifecycleScope.launch {
             val timezone = TimeZone.getDefault().id
             refreshNotificationTimezoneUseCase(timezone)

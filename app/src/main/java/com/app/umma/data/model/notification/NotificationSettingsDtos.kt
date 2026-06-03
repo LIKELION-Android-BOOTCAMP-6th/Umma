@@ -1,5 +1,6 @@
 package com.app.umma.data.model.notification
 
+import com.app.umma.domain.model.notification.MarketingNotificationSettings
 import com.app.umma.domain.model.notification.SrsNotificationSettings
 import kotlinx.serialization.Serializable
 
@@ -13,6 +14,16 @@ data class SrsNotificationSettingsDto(
     val preferredNotificationTimeMinutes: Int,
     val timezone: String,
     val nextNotificationAt: Long? = null,
+    val updatedAt: Long? = null
+)
+
+/**
+ * 마케팅 알림 설정 DTO.
+ */
+@Serializable
+data class MarketingNotificationSettingsDto(
+    val type: String = "marketing",
+    val enabled: Boolean,
     val updatedAt: Long? = null
 )
 
@@ -38,6 +49,26 @@ fun SrsNotificationSettingsDto.toDomain(): SrsNotificationSettings {
         preferredNotificationTimeMinutes = preferredNotificationTimeMinutes,
         timezone = timezone,
         nextNotificationAt = nextNotificationAt,
+        updatedAt = updatedAt
+    )
+}
+
+/**
+ * Domain 설정 모델을 DTO로 변환한다.
+ */
+fun MarketingNotificationSettings.toDto(): MarketingNotificationSettingsDto {
+    return MarketingNotificationSettingsDto(
+        enabled = enabled,
+        updatedAt = updatedAt
+    )
+}
+
+/**
+ * DTO를 Domain 설정 모델로 변환한다.
+ */
+fun MarketingNotificationSettingsDto.toDomain(): MarketingNotificationSettings {
+    return MarketingNotificationSettings(
+        enabled = enabled,
         updatedAt = updatedAt
     )
 }

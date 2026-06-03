@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -24,13 +25,18 @@ import java.util.TimeZone
 import javax.inject.Inject
 
 /**
- * FCM 토큰 갱신과 앱 내 알림 표시를 담당하는 서비스.
+ * FCM 토큰 갱신과 학습 알림 표시를 담당하는 서비스.
  */
 @AndroidEntryPoint
 class UmmaFirebaseMessagingService : FirebaseMessagingService() {
 
     @Inject
     lateinit var registerNotificationDeviceUseCase: RegisterNotificationDeviceUseCase
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureNotificationChannels(this)
+    }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -50,8 +56,6 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
 
         if (message.data["type"] != "srs_review") return
         if (!hasNotificationPermission()) return
-
-        createSrsNotificationChannel()
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -83,34 +87,6 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
         )
     }
 
-    private fun createSrsNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            CHANNEL_ID_SRS_REVIEW,
-            "학습 알림",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "SRS 학습 리마인드 알림"
-        }
-        manager.createNotificationChannel(channel)
-    }
-
-    private fun createMarketingNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            CHANNEL_ID_SRS_REVIEW,
-            "학습 알림",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "SRS 학습 리마인드 알림"
-        }
-        manager.createNotificationChannel(channel)
-    }
-
     private fun hasNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return ContextCompat.checkSelfPermission(
@@ -126,10 +102,34 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
         const val EXTRA_NOTIFICATION_HISTORY_ID = "notification_history_id"
 
         private const val CHANNEL_ID_SRS_REVIEW = "srs_review_notifications"
+        private const val CHANNEL_ID_MARKETING = "marketing_notifications"
         private const val REQUEST_CODE_SRS_NOTIFICATION = 1001
 
-        private const val CHANNEL_ID_MARKETING = "marketing_notifications"
-        private const val REQUEST_CODE_MARKETING_NOTIFICATION = 1002
+        /**
+         * 앱에서 사용하는 알림 채널을 선생성한다.
+         */
+        fun ensureNotificationChannels(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID_SRS_REVIEW,
+                    "학습 알림",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "SRS 학습 리마인드 알림"
+                }
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID_MARKETING,
+                    "marketing_notifications",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "마케팅 캠페인 알림"
+                }
+            )
+        }
     }
 }
