@@ -19,8 +19,8 @@ Umma는 사용자의 현재 언어 실력을 기준으로, 의미를 보존하�
 전달 경로는 `LangState` → `LearnerAdaptationProfile.correctionPolicy(=CorrectionGrowthPolicy)` → Correction prompt 입력이다.
 Correction은 raw `LangState` metric을 직접 해석하지 않고, 이미 해석된 정책만 사용한다.
 
-이 작업은 선행 작업인 `COR-TUNE-001`(교정 프롬프트의 correctionPolicy 연동)과 `COR-TUNE-002`(learning signal 출력 계약)가 머지된 상태를 전제로 한다.
-응답 schema의 핵심 4필드(`candidateId`/`nativeText`/`afterText`/`explanation`)와 `primaryLang`/`selectedLang` 언어 기준(COR-FIX-07), 그리고 `CorrectionLearningSignal v2` 출력 계약(COR-TUNE-002)은 그대로 유지한다.
+이 작업은 선행 작업인 `COR-TUNE-001`(교정 프롬프트의 correctionPolicy 연동), `COR-TUNE-002`(learning signal 출력 계약), `COR-TUNE-002-FIX`(learning signal 정규화 보수적 drop 강화)가 머지된 상태를 전제로 한다.
+응답 schema의 핵심 4필드(`candidateId`/`nativeText`/`afterText`/`explanation`)와 `primaryLang`/`selectedLang` 언어 기준(COR-FIX-07), 그리고 `CorrectionLearningSignal v2` 출력 계약(`COR-TUNE-002` + `COR-TUNE-002-FIX` 강화판)은 그대로 유지한다.
 
 ---
 
@@ -53,6 +53,7 @@ Correction은 raw `LangState` metric을 직접 해석하지 않고, 이미 해�
 - `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-TUNE-004_Correction_Growth_Policy.md` (개선 스펙 / band 산출 우선순위)
 - `docs/Sprint3/User_FlowDB/FLOW_COR_IMPROVEMENTS/COR-TUNE-001_LearnerAdaptationProfile_Correction_Prompt_Policy_Migration.md` (선행 작업 / correctionPolicy 연동)
 - `docs/Sprint3/User_FlowDB/FLOW_COR_IMPROVEMENTS/COR-TUNE-002_Correction_Learning_Signal_Output.md` (반대 방향 신호 계약 / 유지 대상)
+- `docs/Sprint3/User_FlowDB/FLOW_COR_IMPROVEMENTS/COR-TUNE-002-FIX_Correction_Learning_Signal_Normalization_Hardening.md` (강화된 신호 정규화 / 프롬프트 learningSignal 규칙 보존 대상)
 - `docs/Sprint3/User_FlowDB/FLOW_AI_CHAT_IMPROVEMENTS/CHAT-TUNE-001/CHAT-TUNE-001-C_LearnerAdaptationProfile.md`
 
 ---
@@ -76,7 +77,7 @@ Correction은 raw `LangState` metric을 직접 해석하지 않고, 이미 해�
 | BuildLearnerAdaptationProfileUseCase | `LearnerAdaptationProfile.correctionPolicy`(=`CorrectionGrowthPolicy`)를 생성한다. 이번 작업은 인터림 band 산출까지. |
 | CorrectionGrowthPolicy (domain) | Correction prompt가 받는 교정 강도 정책 계약. presentation 전용 모델로 두지 않는다. |
 | Correction 담당 영역 | 전달받은 policy를 prompt 문장으로 바꾸고 교정 결과를 생성한다. |
-| CorrectionPromptBuilder | `CorrectionGrowthPolicy`를 사람이 읽는 행동 지시로 변환한다. learningSignal schema(v2)는 그대로 유지한다. |
+| CorrectionPromptBuilder | `CorrectionGrowthPolicy`를 사람이 읽는 행동 지시로 변환한다. learningSignal schema/규칙(v2 + COR-TUNE-002-FIX 강화판)은 그대로 유지한다. |
 | Correction mapper (범위 밖) | 교정 후 learning signal을 기존 v2 계약으로 정규화한다. 이번 작업에서 변경하지 않는다. |
 | Chat (범위 밖) | Correction growth policy를 직접 사용하지 않는다. |
 
@@ -94,7 +95,9 @@ Correction은 raw `LangState` metric을 직접 해석하지 않고, 이미 해�
     - `chooseCorrectionGrowthBand`: `CHAT-TUNE-004` "산출 우선순위" 6단계의 인터림 구현. 입력은 grammar/vocabulary/fluency/naturalness stage, focus, confidence, `sentenceComplexity`. KDoc에 LearningState 정교화 TODO 명시.
     - `chooseChallengeLevel` 및 4단계 `*For()` 매핑 함수 제거. `conservativeProfile()`는 `defaultsForBand(MeaningFirst)`로 교체.
 4. **프롬프트 빌더 소비부 교체** (`CorrectionPromptBuilder`)
-    - 정책 라인 블록을 scope/grammar/vocabulary/sentenceExpansion/register/explanation/newExpressionLimit/meaningPreservation + 기존 `primarySupportLine`·`focusLine`으로 교체. learningSignal schema/규칙·candidate·JSON 스키마는 무변경.
+    - 정책 라인 블록을 scope/grammar/vocabulary/sentenceExpansion/register/explanation/newExpressionLimit/meaningPreservation + 기존 `primarySupportLine`·`focusLine`으로 교체. candidate·JSON 스키마는 무변경.
+    - **`COR-TUNE-002-FIX`로 강화된 learningSignal 규칙 블록(`meaningPreserved` ALWAYS include, "허용 목록 밖 값은 learningSignal 전체 폐기" 문구)은 그대로 보존**한다. 편집 전 현재 파일을 재확인하고 강화 문구를 되돌리지 않는다.
+    - 주의: 신규 `RegisterCorrectionPolicy`와 learningSignal용 `SpokenRegister`는 값 이름이 일부 겹치지만 별개 enum이다.
 5. **인계용 핸드오버 문서 작성** (`docs/handover/CHAT-TUNE-004_CORRECTION_GROWTH_POLICY_IMPL_HANDOVER.md`)
     - 구현된 계약 위치, 기본 매핑 표 위치, LearningState 담당자 정교화 지점(band 산출), 변경하지 않은 것(mapper/v2 계약), 검증 방법.
 6. **테스트/픽스처 반영**
@@ -125,4 +128,5 @@ Correction은 raw `LangState` metric을 직접 해석하지 않고, 이미 해�
 - prompt에 raw metric 숫자(`\d\.\d{2}`)·CEFR·`ChallengeLevel` 흔적이 없는지 확인.
 - Correction prompt 경로에 4단계 정책과 6단계 성장 정책이 동시에 들어가지 않는지 확인. (main 코드에서 `ChallengeLevel`/`CorrectionAdaptationPolicy` grep 0건)
 - 기존 `CorrectionLearningSignal v2` 출력 계약과 핵심 4필드가 유지되는지 확인.
+- `CorrectionAiResponseMapperTest`가 회귀 없이 통과하는지 확인. (COR-TUNE-002-FIX 강화 정규화가 깨지지 않았는지 회귀 가드)
 - 발음/pause/hesitation 같은 음성 지표가 성장 정책에 포함되지 않는지 확인.

@@ -1,11 +1,9 @@
 package com.app.umma.domain.usecase.learningstate
 
-import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
-import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
 import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.ExternalMetrics
-import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
 import com.app.umma.domain.model.learningstate.InternalMetrics
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
@@ -20,9 +18,7 @@ import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
-import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
 import com.app.umma.domain.model.learningstate.VocabLevel
-import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -43,8 +39,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(ResponseLengthPolicy.OneShortSentence, profile.chatPolicy.responseLength)
         assertEquals(QuestionLoadPolicy.ConcreteChoice, profile.chatPolicy.questionLoad)
         assertEquals(PrimaryBridgePolicy.Active, profile.chatPolicy.primaryBridge)
-        assertEquals(CorrectionStylePolicy.MinimalFix, profile.correctionPolicy.correctionStyle)
-        assertEquals(GrammarStrategyPolicy.FixBlockingErrorOnly, profile.correctionPolicy.grammarStrategy)
+        // 근거 없음 → MeaningFirst band (COR-TUNE-003).
+        assertEquals(CorrectionGrowthBand.MeaningFirst, profile.correctionPolicy.band)
     }
 
     @Test
@@ -55,7 +51,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         // initial 값은 A1 확정이 아니라 low-confidence fallback으로 해석한다.
         assertEquals(ProfileConfidence.Low, profile.core.levelConfidence)
         assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
-        assertEquals(ChallengeLevel.Support, profile.correctionPolicy.challengeLevel)
+        // initial LangState → low confidence → MeaningFirst band (COR-TUNE-003).
+        assertEquals(CorrectionGrowthBand.MeaningFirst, profile.correctionPolicy.band)
         assertNull(profile.core.focus.primaryFocus)
         assertNull(profile.core.focus.secondaryFocus)
 
@@ -100,7 +97,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(SkillStage.Refined, profile.core.grammarStage)
         assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
         assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
-        assertEquals(ChallengeLevel.Support, profile.correctionPolicy.challengeLevel)
+        // low confidence이지만 grammarStage=Refined, vocabularyStage=Refined → PatternFix(낮은 band 보수 조정, 단일 고점 미상승).
+        assertEquals(CorrectionGrowthBand.PatternFix, profile.correctionPolicy.band)
     }
 
     @Test
@@ -178,7 +176,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
         assertEquals(SkillStage.Foundation, profile.core.naturalnessStage)
         assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
-        assertEquals(ChallengeLevel.Support, profile.correctionPolicy.challengeLevel)
+        // grammarStage=Foundation → PatternFix (vocabulary=Stable이 있어 MeaningFirst보다 한 단계 위).
+        assertEquals(CorrectionGrowthBand.PatternFix, profile.correctionPolicy.band)
     }
 
     @Test
@@ -233,13 +232,82 @@ class BuildLearnerAdaptationProfileUseCaseTest {
 
         val profile = useCase(state)
 
-        // Chat과 Correction은 같은 core 판단을 공유하되, Chat은 6단계 band, Correction은 기존 4단계 challenge를 쓴다.
+        // Chat과 Correction은 같은 core 판단을 공유하되, Chat은 ConversationAbilityBand, Correction은 CorrectionGrowthBand를 쓴다.
         assertEquals(ProfileConfidence.High, profile.core.levelConfidence)
         assertEquals(ConversationAbilityBand.ConnectedExpression, profile.chatPolicy.conversationBand)
-        assertEquals(ChallengeLevel.Stretch, profile.correctionPolicy.challengeLevel)
+        // grammar=Stable, vocabulary=Expanding, fluency=Expanding, naturalness=Expanding → ConnectedExpression band.
+        assertEquals(CorrectionGrowthBand.ConnectedExpression, profile.correctionPolicy.band)
         assertEquals(ResponseLengthPolicy.NaturalBrief, profile.chatPolicy.responseLength)
-        assertEquals(VocabularyStrategyPolicy.ImproveCollocation, profile.correctionPolicy.vocabularyStrategy)
-        assertEquals(SpokenRegisterStrategy.NativeLikeCasual, profile.correctionPolicy.spokenRegisterStrategy)
+    }
+
+    @Test
+    fun `high confidence all refined gives NuanceRefine correction band`() {
+        // naturalness=Refined + vocabulary=Refined + High confidence → NuanceRefine.
+        val state = analyzedState(
+            internal = InternalMetrics(
+                grammarAccuracy = 0.88,
+                vocabularyAppropriateness = 0.91,
+                lexicalDiversity = 0.87,
+                vocabularyLevel = VocabLevel.C1,
+                sentenceComplexity = 0.86,
+                speechRate = 0.8,
+                pauseFrequency = 0.08,
+                avgUtteranceLength = 0.84,
+                spokenNaturalness = 0.9,
+                naturalExpressionUsage = 0.88,
+                errorRecurrence = 0.05,
+                reviewRetention = 0.9
+            ),
+            external = ExternalMetrics(
+                vocabularyLevel = VocabLevel.C1,
+                grammarAccuracy = 0.88,
+                expressionRange = 75,
+                fluencyScore = 0.85,
+                naturalnessScore = 0.89
+            ),
+            evidence = highConfidenceEvidence()
+        )
+
+        val profile = useCase(state)
+
+        assertEquals(CorrectionGrowthBand.NuanceRefine, profile.correctionPolicy.band)
+    }
+
+    @Test
+    fun `meaning blocking focus prioritises PatternFix over naturalness band`() {
+        // SentenceFragment focus가 쌓인 상태에서는 자연스러움 개선보다 패턴 안정화를 우선한다.
+        val state = analyzedState(
+            internal = InternalMetrics(
+                grammarAccuracy = 0.68,
+                vocabularyAppropriateness = 0.7,
+                lexicalDiversity = 0.65,
+                vocabularyLevel = VocabLevel.B1,
+                sentenceComplexity = 0.62,
+                speechRate = 0.65,
+                pauseFrequency = 0.18,
+                avgUtteranceLength = 0.68,
+                spokenNaturalness = 0.66,
+                naturalExpressionUsage = 0.63,
+                errorRecurrence = 0.3,
+                reviewRetention = 0.6
+            ),
+            external = ExternalMetrics(
+                vocabularyLevel = VocabLevel.B1,
+                grammarAccuracy = 0.68,
+                expressionRange = 42,
+                fluencyScore = 0.66,
+                naturalnessScore = 0.65
+            ),
+            activeFocus = listOf(
+                focus(LearningFocusType.SentenceFragment, observedCount = 5, confidence = 0.78, lastObservedAt = 3_000L)
+            ),
+            evidence = mediumConfidenceEvidence()
+        )
+
+        val profile = useCase(state)
+
+        // SentenceFragment focus가 있고 grammarStage > Foundation → PatternFix 우선.
+        assertEquals(CorrectionGrowthBand.PatternFix, profile.correctionPolicy.band)
     }
 
     @Test

@@ -2,13 +2,11 @@ package com.app.umma.data.repository.correction
 
 import com.app.umma.domain.model.correction.CorrectionCandidate
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
-import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
-import com.app.umma.domain.model.learningstate.CorrectionAdaptationPolicy
-import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
+import com.app.umma.domain.model.learningstate.CorrectionGrowthPolicy
 import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
-import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
 import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
@@ -17,16 +15,13 @@ import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
-import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
-import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
 import com.app.umma.domain.model.learningstate.VocabLevel
-import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -237,55 +232,44 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
-    fun `support policy yields minimal-fix behaviour and no expansion wording`() {
+    fun `MeaningFirst policy yields meaning-preservation and no-expansion wording`() {
+        // COR-TUNE-003: MeaningFirst band는 의미 보존·최소 수정·확장 금지가 핵심이다.
         val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
             ),
-            profile = profileWith(
-                CorrectionAdaptationPolicy(
-                    challengeLevel = ChallengeLevel.Support,
-                    correctionStyle = CorrectionStylePolicy.MinimalFix,
-                    vocabularyStrategy = VocabularyStrategyPolicy.KeepSimpleWords,
-                    grammarStrategy = GrammarStrategyPolicy.FixBlockingErrorOnly,
-                    spokenRegisterStrategy = SpokenRegisterStrategy.Simple,
-                    primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
-                )
-            )
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         )
 
         val prompt = builder.build(input)
 
-        assertTrue("Support 의 최소 수정 지시 누락", prompt.contains("Fix only what blocks meaning"))
         assertTrue("Correction policy 블록 누락", prompt.contains("Correction policy"))
-        // COR-TUNE-02 이후 learningSignal schema 규칙이 "register" 키워드를 항상 포함하므로,
-        // 정책 누수 검증은 NuanceAndRegister 스타일 전용 설명 문구로 특정한다.
-        assertFalse("Support 에 뉘앙스/register 설명 문구가 새어 나옴", prompt.contains("nuance or register differences"))
+        // PreserveIntentOnly scope 문구 확인.
+        assertTrue("MeaningFirst 의 의미 보존 scope 지시 누락", prompt.contains("do not restructure or expand"))
+        // NoExpansion 문구 확인.
+        assertTrue("MeaningFirst 의 문장 확장 금지 지시 누락", prompt.contains("do not expand the sentence"))
+        // NuanceRefine 전용 문구가 새어 나오지 않는지 확인.
+        assertFalse("MeaningFirst 에 뉘앙스/register 문구가 새어 나옴", prompt.contains("handle register, tone, and nuance"))
     }
 
     @Test
-    fun `refine policy surfaces nuance and register behaviour`() {
+    fun `NuanceRefine policy surfaces nuance and register behaviour`() {
+        // COR-TUNE-003: NuanceRefine band는 뉘앙스·register·원어민식 선택이 핵심이다.
         val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
             ),
-            profile = profileWith(
-                CorrectionAdaptationPolicy(
-                    challengeLevel = ChallengeLevel.Refine,
-                    correctionStyle = CorrectionStylePolicy.NuanceAndRegister,
-                    vocabularyStrategy = VocabularyStrategyPolicy.RefineNativeChoice,
-                    grammarStrategy = GrammarStrategyPolicy.RefineAdvancedStructure,
-                    spokenRegisterStrategy = SpokenRegisterStrategy.NativeLikeCasual,
-                    primaryLanguageSupport = PrimaryLanguageSupportPolicy.TargetLanguageOnly
-                )
-            )
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.NuanceRefine))
         )
 
         val prompt = builder.build(input)
 
-        assertTrue("Refine 의 뉘앙스 문구 누락", prompt.contains("nuance"))
-        assertTrue("Refine 의 register 문구 누락", prompt.contains("register"))
-        assertFalse("Refine 에 최소 수정 문구가 새어 나옴", prompt.contains("Fix only what blocks meaning"))
+        assertTrue("NuanceRefine 의 뉘앙스 문구 누락", prompt.contains("nuance"))
+        assertTrue("NuanceRefine 의 register 문구 누락", prompt.contains("register"))
+        // NuanceRewriteWithinSameMeaning scope 문구 확인.
+        assertTrue("NuanceRefine 의 scope 지시 누락", prompt.contains("refine tone and nuance"))
+        // MeaningFirst 전용 확장 금지 문구가 새어 나오지 않는지 확인.
+        assertFalse("NuanceRefine 에 do-not-expand 문구가 새어 나옴", prompt.contains("do not expand the sentence"))
     }
 
     @Test
@@ -296,7 +280,7 @@ class CorrectionPromptBuilderTest {
         val trustworthy = inputOf(
             candidates = listOf(candidate),
             profile = profileWith(
-                correctionPolicy = supportPolicy(),
+                correctionPolicy = meaningFirstPolicy(),
                 focus = LearningFocusSummary(
                     primaryFocus = LearningFocusType.Tense,
                     secondaryFocus = null,
@@ -312,7 +296,7 @@ class CorrectionPromptBuilderTest {
         // primaryFocus 가 없으면(=신뢰 불가) focus 라인은 생략된다.
         val noFocusInput = inputOf(
             candidates = listOf(candidate),
-            profile = profileWith(correctionPolicy = supportPolicy(), focus = noFocus())
+            profile = profileWith(correctionPolicy = meaningFirstPolicy(), focus = noFocus())
         )
         val withoutFocus = builder.build(noFocusInput)
         assertFalse("focus 가 없는데 focus 라인이 노출됨", withoutFocus.contains("focus:"))
@@ -321,7 +305,7 @@ class CorrectionPromptBuilderTest {
         val lowConfidence = inputOf(
             candidates = listOf(candidate),
             profile = profileWith(
-                correctionPolicy = supportPolicy(),
+                correctionPolicy = meaningFirstPolicy(),
                 focus = LearningFocusSummary(
                     primaryFocus = LearningFocusType.Tense,
                     secondaryFocus = null,
@@ -350,14 +334,9 @@ class CorrectionPromptBuilderTest {
         profile = profile
     )
 
-    private fun supportPolicy(): CorrectionAdaptationPolicy = CorrectionAdaptationPolicy(
-        challengeLevel = ChallengeLevel.Support,
-        correctionStyle = CorrectionStylePolicy.MinimalFix,
-        vocabularyStrategy = VocabularyStrategyPolicy.KeepSimpleWords,
-        grammarStrategy = GrammarStrategyPolicy.FixBlockingErrorOnly,
-        spokenRegisterStrategy = SpokenRegisterStrategy.Simple,
-        primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
-    )
+    /** MeaningFirst 기본 정책. focusLine 게이트 테스트 등 "policy 무관" 케이스에서 사용한다. */
+    private fun meaningFirstPolicy(): CorrectionGrowthPolicy =
+        CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst)
 
     private fun noFocus(): LearningFocusSummary = LearningFocusSummary(
         primaryFocus = null,
@@ -371,7 +350,7 @@ class CorrectionPromptBuilderTest {
      * 프롬프트 빌더 단위 테스트라 BuildLearnerAdaptationProfileUseCase 의 휴리스틱과 분리해 정책→문구만 검증한다.
      */
     private fun profileWith(
-        correctionPolicy: CorrectionAdaptationPolicy,
+        correctionPolicy: CorrectionGrowthPolicy,
         focus: LearningFocusSummary = noFocus()
     ): LearnerAdaptationProfile = LearnerAdaptationProfile(
         core = LearnerAbilityProfile(

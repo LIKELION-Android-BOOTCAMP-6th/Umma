@@ -1,12 +1,10 @@
 package com.app.umma.domain.usecase.chat
 
-import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
-import com.app.umma.domain.model.learningstate.CorrectionAdaptationPolicy
-import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
+import com.app.umma.domain.model.learningstate.CorrectionGrowthPolicy
 import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
-import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
 import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LearnerAbilityProfile
@@ -14,17 +12,14 @@ import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
 import com.app.umma.domain.model.learningstate.PrimaryBridgeReason
-import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
 import com.app.umma.domain.model.learningstate.SentenceDensityPolicy
-import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
-import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
+import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.VocabLevel
-import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -146,15 +141,8 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
                 responseLength = ResponseLengthPolicy.NaturalBrief,
                 speechSpeed = SpeechSpeedPolicy.NormalLearning
             ),
-            correctionPolicy = CorrectionAdaptationPolicy(
-                // Correction 정책은 이번 usecase 입력이 아니지만 profile 계약을 완성하기 위해 최소 값으로 채운다.
-                challengeLevel = ChallengeLevel.Match,
-                correctionStyle = CorrectionStylePolicy.ExplainOneReason,
-                vocabularyStrategy = VocabularyStrategyPolicy.AddOneUsefulExpression,
-                grammarStrategy = GrammarStrategyPolicy.FixOneMainPattern,
-                spokenRegisterStrategy = SpokenRegisterStrategy.EverydaySpoken,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.BriefPrimaryLanguageHint
-            )
+            // Correction 정책은 이번 usecase 입력이 아니지만 profile 계약을 완성하기 위해 채운다.
+            correctionPolicy = CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.EverydayNatural)
         )
     }
 }
