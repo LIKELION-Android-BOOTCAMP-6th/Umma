@@ -126,11 +126,20 @@ private fun UmmaApp(
         }
         if (!isAuthenticatedGraph) return@LaunchedEffect
 
-        if (target.route == SRS_NOTIFICATION_ROUTE) {
-            navController.navigate(Route.SrsStudy) {
-                launchSingleTop = true
+        when (target.route) {
+            SRS_NOTIFICATION_ROUTE -> {
+                navController.navigate(Route.SrsStudy) {
+                    launchSingleTop = true
+                }
+                currentOnConsumed()
             }
-            currentOnConsumed()
+
+            MARKETING_NOTIFICATION_ROUTE -> {
+                navController.navigate(Route.Dashboard) {
+                    launchSingleTop = true
+                }
+                currentOnConsumed()
+            }
         }
     }
 
@@ -156,6 +165,7 @@ private data class NotificationNavigationTarget(
 )
 
 private const val SRS_NOTIFICATION_ROUTE = "srs_study"
+private const val MARKETING_NOTIFICATION_ROUTE = "home"
 
 private fun Intent?.toNotificationNavigationTarget(): NotificationNavigationTarget? {
     if (this == null) return null
