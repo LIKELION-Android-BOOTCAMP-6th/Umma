@@ -140,6 +140,20 @@ class TestCorrectionFlashcardLocalDataSource : CorrectionFlashcardLocalDataSourc
         }
     }
 
+    override suspend fun countNotifiableDueFlashcards(
+        uid: String,
+        language: String,
+        now: Long
+    ): Int {
+        // 테스트 대역에서는 production의 알림 필터를 별도로 재현하지 않는다.
+        // due 조건 자체가 필요한 테스트의 핵심이므로 countDueFlashcards와 같은 계산을 사용한다.
+        return countDueFlashcards(
+            uid = uid,
+            language = language,
+            now = now
+        )
+    }
+
     /**
      * dirty=true 인 카드 모두 반환
      * @return emptyList()

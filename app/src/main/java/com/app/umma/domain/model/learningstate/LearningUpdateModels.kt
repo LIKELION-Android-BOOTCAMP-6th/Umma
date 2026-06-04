@@ -46,6 +46,117 @@ data class CorrectionResult(
 )
 
 /**
+ * Correction이 LearningState에 넘기는 관찰 신호.
+ *
+ * 이 모델은 최종 점수나 레벨이 아니라, LearningState가 장기 evidence/focus를
+ * 계산하기 위한 입력이다. 그래서 grammarAccuracy 같은 최종 metric은 여기서 받지 않는다.
+ */
+data class CorrectionLearningSignal(
+    // 교정 후보와 signal을 다시 연결하기 위한 식별자.
+    val candidateId: String,
+    // SessionMemory 원본 turn id. 없을 수 있으므로 sourceTurnIndex fallback을 함께 둔다.
+    val sourceTurnId: String?,
+    // sourceTurnId가 없을 때 원본 발화 순서를 추적하는 fallback.
+    val sourceTurnIndex: Int,
+    // 사용자가 실제로 말한 문장.
+    val sourceText: String,
+    // 교정 결과 문장.
+    val correctedText: String,
+    // 언어 공통 오류 범주. 장기 metric과 focus의 1차 근거가 된다.
+    val issueCategories: List<CorrectionIssueCategory>,
+    // 언어별 세부 학습 포인트. active focus를 더 정확히 잡기 위한 보조 신호다.
+    val languageFeatures: List<LanguageFeatureSignal>,
+    // 교정이 어떤 방향으로 개선됐는지 나타내는 신호.
+    val improvementTypes: List<CorrectionImprovementType>,
+    // 전체 문장보다 작은 변경 조각. 과도한 rewrite guard와 focus 추적에 사용한다.
+    val editSpans: List<CorrectionEditSpan>,
+    // 교정 결과 문장의 말투.
+    val register: SpokenRegister,
+    // 오류/개선의 교육적 심각도.
+    val severity: CorrectionSeverity,
+    // 교정이 사용자 원래 의미를 유지했는지 여부.
+    val meaningPreserved: Boolean,
+    // AI 판단 신뢰도. null이면 policy가 보수적인 기본값으로 취급한다.
+    val confidence: Double?
+)
+
+/**
+ * 특정 언어에 종속되지 않는 큰 오류 범주.
+ */
+enum class CorrectionIssueCategory {
+    GrammarForm,
+    WordOrder,
+    SentenceCompleteness,
+    VocabularyChoice,
+    Collocation,
+    Register,
+    MissingContext,
+    MeaningMismatch
+}
+
+/**
+ * 언어별 세부 학습 feature.
+ *
+ * featureKey는 `EN.Article`, `JA.Particle`처럼 namespace를 포함해야 한다.
+ */
+data class LanguageFeatureSignal(
+    // 어떤 학습 언어의 feature인지.
+    val lang: LangCode,
+    // 언어별 feature 이름.
+    val featureKey: String
+)
+
+/**
+ * 교정이 어떤 교육적 방향으로 개선됐는지 나타낸다.
+ */
+enum class CorrectionImprovementType {
+    GrammarFixed,
+    StructureExpanded,
+    MoreNaturalVerb,
+    BetterCollocation,
+    SpokenExpressionAdded,
+    ShortenedForClarity,
+    MadeMoreCasual,
+    MadeMorePolite
+}
+
+/**
+ * source/corrected에서 실제로 달라진 작은 조각.
+ */
+data class CorrectionEditSpan(
+    // 사용자가 말한 원문 fragment.
+    val sourceFragment: String,
+    // 교정된 fragment.
+    val correctedFragment: String,
+    // 이 fragment가 대표하는 오류 범주.
+    val issueCategory: CorrectionIssueCategory,
+    // 언어별 feature가 명확할 때만 채운다.
+    val languageFeatureKey: String?,
+    // 이 fragment가 어떤 방식으로 개선됐는지.
+    val improvementType: CorrectionImprovementType
+)
+
+/**
+ * 교정 결과 문장의 말투.
+ */
+enum class SpokenRegister {
+    Simple,
+    EverydaySpoken,
+    NativeLikeCasual,
+    Formal
+}
+
+/**
+ * 교정 신호의 심각도.
+ */
+enum class CorrectionSeverity {
+    BlockingMeaning,
+    MajorPattern,
+    MinorForm,
+    NaturalnessOnly
+}
+
+/**
  * Flashcard 복습 이벤트를 idempotent 하게 반영하기 위한 최소 표현.
  */
 data class FlashcardReviewEvent(

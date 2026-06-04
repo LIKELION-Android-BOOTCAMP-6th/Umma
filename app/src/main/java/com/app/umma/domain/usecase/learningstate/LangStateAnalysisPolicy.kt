@@ -1,9 +1,20 @@
 package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.CorrectionImprovementType
+import com.app.umma.domain.model.learningstate.CorrectionIssueCategory
+import com.app.umma.domain.model.learningstate.CorrectionLearningSignal
+import com.app.umma.domain.model.learningstate.CorrectionSeverity
+import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.InternalMetrics
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LangStateAnalysisMeta
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
+import com.app.umma.domain.model.learningstate.LearningFocus
+import com.app.umma.domain.model.learningstate.LearningFocusType
+import com.app.umma.domain.model.learningstate.LearningMetricKey
+import com.app.umma.domain.model.learningstate.LearningSignalSource
+import com.app.umma.domain.model.learningstate.MetricEvidence
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.VocabLevel
 import javax.inject.Inject
@@ -25,10 +36,10 @@ interface LangStateAnalysisPolicy {
 }
 
 /**
- * 기존 prepareNextState 로직을 그대로 옮긴 기본 LangState 분석 정책.
+ * 기존 prepareNextState 로직을 기준으로 correction learning signal 해석을 확장한 기본 정책.
  *
- * CHAT-TUNE-001-B 1차 범위는 정책 분리 후 결과 보존이다. 그래서 evidence/focus나
- * difficulty guard는 아직 적용하지 않고, 기존 MVP 휴리스틱 계산만 유지한다.
+ * signal이 없을 때는 기존 MVP 휴리스틱을 그대로 유지하고, signal이 있을 때만
+ * evidence/focus와 과도한 correction 확장 방어를 추가한다.
  */
 class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPolicy {
     override fun analyze(input: LangStateUpdateInput): LangState {
@@ -37,24 +48,39 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val current = input.currentState
         // update 시점은 저장 결과와 분석 결과가 같은 timestamp를 보게 맞춘다.
         val now = input.analyzedAt
+        // Correction signal은 raw DTO가 아니라 domain 계약으로 들어온 관찰 신호다.
+        // 검증은 analyze 초입에서 한 번만 수행해 이후 metric/evidence/focus가 같은 입력을 공유하게 한다.
+        val validatedSignals = input.validatedCorrectionSignals()
 
         // 이번 batch에서 추정 가능한 측정값만 뽑는다.
         // null인 측정값은 이후 smoothMetric에서 기존 상태를 유지하게 만든다.
         // 각 helper는 "이번 입력에서 이 지표를 읽을 수 있는가"를 먼저 판단한다.
-        val measuredGrammarAccuracy = measureGrammarAccuracy(input)
-        val measuredVocabularyAppropriateness = measureVocabularyAppropriateness(input)
+        val measuredGrammarAccuracy = measureGrammarAccuracy(
+            input = input,
+            validatedSignals = validatedSignals
+        )
+        val measuredVocabularyAppropriateness = measureVocabularyAppropriateness(
+            input = input,
+            validatedSignals = validatedSignals
+        )
         val measuredLexicalDiversity = measureLexicalDiversity(input)
         val measuredSentenceComplexity = measureSentenceComplexity(input)
         val measuredSpeechRate = measureSpeechRate(input)
         val measuredAvgUtteranceLength = measureAvgUtteranceLength(input)
         val measuredReviewRetention = measureReviewRetention(input)
-        val measuredNaturalness = measureNaturalness(input)
+        val measuredNaturalness = measureNaturalness(
+            input = input,
+            validatedSignals = validatedSignals
+        )
         val measuredNaturalExpressionUsage = measureNaturalExpressionUsage(
             input = input,
             measuredNaturalness = measuredNaturalness,
             measuredVocabularyAppropriateness = measuredVocabularyAppropriateness
         )
-        val measuredErrorRecurrence = measureErrorRecurrence(input)
+        val measuredErrorRecurrence = measureErrorRecurrence(
+            input = input,
+            validatedSignals = validatedSignals
+        )
         val nextExpressionRange = calculateExpressionRange(
             previous = current.external.expressionRange,
             input = input
@@ -111,10 +137,19 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
             fluencyScore = calculateFluencyScore(nextInternal),
             naturalnessScore = calculateNaturalnessScore(nextInternal)
         )
+        // analysisMeta는 장기 score와 별도로 "왜 이 방향으로 움직일 수 있는지"를 저장한다.
+        // signal이 없으면 기존 meta를 보존해 CHAT-TUNE-001/002 결과를 흔들지 않는다.
+        val nextAnalysisMeta = updateAnalysisMeta(
+            current = current.analysisMeta,
+            currentState = current,
+            signals = validatedSignals,
+            observedAt = now
+        )
 
         return current.copy(
             internal = nextInternal,
             external = nextExternal,
+            analysisMeta = nextAnalysisMeta,
             updatedAt = now,
             lastAnalyzedAt = now,
             // 같은 분석 이벤트가 다시 오더라도 상위 use case가 먼저 걸러내고,
@@ -123,19 +158,25 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         )
     }
 
-    private fun measureGrammarAccuracy(input: LangStateUpdateInput): Double? {
+    private fun measureGrammarAccuracy(
+        input: LangStateUpdateInput,
+        validatedSignals: List<CorrectionLearningSignal>
+    ): Double? {
         // 교정 수가 많을수록 정확도는 낮다고 본다.
         // userTurns 수가 0이면 비교 기준이 없으므로 null을 돌려 기존 값을 유지하게 한다.
         val userTurns = input.recentUserTurns.count { it.speaker == TurnSpeaker.USER }
         if (userTurns <= 0) return null
 
         // correctionCount는 실제 교정 밀도의 대용값이므로, 현재는 단순 비율로만 본다.
-        val correctionCount = input.correctionResult?.correctionCount ?: 0
+        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
         val rawScore = 1.0 - (correctionCount.toDouble() / userTurns.toDouble())
         return clamp01(rawScore)
     }
 
-    private fun measureVocabularyAppropriateness(input: LangStateUpdateInput): Double? {
+    private fun measureVocabularyAppropriateness(
+        input: LangStateUpdateInput,
+        validatedSignals: List<CorrectionLearningSignal>
+    ): Double? {
         // 현재 별도 Type C AI 점수가 없으므로, 어휘 다양성과 교정 밀도를 함께 본다.
         // 교정이 적고 표현 폭이 넓을수록 문맥에 맞는 어휘 선택으로 간주하는 MVP 근사치다.
         val lexicalDiversity = measureLexicalDiversity(input) ?: return null
@@ -144,7 +185,7 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         if (userTurns.isEmpty()) return null
 
         // 교정이 많을수록 문맥 적합성이 낮았다고 보는 보수적 근사치다.
-        val correctionCount = input.correctionResult?.correctionCount ?: 0
+        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
         val correctionPenalty = correctionCount.toDouble() / (userTurns.size.toDouble() * 2.0)
         val correctionScore = 1.0 - correctionPenalty
         return clamp01((lexicalDiversity * 0.6) + (correctionScore * 0.4))
@@ -208,14 +249,17 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         return clamp01(correctRate)
     }
 
-    private fun measureNaturalness(input: LangStateUpdateInput): Double? {
+    private fun measureNaturalness(
+        input: LangStateUpdateInput,
+        validatedSignals: List<CorrectionLearningSignal>
+    ): Double? {
         // 교정이 적을수록 자연스럽다고 간주하는 MVP용 근사치다.
         // userTurns가 없으면 naturalness도 측정할 수 없으므로 null을 반환한다.
         val userTurns = input.recentUserTurns.count { it.speaker == TurnSpeaker.USER }
         if (userTurns <= 0) return null
 
         // correctionCount가 많을수록 자연스러움이 낮다고 보는 단순 근사치다.
-        val correctionCount = input.correctionResult?.correctionCount ?: 0
+        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
         val rawScore = 1.0 - (correctionCount.toDouble() / (userTurns.toDouble() * 2.0))
         return clamp01(rawScore)
     }
@@ -235,15 +279,362 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         return clamp01((naturalness * 0.7) + (vocabularyAppropriateness * 0.3))
     }
 
-    private fun measureErrorRecurrence(input: LangStateUpdateInput): Double? {
+    private fun measureErrorRecurrence(
+        input: LangStateUpdateInput,
+        validatedSignals: List<CorrectionLearningSignal>
+    ): Double? {
         // 진짜 "반복 오류"는 이전 correction signature와 현재 오류를 비교해야 한다.
         // 현재 모델에는 signature 저장소가 없으므로, correction density를 낮은 신뢰도의 proxy로만 저장한다.
         // future signal이 들어오면 이 helper를 대체하면 된다.
         val userTurns = input.analyzableUserTurns()
         if (userTurns.isEmpty() || input.correctionResult == null) return null
 
-        val correctionCount = input.correctionResult.correctionCount
+        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
         return clamp01(correctionCount.toDouble() / (userTurns.size.toDouble() * 2.0))
+    }
+
+    private fun LangStateUpdateInput.effectiveCorrectionCountForLongTermScore(
+        validatedSignals: List<CorrectionLearningSignal>
+    ): Int {
+        val result = correctionResult ?: return 0
+        val signals = result.learningSignals
+        if (signals.isEmpty()) return result.correctionCount
+
+        // learning signal이 명시적으로 들어온 경우에는 의미 보존이 확인된 signal만
+        // 장기 score 이동에 사용한다. 의미가 바뀐 rewrite나 과도한 확장을
+        // 사용자의 실제 능력 변화로 오해하지 않기 위해서다.
+        val longTermEligibleCount = validatedSignals.count { signal ->
+            signal.isLongTermScoreEligible(currentState)
+        }
+        return longTermEligibleCount.coerceAtMost(result.correctionCount.coerceAtLeast(0))
+    }
+
+    private fun LangStateUpdateInput.validatedCorrectionSignals(): List<CorrectionLearningSignal> {
+        val signals = correctionResult?.learningSignals.orEmpty()
+        if (signals.isEmpty()) return emptyList()
+
+        return signals.mapNotNull { signal ->
+            // confidence가 범위를 벗어나면 raw AI 판단이 오염된 상태라 signal 전체를 버린다.
+            if (signal.confidence != null && signal.confidence !in 0.0..1.0) return@mapNotNull null
+            // 필수 문자열이 비어 있으면 source/corrected 비교와 focus 추적이 모두 불가능하다.
+            if (signal.candidateId.isBlank() || signal.sourceText.isBlank() || signal.correctedText.isBlank()) {
+                return@mapNotNull null
+            }
+            // sourceTurnIndex는 sourceTurnId가 없을 때의 fallback이라 음수면 추적 근거로 쓸 수 없다.
+            if (signal.sourceTurnIndex < 0) return@mapNotNull null
+
+            val features = signal.languageFeatures
+                .asSequence()
+                // 언어가 다르면 다른 selectedLang의 feature가 섞인 것이므로 해당 feature만 제외한다.
+                .filter { feature -> feature.lang == lang }
+                // namespace가 없는 값은 prompt/focus에 안전하게 변환할 수 없다.
+                .filter { feature -> feature.featureKey.startsWith("${lang.name}.", ignoreCase = true) }
+                .filter { feature -> feature.featureKey.substringAfter('.', missingDelimiterValue = "").isNotBlank() }
+                .take(MAX_SIGNAL_ITEMS)
+                .toList()
+            val editSpans = signal.editSpans
+                .asSequence()
+                // fragment가 비어 있으면 rewrite guard 근거가 아니라 noise가 되므로 제외한다.
+                .filter { span -> span.sourceFragment.isNotBlank() && span.correctedFragment.isNotBlank() }
+                .take(MAX_SIGNAL_ITEMS)
+                .toList()
+
+            signal.copy(
+                issueCategories = signal.issueCategories.take(MAX_SIGNAL_ITEMS),
+                languageFeatures = features,
+                improvementTypes = signal.improvementTypes.take(MAX_SIGNAL_ITEMS),
+                editSpans = editSpans
+            )
+        }
+    }
+
+    private fun updateAnalysisMeta(
+        current: LangStateAnalysisMeta,
+        currentState: LangState,
+        signals: List<CorrectionLearningSignal>,
+        observedAt: Long
+    ): LangStateAnalysisMeta {
+        if (signals.isEmpty()) return current
+
+        val nextEvidence = signals.fold(current.metricEvidence) { evidence, signal ->
+            val metricUpdates = signal.metricUpdates(currentState)
+            metricUpdates.fold(evidence) { acc, update ->
+                acc + (update.key to mergeEvidence(
+                    previous = acc[update.key],
+                    direction = update.direction,
+                    confidence = signal.weightedConfidence(),
+                    observedAt = observedAt
+                ))
+            }
+        }
+        val nextFocus = mergeFocuses(
+            current = current.activeFocus,
+            signals = signals,
+            observedAt = observedAt
+        )
+
+        return current.copy(
+            metricEvidence = nextEvidence,
+            activeFocus = nextFocus,
+            lastSignalAt = observedAt
+        )
+    }
+
+    private fun CorrectionLearningSignal.metricUpdates(currentState: LangState): List<MetricDirectionUpdate> {
+        val issueDrivenUpdates = issueCategories.flatMap { category ->
+            when (category) {
+                CorrectionIssueCategory.GrammarForm -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.GrammarAccuracy, EvidenceDirection.Down)
+                )
+                CorrectionIssueCategory.WordOrder -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.GrammarAccuracy, EvidenceDirection.Down),
+                    MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Down)
+                )
+                CorrectionIssueCategory.SentenceCompleteness,
+                CorrectionIssueCategory.MissingContext -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Down)
+                )
+                CorrectionIssueCategory.VocabularyChoice -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.VocabularyAppropriateness, EvidenceDirection.Down)
+                )
+                CorrectionIssueCategory.Collocation -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.NaturalExpressionUsage, EvidenceDirection.Down),
+                    MetricDirectionUpdate(LearningMetricKey.VocabularyAppropriateness, EvidenceDirection.Down)
+                )
+                CorrectionIssueCategory.Register -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.SpokenNaturalness, EvidenceDirection.Down)
+                )
+                CorrectionIssueCategory.MeaningMismatch -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.GrammarAccuracy, EvidenceDirection.Down),
+                    MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Down)
+                )
+            }
+        }
+        val improvementDrivenUpdates = improvementTypes.flatMap { improvement ->
+            when (improvement) {
+                CorrectionImprovementType.GrammarFixed -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.GrammarAccuracy, EvidenceDirection.Up)
+                )
+                CorrectionImprovementType.StructureExpanded -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Up)
+                )
+                CorrectionImprovementType.MoreNaturalVerb,
+                CorrectionImprovementType.BetterCollocation,
+                CorrectionImprovementType.SpokenExpressionAdded -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.NaturalExpressionUsage, EvidenceDirection.Up),
+                    MetricDirectionUpdate(LearningMetricKey.VocabularyAppropriateness, EvidenceDirection.Up)
+                )
+                CorrectionImprovementType.ShortenedForClarity -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Stable)
+                )
+                CorrectionImprovementType.MadeMoreCasual,
+                CorrectionImprovementType.MadeMorePolite -> listOf(
+                    MetricDirectionUpdate(LearningMetricKey.SpokenNaturalness, EvidenceDirection.Up)
+                )
+            }
+        }
+
+        // 의미가 보존되지 않은 correction은 "좋아졌다"는 근거로 쓰지 않는다.
+        // 과도하게 확장된 correction도 사용자가 실제로 그 수준을 구사했다는 뜻은 아니므로
+        // improvement 방향 evidence는 잠시 막고, 관찰된 issue/focus만 남긴다.
+        val rawUpdates = if (meaningPreserved && !isOverExpandedForCurrentAbility(currentState)) {
+            issueDrivenUpdates + improvementDrivenUpdates
+        } else {
+            issueDrivenUpdates
+        }
+        // 하나의 correction 후보 안에서 같은 metric의 issue와 improvement가 동시에 관측될 수 있다.
+        // 이때 observedCount를 두 번 올리면 한 후보가 두 관측처럼 과대 반영되므로 metric별 1회로 합친다.
+        return rawUpdates
+            .groupBy { update -> update.key }
+            .map { (key, updates) ->
+                MetricDirectionUpdate(
+                    key = key,
+                    direction = mergeDirectionsWithinSignal(updates.map { update -> update.direction })
+                )
+            }
+    }
+
+    private fun mergeDirectionsWithinSignal(directions: List<EvidenceDirection>): EvidenceDirection {
+        val meaningfulDirections = directions.filter { direction -> direction != EvidenceDirection.Stable }.distinct()
+        return when {
+            meaningfulDirections.isEmpty() -> EvidenceDirection.Stable
+            meaningfulDirections.size == 1 -> meaningfulDirections.first()
+            else -> EvidenceDirection.Mixed
+        }
+    }
+
+    private fun mergeEvidence(
+        previous: MetricEvidence?,
+        direction: EvidenceDirection,
+        confidence: Double,
+        observedAt: Long
+    ): MetricEvidence {
+        if (previous == null) {
+            return MetricEvidence(
+                observedCount = 1,
+                confidence = confidence,
+                sourceTypes = setOf(LearningSignalSource.CorrectionSignal),
+                direction = direction,
+                directionCount = 1,
+                lastObservedAt = observedAt
+            )
+        }
+
+        val mergedDirection = when {
+            previous.direction == direction -> direction
+            previous.direction == EvidenceDirection.Mixed -> EvidenceDirection.Mixed
+            direction == EvidenceDirection.Stable -> previous.direction
+            previous.direction == EvidenceDirection.Stable -> direction
+            else -> EvidenceDirection.Mixed
+        }
+        val directionCount = if (previous.direction == direction) previous.directionCount + 1 else 1
+        val observedCount = previous.observedCount + 1
+        val mergedConfidence = ((previous.confidence * previous.observedCount) + confidence) / observedCount
+
+        return previous.copy(
+            observedCount = observedCount,
+            confidence = clamp01(mergedConfidence),
+            sourceTypes = previous.sourceTypes + LearningSignalSource.CorrectionSignal,
+            direction = mergedDirection,
+            directionCount = directionCount,
+            lastObservedAt = observedAt
+        )
+    }
+
+    private fun mergeFocuses(
+        current: List<LearningFocus>,
+        signals: List<CorrectionLearningSignal>,
+        observedAt: Long
+    ): List<LearningFocus> {
+        val focusUpdates = signals.flatMap { signal -> signal.focusUpdates() }
+        if (focusUpdates.isEmpty()) return current
+
+        val byType = current.associateBy { it.type }.toMutableMap()
+        focusUpdates.forEach { update ->
+            val previous = byType[update.type]
+            if (previous == null) {
+                byType[update.type] = LearningFocus(
+                    type = update.type,
+                    observedCount = 1,
+                    confidence = update.confidence,
+                    firstObservedAt = observedAt,
+                    lastObservedAt = observedAt
+                )
+            } else {
+                val observedCount = previous.observedCount + 1
+                val mergedConfidence = ((previous.confidence * previous.observedCount) + update.confidence) / observedCount
+                byType[update.type] = previous.copy(
+                    observedCount = observedCount,
+                    confidence = clamp01(mergedConfidence),
+                    lastObservedAt = observedAt
+                )
+            }
+        }
+
+        // active focus는 prompt/profile에 이어지므로 오래된 전체 목록을 무한히 키우지 않는다.
+        return byType.values.sortedWith(
+            compareByDescending<LearningFocus> { it.confidence }
+                .thenByDescending { it.observedCount }
+                .thenByDescending { it.lastObservedAt }
+        ).take(MAX_ACTIVE_FOCUS_COUNT)
+    }
+
+    private fun CorrectionLearningSignal.focusUpdates(): List<FocusUpdate> {
+        val categoryFocuses = issueCategories.mapNotNull { category ->
+            when (category) {
+                CorrectionIssueCategory.GrammarForm -> null
+                CorrectionIssueCategory.WordOrder -> LearningFocusType.WordOrder
+                CorrectionIssueCategory.SentenceCompleteness -> LearningFocusType.SentenceFragment
+                CorrectionIssueCategory.VocabularyChoice -> LearningFocusType.VocabularyChoice
+                CorrectionIssueCategory.Collocation -> LearningFocusType.UnnaturalCollocation
+                CorrectionIssueCategory.Register -> LearningFocusType.TooFormal
+                CorrectionIssueCategory.MissingContext -> LearningFocusType.MissingContext
+                CorrectionIssueCategory.MeaningMismatch -> LearningFocusType.MissingContext
+            }
+        }
+        val featureFocuses = languageFeatures.mapNotNull { feature ->
+            when {
+                feature.featureKey.equals("${feature.lang.name}.Article", ignoreCase = true) -> LearningFocusType.Article
+                feature.featureKey.equals("${feature.lang.name}.Tense", ignoreCase = true) -> LearningFocusType.Tense
+                feature.featureKey.equals("${feature.lang.name}.Preposition", ignoreCase = true) -> LearningFocusType.Preposition
+                else -> null
+            }
+        }
+        val confidence = weightedConfidence()
+
+        return (categoryFocuses + featureFocuses)
+            .distinct()
+            .map { focusType -> FocusUpdate(type = focusType, confidence = confidence) }
+    }
+
+    private fun CorrectionLearningSignal.isLongTermScoreEligible(currentState: LangState): Boolean {
+        // 의미가 바뀐 correction은 사용자 실력 변화가 아니라 correction 품질/해석 위험 신호로만 본다.
+        if (!meaningPreserved) return false
+        // 낮은 confidence signal은 focus 후보로는 쓸 수 있지만 장기 score를 움직이기에는 근거가 약하다.
+        if (normalizedConfidence() < MIN_SCORE_SIGNAL_CONFIDENCE) return false
+        // source/corrected 비교로 과도한 확장이 감지되면 장기 score 반영을 막는다.
+        // 이 guard는 Correction AI가 difficultyDelta를 직접 판단하지 않게 하려는 문서 계약을 코드화한 것이다.
+        if (isOverExpandedForCurrentAbility(currentState)) return false
+
+        return true
+    }
+
+    private fun CorrectionLearningSignal.isOverExpandedForCurrentAbility(currentState: LangState): Boolean {
+        val sourceTokenCount = sourceText.tokenCount()
+        val correctedTokenCount = correctedText.tokenCount()
+        // source/corrected token이 없으면 guard를 추정으로 작동시키지 않는다.
+        // validation에서 blank는 이미 제거되지만, tokenization 실패 가능성까지 방어한다.
+        if (sourceTokenCount <= 0 || correctedTokenCount <= 0) return false
+
+        val addedTokenCount = correctedTokenCount - sourceTokenCount
+        val growthRatio = addedTokenCount.toDouble() / sourceTokenCount.toDouble()
+        val hasStretchIntent = improvementTypes.any { improvement ->
+            improvement == CorrectionImprovementType.StructureExpanded ||
+                improvement == CorrectionImprovementType.BetterCollocation ||
+                improvement == CorrectionImprovementType.SpokenExpressionAdded
+        }
+        val editExpansionCount = editSpans.count { span ->
+            span.correctedFragment.tokenCount() > span.sourceFragment.tokenCount()
+        }
+        val userNeedsBasicSupport = currentState.internal.basicSupportAverage() < LOW_ABILITY_GUARD_THRESHOLD
+        val confidenceIsNotStrong = normalizedConfidence() < STRONG_SIGNAL_CONFIDENCE
+        val textExpandedTooMuch = addedTokenCount >= MIN_OVER_EXPANSION_TOKENS && growthRatio >= OVER_EXPANSION_RATIO
+        val editSpansShowExpansion = editSpans.size >= MAX_SIGNAL_ITEMS && editExpansionCount >= 2
+
+        // 큰 문장 확장과 stretch intent가 함께 있을 때만 guard를 건다.
+        // 단순 시제/관사 수정처럼 길이가 조금 늘어난 교정을 과도하게 막지 않기 위해서다.
+        return hasStretchIntent &&
+            (textExpandedTooMuch || editSpansShowExpansion) &&
+            (userNeedsBasicSupport || confidenceIsNotStrong)
+    }
+
+    private fun CorrectionLearningSignal.weightedConfidence(): Double {
+        val base = normalizedConfidence()
+        val severityWeight = when (severity) {
+            CorrectionSeverity.BlockingMeaning -> 1.0
+            CorrectionSeverity.MajorPattern -> 0.9
+            CorrectionSeverity.MinorForm -> 0.75
+            CorrectionSeverity.NaturalnessOnly -> 0.65
+        }
+        val meaningWeight = if (meaningPreserved) 1.0 else 0.45
+        return clamp01(base * severityWeight * meaningWeight)
+    }
+
+    private fun CorrectionLearningSignal.normalizedConfidence(): Double {
+        // null confidence는 신호를 버릴 정도는 아니지만 high confidence로 보지 않는다.
+        return confidence ?: DEFAULT_SIGNAL_CONFIDENCE
+    }
+
+    private fun InternalMetrics.basicSupportAverage(): Double {
+        // correction 확장 guard는 사용자의 말하기 전반이 아직 낮은지 판단할 때만 강하게 작동한다.
+        // 이 평균은 외부 표시 점수가 아니라 내부 metric만 사용해 중복 projection을 피한다.
+        return listOf(
+            grammarAccuracy,
+            vocabularyAppropriateness,
+            sentenceComplexity,
+            spokenNaturalness,
+            naturalExpressionUsage
+        ).average().coerceIn(0.0, 1.0)
     }
 
     private fun calculateExpressionRange(
@@ -347,10 +738,33 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         return counts.average()
     }
 
+    private fun String.tokenCount(): Int {
+        // source/corrected 비교는 같은 tokenizer를 써야 길이 증가 판단이 일관된다.
+        return WORD_TOKEN_REGEX.findAll(this).count()
+    }
+
+    private data class MetricDirectionUpdate(
+        val key: LearningMetricKey,
+        val direction: EvidenceDirection
+    )
+
+    private data class FocusUpdate(
+        val type: LearningFocusType,
+        val confidence: Double
+    )
+
     private companion object {
         private const val AVG_UTTERANCE_TARGET_TOKENS = 14.0
         private const val SENTENCE_COMPLEXITY_TARGET_TOKENS = 18.0
         private const val STRUCTURE_HINTS_TARGET = 2.0
+        private const val DEFAULT_SIGNAL_CONFIDENCE = 0.55
+        private const val MIN_SCORE_SIGNAL_CONFIDENCE = 0.35
+        private const val STRONG_SIGNAL_CONFIDENCE = 0.7
+        private const val LOW_ABILITY_GUARD_THRESHOLD = 0.45
+        private const val MIN_OVER_EXPANSION_TOKENS = 4
+        private const val OVER_EXPANSION_RATIO = 0.75
+        private const val MAX_SIGNAL_ITEMS = 3
+        private const val MAX_ACTIVE_FOCUS_COUNT = 5
 
         private val WORD_TOKEN_REGEX = Regex("[\\p{L}\\p{N}']+")
         private val CLAUSE_PUNCTUATION_REGEX = Regex("[,;:]")
