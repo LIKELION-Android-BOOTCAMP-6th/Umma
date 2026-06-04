@@ -2,6 +2,9 @@ package com.app.umma.data.repository.correction
 
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.ChallengeLevel
+import com.app.umma.domain.model.learningstate.CorrectionImprovementType
+import com.app.umma.domain.model.learningstate.CorrectionIssueCategory
+import com.app.umma.domain.model.learningstate.CorrectionSeverity
 import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
 import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
 import com.app.umma.domain.model.learningstate.LangCode
@@ -9,6 +12,7 @@ import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
+import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
 import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
 import javax.inject.Inject
@@ -40,6 +44,15 @@ class CorrectionPromptBuilder @Inject constructor() {
         val policy = input.profile.correctionPolicy
         val focus = input.profile.core.focus
 
+        // COR-TUNE-02: learning signal schema/규칙에 노출할 허용 enum 목록.
+        // enum.entries 에서 생성해 도메인 타입이 늘면 프롬프트도 자동으로 따라가게 한다(drift 방지).
+        val issueCategoryValues = CorrectionIssueCategory.entries.joinToString("|") { it.name }
+        val improvementTypeValues = CorrectionImprovementType.entries.joinToString("|") { it.name }
+        val registerValues = SpokenRegister.entries.joinToString("|") { it.name }
+        val severityValues = CorrectionSeverity.entries.joinToString("|") { it.name }
+        // featureKey namespace 의 {LANG} 은 교정 대상 언어 코드의 대문자다(예: EN.Tense).
+        val langNamespace = selectedLang.code.uppercase()
+
         return buildString {
             appendLine("You are a language correction assistant for a learner of ${selectedLang.code}.")
             // 정책은 행동 지시로만 노출하고, 내부 enum 이름이나 능력 점수/레벨은 절대 언급하지 않는다.
@@ -66,13 +79,28 @@ class CorrectionPromptBuilder @Inject constructor() {
             }
             appendLine()
             appendLine("Response: Return ONLY one valid JSON object, no markdown fences, no commentary. Schema:")
-            appendLine("""{"suggestions":[{"candidateId":"...","nativeText":"...","afterText":"...","explanation":"..."}]}""")
+            // 핵심 4필드(candidateId/nativeText/afterText/explanation)는 그대로 유지하고, 그 위에
+            // suggestion 당 learningSignal 중첩을 더한다. 키 구성은 CHAT-TUNE-001 핸드오버 JSON 예시와 일치한다.
+            appendLine("""{"suggestions":[{"candidateId":"...","nativeText":"...","afterText":"...","explanation":"...","learningSignal":{"candidateId":"...","sourceTurnId":"... or null","sourceTurnIndex":0,"sourceText":"...","correctedText":"...","issueCategories":["..."],"languageFeatures":[{"lang":"...","featureKey":"..."}],"improvementTypes":["..."],"editSpans":[{"sourceFragment":"...","correctedFragment":"...","issueCategory":"...","languageFeatureKey":"...","improvementType":"..."}],"register":"...","severity":"...","meaningPreserved":true,"confidence":0.0}}]}""")
             appendLine("Rules:")
             appendLine("- candidateId: COPY EXACTLY from the candidates above. Do not invent new ids.")
             appendLine("- nativeText: the front-face sentence in $primaryLangName (${primaryLang.code}).")
             appendLine("- afterText: the corrected sentence in ${selectedLang.code}.")
             appendLine("- explanation: a short correction tip in $primaryLangName (under 60 chars).")
             appendLine("- Emit one suggestion per candidate. Skip a candidate only if no correction is needed.")
+            // COR-TUNE-02: learningSignal 은 능력 점수가 아니라 "이번 교정에서 관찰한 것"만 담는다.
+            // 규칙은 enum 을 1:1 장황하게 나열하지 않고 실행 가능한 짧은 지시로 압축한다.
+            appendLine("learningSignal rules (what you observed in THIS correction; never rate the learner's overall level):")
+            appendLine("- One learningSignal per suggestion, reusing the same candidateId.")
+            appendLine("- issueCategories: pick from [$issueCategoryValues], at most 3.")
+            appendLine("- improvementTypes: pick from [$improvementTypeValues], at most 3.")
+            appendLine("- register: exactly one of [$registerValues] describing the corrected sentence.")
+            appendLine("- severity: exactly one of [$severityValues].")
+            appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}.")
+            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. languageFeatureKey may be null.")
+            appendLine("- meaningPreserved: true unless the correction changed the speaker's intended meaning.")
+            appendLine("- confidence: a number in 0.0..1.0, or omit it if unsure.")
+            appendLine("- If unsure about a signal, use an empty array or low confidence rather than guessing.")
         }
     }
 

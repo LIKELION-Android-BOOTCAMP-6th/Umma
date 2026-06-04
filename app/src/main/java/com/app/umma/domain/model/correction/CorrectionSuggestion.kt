@@ -1,5 +1,6 @@
 package com.app.umma.domain.model.correction
 
+import com.app.umma.domain.model.learningstate.CorrectionLearningSignal
 import com.app.umma.domain.model.learningstate.LangCode
 
 /**
@@ -24,5 +25,8 @@ data class CorrectionSuggestion(
     // 교정 후 문장.
     val afterText: String,
     // 간단한 교정 설명.
-    val explanation: String
+    val explanation: String,
+    // 교정 과정에서 관찰된 학습 신호(COR-TUNE-02). LearningState 갱신 입력으로 흐른다.
+    // 신호 파싱 실패/누락은 suggestion 생성을 막지 않으므로 nullable 기본값으로 둔다.
+    val learningSignal: CorrectionLearningSignal? = null
 )

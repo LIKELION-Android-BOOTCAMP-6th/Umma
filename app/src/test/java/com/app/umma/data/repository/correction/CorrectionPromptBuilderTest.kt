@@ -96,6 +96,37 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `prompt declares learningSignal schema keys and allowed enums`() {
+        // COR-TUNE-02: 응답 schema 에 suggestion 당 learningSignal 중첩과 허용 enum/규칙이 노출되어야
+        // mapper 가 받는 DTO/정규화 계약과 어긋나지 않는다.
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            lang = LangCode.EN
+        )
+
+        val prompt = builder.build(input)
+
+        // learningSignal 중첩 키 노출.
+        listOf(
+            "learningSignal", "issueCategories", "languageFeatures", "featureKey",
+            "improvementTypes", "editSpans", "register", "severity", "meaningPreserved", "confidence"
+        ).forEach { key ->
+            assertTrue("learningSignal schema key '$key' 누락", prompt.contains(key))
+        }
+        // 허용 enum 대표값 노출 (issue/improvement/register/severity).
+        assertTrue("issueCategory enum 누락", prompt.contains("GrammarForm"))
+        assertTrue("improvementType enum 누락", prompt.contains("GrammarFixed"))
+        assertTrue("register enum 누락", prompt.contains("EverydaySpoken"))
+        assertTrue("severity enum 누락", prompt.contains("MajorPattern"))
+        // featureKey namespace 는 selectedLang(EN) 기준 대문자 prefix 예시를 보여줘야 한다.
+        assertTrue("featureKey namespace 예시 누락", prompt.contains("EN.Tense"))
+        // 배열 캡 ≤3 지시 노출.
+        assertTrue("배열 캡(at most 3) 지시 누락", prompt.contains("at most 3"))
+    }
+
+    @Test
     fun `prompt does not leak raw learner metrics`() {
         // COR-TUNE-01: CEFR 라벨이나 grammarAccuracy/naturalnessScore 같은 "%.2f" 숫자가 프롬프트에 노출되면 안 된다.
         // LangState.initial 의 기본 vocabularyLevel(A1)도 더 이상 프롬프트에 들어가지 않는다.
@@ -115,7 +146,10 @@ class CorrectionPromptBuilderTest {
         assertFalse("CEFR level(A1) 이 프롬프트에 노출됨", prompt.contains("A1"))
         assertFalse("CEFR 라벨이 프롬프트에 노출됨", prompt.contains("CEFR"))
         assertFalse("grammar accuracy raw 라벨 노출", prompt.contains("Grammar accuracy"))
-        assertFalse("naturalness raw 라벨 노출", prompt.contains("Naturalness"))
+        // COR-TUNE-02 이후 CorrectionSeverity.NaturalnessOnly enum 토큰이 schema 규칙에 등장하므로,
+        // raw 메트릭 누수 검증은 실제 metric 라벨/필드명으로 특정한다("Naturalness" 단독 검사는 enum 과 충돌).
+        assertFalse("naturalness raw 점수 라벨 노출", prompt.contains("Naturalness score"))
+        assertFalse("naturalness raw 필드명 노출", prompt.contains("naturalnessScore"))
         assertFalse(
             "raw metric 숫자(%.2f 포맷)가 프롬프트에 노출됨",
             Regex("""\d\.\d{2}""").containsMatchIn(prompt)
@@ -224,8 +258,9 @@ class CorrectionPromptBuilderTest {
 
         assertTrue("Support 의 최소 수정 지시 누락", prompt.contains("Fix only what blocks meaning"))
         assertTrue("Correction policy 블록 누락", prompt.contains("Correction policy"))
-        assertFalse("Support 에 뉘앙스 문구가 새어 나옴", prompt.contains("nuance"))
-        assertFalse("Support 에 register 확장 문구가 새어 나옴", prompt.contains("register"))
+        // COR-TUNE-02 이후 learningSignal schema 규칙이 "register" 키워드를 항상 포함하므로,
+        // 정책 누수 검증은 NuanceAndRegister 스타일 전용 설명 문구로 특정한다.
+        assertFalse("Support 에 뉘앙스/register 설명 문구가 새어 나옴", prompt.contains("nuance or register differences"))
     }
 
     @Test
