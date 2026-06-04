@@ -2,9 +2,14 @@ package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.CorrectionEditSpan
+import com.app.umma.domain.model.learningstate.CorrectionImprovementType
+import com.app.umma.domain.model.learningstate.CorrectionIssueCategory
+import com.app.umma.domain.model.learningstate.CorrectionLearningSignal
 import com.app.umma.domain.model.learningstate.CorrectionResult
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
+import com.app.umma.domain.model.learningstate.CorrectionSeverity
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
@@ -12,8 +17,13 @@ import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
+import com.app.umma.domain.model.learningstate.LanguageFeatureSignal
+import com.app.umma.domain.model.learningstate.LearningFocusType
+import com.app.umma.domain.model.learningstate.LearningMetricKey
+import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -24,6 +34,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -261,6 +272,251 @@ class LearningStateWriteUseCasesTest {
         // 현재 batch의 고유 token 수가 이전 expressionRange보다 작으면 기존 표현 폭을 유지한다.
         assertEquals(30, result.savedState.external.expressionRange)
         assertEquals(1, repo.languageStateUpdateCalls)
+    }
+
+    @Test
+    fun `adds correction signal evidence and active focus without breaking correction count fallback`() {
+        // CorrectionLearningSignal이 들어오면 단순 correctionCount만 보는 대신 어떤 문제가 반복됐는지 근거를 남겨야 한다.
+        val policy = DefaultLangStateAnalysisPolicy()
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        )
+
+        val next = policy.analyze(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "signal-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "I go school yesterday",
+                        tokenCount = 4,
+                        durationMs = 3_000L
+                    )
+                ),
+                correctionResult = CorrectionResult(
+                    correctedText = "I went to school yesterday.",
+                    correctionCount = 1,
+                    learningSignals = listOf(
+                        correctionSignal(
+                            issueCategories = listOf(
+                                CorrectionIssueCategory.GrammarForm,
+                                CorrectionIssueCategory.WordOrder
+                            ),
+                            languageFeatures = listOf(
+                                LanguageFeatureSignal(LangCode.EN, "EN.Tense")
+                            ),
+                            improvementTypes = listOf(CorrectionImprovementType.GrammarFixed)
+                        )
+                    )
+                ),
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        )
+
+        val grammarEvidence = next.analysisMeta.metricEvidence[LearningMetricKey.GrammarAccuracy]
+        val tenseFocus = next.analysisMeta.activeFocus.firstOrNull { it.type == LearningFocusType.Tense }
+        val wordOrderFocus = next.analysisMeta.activeFocus.firstOrNull { it.type == LearningFocusType.WordOrder }
+
+        // metricEvidence는 prompt에 raw 문장을 넣지 않고, 어떤 장기 지표의 근거인지만 compact하게 저장한다.
+        assertNotNull(grammarEvidence)
+        assertEquals(1, grammarEvidence?.observedCount)
+        assertTrue(grammarEvidence?.sourceTypes?.contains(LearningSignalSource.CorrectionSignal) == true)
+        // activeFocus는 다음 Chat/Correction에서 도울 반복 약점 후보라서 language feature와 issue category를 함께 반영한다.
+        assertNotNull(tenseFocus)
+        assertNotNull(wordOrderFocus)
+        assertEquals(3_000L, next.analysisMeta.lastSignalAt)
+    }
+
+    @Test
+    fun `drops invalid correction signal without failing existing analysis`() {
+        // confidence 범위 밖 signal은 장기 profile 오염을 막기 위해 버리지만, correction 완료 자체는 유지해야 한다.
+        val policy = DefaultLangStateAnalysisPolicy()
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        )
+
+        val next = policy.analyze(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "invalid-signal-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "I visited museum",
+                        tokenCount = 3,
+                        durationMs = 2_000L
+                    )
+                ),
+                correctionResult = CorrectionResult(
+                    correctedText = "I visited a museum.",
+                    correctionCount = 1,
+                    learningSignals = listOf(
+                        correctionSignal(confidence = 1.4)
+                    )
+                ),
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        )
+
+        // invalid signal은 evidence/focus에 남지 않지만, 분석 timestamp와 기존 metric 계산은 계속 진행된다.
+        assertTrue(next.analysisMeta.metricEvidence.isEmpty())
+        assertTrue(next.analysisMeta.activeFocus.isEmpty())
+        assertEquals(3_000L, next.lastAnalyzedAt)
+        assertTrue(next.internal.lexicalDiversity > 0.0)
+    }
+
+    @Test
+    fun `meaning not preserved signal does not directly reduce long term score`() {
+        // 의미가 바뀐 교정은 사용자의 실력 변화 근거가 아니라 품질 방어 신호라서 score 이동에 직접 쓰면 안 된다.
+        val policy = DefaultLangStateAnalysisPolicy()
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        ).copy(
+            internal = LangState.initial(LangCode.EN).internal.copy(grammarAccuracy = 0.6),
+            external = LangState.initial(LangCode.EN).external.copy(grammarAccuracy = 0.6)
+        )
+
+        val next = policy.analyze(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "meaning-risk-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "I hungry apple",
+                        tokenCount = 3,
+                        durationMs = 2_000L
+                    )
+                ),
+                correctionResult = CorrectionResult(
+                    correctedText = "I'm hungry. I want an apple.",
+                    correctionCount = 1,
+                    learningSignals = listOf(
+                        correctionSignal(
+                            meaningPreserved = false,
+                            issueCategories = listOf(CorrectionIssueCategory.MeaningMismatch)
+                        )
+                    )
+                ),
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        )
+
+        // correctionCount가 있어도 meaningPreserved=false signal만 있으면 grammar score는 correction penalty로 내려가지 않는다.
+        assertEquals(0.68, next.internal.grammarAccuracy, 0.0001)
+        assertNotNull(next.analysisMeta.metricEvidence[LearningMetricKey.GrammarAccuracy])
+    }
+
+    @Test
+    fun `over expanded correction signal does not directly move long term score`() {
+        // source보다 corrected가 크게 확장된 교정은 "사용자가 그 수준을 구사했다"는 근거가 아니다.
+        // 그래서 LearningState는 edit span과 improvement type을 비교해 장기 score 반영을 막아야 한다.
+        val policy = DefaultLangStateAnalysisPolicy()
+        val current = LangState.initial(
+            lang = LangCode.EN,
+            createdAt = 1_000L,
+            updatedAt = 2_000L
+        ).copy(
+            // 낮은 내부 지표를 명시해 초저숙련 사용자에게 과한 확장이 들어온 상황을 재현한다.
+            internal = LangState.initial(LangCode.EN).internal.copy(
+                grammarAccuracy = 0.6,
+                vocabularyAppropriateness = 0.25,
+                sentenceComplexity = 0.2,
+                spokenNaturalness = 0.25,
+                naturalExpressionUsage = 0.25
+            ),
+            // external은 이 policy의 guard 판단 재료가 아니므로 기존 projection과 분리된 상태를 보장한다.
+            external = LangState.initial(LangCode.EN).external.copy(grammarAccuracy = 0.6)
+        )
+
+        val next = policy.analyze(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "over-expand-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "apple",
+                        tokenCount = 1,
+                        durationMs = 1_000L
+                    )
+                ),
+                correctionResult = CorrectionResult(
+                    correctedText = "I would really like to have an apple, please.",
+                    correctionCount = 1,
+                    learningSignals = listOf(
+                        correctionSignal(
+                            sourceText = "apple",
+                            correctedText = "I would really like to have an apple, please.",
+                            issueCategories = listOf(CorrectionIssueCategory.MissingContext),
+                            improvementTypes = listOf(CorrectionImprovementType.StructureExpanded),
+                            editSpans = listOf(
+                                CorrectionEditSpan(
+                                    sourceFragment = "apple",
+                                    correctedFragment = "I want an apple",
+                                    issueCategory = CorrectionIssueCategory.MissingContext,
+                                    languageFeatureKey = null,
+                                    improvementType = CorrectionImprovementType.StructureExpanded
+                                ),
+                                CorrectionEditSpan(
+                                    sourceFragment = "apple",
+                                    correctedFragment = "I would like an apple",
+                                    issueCategory = CorrectionIssueCategory.MissingContext,
+                                    languageFeatureKey = null,
+                                    improvementType = CorrectionImprovementType.StructureExpanded
+                                ),
+                                CorrectionEditSpan(
+                                    sourceFragment = "apple",
+                                    correctedFragment = "I would really like to have an apple",
+                                    issueCategory = CorrectionIssueCategory.MissingContext,
+                                    languageFeatureKey = null,
+                                    improvementType = CorrectionImprovementType.StructureExpanded
+                                )
+                            ),
+                            confidence = 0.6
+                        )
+                    )
+                ),
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 3_000L
+            )
+        )
+
+        val sentenceEvidence = next.analysisMeta.metricEvidence[LearningMetricKey.SentenceComplexity]
+        val expressionEvidence = next.analysisMeta.metricEvidence[LearningMetricKey.NaturalExpressionUsage]
+        val missingContextFocus = next.analysisMeta.activeFocus.firstOrNull {
+            it.type == LearningFocusType.MissingContext
+        }
+
+        // correctionCount가 있어도 과도한 확장으로 판단되면 장기 grammar score는 correction penalty로 내려가지 않는다.
+        assertEquals(0.68, next.internal.grammarAccuracy, 0.0001)
+        // issue-driven evidence와 focus는 남겨 다음 대화/교정이 사용자의 missing context를 도울 수 있게 한다.
+        assertNotNull(sentenceEvidence)
+        assertNotNull(missingContextFocus)
+        // stretch improvement는 guard 때문에 "자연 표현을 이미 쓸 수 있다"는 Up 근거로 남기지 않는다.
+        assertEquals(null, expressionEvidence)
     }
 
     @Test
@@ -508,5 +764,41 @@ class LearningStateWriteUseCasesTest {
                 lastAnalysisEventId = input.analysisEventId ?: input.currentState.lastAnalysisEventId
             )
         }
+    }
+
+    private fun correctionSignal(
+        sourceText: String = "I go school yesterday",
+        correctedText: String = "I went to school yesterday.",
+        issueCategories: List<CorrectionIssueCategory> = listOf(CorrectionIssueCategory.GrammarForm),
+        languageFeatures: List<LanguageFeatureSignal> = emptyList(),
+        improvementTypes: List<CorrectionImprovementType> = listOf(CorrectionImprovementType.GrammarFixed),
+        editSpans: List<CorrectionEditSpan> = listOf(
+            CorrectionEditSpan(
+                sourceFragment = "go",
+                correctedFragment = "went",
+                issueCategory = CorrectionIssueCategory.GrammarForm,
+                languageFeatureKey = "EN.Tense",
+                improvementType = CorrectionImprovementType.GrammarFixed
+            )
+        ),
+        meaningPreserved: Boolean = true,
+        confidence: Double? = 0.8
+    ): CorrectionLearningSignal {
+        // 테스트 signal은 handover 계약의 최소 필수값을 모두 채워 policy 검증 대상만 바꿀 수 있게 한다.
+        return CorrectionLearningSignal(
+            candidateId = "candidate-1",
+            sourceTurnId = "turn-1",
+            sourceTurnIndex = 0,
+            sourceText = sourceText,
+            correctedText = correctedText,
+            issueCategories = issueCategories,
+            languageFeatures = languageFeatures,
+            improvementTypes = improvementTypes,
+            editSpans = editSpans,
+            register = SpokenRegister.EverydaySpoken,
+            severity = CorrectionSeverity.MajorPattern,
+            meaningPreserved = meaningPreserved,
+            confidence = confidence
+        )
     }
 }

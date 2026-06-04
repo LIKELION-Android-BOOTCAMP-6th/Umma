@@ -153,11 +153,21 @@ class FlashcardRepositoryImplTest {
             return dueCount()
         }
 
+        override suspend fun countNotifiableDueFlashcards(
+            uid: String,
+            language: String,
+            now: Long
+        ): Int {
+            // 알림 가능 due count는 이 테스트의 직접 검증 대상이 아니므로 due count와 같은 hook을 재사용한다.
+            // 인터페이스 계약만 맞춰 unit test 컴파일이 최신 local source 변경에 끊기지 않게 한다.
+            return dueCount()
+        }
+
         /**
          * dirty=true 인 카드 모두 반환
          * @return emptyList()
          */
-        override suspend fun getDirtyFlashcards(uid: kotlin.String): kotlin.collections.List<com.app.umma.data.model.correction.CorrectionFlashcardDto> {
+        override suspend fun getDirtyFlashcards(uid: String): List<CorrectionFlashcardDto> {
             return emptyList()
         }
 
