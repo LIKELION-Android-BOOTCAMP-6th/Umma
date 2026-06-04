@@ -64,6 +64,14 @@ interface CorrectionFlashcardLocalDataSource {
     ): List<CorrectionFlashcardDto>
 
     /**
+     * 목록 화면에서 선택된 카드를 삭제
+     */
+    suspend fun deleteFlashcards(
+        uid: String,
+        flashcardIds: List<String>
+    )
+
+    /**
      * SRS review 결과를 같은 Flashcard 원본에 반영할 수 있도록 열어두는 갱신 통로다.
      *
      * interval / easeFactor / nextReviewAt 계산은 SRS domain 정책이 맡고,
@@ -439,6 +447,21 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
         if (flashcardIds.isEmpty()) return
 
         // CompleteCorrectionUseCase가 실패하면 이번 요청으로 저장한 카드만 되돌린다.
+        dao.deleteFlashcards(
+            userId = uid,
+            flashcardIds = flashcardIds
+        )
+    }
+
+    // 목록 화면에서 사용자가 선택한 카드를 로컬 DB에서 삭제
+    override suspend fun deleteFlashcards(
+        uid: String,
+        flashcardIds: List<String>
+    ) {
+        // 빈 목록이면 DB를 건드리지 않고 바로 종료
+        if (flashcardIds.isEmpty()) return
+
+        // userId, flashCardIds
         dao.deleteFlashcards(
             userId = uid,
             flashcardIds = flashcardIds

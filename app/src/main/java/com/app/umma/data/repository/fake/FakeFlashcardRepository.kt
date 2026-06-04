@@ -126,4 +126,15 @@ class FakeFlashcardRepository @Inject constructor() : FlashcardRepository {
         val cards = fakeCards.filter { it.language == language }
         return Result.success(cards)
     }
+
+    /**
+     * 선택된 카드를 fake 목록에서 제거한다 (메모리 리스트에서 삭제)
+     */
+    override suspend fun deleteFlashcards(
+        userId: String,
+        flashcardIds: List<String>
+    ): Result<Unit> {
+        fakeCards.removeAll { it.id in flashcardIds }
+        return Result.success(Unit)
+    }
 }
