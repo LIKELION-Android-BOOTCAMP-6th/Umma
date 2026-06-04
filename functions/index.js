@@ -25,6 +25,7 @@ const USERS_COLLECTION = "users";
 const USER_LEARNING_PREFERENCE_COLLECTION = "user_learning_preference";
 const USER_LEARNING_PREFERENCE_CURRENT_DOC = "current";
 const FLASHCARDS_COLLECTION = "flashcards";
+const FLASHCARD_SUMMARIES_COLLECTION = "flashcard_summaries";
 const NOTIFICATION_SETTINGS_COLLECTION = "notification_settings";
 const NOTIFICATION_DEVICES_COLLECTION = "notification_devices";
 const NOTIFICATION_HISTORY_COLLECTION = "notification_history";
@@ -247,14 +248,17 @@ exports.cleanupExpiredChatUsageSessions = onSchedule(
 exports.dispatchSrsReviewNotifications = onSchedule(
   {
     region: "us-central1",
-    schedule: "* * * * *",
+    schedule: "*/5 * * * *",
     timeZone: "Etc/UTC",
   },
   async () => {
     const now = Date.now();
+    const currentHourBucket = truncateToHourBucket(now);
     const candidateSnapshot = await firestore
       .collectionGroup(NOTIFICATION_SETTINGS_COLLECTION)
-      .where("nextNotificationAt", "<=", now)
+      .where("type", "==", SRS_REVIEW_NOTIFICATION_TYPE)
+      .where("enabled", "==", true)
+      .where("nextNotificationBucketAt", "<=", currentHourBucket)
       .limit(SRS_NOTIFICATION_SCAN_LIMIT)
       .get();
 
@@ -283,7 +287,11 @@ exports.dispatchSrsReviewNotifications = onSchedule(
       summary.processedCount += 1;
 
       try {
-        const result = await processSrsReviewNotificationCandidate(settingsDoc, now);
+        const result = await processSrsReviewNotificationCandidate(
+          settingsDoc,
+          now,
+          currentHourBucket,
+        );
         summary.invalidTokenCount += result.invalidTokenCount;
 
         if (result.status === "sent") {
@@ -313,14 +321,17 @@ exports.dispatchSrsReviewNotifications = onSchedule(
 exports.dispatchMarketingNotifications = onSchedule(
   {
     region: "us-central1",
-    schedule: "* * * * *",
+    schedule: "*/5 * * * *",
     timeZone: "Etc/UTC",
   },
   async () => {
     const now = Date.now();
+    const currentHourBucket = truncateToHourBucket(now);
     const candidateSnapshot = await firestore
       .collectionGroup(NOTIFICATION_SETTINGS_COLLECTION)
+      .where("type", "==", MARKETING_NOTIFICATION_TYPE)
       .where("enabled", "==", true)
+      .where("nextNotificationBucketAt", "<=", currentHourBucket)
       .limit(MARKETING_NOTIFICATION_SCAN_LIMIT)
       .get();
 
@@ -349,7 +360,11 @@ exports.dispatchMarketingNotifications = onSchedule(
       summary.processedCount += 1;
 
       try {
-        const result = await processMarketingNotificationCandidate(settingsDoc, now);
+        const result = await processMarketingNotificationCandidate(
+          settingsDoc,
+          now,
+          currentHourBucket,
+        );
         summary.invalidTokenCount += result.invalidTokenCount;
 
         if (result.status === "sent") {
@@ -398,7 +413,7 @@ async function verifyFirebaseIdToken(request) {
   }
 }
 
-async function processSrsReviewNotificationCandidate(settingsDoc, now) {
+async function processSrsReviewNotificationCandidate(settingsDoc, now, currentHourBucket) {
   const settings = normalizeNotificationSettings(settingsDoc.data() || {});
   const userRef = settingsDoc.ref.parent.parent;
 
@@ -409,14 +424,9 @@ async function processSrsReviewNotificationCandidate(settingsDoc, now) {
     return { status: "skipped", reason: "missing-user-ref", invalidTokenCount: 0 };
   }
 
-  if (!settings.enabled) {
-    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, now);
-    return { status: "skipped", reason: "disabled", invalidTokenCount: 0 };
-  }
-
   const selectedLearningLanguage = await readSelectedLearningLanguage(userRef);
   if (!selectedLearningLanguage) {
-    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, now);
+    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "missing-selected-language", invalidTokenCount: 0 };
   }
 
@@ -426,19 +436,25 @@ async function processSrsReviewNotificationCandidate(settingsDoc, now) {
     .collection(NOTIFICATION_HISTORY_COLLECTION)
     .doc(historyId);
 
-  const dueFlashcards = await loadEligibleDueFlashcards(
+  const dueFlashcardCount = await recalculateNotifiableDueFlashcardsCount(
     userRef,
     selectedLearningLanguage,
     now,
   );
-  if (dueFlashcards.length === 0) {
-    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, now);
+  await repairNotifiableDueFlashcardsSummary(
+    userRef,
+    selectedLearningLanguage,
+    dueFlashcardCount,
+    now,
+  );
+  if (dueFlashcardCount <= 0) {
+    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "no-due-flashcards", invalidTokenCount: 0 };
   }
 
   const activeDevices = await loadActiveNotificationDevices(userRef);
   if (activeDevices.length === 0) {
-    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, now);
+    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "no-active-devices", invalidTokenCount: 0 };
   }
 
@@ -446,17 +462,17 @@ async function processSrsReviewNotificationCandidate(settingsDoc, now) {
     historyRef,
     localDate,
     selectedLearningLanguage,
-    dueFlashcards.length,
+    dueFlashcardCount,
     now,
   );
   if (!historyClaimed) {
-    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, now);
+    await advanceSrsNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "already-sent-today", invalidTokenCount: 0 };
   }
 
   const message = buildSrsReviewNotificationMessage(
     selectedLearningLanguage,
-    dueFlashcards.length,
+    dueFlashcardCount,
   );
   const multicastResponse = await admin.messaging().sendEachForMulticast({
     tokens: activeDevices.map((device) => device.fcmToken),
@@ -500,7 +516,7 @@ async function processSrsReviewNotificationCandidate(settingsDoc, now) {
     );
   }
 
-  await advanceSrsNotificationSchedule(settingsDoc.ref, settings, now);
+  await advanceSrsNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
 
   return {
     status: multicastResponse.successCount > 0 ? "sent" : "skipped",
@@ -510,7 +526,8 @@ async function processSrsReviewNotificationCandidate(settingsDoc, now) {
   };
 }
 
-async function processMarketingNotificationCandidate(settingsDoc, now) {
+async function processMarketingNotificationCandidate(settingsDoc, now, currentHourBucket) {
+  const settings = normalizeMarketingNotificationSettings(settingsDoc.data() || {});
   const userRef = settingsDoc.ref.parent.parent;
   if (!userRef) {
     logger.warn("marketing notification skipped: missing user reference", {
@@ -521,12 +538,13 @@ async function processMarketingNotificationCandidate(settingsDoc, now) {
 
   const activeDevices = await loadActiveNotificationDevices(userRef);
   if (activeDevices.length === 0) {
+    await advanceMarketingNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "no-active-devices", invalidTokenCount: 0 };
   }
 
-  const timezone = getReferenceMarketingTimezone(activeDevices);
-  const slot = resolveMarketingCampaignSlot(now, timezone);
+  const slot = resolveMarketingCampaignSlot(currentHourBucket, settings.timezone);
   if (!slot) {
+    await advanceMarketingNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "outside-campaign-window", invalidTokenCount: 0 };
   }
 
@@ -538,31 +556,27 @@ async function processMarketingNotificationCandidate(settingsDoc, now) {
   const historyClaimed = await createMarketingHistoryClaim(
     historyRef,
     slot,
-    timezone,
+    settings.timezone,
     now,
   );
   if (!historyClaimed) {
+    await advanceMarketingNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
     return { status: "skipped", reason: "already-sent-today", invalidTokenCount: 0 };
   }
 
   const message = buildMarketingNotificationMessage(slot.name);
   const multicastResponse = await admin.messaging().sendEachForMulticast({
     tokens: activeDevices.map((device) => device.fcmToken),
-    notification: {
-      title: message.title,
-      body: message.body,
-    },
     data: {
       type: MARKETING_NOTIFICATION_TYPE,
       route: MARKETING_NOTIFICATION_ROUTE,
       historyId,
       campaignSlot: slot.name,
+      title: message.title,
+      body: message.body,
     },
     android: {
       priority: "high",
-      notification: {
-        channelId: MARKETING_NOTIFICATION_CHANNEL_ID,
-      },
     },
   });
 
@@ -583,6 +597,8 @@ async function processMarketingNotificationCandidate(settingsDoc, now) {
     },
     { merge: true },
   );
+
+  await advanceMarketingNotificationSchedule(settingsDoc.ref, settings, currentHourBucket);
 
   return {
     status: multicastResponse.successCount > 0 ? "sent" : "skipped",
@@ -654,17 +670,41 @@ async function readSelectedLearningLanguage(userRef) {
   return stringValue(value).trim();
 }
 
-async function loadEligibleDueFlashcards(userRef, selectedLearningLanguage, now) {
+async function recalculateNotifiableDueFlashcardsCount(
+  userRef,
+  selectedLearningLanguage,
+  now,
+) {
   const snapshot = await userRef
     .collection(FLASHCARDS_COLLECTION)
     .where("language", "==", selectedLearningLanguage)
     .where("nextReviewAt", "<=", now)
     .get();
 
-  return snapshot.docs.filter((doc) => {
-    const reviewRating = stringValue(doc.get("lastReviewRating")).trim().toUpperCase();
-    return SUPPORTED_SRS_REVIEW_RATINGS.has(reviewRating);
-  });
+  return snapshot.docs.reduce((count, doc) => {
+    const lastReviewRating = stringValue(doc.get("lastReviewRating")).trim();
+    return SUPPORTED_SRS_REVIEW_RATINGS.has(lastReviewRating) ? count + 1 : count;
+  }, 0);
+}
+
+async function repairNotifiableDueFlashcardsSummary(
+  userRef,
+  selectedLearningLanguage,
+  dueFlashcardCount,
+  now,
+) {
+  const snapshot = await userRef
+    .collection(FLASHCARD_SUMMARIES_COLLECTION)
+    .doc(selectedLearningLanguage);
+
+  await snapshot.set(
+    {
+      language: selectedLearningLanguage,
+      notifiableDueFlashcards: dueFlashcardCount,
+      updatedAt: now,
+    },
+    { merge: true },
+  );
 }
 
 async function loadActiveNotificationDevices(userRef) {
@@ -706,23 +746,8 @@ function buildMarketingNotificationMessage(slotName) {
   };
 }
 
-function getReferenceMarketingTimezone(activeDevices) {
-  const latestDevice = activeDevices.reduce((currentLatest, device) => {
-    if (!currentLatest) {
-      return device;
-    }
-
-    return device.updatedAt > currentLatest.updatedAt ? device : currentLatest;
-  }, null);
-
-  return latestDevice?.timezone || DEFAULT_NOTIFICATION_TIMEZONE;
-}
-
-function resolveMarketingCampaignSlot(now, timezone) {
-  const zonedNow = getZonedDateTimeParts(now, timezone);
-  if (zonedNow.minute !== 0) {
-    return null;
-  }
+function resolveMarketingCampaignSlot(referenceMillis, timezone) {
+  const zonedNow = getZonedDateTimeParts(referenceMillis, timezone);
 
   if (zonedNow.hour === MARKETING_SLOT_MORNING_HOUR) {
     return {
@@ -778,7 +803,7 @@ async function disableInvalidNotificationDevices(userRef, invalidDevices, now) {
 }
 
 async function advanceSrsNotificationSchedule(settingsRef, settings, now) {
-  const nextNotificationAt = computeNextNotificationAt(
+  const nextNotificationBucketAt = computeNextNotificationBucketAt(
     settings.timezone,
     settings.preferredNotificationTimeMinutes,
     now,
@@ -786,7 +811,23 @@ async function advanceSrsNotificationSchedule(settingsRef, settings, now) {
 
   await settingsRef.set(
     {
-      nextNotificationAt,
+      nextNotificationAt: nextNotificationBucketAt,
+      nextNotificationBucketAt,
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+}
+
+async function advanceMarketingNotificationSchedule(settingsRef, settings, now) {
+  const nextNotificationBucketAt = computeNextMarketingNotificationBucketAt(
+    settings.timezone,
+    now,
+  );
+
+  await settingsRef.set(
+    {
+      nextNotificationBucketAt,
       updatedAt: now,
     },
     { merge: true },
@@ -803,6 +844,13 @@ function normalizeNotificationSettings(data) {
   };
 }
 
+function normalizeMarketingNotificationSettings(data) {
+  return {
+    enabled: Boolean(data.enabled),
+    timezone: sanitizeTimeZone(data.timezone),
+  };
+}
+
 function normalizePreferredNotificationTimeMinutes(value) {
   const preferredMinutes = numberValue(value);
   if (!Number.isFinite(preferredMinutes)) {
@@ -814,7 +862,7 @@ function normalizePreferredNotificationTimeMinutes(value) {
     return DEFAULT_NOTIFICATION_TIME_MINUTES;
   }
 
-  return normalizedMinutes;
+  return Math.floor(normalizedMinutes / MINUTES_PER_HOUR) * MINUTES_PER_HOUR;
 }
 
 function sanitizeTimeZone(timezone) {
@@ -839,17 +887,16 @@ function getLocalDateKey(referenceMillis, timezone) {
   return `${zonedDate.year}${padNumber(zonedDate.month)}${padNumber(zonedDate.day)}`;
 }
 
-function computeNextNotificationAt(timezone, preferredNotificationTimeMinutes, now) {
+function computeNextNotificationBucketAt(timezone, preferredNotificationTimeMinutes, now) {
   const zonedNow = getZonedDateTimeParts(now, timezone);
   const hour = Math.floor(preferredNotificationTimeMinutes / MINUTES_PER_HOUR);
-  const minute = preferredNotificationTimeMinutes % MINUTES_PER_HOUR;
 
   const todayTarget = zonedDateTimeToEpochMillis(
     zonedNow.year,
     zonedNow.month,
     zonedNow.day,
     hour,
-    minute,
+    0,
     0,
     timezone,
   );
@@ -863,10 +910,56 @@ function computeNextNotificationAt(timezone, preferredNotificationTimeMinutes, n
     tomorrow.month,
     tomorrow.day,
     hour,
-    minute,
+    0,
     0,
     timezone,
   );
+}
+
+function computeNextMarketingNotificationBucketAt(timezone, now) {
+  const zonedNow = getZonedDateTimeParts(now, timezone);
+  const morningTarget = zonedDateTimeToEpochMillis(
+    zonedNow.year,
+    zonedNow.month,
+    zonedNow.day,
+    MARKETING_SLOT_MORNING_HOUR,
+    0,
+    0,
+    timezone,
+  );
+  if (morningTarget > now) {
+    return morningTarget;
+  }
+
+  const noonTarget = zonedDateTimeToEpochMillis(
+    zonedNow.year,
+    zonedNow.month,
+    zonedNow.day,
+    MARKETING_SLOT_NOON_HOUR,
+    0,
+    0,
+    timezone,
+  );
+  if (noonTarget > now) {
+    return noonTarget;
+  }
+
+  const tomorrow = addCivilDays(zonedNow.year, zonedNow.month, zonedNow.day, 1);
+  return zonedDateTimeToEpochMillis(
+    tomorrow.year,
+    tomorrow.month,
+    tomorrow.day,
+    MARKETING_SLOT_MORNING_HOUR,
+    0,
+    0,
+    timezone,
+  );
+}
+
+function truncateToHourBucket(referenceMillis) {
+  const date = new Date(referenceMillis);
+  date.setUTCMinutes(0, 0, 0);
+  return date.getTime();
 }
 
 function getZonedDateTimeParts(referenceMillis, timezone) {

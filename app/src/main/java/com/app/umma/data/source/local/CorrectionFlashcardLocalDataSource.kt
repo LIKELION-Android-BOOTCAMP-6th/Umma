@@ -106,6 +106,12 @@ interface CorrectionFlashcardLocalDataSource {
         now: Long
     ): Int
 
+    suspend fun countNotifiableDueFlashcards(
+        uid: String,
+        language: String,
+        now: Long
+    ): Int
+
     /**
      * dirty=true 인 카드 모두 반환
      */
@@ -284,6 +290,22 @@ interface CorrectionFlashcardDao {
         now: Long
     ): Int
 
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM correction_flashcards
+        WHERE userId = :userId
+          AND language = :language
+          AND nextReviewAt <= :now
+          AND lastReviewRating IN ('HARD', 'GOOD', 'EASY')
+        """
+    )
+    suspend fun countNotifiableDueFlashcards(
+        userId: String,
+        language: String,
+        now: Long
+    ): Int
+
     /**
      * 로컬 DB에서 아직 Firestore로 업로드되지 않은 카드들 전부 가져옴
      * dirty = 1: 최소 저장 또는 스케줄 갱신 후 서버 동기화가 누락된 상태
@@ -427,6 +449,18 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
     ): Int {
         // due deck 조회 조건과 동일하게 nextReviewAt <= now만 센다.
         return dao.countDueFlashcards(
+            userId = uid,
+            language = language,
+            now = now
+        )
+    }
+
+    override suspend fun countNotifiableDueFlashcards(
+        uid: String,
+        language: String,
+        now: Long
+    ): Int {
+        return dao.countNotifiableDueFlashcards(
             userId = uid,
             language = language,
             now = now

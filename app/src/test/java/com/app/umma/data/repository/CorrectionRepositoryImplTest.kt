@@ -13,6 +13,7 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -52,7 +53,9 @@ class CorrectionRepositoryImplTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
         aiClient.responseJson = """
             {
@@ -93,7 +96,9 @@ class CorrectionRepositoryImplTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
         aiClient.responseJson = """
             {
@@ -120,7 +125,9 @@ class CorrectionRepositoryImplTest {
         // 후보 0건일 때 네트워크/비용 낭비를 막는다. Empty UX 본격 처리는 -B.
         val input = GenerateSuggestionsInput(
             candidates = emptyList(),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
 
         val result = repository.generateSuggestions(input)

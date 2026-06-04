@@ -8,6 +8,7 @@ import com.app.umma.domain.model.correction.CompleteCorrectionInput
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.app.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
@@ -15,6 +16,7 @@ import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputCommand
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.app.umma.domain.usecase.realtime.GetCorrectionContextUseCase
@@ -100,6 +102,9 @@ class CorrectionViewModel @Inject constructor(
     private val extractSessionCandidates: ExtractSessionCandidatesUseCase,
     // 후보 + LangState → AI 호출 → CorrectionSuggestion 목록. Result 로 success/failure 가 갈린다.
     private val generateSuggestions: GenerateSuggestionsUseCase,
+    // COR-TUNE-01: langState snapshot → 교정 적응 정책(LearnerAdaptationProfile). raw metric 해석은 이 domain UseCase 가 전담하고
+    // 프롬프트 빌더는 숫자를 모르게 한다. @Inject constructor() 라 Hilt 모듈 추가 없이 자동 주입된다.
+    private val buildLearnerAdaptationProfile: BuildLearnerAdaptationProfileUseCase,
     // COR-005-A: Flashcard 저장 요청의 uid 출처. Room 저장이 uid+cardId 복합키라 화면에서 누락되면 안 된다.
     private val getCurrentUserUid: GetCurrentUserUidUseCase,
     // COR-005-A: 선택된 CorrectionSuggestion 목록을 SYS-CORRECTION-INFRA 저장 계약으로 변환한다.
@@ -273,9 +278,15 @@ class CorrectionViewModel @Inject constructor(
                     "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
                 )
 
+                // COR-TUNE-01: langState snapshot 을 교정 적응 정책으로 해석해 입력에 싣는다.
+                // 근거 부족/null 이면 UseCase 가 보수적 profile 을 돌려주므로 프롬프트도 안전한 최소 교정으로 떨어진다.
+                val profile = buildLearnerAdaptationProfile(langState)
                 val input = GenerateSuggestionsInput(
                     candidates = candidates,
                     langState = langState,
+                    // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
+                    primaryLang = ready.primaryLanguage ?: LangCode.KO,
+                    profile = profile,
                 )
                 generateSuggestions(input).getOrThrow()
             }

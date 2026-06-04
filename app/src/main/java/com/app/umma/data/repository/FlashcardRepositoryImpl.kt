@@ -121,6 +121,11 @@ class FlashcardRepositoryImpl @Inject constructor(
                 language = language.code,
                 now = now
             )
+            val notifiableDueCount = localDataSource.countNotifiableDueFlashcards(
+                uid = userId,
+                language = language.code,
+                now = now
+            )
             val savedCount = localDataSource.countFlashcards(
                 uid = userId,
                 language = language.code
@@ -129,6 +134,7 @@ class FlashcardRepositoryImpl @Inject constructor(
             Result.success(
                 FlashcardReviewSummary(
                     dueFlashcards = dueCount,
+                    notifiableDueFlashcards = notifiableDueCount,
                     savedFlashcards = savedCount
                 )
             )

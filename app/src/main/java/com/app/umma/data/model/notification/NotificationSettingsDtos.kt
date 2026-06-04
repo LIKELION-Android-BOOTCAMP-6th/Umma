@@ -14,6 +14,7 @@ data class SrsNotificationSettingsDto(
     val preferredNotificationTimeMinutes: Int,
     val timezone: String,
     val nextNotificationAt: Long? = null,
+    val nextNotificationBucketAt: Long? = null,
     val updatedAt: Long? = null
 )
 
@@ -24,6 +25,8 @@ data class SrsNotificationSettingsDto(
 data class MarketingNotificationSettingsDto(
     val type: String = "marketing",
     val enabled: Boolean,
+    val timezone: String,
+    val nextNotificationBucketAt: Long? = null,
     val updatedAt: Long? = null
 )
 
@@ -36,6 +39,7 @@ fun SrsNotificationSettings.toDto(): SrsNotificationSettingsDto {
         preferredNotificationTimeMinutes = preferredNotificationTimeMinutes,
         timezone = timezone,
         nextNotificationAt = nextNotificationAt,
+        nextNotificationBucketAt = nextNotificationBucketAt,
         updatedAt = updatedAt
     )
 }
@@ -49,6 +53,7 @@ fun SrsNotificationSettingsDto.toDomain(): SrsNotificationSettings {
         preferredNotificationTimeMinutes = preferredNotificationTimeMinutes,
         timezone = timezone,
         nextNotificationAt = nextNotificationAt,
+        nextNotificationBucketAt = nextNotificationBucketAt,
         updatedAt = updatedAt
     )
 }
@@ -59,6 +64,8 @@ fun SrsNotificationSettingsDto.toDomain(): SrsNotificationSettings {
 fun MarketingNotificationSettings.toDto(): MarketingNotificationSettingsDto {
     return MarketingNotificationSettingsDto(
         enabled = enabled,
+        timezone = timezone,
+        nextNotificationBucketAt = nextNotificationBucketAt,
         updatedAt = updatedAt
     )
 }
@@ -69,6 +76,8 @@ fun MarketingNotificationSettings.toDto(): MarketingNotificationSettingsDto {
 fun MarketingNotificationSettingsDto.toDomain(): MarketingNotificationSettings {
     return MarketingNotificationSettings(
         enabled = enabled,
+        timezone = timezone,
+        nextNotificationBucketAt = nextNotificationBucketAt,
         updatedAt = updatedAt
     )
 }

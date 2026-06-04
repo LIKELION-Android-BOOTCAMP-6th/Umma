@@ -39,7 +39,10 @@ data class CorrectionResult(
     // 이번 분석에서 잡아낸 교정 수.
     val correctionCount: Int = 0,
     // 사람이 읽을 설명 메모.
-    val notes: String? = null
+    val notes: String? = null,
+    // 선택된 교정 후보들에서 모은 관찰 학습 신호(COR-TUNE-02).
+    // LearningState가 metric/evidence/focus 갱신 입력으로 소비한다(소비 로직은 별도 작업).
+    val learningSignals: List<CorrectionLearningSignal> = emptyList()
 )
 
 /**
@@ -126,6 +129,7 @@ data class FlashcardSummaryUpdateInput(
     val lang: LangCode,
     // SRS가 계산한 오늘 복습 대상 카드 수.
     val dueFlashcards: Int,
+    val notifiableDueFlashcards: Int = 0,
     // 저장된 전체 카드 수.
     val savedFlashcards: Int,
     // 갱신 이벤트 식별자. 같은 이벤트가 반복 반영되는 것을 막는 데 사용한다.

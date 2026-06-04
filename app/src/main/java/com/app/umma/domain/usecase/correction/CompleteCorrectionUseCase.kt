@@ -261,7 +261,10 @@ class CompleteCorrectionUseCase @Inject constructor(
             // LangState 에는 화면 카드 전체가 아니라 학습 상태 갱신에 필요한 설명 요약만 전달한다.
             notes = selectedSuggestions.joinToString(separator = "\n") { suggestion ->
                 suggestion.explanation
-            }
+            },
+            // COR-TUNE-02: 선택된 suggestion 의 관찰 학습 신호만 집계해 completion pipeline 으로 넘긴다.
+            // 신호가 없는(=null) suggestion 은 mapNotNull 로 자연스럽게 빠진다. 신호 소비는 LearningState 책임.
+            learningSignals = selectedSuggestions.mapNotNull { it.learningSignal }
         )
     }
 
@@ -315,6 +318,7 @@ class CompleteCorrectionUseCase @Inject constructor(
                     uid = input.langStateUpdateInput.uid,
                     lang = input.langStateUpdateInput.lang,
                     dueFlashcards = snapshot.dueFlashcards,
+                    notifiableDueFlashcards = snapshot.notifiableDueFlashcards,
                     savedFlashcards = snapshot.savedFlashcards,
                     // sourceEventId 는 중복 반영 방지용 이벤트 식별자다.
                     // analysisEventId 는 LangState 갱신에 쓰이므로, Flashcard Summary 전용 prefix 를 붙여 분리한다.
