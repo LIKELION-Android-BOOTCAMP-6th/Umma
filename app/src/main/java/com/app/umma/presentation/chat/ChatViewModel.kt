@@ -930,6 +930,12 @@ class ChatViewModel @Inject constructor(
                 "aiState changed: ${current.aiState}->${next.aiState}, " +
                     "isAudioOutputPlaying=${next.isAudioOutputPlaying}, mic=${next.micControlState}"
             )
+            Log.d(
+                DIAG_TAG,
+                "ui_ai_state_changed ${current.aiState}->${next.aiState} " +
+                    "audioPlaying=${next.isAudioOutputPlaying} mic=${next.micControlState} " +
+                    "recording=${next.isRecording} awaitingUserTranscript=${next.isAwaitingUserTranscript}"
+            )
             next
         }
     }
@@ -1119,6 +1125,12 @@ class ChatViewModel @Inject constructor(
                         "audio playback changed: isPlaying=$isPlaying, " +
                             "aiState=${next.aiState}, mic=${next.micControlState}"
                     )
+                    Log.d(
+                        DIAG_TAG,
+                        "ui_audio_playback_changed isPlaying=$isPlaying " +
+                            "aiState=${next.aiState} mic=${next.micControlState} " +
+                            "sessionState=${next.sessionState}"
+                    )
                     next
                 }
             }
@@ -1280,6 +1292,7 @@ class ChatViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "ChatViewModel"
+        const val DIAG_TAG = "AiChatPlayback"
         const val REQUIRED_TOPIC_COUNT = 5
         const val CHAT_USAGE_PRICING_VERSION = "openai-realtime-2026-05"
 
