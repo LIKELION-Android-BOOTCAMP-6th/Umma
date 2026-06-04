@@ -5,6 +5,9 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.ConversationTurn
+import com.app.umma.domain.model.learningstate.CorrectionLearningSignal
+import com.app.umma.domain.model.learningstate.CorrectionSeverity
+import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
@@ -147,6 +150,45 @@ class CompleteCorrectionUseCaseTest {
         // 완료된 세션이 다시 Correction 대기 상태로 보이지 않도록 correctionAvailable 을 false 로 내린다.
         assertFalse(learningStateRepo.lastUpdateInput!!.correctionAvailableOverride!!)
         assertNotNull(sessionMemoryRepository.lastCompressionCommand)
+    }
+
+    @Test
+    fun `aggregates learning signals of selected suggestions into correction result`() = kotlinx.coroutines.runBlocking {
+        // COR-TUNE-02: 선택된 suggestion 의 learningSignal 만 CorrectionResult.learningSignals 로 집계되어
+        // LangState 갱신 입력으로 흘러야 한다. signal 이 없는 suggestion 은 mapNotNull 로 빠진다.
+        val signal = CorrectionLearningSignal(
+            candidateId = "c-1",
+            sourceTurnId = "turn-1",
+            sourceTurnIndex = 0,
+            sourceText = "i go school",
+            correctedText = "I go to school.",
+            issueCategories = emptyList(),
+            languageFeatures = emptyList(),
+            improvementTypes = emptyList(),
+            editSpans = emptyList(),
+            register = SpokenRegister.EverydaySpoken,
+            severity = CorrectionSeverity.MinorForm,
+            meaningPreserved = true,
+            confidence = 0.7
+        )
+        val withSignal = baseSuggestion().copy(id = "s-1", learningSignal = signal)
+        // 두 번째 suggestion 은 signal 이 없다(null). 집계에서 자연스럽게 제외되어야 한다.
+        val withoutSignal = baseSuggestion().copy(id = "s-2", learningSignal = null)
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(withSignal, withoutSignal),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val captured = learningStateRepo.lastUpdateInput!!.correctionResult!!
+        // signal 이 있는 suggestion 1개만 집계된다.
+        assertEquals(1, captured.learningSignals.size)
+        assertEquals("c-1", captured.learningSignals.single().candidateId)
+        // 핵심 집계(correctedText/correctionCount)는 기존대로 둘 다 반영한다.
+        assertEquals(2, captured.correctionCount)
     }
 
     @Test

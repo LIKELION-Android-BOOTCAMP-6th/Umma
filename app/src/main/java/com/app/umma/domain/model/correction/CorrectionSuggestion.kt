@@ -1,5 +1,6 @@
 package com.app.umma.domain.model.correction
 
+import com.app.umma.domain.model.learningstate.CorrectionLearningSignal
 import com.app.umma.domain.model.learningstate.LangCode
 
 /**
@@ -19,10 +20,13 @@ data class CorrectionSuggestion(
     val sourceTurnIndex: Int,
     // 교정 전 원문.
     val beforeText: String,
-    // Flashcard 앞면에 표시할 모국어 문장. MVP에서는 후보의 의미 문장으로 전달한다.
+    // Flashcard 앞면에 표시할 primaryLang 기준 문장. 필드명은 호환용으로 유지.
     val nativeText: String,
     // 교정 후 문장.
     val afterText: String,
     // 간단한 교정 설명.
-    val explanation: String
+    val explanation: String,
+    // 교정 과정에서 관찰된 학습 신호(COR-TUNE-02). LearningState 갱신 입력으로 흐른다.
+    // 신호 파싱 실패/누락은 suggestion 생성을 막지 않으므로 nullable 기본값으로 둔다.
+    val learningSignal: CorrectionLearningSignal? = null
 )

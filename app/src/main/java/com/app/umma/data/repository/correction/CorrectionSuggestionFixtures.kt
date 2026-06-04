@@ -8,6 +8,8 @@ import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 
 /**
  * Correction 화면 / ViewModel / Fake repository 테스트가 공유하는 샘플 데이터 진입점이다.
@@ -62,11 +64,16 @@ object CorrectionSuggestionFixtures {
      */
     fun sampleGenerateInput(
         lang: LangCode = LangCode.EN,
-        candidates: List<CorrectionCandidate> = listOf(sampleCandidate(lang = lang))
+        primaryLang: LangCode = LangCode.KO,
+        candidates: List<CorrectionCandidate> = listOf(sampleCandidate(lang = lang)),
+        // COR-TUNE-01: 기본은 초기 LangState 에서 해석한 보수적 profile. 정책별 회귀 테스트는 직접 주입한다.
+        profile: LearnerAdaptationProfile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(lang))
     ): GenerateSuggestionsInput {
         return GenerateSuggestionsInput(
             candidates = candidates,
-            langState = LangState.initial(lang)
+            langState = LangState.initial(lang),
+            primaryLang = primaryLang,
+            profile = profile
         )
     }
 

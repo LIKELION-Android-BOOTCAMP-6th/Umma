@@ -812,4 +812,39 @@ class CorrectionUiStateTest {
 
         assertFalse(state.areAllSuggestionsSelected)
     }
+
+    // ─── primaryLang 노출 회귀 ────────────────────────────────────────────────
+
+    @Test
+    fun `toCorrectionUiState exposes primaryLanguage from userPref`() {
+        // primaryLanguage 는 Ready 게이트 조건이 아니라 UiState 필드로 노출만 한다.
+        val lang = LangCode.EN
+        val global = buildGlobal(
+            lang = lang,
+            sessionSummary = SessionSummary(
+                lang = lang,
+                correctionAvailable = true,
+                recentMinutes = 30,
+                recentTopic = null,
+            )
+        )
+
+        val state = global.toCorrectionUiState()
+
+        // buildGlobal 은 primaryLang = KO 로 UserLangPref 를 구성한다.
+        assertEquals(LangCode.KO, state.primaryLanguage)
+        // primaryLanguage 가 없어도 Ready 판정이 흔들리지 않는다.
+        assertEquals(CorrectionUiState.Phase.Ready, state.phase)
+    }
+
+    @Test
+    fun `toCorrectionUiState primaryLanguage is null when userPref is absent`() {
+        // userPref 가 없으면 selectedLearningLanguage 와 primaryLanguage 모두 null 이어야 한다.
+        val global = GlobalLangState.initial()
+
+        val state = global.toCorrectionUiState()
+
+        assertNull(state.selectedLearningLanguage)
+        assertNull(state.primaryLanguage)
+    }
 }
