@@ -136,6 +136,14 @@ class FlashcardRepositoryImplTest {
             return emptyList()
         }
 
+        override suspend fun deleteFlashcards(
+            uid: String,
+            flashcardIds: List<String>
+        ) {
+            // 삭제 흐름은 이 테스트의 검증 대상이 아니므로 local source 계약만 맞춘다.
+            // 실제 삭제 동작은 저장형 fake를 쓰는 테스트에서 별도로 검증할 수 있다.
+        }
+
         override suspend fun countFlashcards(
             uid: String,
             language: String

@@ -117,6 +117,17 @@ class TestCorrectionFlashcardLocalDataSource : CorrectionFlashcardLocalDataSourc
             .toList()
     }
 
+    override suspend fun deleteFlashcards(
+        uid: String,
+        flashcardIds: List<String>
+    ) {
+        // production local source처럼 userId + card id 범위 안에서만 삭제한다.
+        // 이렇게 해야 다른 사용자 fixture가 같은 card id를 쓰더라도 테스트 대역에서 함께 지워지지 않는다.
+        flashcardIds.forEach { flashcardId ->
+            flashcardsByUserAndId.remove(key(uid, flashcardId))
+        }
+    }
+
     override suspend fun countFlashcards(
         uid: String,
         language: String
