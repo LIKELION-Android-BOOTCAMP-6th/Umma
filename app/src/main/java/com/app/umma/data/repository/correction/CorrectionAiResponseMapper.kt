@@ -102,12 +102,16 @@ class CorrectionAiResponseMapper @Inject constructor() {
     /**
      * AI 가 보낸 nested learningSignal DTO 를 domain 신호 계약으로 정규화한다.
      *
-     * 정규화 정책(CHAT-TUNE-001 핸드오버 / COR-TUNE-02 AC):
+     * 정규화 정책(CHAT-TUNE-001 핸드오버 / COR-TUNE-02 AC + COR-TUNE-02-FIX):
+     *  signal 은 장기 LangState 계산의 입력이므로, 불확실하면 일부만 살리지 않고 signal 전체를 보수적으로 drop 한다.
      *  - 신호 자체가 없으면(null) 신호 누락으로 보고 null 을 돌려준다(실패 아님).
-     *  - register/severity 는 단일 필수값이다. unknown/누락이면 해당 signal 전체를 drop 한다.
-     *  - issueCategories/improvementTypes 는 allowlist 로 관대 파싱하고 unknown 원소만 제외한 뒤 최대 3개로 캡한다.
-     *  - languageFeatures 는 {LANG}.{Feature} namespace·lang=selectedLang·allowlist 를 어기면 그 feature 만 제외한다.
-     *  - editSpans 는 최대 3개로 캡하고, issueCategory/improvementType 이 unknown 이면 그 span 만 제외한다.
+     *  - register/severity/meaningPreserved 는 단일 필수값이다. unknown/누락이면 해당 signal 전체를 drop 한다.
+     *    (meaningPreserved 는 false 도 유효한 관찰값이라 살리지만, 누락은 의미 보존이 검증되지 않은 것이므로 drop)
+     *  - issueCategories/improvementTypes 는 allowlist 로 파싱하되 unknown 원소가 하나라도 있으면 signal 전체를 drop 한다.
+     *    (unknown 이 섞인 리스트는 신뢰할 수 없으므로 부분 제외하지 않는다) 전부 유효하면 최대 3개로 캡한다.
+     *  - editSpans 도 issueCategory/improvementType 이 unknown 이면 signal 전체를 drop 한다. 전부 유효하면 최대 3개로 캡한다.
+     *  - languageFeatures 는 {LANG}.{Feature} namespace·lang=selectedLang·allowlist 를 어기면 그 feature 만 제외한다(유일한 부분 제외 예외).
+     *    editSpan 의 languageFeatureKey 도 형식 위반 시 null 로 비우되 span 자체는 유지한다(보조 정보).
      *  - confidence 는 0.0..1.0 만 허용한다. 범위 밖이면 signal 을 drop, 없으면 null 을 허용한다.
      *  - 전달 데이터(candidateId/sourceTurnId/sourceTurnIndex/sourceText/correctedText)는 신뢰 출처에서 채운다.
      */
@@ -136,6 +140,15 @@ class CorrectionAiResponseMapper @Inject constructor() {
             return null
         }
 
+        // meaningPreserved 는 "교정 후 문장이 사용자의 원래 의도를 유지했는지"를 나타내는 핵심 방어값이다.
+        // true/false 는 모두 유효한 관찰 결과지만(특히 false 는 의미 변형을 알리는 중요한 신호), 누락이면
+        // 의미 보존 여부가 검증되지 않은 것이므로 장기 LangState 입력 오염을 막기 위해 signal 전체를 drop 한다.
+        val meaningPreserved = dto.meaningPreserved
+        if (meaningPreserved == null) {
+            logDroppedSignal(candidateId, "meaningPreserved", null)
+            return null
+        }
+
         // confidence 는 0.0..1.0 범위만 의미가 있다. 범위 밖 값은 신뢰할 수 없으므로 signal 전체를 drop 한다.
         // 없으면(null) LearningState 가 medium-low 로 취급하므로 그대로 통과시킨다.
         val confidence = dto.confidence
@@ -144,22 +157,15 @@ class CorrectionAiResponseMapper @Inject constructor() {
             return null
         }
 
-        // issueCategories/improvementTypes: unknown 원소만 제외하고 최대 3개로 캡한다.
-        val issueCategories = dto.issueCategories
-            .orEmpty()
-            .mapNotNull { raw ->
-                parseEnumOrNull<CorrectionIssueCategory>(raw)
-                    ?: run { logExcludedItem(candidateId, "issueCategory", raw); null }
-            }
-            .take(MAX_SIGNAL_ITEMS)
+        // issueCategories/improvementTypes: unknown 원소가 하나라도 있으면 signal 전체를 drop 한다(부분 제외 금지).
+        // 전부 유효하면 최대 3개로 캡한다.
+        val issueCategories = parseEnumListStrictOrDrop<CorrectionIssueCategory>(
+            dto.issueCategories, candidateId, "issueCategory"
+        )?.take(MAX_SIGNAL_ITEMS) ?: return null
 
-        val improvementTypes = dto.improvementTypes
-            .orEmpty()
-            .mapNotNull { raw ->
-                parseEnumOrNull<CorrectionImprovementType>(raw)
-                    ?: run { logExcludedItem(candidateId, "improvementType", raw); null }
-            }
-            .take(MAX_SIGNAL_ITEMS)
+        val improvementTypes = parseEnumListStrictOrDrop<CorrectionImprovementType>(
+            dto.improvementTypes, candidateId, "improvementType"
+        )?.take(MAX_SIGNAL_ITEMS) ?: return null
 
         // languageFeatures: namespace/lang/allowlist 를 어기는 feature 만 제외한다. signal 은 유지한다.
         val languageFeatures = dto.languageFeatures
@@ -167,11 +173,13 @@ class CorrectionAiResponseMapper @Inject constructor() {
             .mapNotNull { feature -> normalizeLanguageFeature(feature, selectedLang, candidateId) }
             .take(MAX_SIGNAL_ITEMS)
 
-        // editSpans: enum 이 깨진 span 만 제외하고 최대 3개로 캡한다. 비어 있어도 signal 은 유지한다.
-        val editSpans = dto.editSpans
-            .orEmpty()
-            .mapNotNull { span -> normalizeEditSpan(span, selectedLang, candidateId) }
-            .take(MAX_SIGNAL_ITEMS)
+        // editSpans: issueCategory/improvementType 이 unknown 인 span 이 있으면 signal 전체를 drop 한다(부분 제외 금지).
+        // 전부 유효하면 최대 3개로 캡한다. 비어 있어도 signal 은 유지한다.
+        val editSpans = ArrayList<CorrectionEditSpan>()
+        for (span in dto.editSpans.orEmpty()) {
+            editSpans.add(normalizeEditSpan(span, selectedLang, candidateId) ?: return null)
+        }
+        val cappedEditSpans = editSpans.take(MAX_SIGNAL_ITEMS)
 
         return CorrectionLearningSignal(
             // 전달 데이터는 AI 값이 아니라 신뢰 출처에서 채운다.
@@ -185,11 +193,11 @@ class CorrectionAiResponseMapper @Inject constructor() {
             issueCategories = issueCategories,
             languageFeatures = languageFeatures,
             improvementTypes = improvementTypes,
-            editSpans = editSpans,
+            editSpans = cappedEditSpans,
             register = register,
             severity = severity,
-            // meaningPreserved 누락 시 의미 보존(=감점 없음) 쪽으로 보수적으로 둔다. signal 은 유지한다.
-            meaningPreserved = dto.meaningPreserved ?: true,
+            // 누락은 위에서 이미 drop 했으므로 여기서는 검증된 true/false 값만 싣는다.
+            meaningPreserved = meaningPreserved,
             confidence = confidence
         )
     }
@@ -217,7 +225,8 @@ class CorrectionAiResponseMapper @Inject constructor() {
     }
 
     /**
-     * editSpan 하나를 정규화한다. issueCategory/improvementType 이 unknown 이면 그 span 만 제외한다.
+     * editSpan 하나를 정규화한다. issueCategory/improvementType 이 unknown 이면 null 을 돌려 호출부가
+     * signal 전체를 drop 하게 한다(부분 제외 금지 — unknown enum 이 섞이면 신호를 신뢰할 수 없음).
      * languageFeatureKey 는 형식/allowlist 를 어기면 null 로 비우되 span 자체는 유지한다(보조 정보이기 때문).
      */
     private fun normalizeEditSpan(
@@ -226,9 +235,9 @@ class CorrectionAiResponseMapper @Inject constructor() {
         candidateId: String
     ): CorrectionEditSpan? {
         val issueCategory = parseEnumOrNull<CorrectionIssueCategory>(dto.issueCategory)
-            ?: run { logExcludedItem(candidateId, "editSpan.issueCategory", dto.issueCategory); return null }
+            ?: run { logDroppedSignal(candidateId, "editSpan.issueCategory", dto.issueCategory); return null }
         val improvementType = parseEnumOrNull<CorrectionImprovementType>(dto.improvementType)
-            ?: run { logExcludedItem(candidateId, "editSpan.improvementType", dto.improvementType); return null }
+            ?: run { logDroppedSignal(candidateId, "editSpan.improvementType", dto.improvementType); return null }
 
         // 형식에 맞는 featureKey 만 살리고, 어기면 null 로 비운다(span 은 유지).
         val featureKey = dto.languageFeatureKey?.trim()?.takeIf { isValidFeatureKey(it, selectedLang) }
@@ -258,6 +267,28 @@ class CorrectionAiResponseMapper @Inject constructor() {
         val value = raw?.trim().orEmpty()
         if (value.isEmpty()) return null
         return enumValues<T>().firstOrNull { it.name == value }
+    }
+
+    /**
+     * enum 리스트를 엄격 파싱한다. 원소 중 하나라도 unknown 이면 그 값을 Logcat 에 남기고 null 을 돌려
+     * 호출부가 signal 전체를 drop 하게 한다. (부분 제외하지 않는다 — unknown 이 섞인 리스트는 신뢰할 수 없음)
+     * 전부 유효하면 파싱된 리스트를 그대로 돌려준다(캡은 호출부에서 take 로 적용).
+     */
+    private inline fun <reified T : Enum<T>> parseEnumListStrictOrDrop(
+        raw: List<String>?,
+        candidateId: String,
+        field: String
+    ): List<T>? {
+        val result = ArrayList<T>()
+        for (item in raw.orEmpty()) {
+            val parsed = parseEnumOrNull<T>(item)
+            if (parsed == null) {
+                logDroppedSignal(candidateId, field, item)
+                return null
+            }
+            result.add(parsed)
+        }
+        return result
     }
 
     /** signal 전체 drop 을 Logcat 에 남긴다. candidateId 와 위반 값으로 원인을 추적할 수 있게 한다. */

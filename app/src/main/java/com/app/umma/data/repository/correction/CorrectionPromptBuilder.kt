@@ -92,13 +92,13 @@ class CorrectionPromptBuilder @Inject constructor() {
             // 규칙은 enum 을 1:1 장황하게 나열하지 않고 실행 가능한 짧은 지시로 압축한다.
             appendLine("learningSignal rules (what you observed in THIS correction; never rate the learner's overall level):")
             appendLine("- One learningSignal per suggestion, reusing the same candidateId.")
-            appendLine("- issueCategories: pick from [$issueCategoryValues], at most 3.")
-            appendLine("- improvementTypes: pick from [$improvementTypeValues], at most 3.")
+            appendLine("- issueCategories: pick from [$issueCategoryValues], at most 3. Use ONLY these values — any value outside the list discards the whole learningSignal.")
+            appendLine("- improvementTypes: pick from [$improvementTypeValues], at most 3. Use ONLY these values — any value outside the list discards the whole learningSignal.")
             appendLine("- register: exactly one of [$registerValues] describing the corrected sentence.")
             appendLine("- severity: exactly one of [$severityValues].")
             appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}.")
             appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. languageFeatureKey may be null.")
-            appendLine("- meaningPreserved: true unless the correction changed the speaker's intended meaning.")
+            appendLine("- meaningPreserved: ALWAYS include it (never omit) — true unless the correction changed the speaker's intended meaning. A missing value discards the whole learningSignal.")
             appendLine("- confidence: a number in 0.0..1.0, or omit it if unsure.")
             appendLine("- If unsure about a signal, use an empty array or low confidence rather than guessing.")
         }

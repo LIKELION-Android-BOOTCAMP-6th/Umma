@@ -30,7 +30,7 @@ LearningState는 이 신호를 받아 장기 metric / evidence / active focus / 
     - enum은 allowlist로 관대 파싱하고, `issueCategories`/`languageFeatures`/`improvementTypes`/`editSpans`는 각각 최대 3개로 캡한다.
     - `confidence`는 `0.0..1.0`만 허용하고, 없으면 null을 허용한다.
     - `languageFeatures.featureKey`는 `{LANG}.{FeatureName}` namespace를 지키고 `lang`은 `selectedLang`과 일치해야 한다.
-- [ ]  위반 처리: unknown enum 또는 confidence 범위 밖이면 **해당 signal만 drop**하고 suggestion·핵심 4필드 흐름은 유지한다. unknown/형식 위반 featureKey는 **그 feature만 제외**한다. (drop/제외 시 Logcat에 candidateId + 위반 값 기록)
+- [ ]  위반 처리: unknown enum(issueCategories/improvementTypes/editSpans/register/severity) 또는 confidence 범위 밖 또는 meaningPreserved 누락이면 **해당 signal 전체를 drop**하고 suggestion·핵심 4필드 흐름은 유지한다. issueCategories/improvementTypes/editSpans는 unknown 원소가 하나라도 있으면 부분 제외하지 않고 signal 전체를 drop한다(보수적 drop). unknown/형식 위반 featureKey는 **그 feature만 제외**한다(유일한 부분 제외 예외). (drop/제외 시 Logcat에 candidateId + 위반 값 기록)
 - [ ]  learningSignal 누락이나 파싱 실패가 suggestion 생성을 막지 않는다. (핵심 4필드 누락만 기존대로 실패 처리)
 - [ ]  learning signal은 correction candidate당 1개만 반환한다. `sourceTurnId`는 원본 turnId가 있을 때만 채우고, 없어도 `sourceTurnIndex`는 후보 추적 fallback으로 반드시 채운다.
 - [ ]  `CompleteCorrectionUseCase`가 선택된 suggestion의 신호를 `CorrectionResult.learningSignals`로 집계해 completion pipeline으로 넘긴다.
@@ -86,10 +86,12 @@ LearningState는 이 신호를 받아 장기 metric / evidence / active focus / 
 
 # 예외 처리
 
-- learningSignal 파싱 실패 / unknown enum → 그 signal만 drop(또는 feature만 제외), correction 저장과 핵심 4필드 흐름은 무손상.
+- learningSignal 파싱 실패 / unknown enum → 그 signal 전체 drop, correction 저장과 핵심 4필드 흐름은 무손상.
+- `issueCategories`/`improvementTypes`/`editSpans`에 unknown enum 원소가 하나라도 있으면 → 그 원소만 제외하지 않고 signal 전체 drop. (signal은 장기 LangState 입력이므로 불확실하면 보수적으로 버린다)
+- `meaningPreserved` 누락(키 없음) → signal 전체 drop. `true`/`false`는 모두 유효(false는 의미 변형을 알리는 중요 신호).
 - `confidence` 범위 밖 → 해당 signal drop. 없으면 null 허용(LearningState가 medium-low로 취급).
-- unknown / 형식 위반 featureKey → 그 feature만 제외, signal 전체는 유지.
-- `editSpans`가 비어 있어도 signal은 유지한다. (LearningState difficulty guard 정밀도만 낮아짐)
+- unknown / 형식 위반 featureKey → 그 feature만 제외, signal 전체는 유지. (`editSpans`의 `languageFeatureKey`도 형식 위반 시 null로 비우되 span은 유지)
+- `editSpans`가 **빈 배열**이면 signal은 유지한다. (LearningState difficulty guard 정밀도만 낮아짐) unknown enum이 든 span이 있을 때만 signal 전체 drop.
 - `sourceTurnId`가 없어도 `sourceTurnIndex`로 후보를 추적할 수 있어야 한다.
 - 핵심 교정 문장(핵심 4필드) 자체가 파싱 불가일 때만 해당 candidate 전체 실패로 처리한다.
 
@@ -106,7 +108,8 @@ LearningState는 이 신호를 받아 장기 metric / evidence / active focus / 
 # 검증 기준
 
 - 핸드오버 예시 JSON → learningSignal이 정상 파싱되는지 확인한다.
-- unknown issueCategory/improvementType/register/severity → 해당 signal=null, suggestion은 생존하는지 확인한다.
+- unknown issueCategory/improvementType/register/severity/editSpan enum → 해당 signal=null, suggestion은 생존하는지 확인한다.
+- `meaningPreserved` 누락 → signal=null / `false` → signal 유지(meaningPreserved=false)되는지 확인한다.
 - `confidence` 범위 밖 → signal drop / 누락 → null 허용되는지 확인한다.
 - 배열 4개 입력 → 3개로 캡되는지 확인한다.
 - unknown featureKey / `lang≠selectedLang` → 그 feature만 제외되고 signal은 유지되는지 확인한다.
