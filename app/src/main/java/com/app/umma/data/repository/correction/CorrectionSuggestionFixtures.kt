@@ -62,11 +62,13 @@ object CorrectionSuggestionFixtures {
      */
     fun sampleGenerateInput(
         lang: LangCode = LangCode.EN,
+        primaryLang: LangCode = LangCode.KO,
         candidates: List<CorrectionCandidate> = listOf(sampleCandidate(lang = lang))
     ): GenerateSuggestionsInput {
         return GenerateSuggestionsInput(
             candidates = candidates,
-            langState = LangState.initial(lang)
+            langState = LangState.initial(lang),
+            primaryLang = primaryLang
         )
     }
 

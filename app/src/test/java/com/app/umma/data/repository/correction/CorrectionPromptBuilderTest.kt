@@ -37,7 +37,8 @@ class CorrectionPromptBuilderTest {
         )
         val input = GenerateSuggestionsInput(
             candidates = candidates,
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val prompt = builder.build(input)
@@ -61,7 +62,8 @@ class CorrectionPromptBuilderTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val prompt = builder.build(input)
@@ -82,7 +84,8 @@ class CorrectionPromptBuilderTest {
                     sourceText = "hello"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val prompt = builder.build(input)
@@ -104,7 +107,8 @@ class CorrectionPromptBuilderTest {
                     assistantContext = null
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val prompt = builder.build(input)
@@ -124,11 +128,53 @@ class CorrectionPromptBuilderTest {
                     sourceText = "hi"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val prompt = builder.build(input)
 
         assertTrue("markdown 금지 지시 누락", prompt.contains("no markdown"))
+    }
+
+    @Test
+    fun `nativeText rule uses primaryLang language name not hardcoded Korean`() {
+        // primaryLang=KO 이면 "Korean"이 앞면 언어로 지정되어야 한다.
+        val inputKo = GenerateSuggestionsInput(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
+            ),
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
+        )
+        val promptKo = builder.build(inputKo)
+        assertTrue("nativeText 규칙에 Korean 누락", promptKo.contains("Korean"))
+        assertTrue("nativeText 규칙에 ko 코드 누락", promptKo.contains("(ko)"))
+
+        // primaryLang=EN, selectedLang=JA 이면 앞면은 English, 교정문은 ja 로 지정되어야 한다.
+        val inputEnJa = GenerateSuggestionsInput(
+            candidates = listOf(
+                CorrectionCandidate(id = "ja-0-a", lang = LangCode.JA, sourceTurnIndex = 0, sourceText = "わたしが学校")
+            ),
+            langState = LangState.initial(LangCode.JA),
+            primaryLang = LangCode.EN
+        )
+        val promptEnJa = builder.build(inputEnJa)
+        assertTrue("nativeText 앞면 언어가 English 여야 함", promptEnJa.contains("English"))
+        assertTrue("afterText 교정문 언어가 ja 여야 함", promptEnJa.contains("in ja"))
+    }
+
+    @Test
+    fun `explanation rule uses primaryLang for tip language`() {
+        // explanation 팁 언어도 primaryLang 을 따라야 한다.
+        val input = GenerateSuggestionsInput(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
+            ),
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
+        )
+        val prompt = builder.build(input)
+        assertTrue("explanation 팁 언어 Korean 누락", prompt.contains("Korean"))
     }
 }

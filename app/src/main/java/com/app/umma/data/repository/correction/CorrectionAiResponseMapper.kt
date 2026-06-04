@@ -115,7 +115,7 @@ private data class CorrectionAiSuggestionDto(
     // 원본 후보 식별자. 프롬프트에서 내려보낸 값을 AI가 그대로 복사해야 매칭이 성립한다.
     @SerialName("candidateId")
     val candidateId: String,
-    // 교정된 문장의 한국어(ko) 번역. Flashcard 앞면(frontText)으로 쓰인다.
+    // primaryLang 기준 앞면 문장. Flashcard 앞면(frontText)으로 쓰인다. 필드명은 호환용으로 유지.
     @SerialName("nativeText")
     val nativeText: String,
     // 교정 후 학습 언어 문장. Flashcard 뒷면(backText)으로 쓰인다.

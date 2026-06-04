@@ -19,7 +19,7 @@ data class CorrectionSuggestion(
     val sourceTurnIndex: Int,
     // 교정 전 원문.
     val beforeText: String,
-    // Flashcard 앞면에 표시할 모국어 문장. MVP에서는 후보의 의미 문장으로 전달한다.
+    // Flashcard 앞면에 표시할 primaryLang 기준 문장. 필드명은 호환용으로 유지.
     val nativeText: String,
     // 교정 후 문장.
     val afterText: String,

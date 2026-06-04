@@ -9,6 +9,7 @@ import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.currentLangState
 import com.app.umma.domain.model.learningstate.currentSessionSummary
+import com.app.umma.domain.model.learningstate.primaryLang
 import com.app.umma.domain.model.learningstate.selectedLang
 
 /**
@@ -63,6 +64,9 @@ data class CorrectionUiState(
     val phase: Phase = Phase.Loading,
     // 현재 선택 학습 언어. Empty 진입 사유 디버깅(어느 단계가 결손인지 식별) 에도 사용.
     val selectedLearningLanguage: LangCode? = null,
+    // 학습 기준 언어. 앞면(nativeText)과 교정 설명(explanation)을 이 언어로 생성한다.
+    // Ready 게이트 조건에 포함하지 않는다 — primaryLang 은 안전한 fallback 이 있어 생성을 막지 않는다.
+    val primaryLanguage: LangCode? = null,
     // 현재 선택 언어 기준 SessionSummary. correctionAvailable 판정 근거.
     val sessionSummary: SessionSummary? = null,
     // 현재 선택 언어 기준 LangState snapshot. generateSuggestions 입력으로 사용된다.
@@ -415,6 +419,7 @@ internal fun GlobalLangState.toCorrectionUiState(): CorrectionUiState {
         // COR-001-B: 결손 케이스는 단일 Empty 분기로 묶고, 어떤 필드가 비었는지는 notAvailableReason 의 logcat 으로 추적.
         phase = if (ready) CorrectionUiState.Phase.Ready else CorrectionUiState.Phase.Empty,
         selectedLearningLanguage = lang,
+        primaryLanguage = primaryLang,
         sessionSummary = sessionSummary,
         langStateSnapshot = langState,
     )

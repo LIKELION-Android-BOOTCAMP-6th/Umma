@@ -52,7 +52,8 @@ class CorrectionRepositoryImplTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
         aiClient.responseJson = """
             {
@@ -93,7 +94,8 @@ class CorrectionRepositoryImplTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
         aiClient.responseJson = """
             {
@@ -120,7 +122,8 @@ class CorrectionRepositoryImplTest {
         // 후보 0건일 때 네트워크/비용 낭비를 막는다. Empty UX 본격 처리는 -B.
         val input = GenerateSuggestionsInput(
             candidates = emptyList(),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val result = repository.generateSuggestions(input)

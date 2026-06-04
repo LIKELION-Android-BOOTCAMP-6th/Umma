@@ -8,6 +8,7 @@ import com.app.umma.domain.model.correction.CompleteCorrectionInput
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.app.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
@@ -276,6 +277,8 @@ class CorrectionViewModel @Inject constructor(
                 val input = GenerateSuggestionsInput(
                     candidates = candidates,
                     langState = langState,
+                    // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
+                    primaryLang = ready.primaryLanguage ?: LangCode.KO,
                 )
                 generateSuggestions(input).getOrThrow()
             }

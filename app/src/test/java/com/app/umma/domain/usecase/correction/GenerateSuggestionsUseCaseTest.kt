@@ -48,7 +48,8 @@ class GenerateSuggestionsUseCaseTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
 
         val actual = useCase(input)

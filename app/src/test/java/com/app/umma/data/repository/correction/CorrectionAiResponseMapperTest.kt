@@ -107,7 +107,8 @@ class CorrectionAiResponseMapperTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO
         )
     }
 }
