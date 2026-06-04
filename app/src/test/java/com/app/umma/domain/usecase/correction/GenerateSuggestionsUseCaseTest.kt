@@ -8,6 +8,7 @@ import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.repository.CorrectionRepository
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -48,7 +49,9 @@ class GenerateSuggestionsUseCaseTest {
                     sourceText = "i go school"
                 )
             ),
-            langState = LangState.initial(LangCode.EN)
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
 
         val actual = useCase(input)

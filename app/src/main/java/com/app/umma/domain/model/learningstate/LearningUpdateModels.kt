@@ -40,8 +40,8 @@ data class CorrectionResult(
     val correctionCount: Int = 0,
     // 사람이 읽을 설명 메모.
     val notes: String? = null,
-    // Correction AI가 교정 과정에서 관찰한 학습 신호.
-    // 기본값을 비워 기존 correction 완료 경로가 signal 없이도 그대로 동작하게 한다.
+    // 선택된 교정 후보들에서 모은 관찰 학습 신호(COR-TUNE-02).
+    // LearningState가 metric/evidence/focus 갱신 입력으로 소비한다(소비 로직은 별도 작업).
     val learningSignals: List<CorrectionLearningSignal> = emptyList()
 )
 

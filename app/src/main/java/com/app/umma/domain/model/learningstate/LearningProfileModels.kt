@@ -75,6 +75,10 @@ val GlobalLangState.selectedLang: LangCode?
     // 현재 선택 언어가 없으면 null 로 본다.
     get() = userPref?.selectedLang
 
+val GlobalLangState.primaryLang: LangCode?
+    // 학습 기준 언어. selectedLang 과 대칭으로 노출해 호출부가 동일한 방어 패턴을 쓸 수 있게 한다.
+    get() = userPref?.primaryLang
+
 fun GlobalLangState.currentLangState(): LangState? {
     // selectedLang 기준으로 현재 언어 상태를 선택한다.
     val lang = selectedLang ?: return null
