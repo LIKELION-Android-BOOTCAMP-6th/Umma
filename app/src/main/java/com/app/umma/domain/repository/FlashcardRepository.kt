@@ -50,4 +50,12 @@ interface FlashcardRepository {
         userId: String,
         language: LangCode
     ): Result<List<Flashcard>>
+
+    /**
+     * 목록 화면에서 선택된 카드를 삭제한다. (Room 처리 후 Firestore)
+     */
+    suspend fun deleteFlashcards(
+        userId: String,
+        flashcardIds: List<String>
+    ): Result<Unit>
 }

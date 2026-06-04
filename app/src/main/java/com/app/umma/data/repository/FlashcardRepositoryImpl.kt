@@ -187,6 +187,30 @@ class FlashcardRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * 선택된 카드를 로컬에서 먼저 지우고, 원격(Firestore)에도 반영한다.
+     */
+    override suspend fun deleteFlashcards(
+        userId: String,
+        flashcardIds: List<String>
+    ): Result<Unit> {
+        return try {
+            // 선택된 카드가 없으면 아무 것도 하지 않고 성공 처리
+            if (flashcardIds.isEmpty()) return Result.success(Unit)
+
+            // 로컬 삭제
+            localDataSource.deleteFlashcards(uid = userId, flashcardIds = flashcardIds)
+
+            // Firestore - 실패하면 예외로 올려 화면에서 Toast 안내
+            remoteDataSource.deleteFlashcards(flashcardIds).getOrThrow()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            // 삭제 중 예외 발생 시 화면에서 Toast로 안내할 수 있게 실패로 반환
+            Result.failure(e)
+        }
+    }
+
 
     private fun CorrectionFlashcardDto.toDomain(): Flashcard {
         // correction 이 저장한 원본 필드를 SRS 용 domain 모델로만 변환한다.
