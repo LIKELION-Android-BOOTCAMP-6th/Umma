@@ -106,7 +106,11 @@ enum class PrimaryBridgeReason {
     // 세션 시작 profile이 정한 기본 보조 강도다. baseline과 같으면 override를 반복하지 않는다.
     ProfileDefault,
     // 사용자가 "한국어를 섞어줘"처럼 기준언어 보조를 직접 요청했다. baseline과 같아도 이번 응답에 짧게 재강조한다.
-    ExplicitSupportRequest
+    ExplicitSupportRequest,
+    // 1~2단계 초보 profile은 사용자가 명시 요청을 하지 않아도 이해 보장을 위해 기준언어를 자동 보조로 연다.
+    BeginnerAutoSupport,
+    // 사용자가 기준언어를 많이 섞어 말한 상태다. 명시 요청이 없어도 이번 응답에서는 이해 보장을 우선한다.
+    PrimaryDominantTurn
 }
 
 /**

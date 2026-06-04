@@ -17,6 +17,7 @@ class RetryConnectionUseCase @Inject constructor(
     private val learningStateRepo: LearningStateRepo,
     private val sessionMemoryRepository: SessionMemoryRepository,
     private val buildLearnerAdaptationProfileUseCase: BuildLearnerAdaptationProfileUseCase,
+    private val buildChatTurnContextSignalUseCase: BuildChatTurnContextSignalUseCase,
     private val buildChatTurnAdaptationPolicyUseCase: BuildChatTurnAdaptationPolicyUseCase,
     private val buildChatSpeechSpeedUseCase: BuildChatSpeechSpeedUseCase,
     private val buildPromptUseCase: BuildPromptUseCase
@@ -80,11 +81,28 @@ class RetryConnectionUseCase @Inject constructor(
                 targetLang = userPref.selectedLang
             )
         }
+        val promptTrace = buildPromptUseCase.buildSessionPromptTrace(
+            profile = profile,
+            primaryLang = userPref.primaryLang,
+            selectedLang = userPref.selectedLang,
+            recentFullContext = recentFullContext
+        )
 
         val responseOverrideProvider = ChatResponseOverrideProvider { userFinalTranscript ->
             // 재연결 후에도 startSession과 같은 turn override 정책을 써야 같은 세션에서 난이도가 흔들리지 않는다.
+            val latestRecentContext = sessionMemoryRepository
+                .getSessionMemory(userPref.selectedLang)
+                .getOrNull()
+                ?.recentFullContext
+                .orEmpty()
+            // retry 이후에도 같은 맥락 신호 계산을 써야 짧은 정상 답변이 재연결 경로에서만 다르게 처리되지 않는다.
+            val contextSignal = buildChatTurnContextSignalUseCase(
+                recentFullContext = latestRecentContext,
+                userFinalTranscript = userFinalTranscript
+            )
             val turnPolicy = buildChatTurnAdaptationPolicyUseCase(
                 transcript = userFinalTranscript,
+                contextSignal = contextSignal,
                 profile = profile,
                 primaryLang = userPref.primaryLang,
                 selectedLang = userPref.selectedLang
@@ -94,7 +112,8 @@ class RetryConnectionUseCase @Inject constructor(
                 basePolicy = baseTurnPolicy,
                 turnPolicy = turnPolicy,
                 primaryLang = userPref.primaryLang,
-                selectedLang = userPref.selectedLang
+                selectedLang = userPref.selectedLang,
+                contextSignal = contextSignal
             )
             // speed 역시 같은 profile/turnPolicy 조합으로 계산해 start와 retry의 정책 차이를 없앤다.
             val turnAudioSpeed = buildChatSpeechSpeedUseCase(
@@ -103,13 +122,21 @@ class RetryConnectionUseCase @Inject constructor(
             )
             ChatResponseOverride(
                 responseInstructions = responseInstructions,
-                outputAudioSpeed = turnAudioSpeed
+                outputAudioSpeed = turnAudioSpeed,
+                debugTrace = buildPromptUseCase.buildTurnOverrideTrace(
+                    basePolicy = baseTurnPolicy,
+                    turnPolicy = turnPolicy,
+                    contextSignal = contextSignal,
+                    hasResponseInstructions = !responseInstructions.isNullOrBlank(),
+                    outputAudioSpeed = turnAudioSpeed
+                )
             )
         }
 
         return repository.reconnectSession(
             systemInstruction = prompt,
             outputAudioSpeed = outputAudioSpeed,
+            systemInstructionDebugTrace = promptTrace,
             responseOverrideProvider = responseOverrideProvider
         )
             .fold(
