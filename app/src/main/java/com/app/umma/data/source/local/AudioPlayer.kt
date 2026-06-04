@@ -34,6 +34,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
 
     companion object {
         private const val TAG = "AiAudioPlayback"
+        private const val DIAG_TAG = "AiChatPlayback"
         private const val SAMPLE_RATE = 24000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
@@ -108,8 +109,11 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         val track = audioTrack
         if (track?.state != AudioTrack.STATE_INITIALIZED) {
             Log.w(TAG, "chunk ignored: track is not initialized, bytes=${audio.size}")
+            Log.w(DIAG_TAG, "audio_chunk_ignored reason=track_not_initialized bytes=${audio.size}")
             return
         }
+
+        resetStalePendingBeforeNewPlaybackIfNeeded()
 
         // Channel.UNLIMITED 를 쓰는 이유는 음성 일부를 조용히 버리는 DROP_OLDEST 정책이
         // 실제 사용자에게 "단어가 빠진 음성"으로 들릴 수 있기 때문이다.
@@ -122,16 +126,28 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                     TAG,
                     "queue backlog: pending=$pendingAfterEnqueue, enqueued=$enqueued"
                 )
+                Log.w(
+                    DIAG_TAG,
+                    "audio_queue_backlog pending=$pendingAfterEnqueue enqueued=$enqueued played=${playedChunkCount.get()}"
+                )
             }
             Log.d(
                 TAG,
                 "chunk enqueued: index=$enqueued, bytes=${audio.size}, pending=$pendingAfterEnqueue"
+            )
+            Log.d(
+                DIAG_TAG,
+                "audio_chunk_enqueued index=$enqueued bytes=${audio.size} pending=$pendingAfterEnqueue"
             )
         } else {
             val pendingAfterRollback = decrementPendingChunkCount()
             Log.w(
                 TAG,
                 "chunk enqueue failed: bytes=${audio.size}, pending=$pendingAfterRollback"
+            )
+            Log.w(
+                DIAG_TAG,
+                "audio_chunk_enqueue_failed bytes=${audio.size} pending=$pendingAfterRollback"
             )
             return
         }
@@ -159,7 +175,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         clearAudioQueue()
         _outputLevel.value = 0f
         _isPlaying.value = false
-        resetPlaybackMetrics()
+        resetPlaybackState(reason = "stop")
         audioTrack?.stop()
         audioTrack?.flush()
     }
@@ -170,7 +186,7 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         clearAudioQueue()
         _outputLevel.value = 0f
         _isPlaying.value = false
-        resetPlaybackMetrics()
+        resetPlaybackState(reason = "release")
         playerScope.cancel()
         audioTrack?.release()
         audioTrack = null
@@ -197,6 +213,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                             TAG,
                             "playback started: pending=${pendingChunkCount.get()}, underruns=${getUnderrunCountCompat()}"
                         )
+                        Log.d(
+                            DIAG_TAG,
+                            "audio_playback_started pending=${pendingChunkCount.get()} underruns=${getUnderrunCountCompat()}"
+                        )
                     }
 
                     // Android 기기별 AudioTrack 구현은 play 전 write에서 0 byte를 반복 반환할 수 있다.
@@ -215,10 +235,18 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                             TAG,
                             "chunk played: index=$played, bytes=${chunk.size}, pending=$pendingAfterPlayback"
                         )
+                        Log.d(
+                            DIAG_TAG,
+                            "audio_chunk_played index=$played bytes=${chunk.size} pending=$pendingAfterPlayback"
+                        )
                     } else {
                         Log.w(
                             TAG,
                             "chunk playback incomplete: index=$played, bytes=${chunk.size}, pending=$pendingAfterPlayback"
+                        )
+                        Log.w(
+                            DIAG_TAG,
+                            "audio_chunk_playback_incomplete index=$played bytes=${chunk.size} pending=$pendingAfterPlayback"
                         )
                     }
 
@@ -238,6 +266,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                                 TAG,
                                 "playback drained: enqueued=${enqueuedChunkCount.get()}, played=${playedChunkCount.get()}, failedWrites=${failedWriteCount.get()}"
                             )
+                            Log.d(
+                                DIAG_TAG,
+                                "audio_playback_drained enqueued=${enqueuedChunkCount.get()} played=${playedChunkCount.get()} failedWrites=${failedWriteCount.get()} underruns=${getUnderrunCountCompat()}"
+                            )
                         }
                     }
                 }
@@ -250,6 +282,11 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                     "playback worker failed: type=${error::class.java.simpleName}, message=${error.message}",
                     error
                 )
+                Log.e(
+                    DIAG_TAG,
+                    "audio_playback_worker_failed type=${error::class.java.simpleName} message=${error.message}",
+                    error
+                )
             } finally {
                 // AudioTrack write/drain 경계에서 예외가 나도 UI가 영구 SPEAKING 상태에 머무르면 안 된다.
                 // 따라서 worker 종료 경계에서는 출력 레벨과 playing flag 를 항상 안전 상태로 내린다.
@@ -258,6 +295,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                 }
                 _outputLevel.value = 0f
                 _isPlaying.value = false
+                Log.d(
+                    DIAG_TAG,
+                    "audio_playback_worker_finished pending=${pendingChunkCount.get()} enqueued=${enqueuedChunkCount.get()} played=${playedChunkCount.get()} failedWrites=${failedWriteCount.get()}"
+                )
             }
         }
     }
@@ -300,12 +341,20 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                             TAG,
                             "zero-byte write: remaining=${chunk.size - writtenTotal}"
                         )
+                        Log.d(
+                            DIAG_TAG,
+                            "audio_zero_byte_write remaining=${chunk.size - writtenTotal}"
+                        )
                     }
                     if (zeroWriteCount >= ZERO_WRITE_MAX_RETRY_COUNT) {
                         failedWriteCount.incrementAndGet()
                         Log.w(
                             TAG,
                             "zero-byte write aborted: retries=$zeroWriteCount, written=$writtenTotal, total=${chunk.size}"
+                        )
+                        Log.w(
+                            DIAG_TAG,
+                            "audio_zero_byte_write_aborted retries=$zeroWriteCount written=$writtenTotal total=${chunk.size}"
                         )
                         return false
                     }
@@ -317,6 +366,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                     Log.w(
                         TAG,
                         "write failed: code=$writeResult, written=$writtenTotal, total=${chunk.size}"
+                    )
+                    Log.w(
+                        DIAG_TAG,
+                        "audio_write_failed code=$writeResult written=$writtenTotal total=${chunk.size}"
                     )
                     return false
                 }
@@ -347,6 +400,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                 Log.d(
                     TAG,
                     "prebuffer timeout: pending=${pendingChunkCount.get()}, waitedMs=$PREBUFFER_MAX_WAIT_MS"
+                )
+                Log.d(
+                    DIAG_TAG,
+                    "audio_prebuffer_timeout pending=${pendingChunkCount.get()} waitedMs=$PREBUFFER_MAX_WAIT_MS"
                 )
                 return
             }
@@ -400,6 +457,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
             TAG,
             "silence padding written: bytes=${silencePadding.size}, targetFrames=$submittedFramesAfterPadding"
         )
+        Log.d(
+            DIAG_TAG,
+            "audio_silence_padding_written bytes=${silencePadding.size} targetFrames=$submittedFramesAfterPadding"
+        )
         return submittedFramesAfterPadding
     }
 
@@ -435,6 +496,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                     TAG,
                     "drain wait timeout: playedFrames=$playedFrames, targetFrames=$targetSubmittedFrames, waitedMs=$maxWaitMs"
                 )
+                Log.d(
+                    DIAG_TAG,
+                    "audio_drain_wait_timeout playedFrames=$playedFrames targetFrames=$targetSubmittedFrames waitedMs=$maxWaitMs"
+                )
                 return
             }
             delay(PLAYBACK_DRAIN_WAIT_STEP_MS)
@@ -460,6 +525,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
             Log.d(
                 TAG,
                 "playback paused after drain: underruns=$underrunCount"
+            )
+            Log.d(
+                DIAG_TAG,
+                "audio_playback_paused_after_drain underruns=$underrunCount"
             )
         }
     }
@@ -489,6 +558,10 @@ class AudioPlayer @Inject constructor() : AudioOutput {
                 TAG,
                 "underrun detected: previous=$lastLoggedUnderrunCount, current=$underrunCount, pending=${pendingChunkCount.get()}"
             )
+            Log.w(
+                DIAG_TAG,
+                "audio_underrun_detected previous=$lastLoggedUnderrunCount current=$underrunCount pending=${pendingChunkCount.get()}"
+            )
             lastLoggedUnderrunCount = underrunCount
         }
     }
@@ -503,5 +576,52 @@ class AudioPlayer @Inject constructor() : AudioOutput {
         currentPlaybackEndedAtMs = null
         submittedFrameCount.set(0L)
         lastLoggedUnderrunCount = getUnderrunCountCompat()
+    }
+
+    /**
+     * 로컬 재생 상태를 새 응답을 받을 수 있는 안전한 기준점으로 되돌립니다.
+     *
+     * pending counter는 UI 마이크 잠금과 직접 연결되므로 stop/release/stale 복구 경계에서
+     * 반드시 0으로 내려야 한다. 여기서 재생 시간 metric도 함께 초기화해 이전 응답의
+     * frame/drain 기준이 다음 응답에 섞이지 않게 한다.
+     */
+    private fun resetPlaybackState(reason: String) {
+        val pendingBeforeReset = pendingChunkCount.getAndSet(0)
+        val enqueuedBeforeReset = enqueuedChunkCount.getAndSet(0L)
+        val playedBeforeReset = playedChunkCount.getAndSet(0L)
+        val failedBeforeReset = failedWriteCount.getAndSet(0L)
+        resetPlaybackMetrics()
+        if (
+            pendingBeforeReset > 0 ||
+            enqueuedBeforeReset > 0L ||
+            playedBeforeReset > 0L ||
+            failedBeforeReset > 0L
+        ) {
+            Log.d(
+                DIAG_TAG,
+                "audio_playback_state_reset reason=$reason pending=$pendingBeforeReset enqueued=$enqueuedBeforeReset played=$playedBeforeReset failedWrites=$failedBeforeReset"
+            )
+        }
+    }
+
+    /**
+     * 새 chunk 수신 전, 이전 응답에서 남은 pending count가 있으면 선제 복구합니다.
+     *
+     * 관측된 장애는 실제 큐가 비었는데 pending count만 1 남아 마지막 chunk 후 drain 분기가
+     * 실행되지 않는 형태였다. 같은 계열의 문제를 줄이기 위해 pending만 지우지 않고,
+     * 혹시 남아 있을 수 있는 orphan queue chunk도 함께 비워 다음 응답에 섞이지 않게 한다.
+     */
+    private fun resetStalePendingBeforeNewPlaybackIfNeeded() {
+        if (_isPlaying.value) return
+
+        val pendingBeforeReset = pendingChunkCount.get()
+        if (pendingBeforeReset <= 0) return
+
+        clearAudioQueue()
+        resetPlaybackState(reason = "stale-pending-before-enqueue")
+        Log.w(
+            DIAG_TAG,
+            "audio_stale_pending_recovered pending=$pendingBeforeReset"
+        )
     }
 }
