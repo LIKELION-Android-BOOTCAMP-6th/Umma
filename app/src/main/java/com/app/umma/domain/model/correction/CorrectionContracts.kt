@@ -2,6 +2,7 @@ package com.app.umma.domain.model.correction
 
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 
 /**
  * 후보 추출 결과와 LangState snapshot 을 함께 넘겨 교정 결과를 생성하기 위한 입력 모델입니다.
@@ -17,7 +18,11 @@ data class GenerateSuggestionsInput(
     val langState: LangState,
     // 사용자의 학습 기준 언어. 앞면 문장(nativeText)과 교정 설명(explanation)을 이 언어로 생성한다.
     // selectedLang 과 같을 수 있으며, 그 경우 앞면과 교정문이 동일 언어가 된다.
-    val primaryLang: LangCode
+    val primaryLang: LangCode,
+    // 이미 해석이 끝난 교정 적응 정책 read model (COR-TUNE-01).
+    // BuildLearnerAdaptationProfileUseCase 가 raw LangState metric 을 정책으로 변환한 결과이며,
+    // CorrectionPromptBuilder 는 이 profile 의 correctionPolicy/focus 만 행동 지시로 쓰고 raw metric 은 해석하지 않는다.
+    val profile: LearnerAdaptationProfile
 )
 
 /**

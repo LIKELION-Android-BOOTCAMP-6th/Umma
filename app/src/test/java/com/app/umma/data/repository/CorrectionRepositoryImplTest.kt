@@ -13,6 +13,7 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -53,7 +54,8 @@ class CorrectionRepositoryImplTest {
                 )
             ),
             langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
         aiClient.responseJson = """
             {
@@ -95,7 +97,8 @@ class CorrectionRepositoryImplTest {
                 )
             ),
             langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
         aiClient.responseJson = """
             {
@@ -123,7 +126,8 @@ class CorrectionRepositoryImplTest {
         val input = GenerateSuggestionsInput(
             candidates = emptyList(),
             langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
 
         val result = repository.generateSuggestions(input)

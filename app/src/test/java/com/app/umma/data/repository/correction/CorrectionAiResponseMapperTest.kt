@@ -4,6 +4,7 @@ import com.app.umma.domain.model.correction.CorrectionCandidate
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
@@ -108,7 +109,8 @@ class CorrectionAiResponseMapperTest {
                 )
             ),
             langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
         )
     }
 }

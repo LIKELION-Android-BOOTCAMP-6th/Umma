@@ -2,8 +2,32 @@ package com.app.umma.data.repository.correction
 
 import com.app.umma.domain.model.correction.CorrectionCandidate
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
+import com.app.umma.domain.model.learningstate.ChallengeLevel
+import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
+import com.app.umma.domain.model.learningstate.CorrectionAdaptationPolicy
+import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
+import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
+import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
+import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LearnerAbilityProfile
+import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
+import com.app.umma.domain.model.learningstate.LearningFocusSummary
+import com.app.umma.domain.model.learningstate.LearningFocusType
+import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
+import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
+import com.app.umma.domain.model.learningstate.ProfileConfidence
+import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
+import com.app.umma.domain.model.learningstate.RecastStylePolicy
+import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
+import com.app.umma.domain.model.learningstate.SkillStage
+import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
+import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
+import com.app.umma.domain.model.learningstate.VocabLevel
+import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,10 +37,14 @@ import org.junit.Test
  *
  * Mapper 와 한 디렉토리에 있는 이유는, 프롬프트 schema 가 [CorrectionAiResponseMapper] 가 받는 DTO 와
  * 한 글자라도 어긋나면 happy path 가 통째로 깨지기 때문이다. 두 파일의 schema 일치를 이 테스트가 못박는다.
+ *
+ * COR-TUNE-01: 학습자 수준은 raw metric(CEFR/grammarAccuracy/naturalnessScore) 숫자가 아니라
+ * 이미 해석된 [LearnerAdaptationProfile.correctionPolicy] 행동 지시로만 반영되어야 한다.
  */
 class CorrectionPromptBuilderTest {
 
     private val builder = CorrectionPromptBuilder()
+    private val profileUseCase = BuildLearnerAdaptationProfileUseCase()
 
     @Test
     fun `prompt includes every candidate id and source text`() {
@@ -35,11 +63,7 @@ class CorrectionPromptBuilderTest {
                 assistantContext = "We were talking about cafes."
             )
         )
-        val input = GenerateSuggestionsInput(
-            candidates = candidates,
-            langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
-        )
+        val input = inputOf(candidates = candidates)
 
         val prompt = builder.build(input)
 
@@ -53,7 +77,7 @@ class CorrectionPromptBuilderTest {
     @Test
     fun `prompt declares the exact JSON schema keys mapper expects`() {
         // 이 키 셋이 깨지면 CorrectionAiResponseMapper 의 @Serializable DTO 와 어긋나 happy path 가 무너진다.
-        val input = GenerateSuggestionsInput(
+        val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(
                     id = "en-0-a",
@@ -61,9 +85,7 @@ class CorrectionPromptBuilderTest {
                     sourceTurnIndex = 0,
                     sourceText = "i go school"
                 )
-            ),
-            langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            )
         )
 
         val prompt = builder.build(input)
@@ -74,8 +96,10 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
-    fun `prompt embeds learner cefr level so model can calibrate difficulty`() {
-        val input = GenerateSuggestionsInput(
+    fun `prompt does not leak raw learner metrics`() {
+        // COR-TUNE-01: CEFR 라벨이나 grammarAccuracy/naturalnessScore 같은 "%.2f" 숫자가 프롬프트에 노출되면 안 된다.
+        // LangState.initial 의 기본 vocabularyLevel(A1)도 더 이상 프롬프트에 들어가지 않는다.
+        val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(
                     id = "en-0-a",
@@ -83,21 +107,25 @@ class CorrectionPromptBuilderTest {
                     sourceTurnIndex = 0,
                     sourceText = "hello"
                 )
-            ),
-            langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            )
         )
 
         val prompt = builder.build(input)
 
-        // LangState.initial 의 기본 vocabularyLevel 은 A1.
-        assertTrue("CEFR level (A1) 누락", prompt.contains("A1"))
+        assertFalse("CEFR level(A1) 이 프롬프트에 노출됨", prompt.contains("A1"))
+        assertFalse("CEFR 라벨이 프롬프트에 노출됨", prompt.contains("CEFR"))
+        assertFalse("grammar accuracy raw 라벨 노출", prompt.contains("Grammar accuracy"))
+        assertFalse("naturalness raw 라벨 노출", prompt.contains("Naturalness"))
+        assertFalse(
+            "raw metric 숫자(%.2f 포맷)가 프롬프트에 노출됨",
+            Regex("""\d\.\d{2}""").containsMatchIn(prompt)
+        )
     }
 
     @Test
     fun `prompt omits assistantContext line when null or blank`() {
         // 빈 context 가 그대로 들어가면 토큰 낭비 + 모델 혼란.
-        val input = GenerateSuggestionsInput(
+        val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(
                     id = "en-0-a",
@@ -106,9 +134,7 @@ class CorrectionPromptBuilderTest {
                     sourceText = "hi",
                     assistantContext = null
                 )
-            ),
-            langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            )
         )
 
         val prompt = builder.build(input)
@@ -119,7 +145,7 @@ class CorrectionPromptBuilderTest {
     @Test
     fun `prompt forbids markdown fences so mapper json decode survives`() {
         // mapper 는 markdown fence 가 섞이면 json decode 단계에서 즉시 깨진다.
-        val input = GenerateSuggestionsInput(
+        val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(
                     id = "en-0-a",
@@ -127,9 +153,7 @@ class CorrectionPromptBuilderTest {
                     sourceTurnIndex = 0,
                     sourceText = "hi"
                 )
-            ),
-            langState = LangState.initial(LangCode.EN),
-            primaryLang = LangCode.KO
+            )
         )
 
         val prompt = builder.build(input)
@@ -140,11 +164,11 @@ class CorrectionPromptBuilderTest {
     @Test
     fun `nativeText rule uses primaryLang language name not hardcoded Korean`() {
         // primaryLang=KO 이면 "Korean"이 앞면 언어로 지정되어야 한다.
-        val inputKo = GenerateSuggestionsInput(
+        val inputKo = inputOf(
             candidates = listOf(
                 CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
             ),
-            langState = LangState.initial(LangCode.EN),
+            lang = LangCode.EN,
             primaryLang = LangCode.KO
         )
         val promptKo = builder.build(inputKo)
@@ -152,11 +176,11 @@ class CorrectionPromptBuilderTest {
         assertTrue("nativeText 규칙에 ko 코드 누락", promptKo.contains("(ko)"))
 
         // primaryLang=EN, selectedLang=JA 이면 앞면은 English, 교정문은 ja 로 지정되어야 한다.
-        val inputEnJa = GenerateSuggestionsInput(
+        val inputEnJa = inputOf(
             candidates = listOf(
                 CorrectionCandidate(id = "ja-0-a", lang = LangCode.JA, sourceTurnIndex = 0, sourceText = "わたしが学校")
             ),
-            langState = LangState.initial(LangCode.JA),
+            lang = LangCode.JA,
             primaryLang = LangCode.EN
         )
         val promptEnJa = builder.build(inputEnJa)
@@ -167,14 +191,175 @@ class CorrectionPromptBuilderTest {
     @Test
     fun `explanation rule uses primaryLang for tip language`() {
         // explanation 팁 언어도 primaryLang 을 따라야 한다.
-        val input = GenerateSuggestionsInput(
+        val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
             ),
-            langState = LangState.initial(LangCode.EN),
+            lang = LangCode.EN,
             primaryLang = LangCode.KO
         )
         val prompt = builder.build(input)
         assertTrue("explanation 팁 언어 Korean 누락", prompt.contains("Korean"))
     }
+
+    @Test
+    fun `support policy yields minimal-fix behaviour and no expansion wording`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            profile = profileWith(
+                CorrectionAdaptationPolicy(
+                    challengeLevel = ChallengeLevel.Support,
+                    correctionStyle = CorrectionStylePolicy.MinimalFix,
+                    vocabularyStrategy = VocabularyStrategyPolicy.KeepSimpleWords,
+                    grammarStrategy = GrammarStrategyPolicy.FixBlockingErrorOnly,
+                    spokenRegisterStrategy = SpokenRegisterStrategy.Simple,
+                    primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("Support 의 최소 수정 지시 누락", prompt.contains("Fix only what blocks meaning"))
+        assertTrue("Correction policy 블록 누락", prompt.contains("Correction policy"))
+        assertFalse("Support 에 뉘앙스 문구가 새어 나옴", prompt.contains("nuance"))
+        assertFalse("Support 에 register 확장 문구가 새어 나옴", prompt.contains("register"))
+    }
+
+    @Test
+    fun `refine policy surfaces nuance and register behaviour`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            profile = profileWith(
+                CorrectionAdaptationPolicy(
+                    challengeLevel = ChallengeLevel.Refine,
+                    correctionStyle = CorrectionStylePolicy.NuanceAndRegister,
+                    vocabularyStrategy = VocabularyStrategyPolicy.RefineNativeChoice,
+                    grammarStrategy = GrammarStrategyPolicy.RefineAdvancedStructure,
+                    spokenRegisterStrategy = SpokenRegisterStrategy.NativeLikeCasual,
+                    primaryLanguageSupport = PrimaryLanguageSupportPolicy.TargetLanguageOnly
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("Refine 의 뉘앙스 문구 누락", prompt.contains("nuance"))
+        assertTrue("Refine 의 register 문구 누락", prompt.contains("register"))
+        assertFalse("Refine 에 최소 수정 문구가 새어 나옴", prompt.contains("Fix only what blocks meaning"))
+    }
+
+    @Test
+    fun `focus line appears only when focus is trustworthy`() {
+        val candidate = CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+
+        // 신뢰 가능한 focus(Tense, Medium, 관측 3회) → 한 줄 노출.
+        val trustworthy = inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(
+                correctionPolicy = supportPolicy(),
+                focus = LearningFocusSummary(
+                    primaryFocus = LearningFocusType.Tense,
+                    secondaryFocus = null,
+                    confidence = ProfileConfidence.Medium,
+                    observedCount = 3
+                )
+            )
+        )
+        val withFocus = builder.build(trustworthy)
+        assertTrue("신뢰 가능한 focus 라인 누락", withFocus.contains("focus:"))
+        assertTrue("focus 라벨(verb tense) 누락", withFocus.contains("verb tense"))
+
+        // primaryFocus 가 없으면(=신뢰 불가) focus 라인은 생략된다.
+        val noFocusInput = inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(correctionPolicy = supportPolicy(), focus = noFocus())
+        )
+        val withoutFocus = builder.build(noFocusInput)
+        assertFalse("focus 가 없는데 focus 라인이 노출됨", withoutFocus.contains("focus:"))
+
+        // confidence Low 면 focus 가 있어도 생략된다.
+        val lowConfidence = inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(
+                correctionPolicy = supportPolicy(),
+                focus = LearningFocusSummary(
+                    primaryFocus = LearningFocusType.Tense,
+                    secondaryFocus = null,
+                    confidence = ProfileConfidence.Low,
+                    observedCount = 5
+                )
+            )
+        )
+        assertFalse("저신뢰 focus 가 노출됨", builder.build(lowConfidence).contains("focus:"))
+    }
+
+    // --- helpers ---
+
+    /**
+     * 테스트용 입력 생성. profile 을 명시하지 않으면 LangState.initial 에서 해석한 보수적 profile 을 쓴다.
+     */
+    private fun inputOf(
+        candidates: List<CorrectionCandidate>,
+        lang: LangCode = LangCode.EN,
+        primaryLang: LangCode = LangCode.KO,
+        profile: LearnerAdaptationProfile = profileUseCase(LangState.initial(lang))
+    ): GenerateSuggestionsInput = GenerateSuggestionsInput(
+        candidates = candidates,
+        langState = LangState.initial(lang),
+        primaryLang = primaryLang,
+        profile = profile
+    )
+
+    private fun supportPolicy(): CorrectionAdaptationPolicy = CorrectionAdaptationPolicy(
+        challengeLevel = ChallengeLevel.Support,
+        correctionStyle = CorrectionStylePolicy.MinimalFix,
+        vocabularyStrategy = VocabularyStrategyPolicy.KeepSimpleWords,
+        grammarStrategy = GrammarStrategyPolicy.FixBlockingErrorOnly,
+        spokenRegisterStrategy = SpokenRegisterStrategy.Simple,
+        primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
+    )
+
+    private fun noFocus(): LearningFocusSummary = LearningFocusSummary(
+        primaryFocus = null,
+        secondaryFocus = null,
+        confidence = ProfileConfidence.Low,
+        observedCount = 0
+    )
+
+    /**
+     * correctionPolicy 만 다르게 한 LearnerAdaptationProfile 직접 조립.
+     * 프롬프트 빌더 단위 테스트라 BuildLearnerAdaptationProfileUseCase 의 휴리스틱과 분리해 정책→문구만 검증한다.
+     */
+    private fun profileWith(
+        correctionPolicy: CorrectionAdaptationPolicy,
+        focus: LearningFocusSummary = noFocus()
+    ): LearnerAdaptationProfile = LearnerAdaptationProfile(
+        core = LearnerAbilityProfile(
+            cefrLevel = VocabLevel.A1,
+            levelConfidence = ProfileConfidence.Medium,
+            grammarStage = SkillStage.Foundation,
+            vocabularyStage = SkillStage.Foundation,
+            fluencyStage = SkillStage.Foundation,
+            naturalnessStage = SkillStage.Foundation,
+            focus = focus
+        ),
+        chatPolicy = anyChatPolicy(),
+        correctionPolicy = correctionPolicy
+    )
+
+    private fun anyChatPolicy(): ChatAdaptationPolicy = ChatAdaptationPolicy(
+        conversationBand = ConversationAbilityBand.SimpleSentence,
+        intentSupport = IntentSupportPolicy.TrustMeaning,
+        primaryBridge = PrimaryBridgePolicy.FallbackOnly,
+        recastStyle = RecastStylePolicy.SimpleInline,
+        expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
+        questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+        responseLength = ResponseLengthPolicy.NaturalBrief,
+        speechSpeed = SpeechSpeedPolicy.NormalLearning
+    )
 }
