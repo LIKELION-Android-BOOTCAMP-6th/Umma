@@ -243,6 +243,15 @@ class ApplyReviewDecisionUseCaseTest {
             // 목록 조회는 ApplyReviewDecisionUseCase의 검증 범위가 아니므로 빈 결과로 계약만 맞춘다.
             return Result.success(emptyList())
         }
+
+        override suspend fun deleteFlashcards(
+            userId: String,
+            flashcardIds: List<String>
+        ): Result<Unit> {
+            // 이 테스트는 복습 결정 적용만 검증하므로 삭제 경로는 사용하지 않는다.
+            // 인터페이스 확장으로 인한 컴파일 계약만 충족한다.
+            return Result.success(Unit)
+        }
     }
 
     private class RecordingLearningStateRepo(

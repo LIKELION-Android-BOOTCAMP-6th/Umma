@@ -626,6 +626,15 @@ class CompleteCorrectionUseCaseTest {
             // 이 테스트는 correction 완료 후 summary 갱신만 다루므로 목록 조회는 사용하지 않는다.
             return Result.success(emptyList())
         }
+
+        override suspend fun deleteFlashcards(
+            userId: String,
+            flashcardIds: List<String>
+        ): Result<Unit> {
+            // CompleteCorrectionUseCase는 flashcard 삭제 경로를 호출하지 않는다.
+            // fake는 인터페이스 계약만 맞추고, 삭제가 필요한 테스트는 별도 use case에서 다룬다.
+            return Result.success(Unit)
+        }
     }
 
     @Test
