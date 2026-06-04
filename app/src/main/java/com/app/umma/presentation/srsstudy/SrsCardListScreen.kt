@@ -6,8 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +21,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,10 +40,11 @@ import com.app.umma.core.theme.CardElevation
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
-import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextCorrect
+import com.app.umma.core.theme.TextExplanationR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
+import com.app.umma.core.theme.TextPrimaryR
 import com.app.umma.core.theme.TextSecondaryR
 import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
@@ -46,10 +52,12 @@ import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.presentation.correction.component.CorrectionSelectAllBar
 
+// 학습>학습카드리스트
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SrsCardListScreen(
     onBack: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     viewModel: SrsCardListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -92,19 +100,32 @@ fun SrsCardListScreen(
                     )
 
                 uiState.cards.isEmpty() ->
-                    Text(
-                        "저장된 카드가 없습니다.",
-                        style = TextSecondaryR,
-                        color = TextPrimary,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(SpacingS)
+                    ) {
+                        Text(
+                            "저장된 카드가 없습니다.",
+                            style = TextSecondaryR,
+                            color = TextPrimary,
+                        )
+                        Spacer(modifier = Modifier.height(SpacingL))
+                        Button(
+                            onClick = onNavigateToCorrection,
+                            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary)
+                        ) {
+                            Text("AI 교정하러 가기")
+                        }
+                    }
 
                 else ->
                     SrsCardListContent(
                         uiState = uiState,
                         onToggleSelectAll = viewModel::toggleSelectAll,
                         onToggleSelection = viewModel::toggleSelection,
-                        onDeleteClick = viewModel::deleteSelected
+                        onDeleteClick = viewModel::deleteSelected,
+                        onSortSelected = viewModel::setSortOrder
                     )
             }
         }
@@ -116,10 +137,18 @@ private fun SrsCardListContent(
     uiState: SrsCardListUiState,
     onToggleSelectAll: () -> Unit,
     onToggleSelection: (String) -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onSortSelected: (SrsCardSortOrder) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // 상단: 전체 선택 바
+//        상단
+        //  정렬 선택 바
+        SrsCardSortBar(
+            current = uiState.sortOrder,
+            onSelect = onSortSelected
+        )
+
+        // 전체 선택 바
         CorrectionSelectAllBar(
             totalCount = uiState.cards.size,
             selectedCount = uiState.selectedCount,
@@ -135,7 +164,7 @@ private fun SrsCardListContent(
                 .padding(horizontal = SpacingL),
             verticalArrangement = Arrangement.spacedBy(SpacingS)
         ) {
-            items(uiState.cards) { card ->
+            items(uiState.displayedCards) { card ->
                 SrsCardListItem(
                     card = card,
                     isSelected = card.id in uiState.selectedIds,
@@ -178,14 +207,42 @@ private fun SrsCardListItem(
             // 학습언어 정답
             Text(
                 text = card.backText,
-                style = TextSecondaryR,
+                style = TextPrimaryR,
                 color = TextCorrect
             )
             // 모국어
             Text(
                 text = card.frontText,
-                style = TextAnalysisR,
+                style = TextExplanationR,
                 color = TextWrong
+            )
+        }
+    }
+}
+
+// 정렬 선택 (최신순/오래된순/복습 임박순)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SrsCardSortBar(
+    current: SrsCardSortOrder,
+    onSelect: (SrsCardSortOrder) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = SpacingL, vertical = SpacingS),
+        horizontalArrangement = Arrangement.spacedBy(SpacingS)
+    ) {
+        SrsCardSortOrder.entries.forEach { order
+            ->
+            FilterChip(
+                selected = current == order,
+                onClick = { onSelect(order) },
+                label = { Text(order.label) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = ThemePrimary,
+                    selectedLabelColor = TextPrimary
+                )
             )
         }
     }

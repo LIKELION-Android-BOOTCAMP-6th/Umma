@@ -1,9 +1,17 @@
 package com.app.umma.presentation.srsstudy
 
 import android.util.Log
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +37,7 @@ import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SentimentVerySatisfied
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,12 +62,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.ButtonScreenB
-import com.app.umma.core.theme.PercentageDialogB
+import com.app.umma.core.theme.CardElevation
+import com.app.umma.core.theme.RatingAgain
+import com.app.umma.core.theme.RatingEasy
+import com.app.umma.core.theme.RatingHard
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
@@ -69,8 +80,10 @@ import com.app.umma.core.theme.TextCorrect
 import com.app.umma.core.theme.TextCorrectionSB
 import com.app.umma.core.theme.TextExplanationR
 import com.app.umma.core.theme.TextPrimary
+import com.app.umma.core.theme.TextSecondaryR
 import com.app.umma.core.theme.ThemePrimary
-import com.app.umma.core.theme.TitleDialogSB
+import com.app.umma.core.theme.TitleB
+import com.app.umma.core.theme.TitleScreenSB
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.modifier.attentionBorder
 import com.app.umma.domain.model.flashcard.Flashcard
@@ -83,6 +96,7 @@ import com.app.umma.presentation.srsstudy.component.SrsStudyCompletion
 fun SrsStudyScreen(
     onNavigateToDashboard: () -> Unit,
     onNavigateToCardList: () -> Unit,
+    onNavigateToCorrection: () -> Unit,
     viewModel: SrsStudyViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -141,7 +155,13 @@ fun SrsStudyScreen(
                     modifier = Modifier.align(Alignment.Center)
                 )
 
-                uiState.cards.isEmpty() -> SrsEmptyContent(Modifier.align(Alignment.Center))
+                uiState.cards.isEmpty() -> SrsEmptyContent(
+                    Modifier.align(
+                        Alignment.Center
+                    ),
+                    onNavigateToCorrection = onNavigateToCorrection
+                )
+
                 else -> SrsStudyContent(
                     uiState = uiState,
                     onCardFlip = { viewModel.onCardFlip() },
@@ -173,7 +193,11 @@ private fun SrsStudyContent(
         ) {
             Spacer(modifier = Modifier.height(SpacingS))
             // 현재 카드 개수 / 총 카드 개수
-            Text(text = "${uiState.currentCardIndex + 1}/${uiState.cards.size}")
+            Text(
+                text = "${uiState.currentCardIndex + 1}/${uiState.cards.size}",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
+            )
             // 클릭 시 플래시카드 뒤집기
             SrsFlashCard(
                 card = card,
@@ -186,7 +210,8 @@ private fun SrsStudyContent(
             SrsRatingButtons(
                 isFlipped = uiState.isCardFlipped,
                 selectedRating = uiState.selectedRating,
-                onRatingSelected = onRatingSelected
+                onRatingSelected = onRatingSelected,
+                onFlip = onCardFlip,
             )
         }
 
@@ -238,7 +263,7 @@ private fun SrsFlashCard(
             .clickable { onFlip() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = CardElevation)
     ) {
         if (isFlipped) {
             SrsCardBack(card = card, isSpeaking = isSpeaking, onSpeak = onSpeak)
@@ -261,7 +286,7 @@ private fun SrsCardFront(card: Flashcard) {
     ) {
         Text(
             text = card.frontText,
-            fontSize = 15.sp,
+            style = TextSecondaryR,
             color = Color(0xFF777777),
             textAlign = TextAlign.Center
         )
@@ -270,7 +295,7 @@ private fun SrsCardFront(card: Flashcard) {
         if (!card.hint.isNullOrBlank()) {
             Text(
                 text = card.hint,
-                style = TitleDialogSB,
+                style = TitleB,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(SpacingL))
@@ -284,14 +309,26 @@ private fun SrsCardFront(card: Flashcard) {
         )
 
         Spacer(modifier = Modifier.height(SpacingL))
+        // 아이콘 펄스 애니메이션
+        val tapTransition = rememberInfiniteTransition(label = "tapHintIcon")
+        val tapAlpha by tapTransition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "tapHintAlpha"
+        )
         Icon(
             imageVector = Icons.Default.TouchApp,
             contentDescription = null,
+            tint = TextPrimary.copy(alpha = tapAlpha),
             modifier = Modifier.height(24.dp)
         )
         Text(
             text = "눌러서 교정 확인",
-            style = TextAnalysisR,
+            style = TextExplanationR,
             color = TextPrimary
         )
     }
@@ -324,7 +361,7 @@ private fun SrsCardBack(
             // 정답 문장
             Text(
                 text = card.backText,
-                style = PercentageDialogB,
+                style = TitleScreenSB,
                 modifier = Modifier.padding(horizontal = SpacingXL)
 
             )
@@ -334,6 +371,7 @@ private fun SrsCardBack(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = SpacingL)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFFFFF8E1))
                         .padding(12.dp)
@@ -341,13 +379,13 @@ private fun SrsCardBack(
                     Column {
                         Text(
                             text = "Grammar Note",
-                            style = TextExplanationR,
+                            style = TextSecondaryR,
                             color = Color(0xFFB8860B),
                         )
                         Spacer(modifier = Modifier.height(SpacingS))
                         Text(
                             text = card.explanation,
-                            style = TextAnalysisR
+                            style = TextExplanationR
                         )
                     }
                 }
@@ -375,6 +413,7 @@ private fun SrsRatingButtons(
     isFlipped: Boolean,
     selectedRating: ReviewRating?,
     onRatingSelected: (ReviewRating) -> Unit,
+    onFlip: () -> Unit,
 ) {
     Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -385,24 +424,25 @@ private fun SrsRatingButtons(
                 Modifier.weight(1f),
                 "Again",
                 "1m",
-                TextPrimary,
+                RatingAgain,
                 isSelected = selectedRating == ReviewRating.AGAIN,
                 icon = Icons.Default.Refresh,
                 isFlipped = isFlipped,
                 onClick = {
-                    onRatingSelected(ReviewRating.AGAIN)
+                    if (isFlipped) onRatingSelected(ReviewRating.AGAIN) else onFlip()
                 }
             )
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Hard",
                 "2h",
-                TextPrimary,
+                RatingHard,
                 isSelected = selectedRating == ReviewRating.HARD,
                 icon = Icons.Default.SentimentNeutral,
                 isFlipped = isFlipped,
                 onClick = {
-                    onRatingSelected(ReviewRating.HARD)
+                    if (isFlipped) onRatingSelected(ReviewRating.HARD)
+                    else onFlip()
                 }
             )
         }
@@ -415,26 +455,28 @@ private fun SrsRatingButtons(
                 Modifier.weight(1f),
                 "Good",
                 "4h",
-                TextPrimary,
+                ThemePrimary,
                 isSelected = selectedRating == ReviewRating.GOOD,
                 icon = Icons.Default.SentimentSatisfiedAlt,
                 isFlipped = isFlipped,
                 onClick = {
-                    onRatingSelected(
+                    if (isFlipped) onRatingSelected(
                         ReviewRating.GOOD
                     )
+                    else onFlip()
                 }
             )
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Easy",
                 "Tomorrow",
-                TextPrimary,
+                RatingEasy,
                 isSelected = selectedRating == ReviewRating.EASY,
                 icon = Icons.Default.SentimentVerySatisfied,
                 isFlipped = isFlipped,
                 onClick = {
-                    onRatingSelected(ReviewRating.EASY)
+                    if (isFlipped) onRatingSelected(ReviewRating.EASY)
+                    else onFlip()
                 }
             )
         }
@@ -453,10 +495,17 @@ private fun SrsRatingButton(
     onClick: () -> Unit,
 ) {
     Card(
-        modifier = modifier.clickable { onClick() },
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            // 앞면이면 ripple 없이 카드만 뒤집음
+            indication = if (isFlipped) LocalIndication.current else null
+        ) { onClick() },
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = CardElevation,
+        ),
         border = if (isSelected) BorderStroke(2.dp, iconColor) else null,
-        colors = CardDefaults.cardColors(containerColor = if (isFlipped) Color.White else BackgroundDeactivated)
+        colors =
+            CardDefaults.cardColors(containerColor = if (isFlipped) Color.White else BackgroundDeactivated)
     ) {
         Column(
             modifier = Modifier
@@ -472,6 +521,7 @@ private fun SrsRatingButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
+                    tint = iconColor,
                     modifier = Modifier
                         .size(24.dp)
                         .align(Alignment.Center)
@@ -521,7 +571,10 @@ private fun SrsErrorContent(modifier: Modifier = Modifier, onRetry: () -> Unit) 
 
 /** 복습할 카드 없음 */
 @Composable
-private fun SrsEmptyContent(modifier: Modifier = Modifier) {
+private fun SrsEmptyContent(
+    modifier: Modifier = Modifier,
+    onNavigateToCorrection: () -> Unit
+) {
     Log.d("ummaDev", "SrsEmptyContent -----")
 
     Column(
@@ -529,9 +582,15 @@ private fun SrsEmptyContent(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(SpacingS)
     ) {
-        Text("없음")
         Text("오늘 복습할 카드가 없어요")
         Text("내일 다시 확인해보세요")
+        Spacer(modifier = Modifier.height(SpacingL))
+        Button(
+            onClick = onNavigateToCorrection,
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary)
+        ) {
+            Text("AI 교정하러 가기")
+        }
     }
 }
 

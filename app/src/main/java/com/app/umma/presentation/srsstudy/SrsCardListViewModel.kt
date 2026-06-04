@@ -125,4 +125,11 @@ class SrsCardListViewModel @Inject constructor(
     fun onMessageConsumed() {
         _uiState.update { it.copy(message = null) }
     }
+
+    /**
+     * 정렬 기준 변경
+     */
+    fun setSortOrder(order: SrsCardSortOrder) {
+        _uiState.update { it.copy(sortOrder = order) }
+    }
 }

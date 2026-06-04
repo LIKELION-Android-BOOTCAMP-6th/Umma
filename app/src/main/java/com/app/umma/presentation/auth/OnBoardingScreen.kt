@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -45,7 +46,6 @@ import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.util.GoogleSignInHelper
 import kotlinx.coroutines.launch
-
 
 /**
  * 온보딩 화면을 구성하는 컴포저블입니다.
@@ -127,6 +127,9 @@ fun OnBoardingScreen(
                                 }
                             }
                         },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color.Transparent
                         ),
@@ -141,7 +144,10 @@ fun OnBoardingScreen(
                             androidx.compose.foundation.Image(
                                 painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_auth_google),
                                 contentDescription = "Google 로그인",
-                                modifier = Modifier.fillMaxWidth()
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
                             )
                         }
                     }

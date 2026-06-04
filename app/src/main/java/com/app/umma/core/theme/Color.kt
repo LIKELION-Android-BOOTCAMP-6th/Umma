@@ -51,3 +51,16 @@ val TextCorrect = Color(0xFF014A63)
  * 평문 5 (로그아웃)
  */
 val TextLogout = Color(0xFFBA1A1A)
+
+/**
+ * SRS 평가 - Again (다시)
+ */
+val RatingAgain = Color(0xFFBA1919)
+/**
+ * SRS 평가 - Hard (어려움)
+ */
+val RatingHard = Color(0xFF43154A)
+/**
+ * SRS 평가 - Easy (쉬움)
+ */
+val RatingEasy = Color(0xFF00665F)

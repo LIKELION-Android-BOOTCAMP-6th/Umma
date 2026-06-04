@@ -42,7 +42,7 @@ fun Modifier.attentionBorder(
     // 테두리 투명도, 왕복(펄스 효과)
     // Reverse: targetValue 까지 도달 -> 역방향 initialValue 으로 되돌아옴
     val alpha by transition.animateFloat(
-        initialValue = 0.2f,
+        initialValue = 0.5f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 1200, easing = LinearEasing),

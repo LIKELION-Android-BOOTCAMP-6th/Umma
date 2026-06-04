@@ -11,9 +11,9 @@ import androidx.navigation.navigation
 import com.app.umma.presentation.auth.AppEntryScreen
 import com.app.umma.presentation.auth.OnBoardingScreen
 import com.app.umma.presentation.chat.ChatScreen
+import com.app.umma.presentation.correction.CorrectionScreen
 import com.app.umma.presentation.dashboard.DashboardScreen
 import com.app.umma.presentation.dashboard.MyPageScreen
-import com.app.umma.presentation.correction.CorrectionScreen
 import com.app.umma.presentation.srsstudy.SrsCardListScreen
 import com.app.umma.presentation.srsstudy.SrsStudyScreen
 import com.app.umma.presentation.statistics.StatisticsScreen
@@ -118,12 +118,14 @@ fun UmmaNavHost(
                     },
                     onNavigateToCardList = {
                         navController.navigate(Route.SrsCardList)
-                    }
+                    },
+                    onNavigateToCorrection = { navController.navigate((Route.CorrectionList)) }
                 )
             }
             composable<Route.SrsCardList> {
                 SrsCardListScreen(
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onNavigateToCorrection = { navController.navigate((Route.CorrectionList)) }
                 )
             }
         }
