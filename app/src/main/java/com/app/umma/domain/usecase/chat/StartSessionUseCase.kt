@@ -21,6 +21,7 @@ class StartSessionUseCase @Inject constructor(
     private val learningStateRepo: LearningStateRepo,
     private val sessionMemoryRepository: SessionMemoryRepository,
     private val buildLearnerAdaptationProfileUseCase: BuildLearnerAdaptationProfileUseCase,
+    private val buildChatTurnContextSignalUseCase: BuildChatTurnContextSignalUseCase,
     private val buildChatTurnAdaptationPolicyUseCase: BuildChatTurnAdaptationPolicyUseCase,
     private val buildChatSpeechSpeedUseCase: BuildChatSpeechSpeedUseCase,
     private val buildPromptUseCase: BuildPromptUseCase
@@ -65,12 +66,29 @@ class StartSessionUseCase @Inject constructor(
             selectedLang = userPref.selectedLang,
             recentFullContext = recentFullContext
         )
+        val promptTrace = buildPromptUseCase.buildSessionPromptTrace(
+            profile = profile,
+            primaryLang = userPref.primaryLang,
+            selectedLang = userPref.selectedLang,
+            recentFullContext = recentFullContext
+        )
 
         /** USER final transcript 이후 이번 response 에만 적용할 turn override provider 를 구성합니다. */
         val responseOverrideProvider = ChatResponseOverrideProvider { userFinalTranscript ->
             // provider 내부에서도 raw transcript 를 저장하거나 LangState 로 올리지 않고, 이번 응답 정책 계산에만 사용한다.
+            val latestRecentContext = sessionMemoryRepository
+                .getSessionMemory(userPref.selectedLang)
+                .getOrNull()
+                ?.recentFullContext
+                .orEmpty()
+            // 이번 USER final transcript가 최근 흐름 안에서 이어지는 말인지 압축 신호로 계산해 반복 보정을 줄인다.
+            val contextSignal = buildChatTurnContextSignalUseCase(
+                recentFullContext = latestRecentContext,
+                userFinalTranscript = userFinalTranscript
+            )
             val turnPolicy = buildChatTurnAdaptationPolicyUseCase(
                 transcript = userFinalTranscript,
+                contextSignal = contextSignal,
                 profile = profile,
                 primaryLang = userPref.primaryLang,
                 selectedLang = userPref.selectedLang
@@ -80,7 +98,8 @@ class StartSessionUseCase @Inject constructor(
                 basePolicy = baseTurnPolicy,
                 turnPolicy = turnPolicy,
                 primaryLang = userPref.primaryLang,
-                selectedLang = userPref.selectedLang
+                selectedLang = userPref.selectedLang,
+                contextSignal = contextSignal
             )
             // 실제 audio speed 는 turnPolicy 를 반영해 계산하고, repository 가 변경 필요 시 session.update 로 적용한다.
             val turnAudioSpeed = buildChatSpeechSpeedUseCase(
@@ -89,7 +108,14 @@ class StartSessionUseCase @Inject constructor(
             )
             ChatResponseOverride(
                 responseInstructions = responseInstructions,
-                outputAudioSpeed = turnAudioSpeed
+                outputAudioSpeed = turnAudioSpeed,
+                debugTrace = buildPromptUseCase.buildTurnOverrideTrace(
+                    basePolicy = baseTurnPolicy,
+                    turnPolicy = turnPolicy,
+                    contextSignal = contextSignal,
+                    hasResponseInstructions = !responseInstructions.isNullOrBlank(),
+                    outputAudioSpeed = turnAudioSpeed
+                )
             )
         }
 
@@ -98,6 +124,7 @@ class StartSessionUseCase @Inject constructor(
             langCode = userPref.selectedLang,
             systemInstruction = prompt,
             outputAudioSpeed = outputAudioSpeed,
+            systemInstructionDebugTrace = promptTrace,
             responseOverrideProvider = responseOverrideProvider
         )
     }

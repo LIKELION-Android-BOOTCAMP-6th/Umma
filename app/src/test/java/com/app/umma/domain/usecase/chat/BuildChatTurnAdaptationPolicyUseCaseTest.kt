@@ -1,5 +1,7 @@
 package com.app.umma.domain.usecase.chat
 
+import com.app.umma.domain.model.chat.ChatTurnContextSignal
+import com.app.umma.domain.model.chat.LatestUserTurnRole
 import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
@@ -49,6 +51,49 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
     }
 
     @Test
+    fun `low confidence progressing context is not treated as failed fragment`() {
+        // 짧은 명사구라도 최근 맥락 안에서 이어지고 있으면 반복 보정 대신 자연 대화 지속을 우선한다.
+        val policy = useCase(
+            transcript = "summer trip",
+            contextSignal = ChatTurnContextSignal(
+                latestUserTurnRole = LatestUserTurnRole.ProgressingInContext,
+                followsAssistantQuestion = true
+            ),
+            profile = profile(confidence = ProfileConfidence.Low),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN
+        )
+
+        assertEquals(ResponseLengthPolicy.ShortTwoStep, policy.responseLength)
+        assertEquals(SentenceDensityPolicy.SimpleTwoStep, policy.sentenceDensity)
+        assertEquals(PrimaryBridgePolicy.Brief, policy.primaryBridge)
+        assertEquals(QuestionLoadPolicy.OneConcreteFollowUp, policy.questionLoad)
+        assertEquals(SpeechSpeedPolicy.Guided, policy.speechSpeed)
+    }
+
+    @Test
+    fun `primary dominant answer keeps active bridge even when it answers assistant question`() {
+        // 직전 질문의 답변이어도 사용자가 기준언어로 버티는 상태라면 자연 대화보다 이해 보조를 우선해야 한다.
+        val policy = useCase(
+            transcript = "오늘 너무 힘들었어",
+            contextSignal = ChatTurnContextSignal(
+                latestUserTurnRole = LatestUserTurnRole.ProgressingInContext,
+                followsAssistantQuestion = true
+            ),
+            profile = profile(confidence = ProfileConfidence.Low),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.JA
+        )
+
+        assertEquals(ResponseLengthPolicy.OneShortSentence, policy.responseLength)
+        assertEquals(SentenceDensityPolicy.OneIdea, policy.sentenceDensity)
+        assertEquals(PrimaryBridgePolicy.Active, policy.primaryBridge)
+        assertEquals(QuestionLoadPolicy.ConcreteChoice, policy.questionLoad)
+        assertEquals(SpeechSpeedPolicy.SlowBeginner, policy.speechSpeed)
+        assertEquals(PrimaryBridgeReason.PrimaryDominantTurn, policy.primaryBridgeReason)
+    }
+
+    @Test
     fun `low confidence fluent utterance is not trapped in beginner fallback`() {
         // LangState 근거가 없어도 충분히 긴 target 발화는 초저숙련으로 고정하면 안 된다.
         val policy = useCase(
@@ -80,6 +125,50 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
         assertEquals(PrimaryBridgePolicy.Active, policy.primaryBridge)
         assertEquals(QuestionLoadPolicy.ConcreteChoice, policy.questionLoad)
         assertEquals(SpeechSpeedPolicy.SlowBeginner, policy.speechSpeed)
+        assertEquals(PrimaryBridgeReason.PrimaryDominantTurn, policy.primaryBridgeReason)
+    }
+
+    @Test
+    fun `target language blocking phrase lowers burden without forcing primary bridge for capable profile`() {
+        // target 언어로 자연 대화 중 "I don't know"라고 말하는 것은 막힘이지만, 그 자체만으로 한국어 혼합 요청은 아니다.
+        val policy = useCase(
+            transcript = "I don't know",
+            profile = profile(confidence = ProfileConfidence.High),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN
+        )
+
+        assertEquals(ResponseLengthPolicy.OneShortSentence, policy.responseLength)
+        assertEquals(SentenceDensityPolicy.OneIdea, policy.sentenceDensity)
+        assertEquals(PrimaryBridgePolicy.Brief, policy.primaryBridge)
+        assertEquals(QuestionLoadPolicy.ConcreteChoice, policy.questionLoad)
+        assertEquals(SpeechSpeedPolicy.SlowBeginner, policy.speechSpeed)
+        assertEquals(PrimaryBridgeReason.ProfileDefault, policy.primaryBridgeReason)
+    }
+
+    @Test
+    fun `beginner band relaxes automatic primary support when short answer is progressing in context`() {
+        // 1~2단계 profile이어도 최근 맥락 안에서 정상 진행 중이면 같은 기준언어 보정을 반복하지 않는다.
+        val policy = useCase(
+            transcript = "はい",
+            contextSignal = ChatTurnContextSignal(
+                latestUserTurnRole = LatestUserTurnRole.ProgressingInContext,
+                followsAssistantQuestion = true
+            ),
+            profile = profile(
+                confidence = ProfileConfidence.Low,
+                conversationBand = ConversationAbilityBand.PhraseEmerging
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.JA
+        )
+
+        assertEquals(ResponseLengthPolicy.ShortTwoStep, policy.responseLength)
+        assertEquals(SentenceDensityPolicy.SimpleTwoStep, policy.sentenceDensity)
+        assertEquals(PrimaryBridgePolicy.Brief, policy.primaryBridge)
+        assertEquals(QuestionLoadPolicy.OneConcreteFollowUp, policy.questionLoad)
+        assertEquals(SpeechSpeedPolicy.Guided, policy.speechSpeed)
+        assertEquals(PrimaryBridgeReason.ProfileDefault, policy.primaryBridgeReason)
     }
 
     @Test
@@ -118,7 +207,10 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
         assertEquals(PrimaryBridgeReason.ExplicitSupportRequest, policy.primaryBridgeReason)
     }
 
-    private fun profile(confidence: ProfileConfidence): LearnerAdaptationProfile {
+    private fun profile(
+        confidence: ProfileConfidence,
+        conversationBand: ConversationAbilityBand = ConversationAbilityBand.BasicConversation
+    ): LearnerAdaptationProfile {
         // test fixture는 저장 LangState가 아니라 turn policy 입력으로 쓰이는 profile read model만 재현한다.
         return LearnerAdaptationProfile(
             core = LearnerAbilityProfile(
@@ -137,7 +229,7 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
             ),
             chatPolicy = ChatAdaptationPolicy(
                 // 기본 profile은 일반 대화 수준으로 두어 turn signal이 실제로 낮추는지 확인한다.
-                conversationBand = ConversationAbilityBand.BasicConversation,
+                conversationBand = conversationBand,
                 intentSupport = IntentSupportPolicy.TrustMeaning,
                 primaryBridge = PrimaryBridgePolicy.FallbackOnly,
                 recastStyle = RecastStylePolicy.NaturalInline,

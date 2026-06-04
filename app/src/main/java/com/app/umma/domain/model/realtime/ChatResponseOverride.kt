@@ -11,7 +11,9 @@ data class ChatResponseOverride(
     // 이번 응답의 말투, 길이, 기준언어 사용, 질문 부담을 짧게 지시하는 response 전용 instruction.
     val responseInstructions: String?,
     // 이번 응답에서 필요한 AI 음성 속도. null이면 기존 세션 speed를 유지한다.
-    val outputAudioSpeed: Double?
+    val outputAudioSpeed: Double?,
+    // 디버그 추적용 정책 요약. prompt 본문이나 사용자 발화 원문을 담지 않는다.
+    val debugTrace: String? = null
 )
 
 /**
