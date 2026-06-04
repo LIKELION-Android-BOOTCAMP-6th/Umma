@@ -5,6 +5,8 @@ package com.app.umma.domain.model.notification
  */
 data class MarketingNotificationSettings(
     val enabled: Boolean,
+    val timezone: String,
+    val nextNotificationBucketAt: Long?,
     val updatedAt: Long?
 ) {
     companion object {
@@ -13,6 +15,8 @@ data class MarketingNotificationSettings(
          */
         fun initial(): MarketingNotificationSettings = MarketingNotificationSettings(
             enabled = false,
+            timezone = "Asia/Seoul",
+            nextNotificationBucketAt = null,
             updatedAt = null
         )
     }

@@ -35,9 +35,6 @@ import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
 
-/**
- * Firestore 원본 + DataStore 캐시 기반 알림 설정 저장소.
- */
 @Singleton
 class NotificationSettingsRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -62,21 +59,22 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 return@callbackFlow
             }
 
-            val documentRef = notificationSettingsCollection(uid).document(SRS_REVIEW_DOCUMENT_ID)
-            val registration = documentRef.addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    launch {
-                        trySend(readCachedSrsSettings() ?: SrsNotificationSettings.initial())
+            val registration = notificationSettingsCollection(uid)
+                .document(SRS_REVIEW_DOCUMENT_ID)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        launch {
+                            trySend(readCachedSrsSettings() ?: SrsNotificationSettings.initial())
+                        }
+                        return@addSnapshotListener
                     }
-                    return@addSnapshotListener
-                }
 
-                val settings = snapshot?.data
-                    ?.toSrsNotificationSettingsDto()
-                    ?.toDomain()
-                    ?: SrsNotificationSettings.initial()
-                trySend(settings)
-            }
+                    val settings = snapshot?.data
+                        ?.toSrsNotificationSettingsDto()
+                        ?.toDomain()
+                        ?: SrsNotificationSettings.initial()
+                    trySend(settings)
+                }
 
             awaitClose { registration.remove() }
         }.map { settings ->
@@ -94,23 +92,22 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 return@callbackFlow
             }
 
-            val documentRef = notificationSettingsCollection(uid).document(MARKETING_DOCUMENT_ID)
-            val registration = documentRef.addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    launch {
-                        trySend(
-                            readCachedMarketingSettings() ?: MarketingNotificationSettings.initial()
-                        )
+            val registration = notificationSettingsCollection(uid)
+                .document(MARKETING_DOCUMENT_ID)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        launch {
+                            trySend(readCachedMarketingSettings() ?: MarketingNotificationSettings.initial())
+                        }
+                        return@addSnapshotListener
                     }
-                    return@addSnapshotListener
-                }
 
-                val settings = snapshot?.data
-                    ?.toMarketingNotificationSettingsDto()
-                    ?.toDomain()
-                    ?: MarketingNotificationSettings.initial()
-                trySend(settings)
-            }
+                    val settings = snapshot?.data
+                        ?.toMarketingNotificationSettingsDto()
+                        ?.toDomain()
+                        ?: MarketingNotificationSettings.initial()
+                    trySend(settings)
+                }
 
             awaitClose { registration.remove() }
         }.map { settings ->
@@ -123,8 +120,8 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     override suspend fun setSrsNotificationEnabled(enabled: Boolean): Result<Unit> {
         return runCatching {
             val current = currentSrsSettings()
-            val nextNotificationAt = if (enabled) {
-                computeNextNotificationAt(
+            val nextBucketAt = if (enabled) {
+                computeNextSrsNotificationBucketAt(
                     timezone = current.timezone,
                     preferredTimeMinutes = current.preferredNotificationTimeMinutes,
                     now = System.currentTimeMillis()
@@ -136,18 +133,31 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
             saveSrsSettings(
                 current.copy(
                     enabled = enabled,
-                    nextNotificationAt = nextNotificationAt,
+                    nextNotificationAt = nextBucketAt,
+                    nextNotificationBucketAt = nextBucketAt,
                     updatedAt = System.currentTimeMillis()
                 )
             )
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun setMarketingNotificationEnabled(enabled: Boolean): Result<Unit> {
         return runCatching {
+            val current = currentMarketingSettings()
+            val nextBucketAt = if (enabled) {
+                computeNextMarketingNotificationBucketAt(
+                    timezone = current.timezone,
+                    now = System.currentTimeMillis()
+                )
+            } else {
+                null
+            }
+
             saveMarketingSettings(
-                MarketingNotificationSettings(
+                current.copy(
                     enabled = enabled,
+                    nextNotificationBucketAt = nextBucketAt,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -161,11 +171,12 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 "totalMinutes must be between 0 and 1439"
             }
 
+            val normalizedMinutes = normalizePreferredNotificationTimeMinutes(totalMinutes)
             val current = currentSrsSettings()
-            val nextNotificationAt = if (current.enabled) {
-                computeNextNotificationAt(
+            val nextBucketAt = if (current.enabled) {
+                computeNextSrsNotificationBucketAt(
                     timezone = current.timezone,
-                    preferredTimeMinutes = totalMinutes,
+                    preferredTimeMinutes = normalizedMinutes,
                     now = System.currentTimeMillis()
                 )
             } else {
@@ -174,8 +185,9 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
 
             saveSrsSettings(
                 current.copy(
-                    preferredNotificationTimeMinutes = totalMinutes,
-                    nextNotificationAt = nextNotificationAt,
+                    preferredNotificationTimeMinutes = normalizedMinutes,
+                    nextNotificationAt = nextBucketAt,
+                    nextNotificationBucketAt = nextBucketAt,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -185,22 +197,41 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun refreshTimezone(timezone: String): Result<Unit> {
         return runCatching {
-            val current = currentSrsSettings()
-            val nextNotificationAt = if (current.enabled) {
-                computeNextNotificationAt(
+            val now = System.currentTimeMillis()
+
+            val currentSrs = currentSrsSettings()
+            val nextSrsBucketAt = if (currentSrs.enabled) {
+                computeNextSrsNotificationBucketAt(
                     timezone = timezone,
-                    preferredTimeMinutes = current.preferredNotificationTimeMinutes,
-                    now = System.currentTimeMillis()
+                    preferredTimeMinutes = currentSrs.preferredNotificationTimeMinutes,
+                    now = now
                 )
             } else {
                 null
             }
-
             saveSrsSettings(
-                current.copy(
+                currentSrs.copy(
                     timezone = timezone,
-                    nextNotificationAt = nextNotificationAt,
-                    updatedAt = System.currentTimeMillis()
+                    nextNotificationAt = nextSrsBucketAt,
+                    nextNotificationBucketAt = nextSrsBucketAt,
+                    updatedAt = now
+                )
+            )
+
+            val currentMarketing = currentMarketingSettings()
+            val nextMarketingBucketAt = if (currentMarketing.enabled) {
+                computeNextMarketingNotificationBucketAt(
+                    timezone = timezone,
+                    now = now
+                )
+            } else {
+                null
+            }
+            saveMarketingSettings(
+                currentMarketing.copy(
+                    timezone = timezone,
+                    nextNotificationBucketAt = nextMarketingBucketAt,
+                    updatedAt = now
                 )
             )
         }
@@ -236,6 +267,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun syncNotificationPermissionState(
         permissionGranted: Boolean,
         timezone: String
@@ -250,11 +282,12 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                     permissionGranted = true,
                     timezone = timezone
                 ).getOrThrow()
+                refreshTimezone(timezone).getOrThrow()
                 return@runCatching
             }
 
             unregisterCurrentDevice().getOrThrow()
-            disableAllNotificationSettings(uid)
+            disableAllNotificationSettings(uid, timezone)
         }
     }
 
@@ -296,6 +329,23 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
             ?: SrsNotificationSettings.initial()
     }
 
+    private suspend fun currentMarketingSettings(): MarketingNotificationSettings {
+        readCachedMarketingSettings()?.let { return it }
+
+        val uid = authRepository.getCurrentUserUid()
+        if (uid.isNullOrBlank()) return MarketingNotificationSettings.initial()
+
+        val snapshot = notificationSettingsCollection(uid)
+            .document(MARKETING_DOCUMENT_ID)
+            .get()
+            .await()
+
+        return snapshot.data
+            ?.toMarketingNotificationSettingsDto()
+            ?.toDomain()
+            ?: MarketingNotificationSettings.initial()
+    }
+
     private suspend fun saveSrsSettings(settings: SrsNotificationSettings) {
         val uid = authRepository.getCurrentUserUid()
             ?: throw IllegalStateException("signed-in user is required")
@@ -320,25 +370,27 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         cacheMarketingSettings(settings)
     }
 
-    private suspend fun disableAllNotificationSettings(uid: String) {
+    private suspend fun disableAllNotificationSettings(uid: String, timezone: String) {
         val now = System.currentTimeMillis()
 
-        val srsSettings = currentSrsSettings().copy(
-            enabled = false,
-            nextNotificationAt = null,
-            updatedAt = now
+        saveSrsSettings(
+            currentSrsSettings().copy(
+                enabled = false,
+                timezone = timezone,
+                nextNotificationAt = null,
+                nextNotificationBucketAt = null,
+                updatedAt = now
+            )
         )
-        saveSrsSettings(srsSettings)
 
-        val marketingSettings = MarketingNotificationSettings(
-            enabled = false,
-            updatedAt = now
+        saveMarketingSettings(
+            currentMarketingSettings().copy(
+                enabled = false,
+                timezone = timezone,
+                nextNotificationBucketAt = null,
+                updatedAt = now
+            )
         )
-        notificationSettingsCollection(uid)
-            .document(MARKETING_DOCUMENT_ID)
-            .set(marketingSettings.toDto(), SetOptions.merge())
-            .await()
-        cacheMarketingSettings(marketingSettings)
     }
 
     private suspend fun readCachedSrsSettings(): SrsNotificationSettings? {
@@ -366,21 +418,45 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun computeNextNotificationAt(
+    private fun computeNextSrsNotificationBucketAt(
         timezone: String,
         preferredTimeMinutes: Int,
         now: Long
     ): Long {
+        val normalizedMinutes = normalizePreferredNotificationTimeMinutes(preferredTimeMinutes)
         val zoneId = ZoneId.of(timezone)
         val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(now), zoneId)
         val target = current
-            .withHour(preferredTimeMinutes / MINUTES_PER_HOUR)
-            .withMinute(preferredTimeMinutes % MINUTES_PER_HOUR)
+            .withHour(normalizedMinutes / MINUTES_PER_HOUR)
+            .withMinute(0)
             .withSecond(0)
             .withNano(0)
 
         val next = if (target.isAfter(current)) target else target.plusDays(1)
         return next.toInstant().toEpochMilli()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun computeNextMarketingNotificationBucketAt(
+        timezone: String,
+        now: Long
+    ): Long {
+        val zoneId = ZoneId.of(timezone)
+        val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(now), zoneId)
+        val morningTarget = current.withHour(MARKETING_MORNING_HOUR).withMinute(0).withSecond(0).withNano(0)
+        val noonTarget = current.withHour(MARKETING_NOON_HOUR).withMinute(0).withSecond(0).withNano(0)
+
+        val next = when {
+            morningTarget.isAfter(current) -> morningTarget
+            noonTarget.isAfter(current) -> noonTarget
+            else -> current.plusDays(1).withHour(MARKETING_MORNING_HOUR).withMinute(0).withSecond(0).withNano(0)
+        }
+        return next.toInstant().toEpochMilli()
+    }
+
+    private fun normalizePreferredNotificationTimeMinutes(totalMinutes: Int): Int {
+        val clamped = totalMinutes.coerceIn(0, MINUTES_PER_DAY - 1)
+        return (clamped / MINUTES_PER_HOUR) * MINUTES_PER_HOUR
     }
 
     private fun currentDeviceId(): String {
@@ -409,13 +485,17 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         .collection(NOTIFICATION_DEVICES_COLLECTION)
 
     private fun Map<String, Any?>.toSrsNotificationSettingsDto(): SrsNotificationSettingsDto {
+        val preferredMinutes = normalizePreferredNotificationTimeMinutes(
+            (this["preferredNotificationTimeMinutes"] as? Number)?.toInt()
+                ?: DEFAULT_NOTIFICATION_TIME_MINUTES
+        )
         return SrsNotificationSettingsDto(
             type = this["type"] as? String ?: SRS_REVIEW_DOCUMENT_ID,
             enabled = this["enabled"] as? Boolean ?: false,
-            preferredNotificationTimeMinutes = (this["preferredNotificationTimeMinutes"] as? Number)?.toInt()
-                ?: DEFAULT_NOTIFICATION_TIME_MINUTES,
+            preferredNotificationTimeMinutes = preferredMinutes,
             timezone = this["timezone"] as? String ?: DEFAULT_TIMEZONE,
             nextNotificationAt = (this["nextNotificationAt"] as? Number)?.toLong(),
+            nextNotificationBucketAt = (this["nextNotificationBucketAt"] as? Number)?.toLong(),
             updatedAt = (this["updatedAt"] as? Number)?.toLong()
         )
     }
@@ -424,6 +504,8 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         return MarketingNotificationSettingsDto(
             type = this["type"] as? String ?: MARKETING_DOCUMENT_ID,
             enabled = this["enabled"] as? Boolean ?: false,
+            timezone = this["timezone"] as? String ?: DEFAULT_TIMEZONE,
+            nextNotificationBucketAt = (this["nextNotificationBucketAt"] as? Number)?.toLong(),
             updatedAt = (this["updatedAt"] as? Number)?.toLong()
         )
     }
@@ -439,8 +521,11 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         const val DEFAULT_NOTIFICATION_TIME_MINUTES = 18 * 60
         const val MINUTES_PER_HOUR = 60
         const val MINUTES_PER_DAY = 24 * 60
+        const val MARKETING_MORNING_HOUR = 7
+        const val MARKETING_NOON_HOUR = 12
         const val NOTIFICATION_DEVICE_PREFERENCES = "notification_device_preferences"
         const val NOTIFICATION_INSTALLATION_ID_KEY = "notification_installation_id"
+
         val SRS_SETTINGS_CACHE_KEY = stringPreferencesKey("srs_notification_settings_cache")
         val MARKETING_SETTINGS_CACHE_KEY =
             stringPreferencesKey("marketing_notification_settings_cache")

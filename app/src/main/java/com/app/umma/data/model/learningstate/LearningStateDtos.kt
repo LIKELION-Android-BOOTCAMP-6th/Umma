@@ -119,6 +119,7 @@ data class DashSummaryDto(
     val recentConversationTopic: String?,
     val correctionAvailable: Boolean,
     val dueFlashcards: Int,
+    val notifiableDueFlashcards: Int = 0,
     val recentSavedFlashcards: Int,
     val grammarScoreDelta: Int,
     val fluencyScoreDelta: Int,
@@ -141,6 +142,7 @@ data class SessionSummaryDto(
 data class FlashcardSummaryDto(
     val language: String,
     val dueFlashcards: Int,
+    val notifiableDueFlashcards: Int = 0,
     val recentSavedFlashcards: Int,
     val updatedAt: Long? = null
 )
@@ -376,6 +378,7 @@ fun DashSummary.toDto(): DashSummaryDto {
         recentConversationTopic = recentTopic,
         correctionAvailable = correctionAvailable,
         dueFlashcards = dueFlashcards,
+        notifiableDueFlashcards = notifiableDueFlashcards,
         recentSavedFlashcards = savedFlashcards,
         grammarScoreDelta = grammarDelta,
         fluencyScoreDelta = fluencyDelta,
@@ -394,6 +397,7 @@ fun DashSummaryDto.toDomain(): DashSummary {
         recentTopic = recentConversationTopic,
         correctionAvailable = correctionAvailable,
         dueFlashcards = dueFlashcards,
+        notifiableDueFlashcards = notifiableDueFlashcards,
         savedFlashcards = recentSavedFlashcards,
         grammarDelta = grammarScoreDelta,
         fluencyDelta = fluencyScoreDelta,
@@ -429,6 +433,7 @@ fun FlashcardSummary.toDto(): FlashcardSummaryDto {
     return FlashcardSummaryDto(
         language = lang.code,
         dueFlashcards = dueFlashcards,
+        notifiableDueFlashcards = notifiableDueFlashcards,
         recentSavedFlashcards = savedFlashcards,
         updatedAt = updatedAt
     )
@@ -439,6 +444,7 @@ fun FlashcardSummaryDto.toDomain(): FlashcardSummary {
     return FlashcardSummary(
         lang = LangCode.fromCode(language) ?: LangCode.EN,
         dueFlashcards = dueFlashcards,
+        notifiableDueFlashcards = notifiableDueFlashcards,
         savedFlashcards = recentSavedFlashcards,
         updatedAt = updatedAt
     )

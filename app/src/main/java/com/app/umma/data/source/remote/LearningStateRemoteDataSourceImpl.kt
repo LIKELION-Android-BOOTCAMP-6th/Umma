@@ -231,6 +231,7 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
             recentConversationTopic = string("recentConversationTopic"),
             correctionAvailable = boolean("correctionAvailable") ?: false,
             dueFlashcards = int("dueFlashcards") ?: 0,
+            notifiableDueFlashcards = int("notifiableDueFlashcards") ?: 0,
             recentSavedFlashcards = int("recentSavedFlashcards") ?: 0,
             grammarScoreDelta = int("grammarScoreDelta") ?: 0,
             fluencyScoreDelta = int("fluencyScoreDelta") ?: 0,
@@ -255,6 +256,7 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
         return FlashcardSummaryDto(
             language = string("language") ?: return null,
             dueFlashcards = int("dueFlashcards") ?: 0,
+            notifiableDueFlashcards = int("notifiableDueFlashcards") ?: 0,
             recentSavedFlashcards = int("recentSavedFlashcards") ?: 0,
             updatedAt = long("updatedAt")
         )
