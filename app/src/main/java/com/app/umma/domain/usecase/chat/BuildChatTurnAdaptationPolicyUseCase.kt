@@ -1,6 +1,9 @@
 package com.app.umma.domain.usecase.chat
 
+import com.app.umma.domain.model.chat.ChatTurnContextSignal
+import com.app.umma.domain.model.chat.LatestUserTurnRole
 import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
@@ -22,6 +25,7 @@ import javax.inject.Inject
 class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
     operator fun invoke(
         transcript: String,
+        contextSignal: ChatTurnContextSignal = ChatTurnContextSignal.Neutral,
         profile: LearnerAdaptationProfile,
         primaryLang: LangCode,
         selectedLang: LangCode
@@ -37,8 +41,10 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
 
         // 첫 세션/저신뢰 profile에서는 현재 발화가 보여준 막힘 신호를 더 적극적으로 반영한다.
         val lowConfidence = profile.core.levelConfidence == ProfileConfidence.Low
+        val beginnerAutoSupport = profile.chatPolicy.conversationBand == ConversationAbilityBand.IntentOnly ||
+            profile.chatPolicy.conversationBand == ConversationAbilityBand.PhraseEmerging
 
-        // 사용자가 직접 모른다고 말하면 실제 LangState가 있더라도 이번 응답은 즉시 낮춰야 한다.
+        // 사용자가 직접 모른다고 말하면 응답 부담은 낮추되, 기준언어 혼합은 별도 조건에서만 연다.
         val explicitBlock = containsBlockingPhrase(normalized)
         // "한국어를 섞어줘", "explain in English" 같은 요청은 실력 평가가 아니라 이번 응답 방식에 대한 직접 요구다.
         val explicitPrimarySupportRequest = containsPrimarySupportRequest(
@@ -62,17 +68,22 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
             !primaryDominant
 
         return when {
-            // 명시적 막힘은 가장 강한 보정이다. 사용자가 대화를 놓친 상태이므로 기준언어와 선택형 질문을 허용한다.
+            // 명시적 막힘은 가장 강한 부담 완화 신호다. 다만 기준언어 혼합은 초보/명시 요청/기준언어 우세에서만 연다.
             explicitBlock -> ChatTurnAdaptationPolicy(
                 responseLength = ResponseLengthPolicy.OneShortSentence,
                 sentenceDensity = SentenceDensityPolicy.OneIdea,
-                primaryBridge = PrimaryBridgePolicy.Active,
+                primaryBridge = if (explicitPrimarySupportRequest || primaryDominant || beginnerAutoSupport) {
+                    PrimaryBridgePolicy.Active
+                } else {
+                    PrimaryBridgePolicy.Brief
+                },
                 questionLoad = QuestionLoadPolicy.ConcreteChoice,
                 speechSpeed = SpeechSpeedPolicy.SlowBeginner,
-                primaryBridgeReason = if (explicitPrimarySupportRequest) {
-                    PrimaryBridgeReason.ExplicitSupportRequest
-                } else {
-                    PrimaryBridgeReason.ProfileDefault
+                primaryBridgeReason = when {
+                    explicitPrimarySupportRequest -> PrimaryBridgeReason.ExplicitSupportRequest
+                    primaryDominant -> PrimaryBridgeReason.PrimaryDominantTurn
+                    beginnerAutoSupport -> PrimaryBridgeReason.BeginnerAutoSupport
+                    else -> PrimaryBridgeReason.ProfileDefault
                 }
             )
 
@@ -102,8 +113,55 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
                 primaryBridgeReason = PrimaryBridgeReason.ExplicitSupportRequest
             )
 
-            // 저신뢰 profile에서 조각난 발화나 기준언어 우세 발화는 첫 세션 fallback의 핵심 케이스다.
-            lowConfidence && (fragmentLike || primaryDominant) -> ChatTurnAdaptationPolicy(
+            // 사용자가 기준언어를 많이 섞어 답한 상태는 명시 요청이 없어도 "이해 보조가 필요하다"는 강한 turn 신호다.
+            // 직전 질문의 답변이어도 목표언어만 자연스럽게 이어가기보다, 기준언어로 먼저 받아 주고 최소 목표언어 표현만 붙인다.
+            primaryDominant -> ChatTurnAdaptationPolicy(
+                responseLength = if (lowConfidence) {
+                    ResponseLengthPolicy.OneShortSentence
+                } else {
+                    ResponseLengthPolicy.ShortTwoStep
+                },
+                sentenceDensity = if (lowConfidence) {
+                    SentenceDensityPolicy.OneIdea
+                } else {
+                    SentenceDensityPolicy.SimpleTwoStep
+                },
+                primaryBridge = PrimaryBridgePolicy.Active,
+                questionLoad = if (lowConfidence) {
+                    QuestionLoadPolicy.ConcreteChoice
+                } else {
+                    QuestionLoadPolicy.OneConcreteFollowUp
+                },
+                speechSpeed = if (lowConfidence) {
+                    SpeechSpeedPolicy.SlowBeginner
+                } else {
+                    SpeechSpeedPolicy.Guided
+                },
+                primaryBridgeReason = PrimaryBridgeReason.PrimaryDominantTurn
+            )
+
+            // 짧더라도 최근 맥락 안에서 정상 진행 중이면 같은 초보 보정을 반복하지 않는다.
+            contextSignal.latestUserTurnRole == LatestUserTurnRole.ProgressingInContext && fragmentLike -> ChatTurnAdaptationPolicy(
+                responseLength = ResponseLengthPolicy.ShortTwoStep,
+                sentenceDensity = SentenceDensityPolicy.SimpleTwoStep,
+                primaryBridge = PrimaryBridgePolicy.Brief,
+                questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+                speechSpeed = SpeechSpeedPolicy.Guided
+            )
+
+            // 1~2단계 초보 profile에서도 맥락상 정상 진행이 아니면 짧은 조각 발화에 기준언어 보조를 강하게 적용한다.
+            beginnerAutoSupport &&
+                (fragmentLike || contextSignal.latestUserTurnRole == LatestUserTurnRole.StuckOrFragment) -> ChatTurnAdaptationPolicy(
+                    responseLength = ResponseLengthPolicy.OneShortSentence,
+                    sentenceDensity = SentenceDensityPolicy.OneIdea,
+                    primaryBridge = PrimaryBridgePolicy.Active,
+                    questionLoad = QuestionLoadPolicy.ConcreteChoice,
+                    speechSpeed = SpeechSpeedPolicy.SlowBeginner,
+                    primaryBridgeReason = PrimaryBridgeReason.BeginnerAutoSupport
+                )
+
+            // 저신뢰 profile에서 조각난 발화는 첫 세션 fallback의 핵심 케이스다.
+            lowConfidence && fragmentLike -> ChatTurnAdaptationPolicy(
                 responseLength = ResponseLengthPolicy.OneShortSentence,
                 sentenceDensity = SentenceDensityPolicy.OneIdea,
                 primaryBridge = PrimaryBridgePolicy.Active,
@@ -112,7 +170,7 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
             )
 
             // 저장된 profile이 있어도 현재 발화가 짧게 무너진 경우에는 이번 응답만 한 단계 쉽게 낮춘다.
-            fragmentLike || primaryDominant -> ChatTurnAdaptationPolicy(
+            fragmentLike -> ChatTurnAdaptationPolicy(
                 responseLength = ResponseLengthPolicy.ShortTwoStep,
                 sentenceDensity = SentenceDensityPolicy.SimpleTwoStep,
                 primaryBridge = PrimaryBridgePolicy.Brief,

@@ -1,7 +1,9 @@
 package com.app.umma.domain.usecase.chat
 
-import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
+import com.app.umma.domain.model.chat.ChatTurnContextSignal
+import com.app.umma.domain.model.chat.LatestUserTurnRole
 import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
+import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
 import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
@@ -54,13 +56,19 @@ class BuildPromptUseCase @Inject constructor() {
             primaryLanguageName = primaryLanguageName,
             selectedLanguageName = selectedLanguageName
         )
+        // response_flow에는 모든 모드에 공통인 대화 원칙만 둔다. 난이도별 의도 추론/recast는 learner_policy가 담당한다.
+        val responseFlowBlock = responseFlowBlock()
         // 발화 수준별 분기는 prompt 의 핵심이다. 장문 설명보다 짧은 분기 데이터가 더 안정적이다.
         val branchBlock = branchBlock(
             selectedLanguageName = selectedLanguageName,
-            primaryLanguageName = primaryLanguageName
+            primaryLanguageName = primaryLanguageName,
+            primaryBridge = profile.chatPolicy.primaryBridge
         )
         // Chat 세부 정책은 내부 enum 이름을 숨기고 4~6줄의 행동 지시로 압축한다.
-        val policyBlock = policyBlock(profile)
+        val policyBlock = policyBlock(
+            profile = profile,
+            selectedLanguageName = selectedLanguageName
+        )
         // 응답 길이와 질문 방식은 profile 의 chatPolicy 를 그대로 행동 문장으로 낮춘다.
         val responseBlock = responseBlock(
             responseLength = profile.chatPolicy.responseLength,
@@ -76,7 +84,7 @@ class BuildPromptUseCase @Inject constructor() {
         return """
             persona:
             - name: Umma
-            - role: 수업을 진행하는 선생님이 아니라 $selectedLanguageName 일상 대화를 자연스럽게 이어 주는 원어민 대화 파트너
+            - role: 모국어는 ${selectedLanguageName}이고 ${primaryLanguageName}도 잘 구사하는, 눈치 빠른 원어민 친구
             - goal: 모든 응답의 첫 원칙은 실제 일상 대화처럼 자연스럽게 반응하는 것이다.
             - style: 학습 보조는 대화를 깨지 않는 범위에서만 조용히 섞고, 원어민이 자주 쓰는 자연스러운 구어체를 우선한다.
 
@@ -86,10 +94,7 @@ class BuildPromptUseCase @Inject constructor() {
             $languageBlock
 
             response_flow:
-            - infer_intent: 사용자의 조각난 말에서도 먼저 뜻을 추론한다.
-            - natural_reaction: 교정 설명보다 일상 대화 반응을 먼저 한다.
-            - inline_recast: 필요할 때만 사용자가 말하려던 뜻을 원어민이 실제 자주 쓰는 $selectedLanguageName 문장 안에 자연스럽게 한 번 녹인다.
-            - flow: 대화가 끊기지 않게 짧게 이어가되, 매번 같은 질문 형식으로 끝내지 않는다.
+            $responseFlowBlock
 
             branches:
             $branchBlock
@@ -108,6 +113,68 @@ class BuildPromptUseCase @Inject constructor() {
     }
 
     /**
+     * Logcat에서 세션 prompt에 어떤 정책이 반영됐는지 확인하기 위한 요약.
+     *
+     * prompt 본문, 최근 대화 원문, 사용자 발화 원문은 담지 않는다.
+     */
+    fun buildSessionPromptTrace(
+        profile: LearnerAdaptationProfile,
+        primaryLang: LangCode,
+        selectedLang: LangCode,
+        recentFullContext: List<SessionTurn> = emptyList(),
+        recentTopicSummaries: List<String> = emptyList()
+    ): String {
+        val policy = profile.chatPolicy
+        val focus = profile.core.focus
+        return "prompt=system " +
+            "sections=persona,languages,response_flow,branches,learner_policy,learner_profile,context " +
+            "langs=${primaryLang.code}->${selectedLang.code} " +
+            "chatPolicy={band=${policy.conversationBand},intent=${policy.intentSupport},primaryBridge=${policy.primaryBridge}," +
+            "recast=${policy.recastStyle},growth=${policy.expressionGrowth},questionLoad=${policy.questionLoad}," +
+            "responseLength=${policy.responseLength},speechSpeed=${policy.speechSpeed}} " +
+            "profile={confidence=${profile.core.levelConfidence},grammar=${profile.core.grammarStage}," +
+            "vocabulary=${profile.core.vocabularyStage},fluency=${profile.core.fluencyStage}," +
+            "naturalness=${profile.core.naturalnessStage}} " +
+            "focus={primary=${focus.primaryFocus},secondary=${focus.secondaryFocus},confidence=${focus.confidence}," +
+            "observed=${focus.observedCount}} " +
+            "context={turns=${recentFullContext.size},topics=${recentTopicSummaries.size}}"
+    }
+
+    /**
+     * Logcat에서 이번 response.create override가 왜 들어갔는지 확인하기 위한 요약.
+     *
+     * response.create.instructions 본문과 사용자 발화 원문은 담지 않는다.
+     */
+    fun buildTurnOverrideTrace(
+        basePolicy: ChatTurnAdaptationPolicy,
+        turnPolicy: ChatTurnAdaptationPolicy,
+        contextSignal: ChatTurnContextSignal,
+        hasResponseInstructions: Boolean,
+        outputAudioSpeed: Double?
+    ): String {
+        val changed = listOfNotNull(
+            "responseLength".takeIf { turnPolicy.responseLength != basePolicy.responseLength },
+            "sentenceDensity".takeIf { turnPolicy.sentenceDensity != basePolicy.sentenceDensity },
+            "primaryBridge".takeIf {
+                turnPolicy.primaryBridge != basePolicy.primaryBridge ||
+                    turnPolicy.primaryBridgeReason != PrimaryBridgeReason.ProfileDefault
+            },
+            "questionLoad".takeIf { turnPolicy.questionLoad != basePolicy.questionLoad },
+            "speechSpeed".takeIf { turnPolicy.speechSpeed != basePolicy.speechSpeed },
+            "contextProgress".takeIf {
+                contextSignal.latestUserTurnRole == LatestUserTurnRole.ProgressingInContext
+            }
+        )
+        return "prompt=response.create.override " +
+            "contextSignal={role=${contextSignal.latestUserTurnRole},followsQuestion=${contextSignal.followsAssistantQuestion}} " +
+            "base=${turnPolicyTrace(basePolicy)} " +
+            "turn=${turnPolicyTrace(turnPolicy)} " +
+            "changed=${changed.ifEmpty { listOf("none") }.joinToString(separator = ",")} " +
+            "hasInstructions=$hasResponseInstructions " +
+            "outputAudioSpeed=$outputAudioSpeed"
+    }
+
+    /**
      * 이번 AI 응답에만 적용할 `response.create.instructions` override를 만든다.
      *
      * 세션 시작 prompt 전체를 다시 보내지 않고, 방금 USER final transcript가 보여준
@@ -117,7 +184,8 @@ class BuildPromptUseCase @Inject constructor() {
         basePolicy: ChatTurnAdaptationPolicy,
         turnPolicy: ChatTurnAdaptationPolicy,
         primaryLang: LangCode,
-        selectedLang: LangCode
+        selectedLang: LangCode,
+        contextSignal: ChatTurnContextSignal = ChatTurnContextSignal.Neutral
     ): String? {
         // turn override도 내부 enum 이름을 노출하지 않기 위해 언어명을 자연어로 변환한다.
         val primaryLanguageName = languageName(primaryLang)
@@ -133,7 +201,8 @@ class BuildPromptUseCase @Inject constructor() {
             }
             if (
                 turnPolicy.primaryBridge != basePolicy.primaryBridge ||
-                turnPolicy.primaryBridgeReason == PrimaryBridgeReason.ExplicitSupportRequest
+                turnPolicy.primaryBridgeReason == PrimaryBridgeReason.ExplicitSupportRequest ||
+                turnPolicy.primaryBridgeReason == PrimaryBridgeReason.PrimaryDominantTurn
             ) {
                 add(
                     turnPrimaryBridgeLine(
@@ -163,6 +232,12 @@ class BuildPromptUseCase @Inject constructor() {
         }.trimEnd()
     }
 
+    private fun turnPolicyTrace(policy: ChatTurnAdaptationPolicy): String {
+        return "{responseLength=${policy.responseLength},sentenceDensity=${policy.sentenceDensity}," +
+            "primaryBridge=${policy.primaryBridge},primaryBridgeReason=${policy.primaryBridgeReason}," +
+            "questionLoad=${policy.questionLoad},speechSpeed=${policy.speechSpeed}}"
+    }
+
     private fun languageName(langCode: LangCode): String {
         // UNKNOWN 은 정상 사용자 설정이 아니지만 session start 실패보다 안전한 기본값이 낫다.
         return when (langCode) {
@@ -182,7 +257,7 @@ class BuildPromptUseCase @Inject constructor() {
         // primaryLang 은 낮은 단계에서 이해를 보장하는 대화 지속 장치이고, selectedLang 은 실제 대화 목표 언어다.
         val supportRule = when (primaryBridge) {
             PrimaryBridgePolicy.Active ->
-                "support_rule: 사용자가 학습언어($selectedLanguageName)를 거의 못 쓰거나 도움을 요청하면 기준언어($primaryLanguageName)로 의미를 먼저 잡고 $selectedLanguageName 핵심 표현을 짧게 붙인다."
+                "support_rule: 사용자가 학습언어($selectedLanguageName)를 거의 못 쓰거나 기준언어($primaryLanguageName)를 섞으면 ${primaryLanguageName}로 의미를 먼저 받아 주고, ${selectedLanguageName}는 1~3단어 조합이나 아주 짧은 표현만 붙인다."
             PrimaryBridgePolicy.Brief ->
                 "support_rule: 사용자가 막히면 $primaryLanguageName 힌트로 이해를 돕고 $selectedLanguageName 표현은 짧게 둔다."
             PrimaryBridgePolicy.FallbackOnly ->
@@ -192,30 +267,58 @@ class BuildPromptUseCase @Inject constructor() {
         }
         return """
             - $supportRule
-            - priority_rule: $selectedLanguageName 노출보다 사용자가 이해하고 다음 말을 할 수 있게 하는 것이 먼저다.
             - third_language_rule: ${primaryLanguageName}와 $selectedLanguageName 외 언어를 섞지 않는다.
+        """.trimIndent()
+    }
+
+    private fun responseFlowBlock(): String {
+        // 모든 모드에 공통인 대화 원칙만 남기고, 난이도별 보정은 learner_policy/branches로 분리한다.
+        return """
+            - natural_reaction: 교정 설명보다 일상 대화 반응을 먼저 한다.
+            - flow: 대화가 끊기지 않게 짧게 이어가되, 매번 같은 질문 형식으로 끝내지 않는다.
         """.trimIndent()
     }
 
     private fun branchBlock(
         selectedLanguageName: String,
-        primaryLanguageName: String
+        primaryLanguageName: String,
+        primaryBridge: PrimaryBridgePolicy
     ): String {
         // 분기는 band 이름 없이 현재 발화 모양에 따라 모델이 즉시 적용할 행동만 남긴다.
+        val fragmentRule = when (primaryBridge) {
+            PrimaryBridgePolicy.Active ->
+                "fragment: 뜻만 있는 단어 조각이면 기준언어($primaryLanguageName)로 의미를 먼저 받아 주고, ${selectedLanguageName}는 완성 문장보다 1~3단어 조합이나 아주 짧은 고정 표현 하나만 붙인다."
+            PrimaryBridgePolicy.Brief ->
+                "fragment: 뜻만 있는 단어 조각이면 먼저 쉬운 ${selectedLanguageName} 표현으로 이어가되, 사용자가 막힌 신호를 보일 때만 기준언어($primaryLanguageName) 힌트를 짧게 붙인다."
+            PrimaryBridgePolicy.FallbackOnly ->
+                "fragment: 뜻만 있는 단어 조각이어도 기본은 쉬운 ${selectedLanguageName}로 이어가고, 의도 복원이 어려울 때만 기준언어($primaryLanguageName)를 한 줄 보조로 쓴다."
+            PrimaryBridgePolicy.None ->
+                "fragment: 뜻만 있는 단어 조각이어도 사용자가 요청하지 않으면 ${selectedLanguageName}만 사용하고, 짧고 쉬운 표현으로 이어간다."
+        }
         return """
-            - fragment: 뜻만 있는 단어 조각이면 기준언어($primaryLanguageName)로 의미를 먼저 잡고 $selectedLanguageName 핵심 표현 하나를 자연스럽게 붙인다.
+            - $fragmentRule
             - simple: 뜻이 대략 통하면 자연 반응 안에 $selectedLanguageName 재표현을 한 번만 섞고, 필요할 때만 짧게 이어 묻는다.
             - fluent: 말이 충분히 자연스러우면 교정 없이 대화를 이어가고, 필요할 때만 더 구어체다운 표현을 대화 문장 안에 자연스럽게 섞는다.
         """.trimIndent()
     }
 
-    private fun policyBlock(profile: LearnerAdaptationProfile): String {
+    private fun policyBlock(
+        profile: LearnerAdaptationProfile,
+        selectedLanguageName: String
+    ): String {
         // 여러 Chat 정책 enum을 1:1로 모두 노출하면 prompt가 길어지므로 실행 가능한 문장만 고른다.
         val policy = profile.chatPolicy
-        return listOf(
+        return listOfNotNull(
             intentSupportLine(policy.intentSupport),
             primaryBridgeLine(policy.primaryBridge),
-            recastLine(policy.recastStyle),
+            primaryBridgePriorityLine(
+                policy = policy.primaryBridge,
+                selectedLanguageName = selectedLanguageName
+            ),
+            recastLine(
+                policy = policy.recastStyle,
+                selectedLanguageName = selectedLanguageName
+            ),
             growthLine(policy.expressionGrowth),
             confidenceLine(profile.core.levelConfidence)
         ).joinToString(separator = "\n") { "- $it" }
@@ -241,12 +344,28 @@ class BuildPromptUseCase @Inject constructor() {
         }
     }
 
-    private fun recastLine(policy: RecastStylePolicy): String {
+    private fun primaryBridgePriorityLine(
+        policy: PrimaryBridgePolicy,
+        selectedLanguageName: String
+    ): String? {
+        // 이해 우선 원칙은 보조 언어가 실제로 열리는 낮은 모드에서만 강하게 적용한다.
+        return when (policy) {
+            PrimaryBridgePolicy.Active,
+            PrimaryBridgePolicy.Brief -> "priority_rule: $selectedLanguageName 노출보다 사용자가 이해하고 다음 말을 할 수 있게 하는 것이 먼저다."
+            PrimaryBridgePolicy.FallbackOnly,
+            PrimaryBridgePolicy.None -> null
+        }
+    }
+
+    private fun recastLine(
+        policy: RecastStylePolicy,
+        selectedLanguageName: String
+    ): String {
         // recast는 별도 수업 예문이 아니라 응답 문장 안에 자연스럽게 들어가야 한다.
         return when (policy) {
             RecastStylePolicy.TinyInline -> "사용자가 말하려던 뜻을 아주 쉬운 표현으로 응답 안에 한 번만 보여준다."
             RecastStylePolicy.SimpleInline -> "사용자의 뜻을 쉬운 자연 문장으로 한 번만 다시 보여준다."
-            RecastStylePolicy.NaturalInline -> "더 자연스러운 구어 표현을 대화 문장 안에 한 번만 녹인다."
+            RecastStylePolicy.NaturalInline -> "필요할 때만 사용자가 말하려던 뜻을 원어민이 실제 자주 쓰는 $selectedLanguageName 문장 안에 자연스럽게 한 번 녹인다."
             RecastStylePolicy.NuanceOnly -> "필요할 때만 더 원어민다운 뉘앙스를 자연스럽게 섞는다."
         }
     }
@@ -363,11 +482,17 @@ class BuildPromptUseCase @Inject constructor() {
     ): String {
         // turn 단위 primary bridge는 이번 응답에서만 열리며, selectedLang 대화를 대체하면 안 된다.
         if (reason == PrimaryBridgeReason.ExplicitSupportRequest) {
-            return "${primaryLanguageName} 보조 요청을 반영해 ${primaryLanguageName}로 이해를 먼저 보장하고, ${selectedLanguageName}는 짧은 핵심 표현만 붙인다."
+            return "${primaryLanguageName} 보조 요청을 반영해 ${primaryLanguageName}로 이해를 먼저 보장하고, ${selectedLanguageName}는 1~3단어 조합이나 아주 짧은 표현만 붙인다."
+        }
+        if (reason == PrimaryBridgeReason.BeginnerAutoSupport) {
+            return "아직 대화 부담이 큰 상태이므로 ${primaryLanguageName}로 의미를 먼저 짧게 받아 주고, ${selectedLanguageName}는 완성 문장보다 1~3단어 조합이나 아주 짧은 표현 하나만 붙인다."
+        }
+        if (reason == PrimaryBridgeReason.PrimaryDominantTurn) {
+            return "사용자가 ${primaryLanguageName}를 섞어 답했으므로 ${primaryLanguageName}로 의미를 먼저 짧게 받아 주고, ${selectedLanguageName}는 완성 문장보다 1~3단어 조합이나 아주 짧은 표현 하나만 붙인다."
         }
         return when (policy) {
             PrimaryBridgePolicy.Active ->
-                "${primaryLanguageName}로 의미를 먼저 잡고 ${selectedLanguageName} 쉬운 표현을 짧게 붙인다."
+                "${primaryLanguageName}로 의미를 먼저 받아 주고 ${selectedLanguageName}는 1~3단어 조합이나 아주 짧은 표현만 붙인다."
             PrimaryBridgePolicy.Brief ->
                 "막힌 부분만 ${primaryLanguageName} 힌트로 짧게 돕고 ${selectedLanguageName} 대화로 자연스럽게 돌아온다."
             PrimaryBridgePolicy.FallbackOnly ->

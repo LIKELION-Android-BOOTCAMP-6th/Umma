@@ -95,6 +95,7 @@ class ChatRepositoryImpl @Inject constructor(
     // 재연결 시 최신 prompt 를 다시 session.update 로 보낼 수 있도록 현재 언어와 prompt 를 캐시합니다.
     private var currentLang: LangCode? = null
     private var currentSystemInstruction: String? = null
+    private var currentSystemInstructionDebugTrace: String? = null
     // 자동/수동 재연결 때도 학습자 수준에 맞춘 음성 속도를 동일하게 복원하기 위해 함께 캐시한다.
     private var currentOutputAudioSpeed: Double? = null
     // USER final transcript 이후 이번 response에만 적용할 override provider. 정책 판단은 domain/usecase가 맡는다.
@@ -145,6 +146,7 @@ class ChatRepositoryImpl @Inject constructor(
         langCode: LangCode,
         systemInstruction: String,
         outputAudioSpeed: Double,
+        systemInstructionDebugTrace: String?,
         responseOverrideProvider: ChatResponseOverrideProvider?
     ): Result<String> = sessionMutex.withLock {
         // 화면 회전이나 LaunchedEffect 재실행으로 같은 조건의 startSession 이 다시 들어오면
@@ -172,6 +174,7 @@ class ChatRepositoryImpl @Inject constructor(
                 langCode = langCode,
                 systemInstruction = systemInstruction,
                 outputAudioSpeed = outputAudioSpeed,
+                systemInstructionDebugTrace = systemInstructionDebugTrace,
                 responseOverrideProvider = responseOverrideProvider,
                 sessionId = newSessionId,
                 resetTurnSequence = true
@@ -190,6 +193,7 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun reconnectSession(
         systemInstruction: String,
         outputAudioSpeed: Double,
+        systemInstructionDebugTrace: String?,
         responseOverrideProvider: ChatResponseOverrideProvider?
     ): Result<String> = sessionMutex.withLock {
         // 수동 재시도는 "새 대화 시작"이 아니라 "현재 앱 세션의 transport 복구"입니다.
@@ -212,6 +216,7 @@ class ChatRepositoryImpl @Inject constructor(
                 langCode = langCode,
                 systemInstruction = systemInstruction,
                 outputAudioSpeed = outputAudioSpeed,
+                systemInstructionDebugTrace = systemInstructionDebugTrace,
                 responseOverrideProvider = responseOverrideProvider,
                 sessionId = sessionId,
                 resetTurnSequence = false
@@ -382,6 +387,7 @@ class ChatRepositoryImpl @Inject constructor(
         langCode: LangCode,
         systemInstruction: String,
         outputAudioSpeed: Double,
+        systemInstructionDebugTrace: String?,
         responseOverrideProvider: ChatResponseOverrideProvider?,
         sessionId: String,
         resetTurnSequence: Boolean
@@ -399,11 +405,21 @@ class ChatRepositoryImpl @Inject constructor(
         activeSessionId = sessionId
         currentLang = langCode
         currentSystemInstruction = systemInstruction
+        currentSystemInstructionDebugTrace = systemInstructionDebugTrace
         currentOutputAudioSpeed = outputAudioSpeed
         currentResponseOverrideProvider = responseOverrideProvider
         if (resetTurnSequence) {
             turnSequence = 0L
         }
+        logPromptTrace(
+            label = if (resetTurnSequence) {
+                "session_start"
+            } else {
+                "session_reconnect"
+            },
+            trace = systemInstructionDebugTrace,
+            metadata = "sessionId=$sessionId lang=${langCode.code} speed=$outputAudioSpeed"
+        )
 
         webSocket = client.newWebSocket(
             buildWebSocketRequest(token),
@@ -575,6 +591,13 @@ class ChatRepositoryImpl @Inject constructor(
         // Repository는 transcript를 분석하지 않고, domain/usecase가 제공한 provider의 결과만 적용한다.
         return runCatching {
             provider.build(transcript)
+                .also { override ->
+                    logPromptTrace(
+                        label = "turn_override",
+                        trace = override?.debugTrace,
+                        metadata = "transcriptChars=${transcript.length} hasInstructions=${!override?.responseInstructions.isNullOrBlank()} speed=${override?.outputAudioSpeed}"
+                    )
+                }
         }.getOrElse { error ->
             // override 계산 실패가 대화 응답 생성을 막으면 안 된다. 기존 세션 설정으로 계속 진행한다.
             Log.w(TAG, "chat turn override skipped: ${error.message}", error)
@@ -619,6 +642,21 @@ class ChatRepositoryImpl @Inject constructor(
     private suspend fun emitPartialTranscript(text: String?, role: TurnSpeaker) {
         if (text.isNullOrBlank()) return
         events.emit(AIEvent.PartialTranscription(text = text, role = role))
+    }
+
+    private fun logPromptTrace(
+        label: String,
+        trace: String?,
+        metadata: String
+    ) {
+        if (!BuildConfig.DEBUG) return
+
+        val safeTrace = trace?.takeIf { it.isNotBlank() }
+        if (safeTrace == null) {
+            Log.d(PROMPT_TRACE_TAG, "$label metadata=[$metadata] trace=null")
+            return
+        }
+        Log.d(PROMPT_TRACE_TAG, "$label metadata=[$metadata] $safeTrace")
     }
 
     private suspend fun emitFinalTranscript(
@@ -783,6 +821,7 @@ class ChatRepositoryImpl @Inject constructor(
                             langCode = langCode,
                             systemInstruction = systemInstruction,
                             outputAudioSpeed = outputAudioSpeed,
+                            systemInstructionDebugTrace = currentSystemInstructionDebugTrace,
                             responseOverrideProvider = currentResponseOverrideProvider,
                             sessionId = sessionId,
                             resetTurnSequence = false
@@ -1190,6 +1229,7 @@ class ChatRepositoryImpl @Inject constructor(
         activeSessionId = null
         currentLang = null
         currentSystemInstruction = null
+        currentSystemInstructionDebugTrace = null
         currentOutputAudioSpeed = null
         currentResponseOverrideProvider = null
         turnSequence = 0L
@@ -1275,6 +1315,7 @@ class ChatRepositoryImpl @Inject constructor(
     private companion object {
         const val TAG = "OpenAIRealtime"
         const val DIAG_TAG = "AiChatPlayback"
+        const val PROMPT_TRACE_TAG = "AiChatPromptTrace"
         const val EVENT_BUFFER_CAPACITY = 64
         const val COMPLETED_RESPONSE_ID_LIMIT = 24
         const val SESSION_READY_TIMEOUT_MS = 10_000L

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,6 +55,7 @@ class ChatPromptIntegrationUseCaseTest {
             learningStateRepo = learningStateRepo,
             sessionMemoryRepository = sessionMemoryRepository,
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
             buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = BuildPromptUseCase()
@@ -72,7 +74,7 @@ class ChatPromptIntegrationUseCaseTest {
         assertTrue(chatRepository.startedInstruction.contains("저장된 근거가 적어도 현재 발화가 이어질 수 있게 이해 가능한 반응을 우선한다."))
         assertTrue(chatRepository.startedInstruction.contains("불완전한 말에서도 사용자의 의도를 먼저 추론하고 대화를 이어간다."))
         // Chat prompt 는 단순 답변 AI 가 아니라 초보도 이해 가능한 반응을 받아 다음 말을 이어갈 수 있어야 한다.
-        assertTrue(chatRepository.startedInstruction.contains("fragment: 뜻만 있는 단어 조각이면 기준언어(한국어)로 의미를 먼저 잡고 영어 핵심 표현 하나를 자연스럽게 붙인다."))
+        assertTrue(chatRepository.startedInstruction.contains("fragment: 뜻만 있는 단어 조각이면 기준언어(한국어)로 의미를 먼저 받아 주고, 영어는 완성 문장보다 1~3단어 조합이나 아주 짧은 고정 표현 하나만 붙인다."))
         assertTrue(chatRepository.startedInstruction.contains("필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 준다."))
         assertTrue(chatRepository.startedInstruction.contains("첫 발화가 조각나도 천천히 말하며 한 가지 의미씩 이해하게 한다."))
         // 최근 확정 대화 context 는 기존 prompt 정책처럼 유지되어야 한다.
@@ -81,7 +83,7 @@ class ChatPromptIntegrationUseCaseTest {
         // USER final transcript 이후 response.create 전용 override를 만들 provider가 transport에 전달되어야 한다.
         val override = chatRepository.startedResponseOverrideProvider!!.build("I apple hungry")
             ?: error("response override should be created for a fragment user turn")
-        // initial profile의 기본 초급 정책과 같은 turn이면 같은 "천천히/쉽게" 지시를 반복하지 않는다.
+        // initial profile의 1~2단계 fragment turn이 세션 기본 정책과 같으면 같은 자동 보조 지시를 반복하지 않는다.
         assertEquals(null, override.responseInstructions)
         assertEquals(0.8, override.outputAudioSpeed!!, 0.0)
     }
@@ -107,6 +109,7 @@ class ChatPromptIntegrationUseCaseTest {
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
             buildLearnerAdaptationProfileUseCase = profileUseCase,
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
             buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = promptUseCase
@@ -117,6 +120,7 @@ class ChatPromptIntegrationUseCaseTest {
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
             buildLearnerAdaptationProfileUseCase = profileUseCase,
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
             buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = promptUseCase
@@ -132,6 +136,123 @@ class ChatPromptIntegrationUseCaseTest {
             ?: error("retry response override should be created")
         assertEquals(startOverride.responseInstructions, retryOverride.responseInstructions)
         assertEquals(startOverride.outputAudioSpeed!!, retryOverride.outputAudioSpeed!!, 0.0)
+    }
+
+    @Test
+    fun `turn override uses recent assistant question context for short answer`() = runBlocking {
+        val chatRepository = RecordingChatRepository()
+        val useCase = StartSessionUseCase(
+            repository = chatRepository,
+            learningStateRepo = RecordingLearningStateRepo(
+                userPref = UserLangPref.initial(
+                    primaryLang = LangCode.KO,
+                    selectedLang = LangCode.EN
+                ),
+                langState = LangState.initial(LangCode.EN)
+            ),
+            sessionMemoryRepository = RecordingSessionMemoryRepository(
+                memory = memory(
+                    recentFullContext = listOf(
+                        turn("ai-1", TurnSpeaker.AI, "Which topic do you want to talk about?")
+                    )
+                )
+            ),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
+            buildPromptUseCase = BuildPromptUseCase()
+        )
+
+        useCase()
+
+        val override = chatRepository.startedResponseOverrideProvider!!.build("summer trip")
+            ?: error("short answer after assistant question should create a current turn override")
+        // 질문 맥락은 단어 조각 오해를 막고, 정상 진행 중인 짧은 답변에는 강한 자동 보정을 반복하지 않는다.
+        val responseInstructions = override.responseInstructions
+            ?: error("progressing context should add response instructions when policy differs from baseline")
+        assertTrue(responseInstructions.contains("current_turn_override:"))
+        assertTrue(responseInstructions.contains("이번 응답은 짧은 반응에 필요한 후속 여지만 둔다."))
+        assertFalse(responseInstructions.contains("과잉 보정하지 말고 자연스럽게 이어간다"))
+        assertEquals(0.92, override.outputAudioSpeed!!, 0.0)
+    }
+
+    @Test
+    fun `primary language dominant turn creates support override without explicit request`() = runBlocking {
+        val chatRepository = RecordingChatRepository()
+        val useCase = StartSessionUseCase(
+            repository = chatRepository,
+            learningStateRepo = RecordingLearningStateRepo(
+                userPref = UserLangPref.initial(
+                    primaryLang = LangCode.KO,
+                    selectedLang = LangCode.JA
+                ),
+                langState = LangState.initial(LangCode.JA)
+            ),
+            sessionMemoryRepository = RecordingSessionMemoryRepository(
+                memory = memory(
+                    language = LangCode.JA,
+                    recentFullContext = listOf(
+                        turn("ai-1", TurnSpeaker.AI, "今日はどうでしたか")
+                    )
+                )
+            ),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
+            buildPromptUseCase = BuildPromptUseCase()
+        )
+
+        useCase()
+
+        val override = chatRepository.startedResponseOverrideProvider!!.build("오늘 너무 힘들었어")
+            ?: error("primary-language dominant turn should create a support override")
+        val responseInstructions = override.responseInstructions
+            ?: error("primary-language dominant turn should add response instructions")
+        // 명시적으로 "한국어를 섞어줘"라고 요청하지 않아도, 한국어 우세 발화 자체를 이해 보조 신호로 사용한다.
+        assertTrue(responseInstructions.contains("한국어를 섞어 답했으므로"))
+        assertTrue(responseInstructions.contains("일본어는 완성 문장보다 1~3단어 조합"))
+        assertEquals(0.8, override.outputAudioSpeed!!, 0.0)
+    }
+
+    @Test
+    fun `beginner selected language short answer in context relaxes automatic primary support override`() = runBlocking {
+        val chatRepository = RecordingChatRepository()
+        val useCase = StartSessionUseCase(
+            repository = chatRepository,
+            learningStateRepo = RecordingLearningStateRepo(
+                userPref = UserLangPref.initial(
+                    primaryLang = LangCode.KO,
+                    selectedLang = LangCode.JA
+                ),
+                langState = LangState.initial(LangCode.JA)
+            ),
+            sessionMemoryRepository = RecordingSessionMemoryRepository(
+                memory = memory(
+                    language = LangCode.JA,
+                    recentFullContext = listOf(
+                        turn("ai-1", TurnSpeaker.AI, "今日はどうでしたか")
+                    )
+                )
+            ),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
+            buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
+            buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
+            buildPromptUseCase = BuildPromptUseCase()
+        )
+
+        useCase()
+
+        val override = chatRepository.startedResponseOverrideProvider!!.build("はい")
+            ?: error("beginner short answer should create a support override")
+        val responseInstructions = override.responseInstructions
+            ?: error("progressing context should add response instructions when policy differs from baseline")
+        // 사용자가 짧게 답했더라도 최근 맥락 안에서 이어지고 있으면 같은 한국어 보정을 반복하지 않는다.
+        assertTrue(responseInstructions.contains("이번 응답은 짧은 반응에 필요한 후속 여지만 둔다."))
+        assertFalse(responseInstructions.contains("한국어로 의미를 먼저 짧게 받아 주고"))
+        assertEquals(0.92, override.outputAudioSpeed!!, 0.0)
     }
 
     @Test
@@ -152,6 +273,7 @@ class ChatPromptIntegrationUseCaseTest {
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
+            buildChatTurnContextSignalUseCase = BuildChatTurnContextSignalUseCase(),
             buildChatTurnAdaptationPolicyUseCase = BuildChatTurnAdaptationPolicyUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = BuildPromptUseCase()
@@ -183,6 +305,7 @@ class ChatPromptIntegrationUseCaseTest {
             langCode: LangCode,
             systemInstruction: String,
             outputAudioSpeed: Double,
+            systemInstructionDebugTrace: String?,
             responseOverrideProvider: ChatResponseOverrideProvider?
         ): Result<String> {
             // test fake 는 transport 를 열지 않고, domain usecase 가 넘긴 언어와 prompt 만 기록한다.
@@ -198,6 +321,7 @@ class ChatPromptIntegrationUseCaseTest {
         override suspend fun reconnectSession(
             systemInstruction: String,
             outputAudioSpeed: Double,
+            systemInstructionDebugTrace: String?,
             responseOverrideProvider: ChatResponseOverrideProvider?
         ): Result<String> {
             // retry 경로에서도 같은 prompt/속도 생성 결과가 들어오는지 비교하기 위해 값을 보관한다.
@@ -306,21 +430,33 @@ class ChatPromptIntegrationUseCaseTest {
         }
     }
 
-    private fun memory(): SessionMemory {
+    private fun memory(
+        language: LangCode = LangCode.EN,
+        recentFullContext: List<SessionTurn> = listOf(
+            turn("turn-1", TurnSpeaker.USER, "hello")
+        )
+    ): SessionMemory {
         // 이 테스트는 selectedLang 이 EN 인 대표 경로만 검증하므로 fixture 도 EN 으로 고정한다.
         return SessionMemory(
             userId = "user-1",
-            language = LangCode.EN,
-            recentFullContext = listOf(
-                SessionTurn(
-                    turnId = "turn-1",
-                    sessionId = "session-1",
-                    text = "hello",
-                    role = TurnSpeaker.USER,
-                    createdAt = 1_000L
-                )
-            ),
+            language = language,
+            recentFullContext = recentFullContext,
             updatedAt = 1_000L
+        )
+    }
+
+    private fun turn(
+        id: String,
+        role: TurnSpeaker,
+        text: String
+    ): SessionTurn {
+        // prompt integration fixture는 turn 순서와 speaker/text만 필요하므로 나머지 필드는 최소값으로 둔다.
+        return SessionTurn(
+            turnId = id,
+            sessionId = "session-1",
+            text = text,
+            role = role,
+            createdAt = 1_000L
         )
     }
 }
