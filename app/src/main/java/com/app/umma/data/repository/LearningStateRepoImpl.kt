@@ -243,11 +243,13 @@ class LearningStateRepoImpl @Inject constructor(
             // 이렇게 해야 Dashboard 카드와 SRS 진입 화면이 서로 다른 due count를 보지 않는다.
             val nextFlashcard = previousFlashcard.copy(
                 dueFlashcards = input.dueFlashcards,
+                notifiableDueFlashcards = input.notifiableDueFlashcards,
                 savedFlashcards = input.savedFlashcards,
                 updatedAt = input.updatedAt
             )
             val nextDash = previousDash.copy(
                 dueFlashcards = input.dueFlashcards,
+                notifiableDueFlashcards = input.notifiableDueFlashcards,
                 savedFlashcards = input.savedFlashcards,
                 updatedAt = input.updatedAt
             )

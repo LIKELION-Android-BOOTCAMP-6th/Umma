@@ -62,6 +62,7 @@ class ApplyReviewDecisionUseCase @Inject constructor(
                 uid = userId,
                 lang = card.language,
                 dueFlashcards = summarySnapshot.dueFlashcards,
+                notifiableDueFlashcards = summarySnapshot.notifiableDueFlashcards,
                 savedFlashcards = summarySnapshot.savedFlashcards,
                 sourceEventId = "srs-review:${card.id}:${decision.reviewedAt}",
                 updatedAt = decision.reviewedAt
