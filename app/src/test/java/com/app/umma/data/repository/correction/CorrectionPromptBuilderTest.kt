@@ -218,8 +218,10 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
-    fun `explanation rule uses primaryLang for tip language`() {
-        // explanation 팁 언어도 primaryLang 을 따라야 한다.
+    fun `explanation rule delegates to Explanation policy not fixed primaryLang`() {
+        // COR-TUNE-003-FIX: explanation 응답 규칙은 더 이상 primaryLang 을 고정하지 않는다.
+        // 언어 결정은 Explanation 정책(explanationLine)에 위임되므로, 응답 규칙 줄에 "Explanation policy" 위임 문구가 있어야 한다.
+        // primaryLang=KO 이어도 "Korean" 고정 문구가 응답 규칙 라인에 나타나지 않아야 한다.
         val input = inputOf(
             candidates = listOf(
                 CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
@@ -228,7 +230,52 @@ class CorrectionPromptBuilderTest {
             primaryLang = LangCode.KO
         )
         val prompt = builder.build(input)
-        assertTrue("explanation 팁 언어 Korean 누락", prompt.contains("Korean"))
+        assertTrue("Explanation policy 위임 문구 누락", prompt.contains("Explanation policy above"))
+        assertFalse("explanation 응답 규칙에 primaryLang 고정 문구가 남아 있음", prompt.contains("a short correction tip in Korean"))
+    }
+
+    @Test
+    fun `advanced band explanation does not conflict with response rule`() {
+        // COR-TUNE-003-FIX: 고급 band 에서 explanationLine 은 target-language 설명을 지시하는데,
+        // 응답 규칙이 primaryLang 을 강제하면 두 지시가 충돌한다. 수정 후에는 응답 규칙이 primaryLang 을 고정하지 않아야 한다.
+        val connectedInput = inputOf(
+            candidates = listOf(CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.ConnectedExpression))
+        )
+        val connectedPrompt = builder.build(connectedInput)
+        // 정책 블록: target language 설명을 지시해야 한다.
+        assertTrue("ConnectedExpression explanationLine target-language 문구 누락", connectedPrompt.contains("target language"))
+        // 응답 규칙: primaryLang 고정 문구가 없어야 한다.
+        assertFalse("ConnectedExpression 응답 규칙에 primaryLang 고정이 남아 있음", connectedPrompt.contains("a short correction tip in Korean"))
+
+        val nuanceInput = inputOf(
+            candidates = listOf(CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.NuanceRefine))
+        )
+        val nuancePrompt = builder.build(nuanceInput)
+        assertTrue("NuanceRefine explanationLine target-language 문구 누락", nuancePrompt.contains("target language"))
+        assertFalse("NuanceRefine 응답 규칙에 primaryLang 고정이 남아 있음", nuancePrompt.contains("a short correction tip in Korean"))
+    }
+
+    @Test
+    fun `editSpans rule exposes enum constraints and drop warning`() {
+        // COR-TUNE-003-FIX: editSpans 규칙에 issueCategory/improvementType enum 제약과
+        // "discards the whole learningSignal" 폐기 경고가 노출되어야 한다.
+        // 매퍼 normalizeEditSpan 이 이 enum 들을 unknown 으로 받으면 signal 전체를 drop 하므로, 프롬프트가 동일하게 안내해야 한다.
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            lang = LangCode.EN
+        )
+
+        val prompt = builder.build(input)
+
+        // editSpans 규칙에 issueCategory/improvementType enum 목록이 노출되어야 한다(대표값 확인).
+        assertTrue("editSpans issueCategory enum 제약 누락", prompt.contains("GrammarForm"))
+        assertTrue("editSpans improvementType enum 제약 누락", prompt.contains("GrammarFixed"))
+        // 폐기 경고가 editSpans 규칙에 노출되어야 한다.
+        assertTrue("editSpans drop 경고 누락", prompt.contains("discards the whole learningSignal"))
     }
 
     @Test

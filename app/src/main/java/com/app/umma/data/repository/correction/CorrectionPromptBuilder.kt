@@ -96,7 +96,10 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("- candidateId: COPY EXACTLY from the candidates above. Do not invent new ids.")
             appendLine("- nativeText: the front-face sentence in $primaryLangName (${primaryLang.code}).")
             appendLine("- afterText: the corrected sentence in ${selectedLang.code}.")
-            appendLine("- explanation: a short correction tip in $primaryLangName (under 60 chars).")
+            // COR-TUNE-003-FIX: primaryLang 고정 제거 → Explanation 정책에 위임.
+            // explanationLine()이 band별로 언어를 결정하므로(고급 band: target language, 초급: primaryLang)
+            // 여기서 언어를 다시 고정하면 두 지시가 충돌한다. 형식 제약(60자)만 남기고 언어는 위 정책을 따른다.
+            appendLine("- explanation: a short correction tip (under 60 chars), in the language set by the Explanation policy above.")
             appendLine("- Emit one suggestion per candidate. Skip a candidate only if no correction is needed.")
             // COR-TUNE-02: learningSignal 은 능력 점수가 아니라 "이번 교정에서 관찰한 것"만 담는다.
             // 규칙은 enum 을 1:1 장황하게 나열하지 않고 실행 가능한 짧은 지시로 압축한다.
@@ -107,7 +110,10 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("- register: exactly one of [$registerValues] describing the corrected sentence.")
             appendLine("- severity: exactly one of [$severityValues].")
             appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}.")
-            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. languageFeatureKey may be null.")
+            // COR-TUNE-003-FIX: editSpans의 enum 제약·폐기 경고 추가.
+            // 매퍼 normalizeEditSpan은 issueCategory/improvementType이 허용 목록 밖이면 learningSignal 전체를 drop한다(COR-TUNE-002-FIX).
+            // top-level 규칙(issueCategories/improvementTypes)과 동일 어휘로 명시해 AI가 자연어 값을 넣지 않게 한다.
+            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. Each span's issueCategory MUST be one of [$issueCategoryValues] and improvementType one of [$improvementTypeValues] — any value outside these lists discards the whole learningSignal. languageFeatureKey may be null.")
             appendLine("- meaningPreserved: ALWAYS include it (never omit) — true unless the correction changed the speaker's intended meaning. A missing value discards the whole learningSignal.")
             appendLine("- confidence: a number in 0.0..1.0, or omit it if unsure.")
             appendLine("- If unsure about a signal, use an empty array or low confidence rather than guessing.")
