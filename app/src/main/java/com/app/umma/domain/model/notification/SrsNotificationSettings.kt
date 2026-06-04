@@ -11,6 +11,7 @@ data class SrsNotificationSettings(
     val preferredNotificationTimeMinutes: Int,
     val timezone: String,
     val nextNotificationAt: Long?,
+    val nextNotificationBucketAt: Long?,
     val updatedAt: Long?
 ) {
     companion object {
@@ -22,6 +23,7 @@ data class SrsNotificationSettings(
             preferredNotificationTimeMinutes = 18 * 60,
             timezone = "Asia/Seoul",
             nextNotificationAt = null,
+            nextNotificationBucketAt = null,
             updatedAt = null
         )
     }

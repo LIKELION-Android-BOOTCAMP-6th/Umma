@@ -318,6 +318,7 @@ class CompleteCorrectionUseCase @Inject constructor(
                     uid = input.langStateUpdateInput.uid,
                     lang = input.langStateUpdateInput.lang,
                     dueFlashcards = snapshot.dueFlashcards,
+                    notifiableDueFlashcards = snapshot.notifiableDueFlashcards,
                     savedFlashcards = snapshot.savedFlashcards,
                     // sourceEventId 는 중복 반영 방지용 이벤트 식별자다.
                     // analysisEventId 는 LangState 갱신에 쓰이므로, Flashcard Summary 전용 prefix 를 붙여 분리한다.

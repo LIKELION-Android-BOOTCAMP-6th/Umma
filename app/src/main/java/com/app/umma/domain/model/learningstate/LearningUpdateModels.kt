@@ -129,6 +129,7 @@ data class FlashcardSummaryUpdateInput(
     val lang: LangCode,
     // SRS가 계산한 오늘 복습 대상 카드 수.
     val dueFlashcards: Int,
+    val notifiableDueFlashcards: Int = 0,
     // 저장된 전체 카드 수.
     val savedFlashcards: Int,
     // 갱신 이벤트 식별자. 같은 이벤트가 반복 반영되는 것을 막는 데 사용한다.

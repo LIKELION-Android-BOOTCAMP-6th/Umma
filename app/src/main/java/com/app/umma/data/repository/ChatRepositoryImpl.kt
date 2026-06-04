@@ -521,6 +521,10 @@ class ChatRepositoryImpl @Inject constructor(
                     usageEventId = payload.string("event_id")
                 )
                 logResponseDoneUsage(payload)
+                Log.d(
+                    DIAG_TAG,
+                    "realtime_response_done responseId=${payload.responseIdOrNull()} audioBytes=$aiAudioByteCount"
+                )
                 resetTurnTransportState()
                 events.emit(AIEvent.StateChanged(AIState.IDLE))
             }
@@ -693,6 +697,10 @@ class ChatRepositoryImpl @Inject constructor(
             Base64.decode(base64Audio, Base64.DEFAULT)
         }.onSuccess { audio ->
             aiAudioByteCount += audio.size.toLong()
+            Log.d(
+                DIAG_TAG,
+                "realtime_audio_delta bytes=${audio.size} totalAudioBytes=$aiAudioByteCount"
+            )
             events.emit(AIEvent.AudioResponse(audio))
             events.emit(AIEvent.StateChanged(AIState.SPEAKING))
         }.onFailure { error ->
@@ -1266,6 +1274,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     private companion object {
         const val TAG = "OpenAIRealtime"
+        const val DIAG_TAG = "AiChatPlayback"
         const val EVENT_BUFFER_CAPACITY = 64
         const val COMPLETED_RESPONSE_ID_LIMIT = 24
         const val SESSION_READY_TIMEOUT_MS = 10_000L

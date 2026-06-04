@@ -54,36 +54,84 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
 
-        if (message.data["type"] != "srs_review") return
         if (!hasNotificationPermission()) return
 
+        when (message.data[DATA_TYPE]) {
+            SRS_NOTIFICATION_TYPE -> showSrsNotification(message)
+            MARKETING_NOTIFICATION_TYPE -> showMarketingNotification(message)
+        }
+    }
+
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+    private fun showSrsNotification(message: RemoteMessage) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_NOTIFICATION_TYPE, "srs_review")
-            putExtra(EXTRA_NOTIFICATION_ROUTE, "srs_study")
-            putExtra(EXTRA_NOTIFICATION_LANG, message.data["lang"])
-            putExtra(EXTRA_NOTIFICATION_HISTORY_ID, message.data["historyId"])
+            putExtra(EXTRA_NOTIFICATION_TYPE, SRS_NOTIFICATION_TYPE)
+            putExtra(EXTRA_NOTIFICATION_ROUTE, SRS_NOTIFICATION_ROUTE)
+            putExtra(EXTRA_NOTIFICATION_LANG, message.data[DATA_LANG])
+            putExtra(EXTRA_NOTIFICATION_HISTORY_ID, message.data[DATA_HISTORY_ID])
         }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            REQUEST_CODE_SRS_NOTIFICATION,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID_SRS_REVIEW)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(message.data["title"] ?: "학습 알림")
-            .setContentText(message.data["body"] ?: "복습할 카드가 있습니다. 앱에서 확인해보세요.")
+            .setContentTitle(message.data[DATA_TITLE] ?: "학습 알림")
+            .setContentText(
+                message.data[DATA_BODY] ?: "복습할 카드가 있습니다. 앱에서 확인해보세요."
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(
+                buildPendingIntent(
+                    requestCode = REQUEST_CODE_SRS_NOTIFICATION,
+                    intent = intent
+                )
+            )
             .setAutoCancel(true)
             .build()
 
         NotificationManagerCompat.from(this).notify(
             REQUEST_CODE_SRS_NOTIFICATION,
             notification
+        )
+    }
+
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+    private fun showMarketingNotification(message: RemoteMessage) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_NOTIFICATION_TYPE, MARKETING_NOTIFICATION_TYPE)
+            putExtra(EXTRA_NOTIFICATION_ROUTE, MARKETING_NOTIFICATION_ROUTE)
+            putExtra(EXTRA_NOTIFICATION_HISTORY_ID, message.data[DATA_HISTORY_ID])
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID_MARKETING)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(message.data[DATA_TITLE] ?: "Umma")
+            .setContentText(message.data[DATA_BODY] ?: "앱에서 새로운 소식을 확인해보세요.")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(
+                buildPendingIntent(
+                    requestCode = REQUEST_CODE_MARKETING_NOTIFICATION,
+                    intent = intent
+                )
+            )
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(this).notify(
+            REQUEST_CODE_MARKETING_NOTIFICATION,
+            notification
+        )
+    }
+
+    private fun buildPendingIntent(
+        requestCode: Int,
+        intent: Intent
+    ): PendingIntent {
+        return PendingIntent.getActivity(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
 
@@ -101,13 +149,22 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
         const val EXTRA_NOTIFICATION_LANG = "notification_lang"
         const val EXTRA_NOTIFICATION_HISTORY_ID = "notification_history_id"
 
+        private const val DATA_TYPE = "type"
+        private const val DATA_TITLE = "title"
+        private const val DATA_BODY = "body"
+        private const val DATA_LANG = "lang"
+        private const val DATA_HISTORY_ID = "historyId"
+
+        private const val SRS_NOTIFICATION_TYPE = "srs_review"
+        private const val MARKETING_NOTIFICATION_TYPE = "marketing"
+        private const val SRS_NOTIFICATION_ROUTE = "srs_study"
+        private const val MARKETING_NOTIFICATION_ROUTE = "home"
+
         private const val CHANNEL_ID_SRS_REVIEW = "srs_review_notifications"
         private const val CHANNEL_ID_MARKETING = "marketing_notifications"
         private const val REQUEST_CODE_SRS_NOTIFICATION = 1001
+        private const val REQUEST_CODE_MARKETING_NOTIFICATION = 1002
 
-        /**
-         * 앱에서 사용하는 알림 채널을 선생성한다.
-         */
         fun ensureNotificationChannels(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 

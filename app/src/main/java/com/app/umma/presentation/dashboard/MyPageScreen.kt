@@ -1,17 +1,16 @@
 package com.app.umma.presentation.dashboard
 
 import android.Manifest
-import android.app.TimePickerDialog
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.view.ContextThemeWrapper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -44,26 +44,32 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.app.umma.R
 import com.app.umma.core.theme.BackgroundHighlight
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
@@ -77,11 +83,13 @@ import com.app.umma.core.ui.component.UmmaDialog
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AuthViewModel
 import java.util.TimeZone
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
- * 마이페이지 화면을 구성하는 컴포저블입니다.
- *
- * 사용자 프로필 정보 및 앱 설정을 관리할 수 있는 인터페이스를 제공합니다.
+ * 마이페이지 화면을 구성한다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,7 +97,7 @@ fun MyPageScreen(
     onNavigateToOnBoarding: () -> Unit,
     authViewModel: AuthViewModel = hiltViewModel(),
     myPageViewModel: MyPageViewModel = hiltViewModel(),
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
@@ -105,12 +113,12 @@ fun MyPageScreen(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return ContextCompat.checkSelfPermission(
             context,
-            Manifest.permission.POST_NOTIFICATIONS
+            Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
+        ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
             myPageViewModel.onNotificationPermissionGranted(timezone = timezone)
@@ -122,7 +130,7 @@ fun MyPageScreen(
     LaunchedEffect(Unit) {
         myPageViewModel.onScreenStarted(
             permissionGranted = hasNotificationPermission(),
-            timezone = timezone
+            timezone = timezone,
         )
     }
 
@@ -139,7 +147,7 @@ fun MyPageScreen(
             myPageViewModel.onMessageConsumed()
         }
     }
-    // 알림 권한 재귀
+
     LaunchedEffect(notificationUiState.permissionRequired) {
         if (!notificationUiState.permissionRequired) return@LaunchedEffect
         if (hasNotificationPermission()) {
@@ -154,12 +162,12 @@ fun MyPageScreen(
             onNavigateToOnBoarding()
         }
     }
-    // 타임피커 노출
+
     if (notificationUiState.showTimePicker) {
-        NotificationTimePickerDialog(
-            initialMinutes = notificationUiState.srsSettings.preferredNotificationTimeMinutes,
+        NotificationHourPickerDialog(
+            initialHour = notificationUiState.srsSettings.preferredNotificationTimeMinutes / 60,
             onDismiss = myPageViewModel::onTimePickerDismissed,
-            onTimeConfirmed = myPageViewModel::onTimeSelected
+            onTimeConfirmed = { hour -> myPageViewModel.onTimeSelected(hour * 60) },
         )
     }
 
@@ -168,65 +176,64 @@ fun MyPageScreen(
             UmmaAppBar(
                 title = "마이페이지",
                 isCenterTitle = true,
-                onBackClick = if (authUiState.isLoading) null else onBackClick
+                onBackClick = if (authUiState.isLoading) null else onBackClick,
             )
-        }
+        },
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 상단 프로필 카드 (아바타 원 + 닉네임)
             ProfileCard(nickname = notificationUiState.nickname)
-            // 학습 알림 카드
+
             NotificationSettingsCard(
                 uiState = notificationUiState,
                 onMarketingToggleChanged = { enabled ->
                     myPageViewModel.onMarketingNotificationToggleChanged(
                         enabled = enabled,
-                        permissionGranted = hasNotificationPermission()
+                        permissionGranted = hasNotificationPermission(),
                     )
                 },
                 onSrsToggleChanged = { enabled ->
                     myPageViewModel.onSrsNotificationToggleChanged(
                         enabled = enabled,
-                        permissionGranted = hasNotificationPermission()
+                        permissionGranted = hasNotificationPermission(),
                     )
                 },
-                onTimeSettingClicked = myPageViewModel::onTimeSettingClicked
+                onTimeSettingClicked = myPageViewModel::onTimeSettingClicked,
             )
-            // 설정 섹션 헤더
+
             Text(
                 text = "설정",
                 fontSize = 18.sp,
                 color = TextPrimary,
-                modifier = Modifier.padding(SpacingS)
+                modifier = Modifier.padding(SpacingS),
             )
-            // 설정 카드
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+                colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     SettingRow(
                         icon = Icons.Default.Language,
                         label = "모국어 설정",
                         enabled = !authUiState.isLoading,
-                        onClick = { showNativeLanguageDialog = true }
+                        onClick = { showNativeLanguageDialog = true },
                     )
                     HorizontalDivider(color = BackgroundHighlight)
                     SettingRow(
                         icon = Icons.AutoMirrored.Filled.Logout,
                         label = "로그아웃",
                         enabled = !authUiState.isLoading,
-                        onClick = { showLogoutDialog = true }
+                        onClick = { showLogoutDialog = true },
                     )
                 }
             }
-            // 회원탈퇴
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
@@ -235,7 +242,7 @@ fun MyPageScreen(
                     icon = Icons.Default.Warning,
                     label = "회원탈퇴",
                     enabled = !authUiState.isLoading,
-                    onClick = { showDeleteAccountDialog = true }
+                    onClick = { showDeleteAccountDialog = true },
                 )
             }
 
@@ -245,25 +252,24 @@ fun MyPageScreen(
                     modifier = Modifier.padding(horizontal = SpacingL),
                     onCancel = { showNativeLanguageDialog = false },
                     onConfirm = { showNativeLanguageDialog = false },
-                    confirmText = "완료"
+                    confirmText = "완료",
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp),
                     ) {
-
                         nativeLanguageOptions.forEach { (code, label) ->
                             LanguageButton(
                                 text = label,
                                 isSelected = selectedNativeLanguage == code,
-                                onClick = { selectedNativeLanguage = code }
+                                onClick = { selectedNativeLanguage = code },
                             )
                         }
                     }
                 }
             }
-            // Dialog 로그아웃
+
             if (showLogoutDialog) {
                 UmmaDialog(
                     title = "로그아웃하시겠어요?",
@@ -273,22 +279,17 @@ fun MyPageScreen(
                         showLogoutDialog = false
                         authViewModel.signOut()
                     },
-                    onCancel = { showLogoutDialog = false }
+                    onCancel = { showLogoutDialog = false },
                 ) {
                     Text(
-                        text = "로그아웃 시 서비스 이용을 위해 다시 로그인해야 해요.",
+                        text = "로그아웃 후 서비스를 이용하려면 다시 로그인해야 해요.",
                         modifier = Modifier
                             .background(
                                 color = BackgroundSecondary,
-                                shape = RoundedCornerShape(ChipCornerRadius)
-                            )
-                            .border(
-                                color = ThemePrimary,
-                                width = 2.dp,
-                                shape = RoundedCornerShape(ChipCornerRadius)
+                                shape = RoundedCornerShape(ChipCornerRadius),
                             )
                             .padding(horizontal = SpacingS, vertical = SpacingL),
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -304,22 +305,17 @@ fun MyPageScreen(
                         showDeleteAccountDialog = false
                         authViewModel.deleteAccount()
                     },
-                    onCancel = { showDeleteAccountDialog = false }
+                    onCancel = { showDeleteAccountDialog = false },
                 ) {
                     Text(
-                        text = "회원탈퇴 시 회원님의 계정 및 학습 기록은 영구적으로 삭제되며, 복구가 불가능해요.",
+                        text = "회원탈퇴 후 계정과 학습 기록은 영구적으로 삭제되며 복구할 수 없어요.",
                         modifier = Modifier
                             .background(
                                 color = BackgroundSecondary,
-                                shape = RoundedCornerShape(ChipCornerRadius)
-                            )
-                            .border(
-                                color = ThemePrimary,
-                                width = 2.dp,
-                                shape = RoundedCornerShape(ChipCornerRadius)
+                                shape = RoundedCornerShape(ChipCornerRadius),
                             )
                             .padding(horizontal = SpacingS, vertical = SpacingL),
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -328,7 +324,7 @@ fun MyPageScreen(
 }
 
 /**
- * 상단 프로필 카드.
+ * 상단 프로필 카드다.
  */
 @Composable
 private fun ProfileCard(nickname: String) {
@@ -336,32 +332,32 @@ private fun ProfileCard(nickname: String) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(SpacingL),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(SpacingL)
+            horizontalArrangement = Arrangement.spacedBy(SpacingL),
         ) {
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .background(color = ThemePrimary, shape = CircleShape)
+                    .background(color = ThemePrimary, shape = CircleShape),
             )
             Column {
                 Text(
                     text = "${displayName}님",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = TextPrimary,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "오늘도 Umma와 함께 학습해요",
                     fontSize = 14.sp,
-                    color = TextPrimary
+                    color = TextPrimary,
                 )
             }
         }
@@ -374,7 +370,7 @@ private fun SettingRow(
     label: String,
     enabled: Boolean,
     onClick: () -> Unit,
-    tint: Color = TextPrimary
+    tint: Color = TextPrimary,
 ) {
     ListItem(
         modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
@@ -384,7 +380,7 @@ private fun SettingRow(
                 modifier = Modifier
                     .size(40.dp)
                     .background(color = BackgroundHighlight, shape = CircleShape),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(imageVector = icon, contentDescription = label, tint = tint)
             }
@@ -394,28 +390,27 @@ private fun SettingRow(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = tint
+                tint = tint,
             )
-        }
+        },
     )
 }
 
 /**
- * 알림 설정 카드.
+ * 알림 설정 카드다.
  */
 @Composable
 private fun NotificationSettingsCard(
     uiState: MyPageNotificationUiState,
     onMarketingToggleChanged: (Boolean) -> Unit,
     onSrsToggleChanged: (Boolean) -> Unit,
-    onTimeSettingClicked: () -> Unit
+    onTimeSettingClicked: () -> Unit,
 ) {
     val hour = uiState.srsSettings.preferredNotificationTimeMinutes / 60
-    val minute = uiState.srsSettings.preferredNotificationTimeMinutes % 60
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary)
+        colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             ListItem(
@@ -423,11 +418,11 @@ private fun NotificationSettingsCard(
                 leadingContent = {
                     NotificationLeadingIcon(
                         icon = Icons.Default.Campaign,
-                        contentDescription = "마케팅 알림"
+                        contentDescription = "마케팅 알림",
                     )
                 },
                 headlineContent = { Text(text = "마케팅 알림") },
-                supportingContent = { Text(text = "이벤트, 혜택, 신규 소식을 알려드려요.") },
+                supportingContent = { Text(text = "이벤트와 새 소식을 알려드려요") },
                 trailingContent = {
                     Switch(
                         checked = uiState.marketingSettings.enabled,
@@ -435,10 +430,10 @@ private fun NotificationSettingsCard(
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = ThemePrimary,
                             checkedTrackColor = BackgroundSecondary,
-                            checkedBorderColor = TextPrimary
-                        )
+                            checkedBorderColor = TextPrimary,
+                        ),
                     )
-                }
+                },
             )
 
             HorizontalDivider(color = BackgroundHighlight)
@@ -448,11 +443,11 @@ private fun NotificationSettingsCard(
                 leadingContent = {
                     NotificationLeadingIcon(
                         icon = Icons.Default.Notifications,
-                        contentDescription = "학습 알림"
+                        contentDescription = "학습 알림",
                     )
                 },
                 headlineContent = { Text(text = "학습 알림") },
-                supportingContent = { Text(text = "하루 한 번 설정한 시간에 복습 알림을 보내드려요.") },
+                supportingContent = { Text(text = "설정한 시간에 복습 알림을 보내드려요") },
                 trailingContent = {
                     Switch(
                         checked = uiState.srsSettings.enabled,
@@ -460,10 +455,10 @@ private fun NotificationSettingsCard(
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = ThemePrimary,
                             checkedTrackColor = BackgroundSecondary,
-                            checkedBorderColor = TextPrimary
-                        )
+                            checkedBorderColor = TextPrimary,
+                        ),
                     )
-                }
+                },
             )
 
             HorizontalDivider(color = BackgroundHighlight)
@@ -473,21 +468,21 @@ private fun NotificationSettingsCard(
                 leadingContent = {
                     NotificationLeadingIcon(
                         icon = Icons.Default.Schedule,
-                        contentDescription = "학습 알림 시간"
+                        contentDescription = "학습 알림 시간",
                     )
                 },
                 headlineContent = { Text(text = "학습 알림 시간") },
-                supportingContent = { Text(text = String.format("%02d:%02d", hour, minute)) },
+                supportingContent = { Text(text = formatHourLabel(hour)) },
                 trailingContent = {
                     Button(
                         onClick = onTimeSettingClicked,
                         enabled = !uiState.isSaving,
                         colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
-                        shape = RoundedCornerShape(20.dp)
+                        shape = RoundedCornerShape(20.dp),
                     ) {
                         Text(text = "시간 변경")
                     }
-                }
+                },
             )
         }
     }
@@ -496,63 +491,242 @@ private fun NotificationSettingsCard(
 @Composable
 private fun NotificationLeadingIcon(
     icon: ImageVector,
-    contentDescription: String
+    contentDescription: String,
 ) {
     Box(
         modifier = Modifier
             .size(40.dp)
             .background(color = BackgroundHighlight, shape = CircleShape),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = ThemePrimary
+            tint = ThemePrimary,
         )
     }
 }
 
 /**
- * 플랫폼 TimePickerDialog 래퍼.
+ * 오전/오후와 1~12 시계를 이용해 시간을 고르는 다이얼로그다.
  */
 @Composable
-private fun NotificationTimePickerDialog(
-    initialMinutes: Int,
+private fun NotificationHourPickerDialog(
+    initialHour: Int,
     onDismiss: () -> Unit,
-    onTimeConfirmed: (Int) -> Unit
+    onTimeConfirmed: (Int) -> Unit,
 ) {
-    val context = LocalContext.current
+    var selectedHour by remember(initialHour) {
+        mutableIntStateOf(initialHour.coerceIn(0, 23))
+    }
 
-    DisposableEffect(initialMinutes, context) {
-        val themedContext = ContextThemeWrapper(context, R.style.CustomTimePickerTheme)
-        val dialog = TimePickerDialog(
-            themedContext,
-            { _, hourOfDay, minute ->
-                onTimeConfirmed(hourOfDay * 60 + minute)
-            },
-            initialMinutes / 60,
-            initialMinutes % 60,
-            true
-        )
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawableResource(R.drawable.time_picker_bg)
+    UmmaDialog(
+        title = "학습 알림 시간 선택",
+        modifier = Modifier.padding(horizontal = SpacingL),
+        onCancel = onDismiss,
+        onConfirm = {
+            onTimeConfirmed(selectedHour)
+            onDismiss()
+        },
+        confirmText = "저장",
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            PeriodToggleRow(
+                selectedHour = selectedHour,
+                onToggle = { isAm ->
+                    val hour12 = toHour12(selectedHour)
+                    selectedHour = toHour24(hour12 = hour12, isAm = isAm)
+                },
+            )
+
+            ClockDial(
+                selectedHour = selectedHour,
+                onHourSelected = { selectedHour = it },
+            )
+
+            Text(
+                text = formatHourLabel(selectedHour),
+                color = TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
-        dialog.setOnDismissListener { onDismiss() }
-        dialog.show()
+    }
+}
 
-        onDispose { dialog.dismiss() }
+@Composable
+private fun PeriodToggleRow(
+    selectedHour: Int,
+    onToggle: (Boolean) -> Unit,
+) {
+    val isAm = selectedHour < 12
+
+    Row(
+        modifier = Modifier
+            .background(
+                color = BackgroundHighlight,
+                shape = RoundedCornerShape(20.dp),
+            )
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PeriodChip(
+            text = "오전",
+            selected = isAm,
+            onClick = { onToggle(true) },
+        )
+        PeriodChip(
+            text = "오후",
+            selected = !isAm,
+            onClick = { onToggle(false) },
+        )
+    }
+}
+
+@Composable
+private fun PeriodChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(
+                color = if (selected) ThemePrimary else Color.Transparent,
+                shape = shape,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(
+                    bounded = true,
+                    radius = 28.dp,
+                    color = if (selected) Color.White.copy(alpha = 0.24f) else ThemePrimary.copy(alpha = 0.18f),
+                ),
+                onClick = onClick,
+            )
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (selected) Color.White else TextPrimary,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+private fun ClockDial(
+    selectedHour: Int,
+    onHourSelected: (Int) -> Unit,
+    size: Dp = 260.dp,
+) {
+    val selectedHour12 = toHour12(selectedHour)
+    val isAm = selectedHour < 12
+    val radius = size * 0.36f
+    var dialSize by remember { mutableStateOf(IntSize.Zero) }
+
+    fun updateHourFromPosition(position: Offset) {
+        val hour12 = resolveHour12FromDialPosition(
+            position = position,
+            dialSize = dialSize,
+        ) ?: return
+        onHourSelected(toHour24(hour12 = hour12, isAm = isAm))
+    }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(
+                color = BackgroundHighlight,
+                shape = CircleShape,
+            )
+            .pointerInput(isAm, dialSize) {
+                detectDragGestures(
+                    onDragStart = { position ->
+                        updateHourFromPosition(position)
+                    },
+                    onDrag = { change, _ ->
+                        updateHourFromPosition(change.position)
+                        change.consume()
+                    },
+                )
+            }
+            .onSizeChanged { dialSize = it },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .background(color = ThemePrimary, shape = CircleShape),
+        )
+
+        hourDialNumbers.forEach { hour12 ->
+            val angleDegrees = ((hour12 % 12) * 30f) - 90f
+            val angleRadians = Math.toRadians(angleDegrees.toDouble())
+            val x = cos(angleRadians).toFloat() * radius.value
+            val y = sin(angleRadians).toFloat() * radius.value
+            val isSelected = selectedHour12 == hour12
+
+            Box(
+                modifier = Modifier
+                    .offset(x = x.dp, y = y.dp)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(
+                        color = if (isSelected) ThemePrimary else Color.Transparent,
+                        shape = CircleShape,
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(
+                            bounded = true,
+                            radius = 21.dp,
+                            color = if (isSelected) Color.White.copy(alpha = 0.24f) else ThemePrimary.copy(alpha = 0.18f),
+                        ),
+                    ) {
+                        onHourSelected(toHour24(hour12 = hour12, isAm = isAm))
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = hour12.toString(),
+                    color = if (isSelected) Color.White else TextPrimary,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                )
+            }
+        }
+
+        val selectedAngleDegrees = ((selectedHour12 % 12) * 30f) - 90f
+        val selectedAngleRadians = Math.toRadians(selectedAngleDegrees.toDouble())
+        val handX = cos(selectedAngleRadians).toFloat() * (radius.value - 18f)
+        val handY = sin(selectedAngleRadians).toFloat() * (radius.value - 18f)
+
+        Box(
+            modifier = Modifier
+                .offset(x = handX.dp, y = handY.dp)
+                .size(14.dp)
+                .background(color = ThemePrimary, shape = CircleShape),
+        )
     }
 }
 
 /**
- * 다이얼로그의 모국어 선택 버튼.
+ * 리스트형 선택 버튼이다.
  */
 @Composable
 private fun LanguageButton(
     text: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Button(
         onClick = onClick,
@@ -562,19 +736,60 @@ private fun LanguageButton(
         modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
-            .padding(vertical = 4.dp)
+            .padding(vertical = 4.dp),
     ) {
         Text(
             text = text,
             fontSize = 16.sp,
-            color = if (isSelected) ThemePrimary else TextPrimary
+            color = if (isSelected) ThemePrimary else TextPrimary,
         )
     }
+}
+
+private fun toHour12(hour24: Int): Int {
+    val normalized = hour24 % 12
+    return if (normalized == 0) 12 else normalized
+}
+
+private fun toHour24(hour12: Int, isAm: Boolean): Int {
+    val normalized = if (hour12 == 12) 0 else hour12
+    return if (isAm) normalized else normalized + 12
+}
+
+private fun resolveHour12FromDialPosition(
+    position: Offset,
+    dialSize: IntSize,
+): Int? {
+    if (dialSize.width == 0 || dialSize.height == 0) return null
+
+    val centerX = dialSize.width / 2f
+    val centerY = dialSize.height / 2f
+    val dx = position.x - centerX
+    val dy = position.y - centerY
+
+    if (dx == 0f && dy == 0f) return null
+
+    var angle = Math.toDegrees(atan2(dy, dx).toDouble()) + 90.0
+    if (angle < 0) angle += 360.0
+
+    val hourIndex = (angle / 30.0).roundToInt() % 12
+    return if (hourIndex == 0) 12 else hourIndex
 }
 
 private val nativeLanguageOptions = listOf(
     LangCode.KO to "한국어",
     LangCode.EN to "English",
     LangCode.JA to "日本語",
-    LangCode.DE to "Deutsch"
+    LangCode.DE to "Deutsch",
 )
+
+private val hourDialNumbers = (1..12).toList()
+
+private fun formatHourLabel(hour: Int): String {
+    return when {
+        hour == 0 -> "오전 12시"
+        hour < 12 -> "오전 ${hour}시"
+        hour == 12 -> "오후 12시"
+        else -> "오후 ${hour - 12}시"
+    }
+}
