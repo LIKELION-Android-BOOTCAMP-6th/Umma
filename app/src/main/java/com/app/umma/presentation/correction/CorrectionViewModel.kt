@@ -536,7 +536,7 @@ class CorrectionViewModel @Inject constructor(
         return if (savedCount > 0) {
             "학습 카드 ${savedCount}개가 저장되었어요"
         } else {
-            "학습 카드가 저장되었어요"
+            "저장할 학습 카드가 없어 정리만 완료했어요!"
         }
     }
 
