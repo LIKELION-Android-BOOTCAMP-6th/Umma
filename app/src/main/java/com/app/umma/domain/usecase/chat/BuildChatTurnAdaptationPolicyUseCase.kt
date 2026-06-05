@@ -66,6 +66,8 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
         val fluentLike = tokens.size >= FLUENT_TOKEN_THRESHOLD &&
             !explicitBlock &&
             !primaryDominant
+        // 인사/대화 시작 표현은 짧은 것이 정상이다. 이를 fragment로 보정하면 첫 응답이 느리고 수동적으로 느껴진다.
+        val conversationStartLike = containsConversationStartPhrase(normalized)
 
         return when {
             // 명시적 막힘은 가장 강한 부담 완화 신호다. 다만 기준언어 혼합은 초보/명시 요청/기준언어 우세에서만 연다.
@@ -138,6 +140,16 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
                     SpeechSpeedPolicy.Guided
                 },
                 primaryBridgeReason = PrimaryBridgeReason.PrimaryDominantTurn
+            )
+
+            // "Hello, let's talk" 같은 시작 발화는 막힘이 아니라 대화 시작 의도다.
+            // 초보 보조를 강하게 열지 말고 AI가 자연스럽게 주제를 제안할 수 있는 부담 낮은 기본값을 쓴다.
+            conversationStartLike -> ChatTurnAdaptationPolicy(
+                responseLength = ResponseLengthPolicy.ShortTwoStep,
+                sentenceDensity = SentenceDensityPolicy.SimpleTwoStep,
+                primaryBridge = PrimaryBridgePolicy.Brief,
+                questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+                speechSpeed = SpeechSpeedPolicy.Guided
             )
 
             // 짧더라도 최근 맥락 안에서 정상 진행 중이면 같은 초보 보정을 반복하지 않는다.
@@ -262,6 +274,12 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
         return BLOCKING_PHRASES.any { lowerText.contains(it) }
     }
 
+    private fun containsConversationStartPhrase(text: String): Boolean {
+        // 시작 표현은 짧다는 이유로 fragment fallback에 들어가면 안 되므로 별도 의도 신호로 방어한다.
+        val lowerText = text.lowercase()
+        return CONVERSATION_START_PHRASES.any { lowerText.contains(it) }
+    }
+
     private fun containsPrimarySupportRequest(
         text: String,
         primaryLang: LangCode
@@ -310,8 +328,30 @@ class BuildChatTurnAdaptationPolicyUseCase @Inject constructor() {
             "dont know",
             "no understand",
             "not understand",
+            "can't understand",
+            "cant understand",
+            "cannot understand",
+            "too complex",
+            "complex sentences",
+            "simplify",
             "can't speak",
             "cant speak"
+        )
+        // 대화 시작 의도는 짧아도 막힘이 아니다. 첫 turn에서 초보 보조가 과하게 열리는 것을 막는다.
+        private val CONVERSATION_START_PHRASES = listOf(
+            "hello",
+            "hi",
+            "hey",
+            "good to see you",
+            "let's talk",
+            "lets talk",
+            "can we talk",
+            "start talking",
+            "talk with me",
+            "대화하자",
+            "얘기하자",
+            "話しましょう",
+            "話そう"
         )
         // 언어 단서와 함께 나와야 실제 보조 요청으로 본다. 단어 하나만으로 과잉 반응하지 않기 위함이다.
         private val PRIMARY_SUPPORT_ACTION_WORDS = listOf(

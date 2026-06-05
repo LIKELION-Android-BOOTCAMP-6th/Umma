@@ -56,6 +56,13 @@ android {
             "OPENAI_REALTIME_WS_URL",
             "\"$openAiRealtimeWebSocketUrl\""
         )
+        // 개발용 프롬프트 리뷰 자료수집 스위치입니다.
+        // 현재 프롬프트 튜닝 단계에서는 debug build 기본값을 true로 두고,
+        // 필요 시 local.properties에서 CHAT_PROMPT_REVIEW_ENABLED=false로 끌 수 있게 합니다.
+        val chatPromptReviewEnabled = properties.getProperty(
+            "CHAT_PROMPT_REVIEW_ENABLED"
+        ) ?: "true"
+        buildConfigField("boolean", "CHAT_PROMPT_REVIEW_ENABLED", chatPromptReviewEnabled)
     }
 
     buildTypes {

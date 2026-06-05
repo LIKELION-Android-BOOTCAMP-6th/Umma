@@ -75,11 +75,11 @@ class ChatPromptIntegrationUseCaseTest {
         assertTrue(chatRepository.startedInstruction.contains("불완전한 말에서도 사용자의 의도를 먼저 추론하고 대화를 이어간다."))
         // Chat prompt 는 단순 답변 AI 가 아니라 초보도 이해 가능한 반응을 받아 다음 말을 이어갈 수 있어야 한다.
         assertTrue(chatRepository.startedInstruction.contains("fragment: 뜻만 있는 단어 조각이면 기준언어(한국어)로 의미를 먼저 받아 주고, 영어는 완성 문장보다 1~3단어 조합이나 아주 짧은 고정 표현 하나만 붙인다."))
-        assertTrue(chatRepository.startedInstruction.contains("필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 준다."))
+        assertTrue(chatRepository.startedInstruction.contains("필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 주고, 넓은 주제 선택을 사용자에게 떠넘기지 않는다."))
         assertTrue(chatRepository.startedInstruction.contains("첫 발화가 조각나도 천천히 말하며 한 가지 의미씩 이해하게 한다."))
         // 최근 확정 대화 context 는 기존 prompt 정책처럼 유지되어야 한다.
         assertTrue(chatRepository.startedInstruction.contains("- USER: hello"))
-        assertTrue(chatRepository.startedInstruction.contains("최근 맥락은 주제 이해에만 쓰고"))
+        assertTrue(chatRepository.startedInstruction.contains("최근 맥락은 주제 이해와 가벼운 대화 제안에만 쓰고"))
         // USER final transcript 이후 response.create 전용 override를 만들 provider가 transport에 전달되어야 한다.
         val override = chatRepository.startedResponseOverrideProvider!!.build("I apple hungry")
             ?: error("response override should be created for a fragment user turn")

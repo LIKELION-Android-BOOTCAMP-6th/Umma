@@ -67,6 +67,31 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
     }
 
     @Test
+    fun `conversation start phrase avoids beginner auto support`() {
+        // 짧은 시작 발화는 fragment처럼 보이지만 실제로는 대화 시작 의도라 SlowBeginner/Active bridge로 낮추지 않는다.
+        val policy = useCase(
+            transcript = "Hello, let's talk.",
+            contextSignal = ChatTurnContextSignal(
+                latestUserTurnRole = LatestUserTurnRole.TopicContinuation,
+                followsAssistantQuestion = false
+            ),
+            profile = profile(
+                confidence = ProfileConfidence.Low,
+                conversationBand = ConversationAbilityBand.PhraseEmerging
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN
+        )
+
+        assertEquals(ResponseLengthPolicy.ShortTwoStep, policy.responseLength)
+        assertEquals(SentenceDensityPolicy.SimpleTwoStep, policy.sentenceDensity)
+        assertEquals(PrimaryBridgePolicy.Brief, policy.primaryBridge)
+        assertEquals(QuestionLoadPolicy.OneConcreteFollowUp, policy.questionLoad)
+        assertEquals(SpeechSpeedPolicy.Guided, policy.speechSpeed)
+        assertEquals(PrimaryBridgeReason.ProfileDefault, policy.primaryBridgeReason)
+    }
+
+    @Test
     fun `primary dominant answer keeps active bridge even when it answers assistant question`() {
         // 직전 질문의 답변이어도 사용자가 기준언어로 버티는 상태라면 자연 대화보다 이해 보조를 우선해야 한다.
         val policy = useCase(
@@ -128,6 +153,24 @@ class BuildChatTurnAdaptationPolicyUseCaseTest {
         // target 언어로 자연 대화 중 "I don't know"라고 말하는 것은 막힘이지만, 그 자체만으로 한국어 혼합 요청은 아니다.
         val policy = useCase(
             transcript = "I don't know",
+            profile = profile(confidence = ProfileConfidence.High),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN
+        )
+
+        assertEquals(ResponseLengthPolicy.OneShortSentence, policy.responseLength)
+        assertEquals(SentenceDensityPolicy.OneIdea, policy.sentenceDensity)
+        assertEquals(PrimaryBridgePolicy.Brief, policy.primaryBridge)
+        assertEquals(QuestionLoadPolicy.ConcreteChoice, policy.questionLoad)
+        assertEquals(SpeechSpeedPolicy.SlowBeginner, policy.speechSpeed)
+        assertEquals(PrimaryBridgeReason.ProfileDefault, policy.primaryBridgeReason)
+    }
+
+    @Test
+    fun `target language complex sentence complaint lowers response burden`() {
+        // "too complex"나 "can't understand"는 긴 영어 발화여도 support request이므로 NaturalBrief로 유지하면 안 된다.
+        val policy = useCase(
+            transcript = "I'm sorry, that's two complex sentences I can't understand totally.",
             profile = profile(confidence = ProfileConfidence.High),
             primaryLang = LangCode.KO,
             selectedLang = LangCode.EN

@@ -208,6 +208,9 @@ proguard/
 AGENTS.md
 RULES.md
 
+# Dev tool outputs
+tools/chat_prompt_review/output/*
+
 # Android Patch
 
 # External native build folder generated in Android Studio 2.2 and later
@@ -277,4 +280,3 @@ fabric.properties
 ### AndroidStudio Patch ###
 
 !/gradle/wrapper/gradle-wrapper.jar
-

@@ -66,7 +66,11 @@ class BuildPromptUseCaseTest {
         assertTrue(prompt.contains("모국어는 영어이고 한국어도 잘 구사하는, 눈치 빠른 원어민 친구"))
         assertTrue(prompt.contains("모든 응답의 첫 원칙은 실제 일상 대화처럼 자연스럽게 반응하는 것이다."))
         assertTrue(prompt.contains("학습 보조는 대화를 깨지 않는 범위에서만 조용히 섞고, 원어민이 자주 쓰는 자연스러운 구어체를 우선한다."))
+        assertTrue(prompt.contains("대화 시작이나 재개 때는 최근 주제나 가벼운 일상 주제를 먼저 제안하고, 사용자가 모든 주제를 정하게 하지 않는다."))
         assertTrue(prompt.contains("원어민이 실제 자주 쓰는 영어 문장 안에 자연스럽게 한 번 녹인다"))
+        // FallbackOnly는 칭찬/요약/공감 목적으로 primaryLang을 붙이는 누수를 막아야 한다.
+        assertTrue(prompt.contains("칭찬, 요약, 공감만을 위해 기준언어를 덧붙이지 않는다."))
+        assertTrue(prompt.contains("시작할 때는 AI가 가벼운 주제나 선택지를 먼저 제안한다."))
         // Chat band/policy는 내부 enum 이름이 아니라 행동 지시로만 압축되어 들어간다.
         assertTrue(prompt.contains("뜻이 보이면 확인 질문보다 자연스러운 대화 반응을 우선한다."))
         assertTrue(prompt.contains("상황에 맞는 일상 구어 표현 하나만 더한다."))
@@ -101,7 +105,7 @@ class BuildPromptUseCaseTest {
         assertTrue(prompt.contains("저장된 근거가 적어도 현재 발화가 이어질 수 있게 이해 가능한 반응을 우선한다."))
         // Support 정책은 장문 설명이나 표현 drill보다 실제 내용으로 짧게 반응할 여지를 만든다.
         assertTrue(prompt.contains("불완전한 말에서도 사용자의 의도를 먼저 추론하고 대화를 이어간다."))
-        assertTrue(prompt.contains("필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 준다."))
+        assertTrue(prompt.contains("필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 주고, 넓은 주제 선택을 사용자에게 떠넘기지 않는다."))
         // 첫 세션에서 발화가 조각나면 audio speed만 낮추는 것으로 부족하므로 의미 단위로 밀도를 낮춘다.
         assertTrue(prompt.contains("첫 발화가 조각나도 천천히 말하며 한 가지 의미씩 이해하게 한다."))
     }
@@ -158,7 +162,7 @@ class BuildPromptUseCaseTest {
         // 저장된 turn 과 topic 은 들어가지만, 사용 목적은 주제 이해로 제한된다.
         assertTrue(prompt.contains("- USER: I apple hungry"))
         assertTrue(prompt.contains("- food and hunger"))
-        assertTrue(prompt.contains("최근 맥락은 주제 이해에만 쓰고, 이전 AI의 응답 습관은 모방하지 않는다."))
+        assertTrue(prompt.contains("최근 맥락은 주제 이해와 가벼운 대화 제안에만 쓰고, 이전 AI의 응답 습관은 모방하지 않는다."))
     }
 
     @Test
@@ -237,6 +241,32 @@ class BuildPromptUseCaseTest {
         )
 
         assertFalse(instruction?.contains("current_turn_override:") == true)
+    }
+
+    @Test
+    fun `fallback only turn override forbids primary language praise leak`() {
+        // FallbackOnly가 이번 turn에 열리더라도 칭찬/요약/공감 목적의 한국어 덧붙임은 막아야 한다.
+        val instruction = useCase.buildTurnOverrideInstruction(
+            basePolicy = ChatTurnAdaptationPolicy(
+                responseLength = ResponseLengthPolicy.ShortTwoStep,
+                sentenceDensity = SentenceDensityPolicy.SimpleTwoStep,
+                primaryBridge = PrimaryBridgePolicy.Brief,
+                questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+                speechSpeed = SpeechSpeedPolicy.Guided
+            ),
+            turnPolicy = ChatTurnAdaptationPolicy(
+                responseLength = ResponseLengthPolicy.NaturalBrief,
+                sentenceDensity = SentenceDensityPolicy.NaturalBrief,
+                primaryBridge = PrimaryBridgePolicy.FallbackOnly,
+                questionLoad = QuestionLoadPolicy.OpenShort,
+                speechSpeed = SpeechSpeedPolicy.NormalLearning
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN
+        )
+
+        assertTrue(instruction!!.contains("기본은 영어이고 명시적 도움 요청이나 큰 오해가 있을 때만 한국어 한 줄을 보조로 쓴다."))
+        assertTrue(instruction.contains("칭찬, 요약, 공감만을 위해 한국어를 덧붙이지 않는다."))
     }
 
     @Test
