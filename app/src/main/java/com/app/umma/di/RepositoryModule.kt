@@ -16,6 +16,8 @@ import com.app.umma.data.source.remote.FirestoreStatisticsHistoryRemoteDataSourc
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepository
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepositoryImpl
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.ChatUsageRepository
 import com.app.umma.domain.repository.NotificationSettingsRepository
@@ -87,6 +89,12 @@ abstract class RepositoryModule {
     abstract fun bindChatUsageRepository(
         impl: ChatUsageRepositoryImpl
     ): ChatUsageRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindChatPromptReviewRepository(
+        impl: ChatPromptReviewRepositoryImpl
+    ): ChatPromptReviewRepository
 
     @Binds
     @Singleton

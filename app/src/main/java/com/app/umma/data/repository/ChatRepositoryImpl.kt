@@ -3,6 +3,9 @@ package com.app.umma.data.repository
 import android.util.Base64
 import android.util.Log
 import com.app.umma.BuildConfig
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewEvent
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewEventType
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepository
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
@@ -64,7 +67,8 @@ import okhttp3.WebSocketListener
  */
 @Singleton
 class ChatRepositoryImpl @Inject constructor(
-    private val firebaseAuth: FirebaseAuth
+    private val firebaseAuth: FirebaseAuth,
+    private val chatPromptReviewRepository: ChatPromptReviewRepository
 ) : ChatRepository {
 
     // OkHttp WebSocket 과 Cloud Function token endpoint 호출을 함께 처리하는 client 입니다.
@@ -420,6 +424,12 @@ class ChatRepositoryImpl @Inject constructor(
             trace = systemInstructionDebugTrace,
             metadata = "sessionId=$sessionId lang=${langCode.code} speed=$outputAudioSpeed"
         )
+        recordPromptReviewSessionStarted(
+            sessionId = sessionId,
+            language = langCode,
+            trace = systemInstructionDebugTrace,
+            metadata = "label=${if (resetTurnSequence) "session_start" else "session_reconnect"} speed=$outputAudioSpeed"
+        )
 
         webSocket = client.newWebSocket(
             buildWebSocketRequest(token),
@@ -597,6 +607,10 @@ class ChatRepositoryImpl @Inject constructor(
                         trace = override?.debugTrace,
                         metadata = "transcriptChars=${transcript.length} hasInstructions=${!override?.responseInstructions.isNullOrBlank()} speed=${override?.outputAudioSpeed}"
                     )
+                    recordPromptReviewTurnOverride(
+                        userFinalTranscript = transcript,
+                        override = override
+                    )
                 }
         }.getOrElse { error ->
             // override 계산 실패가 대화 응답 생성을 막으면 안 된다. 기존 세션 설정으로 계속 진행한다.
@@ -670,29 +684,128 @@ class ChatRepositoryImpl @Inject constructor(
         val sessionLang = currentLang ?: return null
         if (finalText.isBlank()) return null
         val turnId = nextTurnId(sessionId, role)
-
-        events.emit(
-            AIEvent.FinalTranscription(
-                turnId = turnId,
-                sessionId = sessionId,
-                text = finalText,
-                sessionLang = sessionLang,
-                role = role,
-                createdAt = System.currentTimeMillis(),
-                durationMs = when (role) {
-                    TurnSpeaker.USER -> pendingUserTurnDurationMs
-                    TurnSpeaker.AI -> computePcmDurationMs(aiAudioByteCount)
-                },
-                tokenCount = computeTokenCount(finalText),
-                confidence = null
-            )
+        val createdAt = System.currentTimeMillis()
+        val event = AIEvent.FinalTranscription(
+            turnId = turnId,
+            sessionId = sessionId,
+            text = finalText,
+            sessionLang = sessionLang,
+            role = role,
+            createdAt = createdAt,
+            durationMs = when (role) {
+                TurnSpeaker.USER -> pendingUserTurnDurationMs
+                TurnSpeaker.AI -> computePcmDurationMs(aiAudioByteCount)
+            },
+            tokenCount = computeTokenCount(finalText),
+            confidence = null
         )
+
+        events.emit(event)
+        recordPromptReviewFinalTurn(event)
 
         if (role == TurnSpeaker.USER) {
             pendingUserTurnDurationMs = null
         }
 
         return turnId
+    }
+
+    private fun recordPromptReviewSessionStarted(
+        sessionId: String,
+        language: LangCode,
+        trace: String?,
+        metadata: String
+    ) {
+        if (!chatPromptReviewRepository.isEnabled()) return
+        val userId = firebaseAuth.currentUser?.uid ?: return
+
+        // 리뷰 자료수집은 개발 보조 도구이므로 저장 실패나 지연이 세션 연결을 막으면 안 된다.
+        repositoryScope.launch {
+            chatPromptReviewRepository.recordSessionStarted(
+                userId = userId,
+                sessionId = sessionId,
+                language = language,
+                sessionPromptTrace = trace,
+                metadata = metadata
+            ).onFailure { error ->
+                Log.w(TAG, "chat prompt review session record skipped: ${error.message}", error)
+            }
+        }
+    }
+
+    private fun recordPromptReviewTurnOverride(
+        userFinalTranscript: String,
+        override: ChatResponseOverride?
+    ) {
+        if (!chatPromptReviewRepository.isEnabled()) return
+        val userId = firebaseAuth.currentUser?.uid ?: return
+        val sessionId = activeSessionId ?: return
+        val language = currentLang ?: return
+        val createdAt = System.currentTimeMillis()
+
+        // override trace는 USER final transcript와 response.create 사이 정책 판단을 복원하기 위한 자료다.
+        repositoryScope.launch {
+            chatPromptReviewRepository.recordEvent(
+                userId = userId,
+                event = ChatPromptReviewEvent(
+                    eventId = promptReviewEventId(
+                        createdAt = createdAt,
+                        type = ChatPromptReviewEventType.TurnOverrideTrace,
+                        suffix = "override"
+                    ),
+                    sessionId = sessionId,
+                    type = ChatPromptReviewEventType.TurnOverrideTrace,
+                    language = language,
+                    createdAt = createdAt,
+                    text = userFinalTranscript,
+                    debugTrace = override?.debugTrace,
+                    hasInstructions = !override?.responseInstructions.isNullOrBlank(),
+                    outputAudioSpeed = override?.outputAudioSpeed,
+                    metadata = "transcriptChars=${userFinalTranscript.length}"
+                )
+            ).onFailure { error ->
+                Log.w(TAG, "chat prompt review override record skipped: ${error.message}", error)
+            }
+        }
+    }
+
+    private fun recordPromptReviewFinalTurn(event: AIEvent.FinalTranscription) {
+        if (!chatPromptReviewRepository.isEnabled()) return
+        val userId = firebaseAuth.currentUser?.uid ?: return
+
+        // final turn mirror는 SessionMemory와 별도 컬렉션에만 저장해 운영 source of truth와 섞이지 않는다.
+        repositoryScope.launch {
+            chatPromptReviewRepository.recordEvent(
+                userId = userId,
+                event = ChatPromptReviewEvent(
+                    eventId = promptReviewEventId(
+                        createdAt = event.createdAt,
+                        type = ChatPromptReviewEventType.FinalTurn,
+                        suffix = event.turnId
+                    ),
+                    sessionId = event.sessionId,
+                    type = ChatPromptReviewEventType.FinalTurn,
+                    language = event.sessionLang,
+                    createdAt = event.createdAt,
+                    role = event.role,
+                    turnId = event.turnId,
+                    text = event.text,
+                    metadata = "durationMs=${event.durationMs} tokenCount=${event.tokenCount}"
+                )
+            ).onFailure { error ->
+                Log.w(TAG, "chat prompt review final turn record skipped: ${error.message}", error)
+            }
+        }
+    }
+
+    private fun promptReviewEventId(
+        createdAt: Long,
+        type: ChatPromptReviewEventType,
+        suffix: String
+    ): String {
+        // Firestore document id로 안전하게 쓰기 위해 사람이 읽을 수 있는 순서 prefix와 sanitized suffix를 함께 둔다.
+        val safeSuffix = suffix.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        return "$createdAt-${type.name}-$safeSuffix-${UUID.randomUUID()}"
     }
 
     private suspend fun emitUsageReport(
@@ -1221,8 +1334,18 @@ class ChatRepositoryImpl @Inject constructor(
         reconnectJob?.cancel()
         reconnectJob = null
 
+        val sessionIdToFlush = activeSessionId
+        val userIdToFlush = firebaseAuth.currentUser?.uid
+
         closeRealtimeTransport()
         pendingUserTurnDurationMs = null
+
+        // stopSession(false)는 Chat 화면 정상 이탈 경로에서도 쓰인다.
+        // 앱 세션 상태를 보존하더라도 transport는 닫히므로, 개발용 리뷰 버퍼는 여기서 flush해야 한다.
+        flushPromptReviewSession(
+            userId = userIdToFlush,
+            sessionId = sessionIdToFlush
+        )
 
         if (!clearAppSession) return
 
@@ -1233,6 +1356,24 @@ class ChatRepositoryImpl @Inject constructor(
         currentOutputAudioSpeed = null
         currentResponseOverrideProvider = null
         turnSequence = 0L
+    }
+
+    private fun flushPromptReviewSession(
+        userId: String?,
+        sessionId: String?
+    ) {
+        if (!chatPromptReviewRepository.isEnabled()) return
+        if (userId.isNullOrBlank() || sessionId.isNullOrBlank()) return
+
+        // flush는 개발용 리뷰 데이터 저장이므로 stopSession 완료를 막지 않고 백그라운드에서 처리합니다.
+        repositoryScope.launch {
+            chatPromptReviewRepository.flushSession(
+                userId = userId,
+                sessionId = sessionId
+            ).onFailure { error ->
+                Log.w(TAG, "chat prompt review flush skipped: ${error.message}", error)
+            }
+        }
     }
 
     private fun nextTurnId(sessionId: String, speaker: TurnSpeaker): String {
