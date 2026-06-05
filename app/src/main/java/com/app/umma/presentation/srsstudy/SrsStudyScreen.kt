@@ -24,11 +24,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Refresh
@@ -42,7 +40,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -67,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.ButtonScreenB
 import com.app.umma.core.theme.CardElevation
+import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.RatingAgain
 import com.app.umma.core.theme.RatingEasy
 import com.app.umma.core.theme.RatingHard
@@ -108,6 +106,7 @@ fun SrsStudyScreen(
     }
 
     // 저장 실패 시 Snackbar 표시 + 재시도
+    // 재시도 클릭 시 마지막 평가(lastRating)로 다시 저장 시도
     LaunchedEffect(uiState.hasSaveError) {
         if (uiState.hasSaveError) {
             val result = snackbarHostState.showSnackbar(
@@ -115,9 +114,8 @@ fun SrsStudyScreen(
                 actionLabel = "재시도",
                 duration = SnackbarDuration.Long
             )
-            // 재시도 버튼 클릭
             if (result == SnackbarResult.ActionPerformed) {
-                viewModel.onConfirmRating()
+                viewModel.onRetryRating()
             }
             viewModel.onClearSaveError()
         }
@@ -166,7 +164,6 @@ fun SrsStudyScreen(
                     uiState = uiState,
                     onCardFlip = { viewModel.onCardFlip() },
                     onRatingSelected = { viewModel.onRatingSelected(it) },
-                    onConfirmRating = { viewModel.onConfirmRating() },
                     onSpeak = { viewModel.onPlayPronunciation() }
                 )
             }
@@ -180,60 +177,42 @@ private fun SrsStudyContent(
     uiState: SrsStudyUiState,
     onCardFlip: () -> Unit,
     onRatingSelected: (ReviewRating) -> Unit,
-    onConfirmRating: () -> Unit,
     onSpeak: () -> Unit
 ) {
     val card = uiState.currentCard ?: return
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = SpacingL, vertical = SpacingL),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(SpacingS))
-            // 현재 카드 개수 / 총 카드 개수
-            Text(
-                text = "${uiState.currentCardIndex + 1}/${uiState.cards.size}",
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.End
-            )
-            // 클릭 시 플래시카드 뒤집기
-            SrsFlashCard(
-                card = card,
-                isFlipped = uiState.isCardFlipped,
-                isSpeaking = uiState.isSpeaking,
-                onFlip = onCardFlip,
-                onSpeak = onSpeak
-            )
-            Spacer(modifier = Modifier.height(SpacingXL))
-            SrsRatingButtons(
-                isFlipped = uiState.isCardFlipped,
-                selectedRating = uiState.selectedRating,
-                onRatingSelected = onRatingSelected,
-                onFlip = onCardFlip,
-            )
-        }
-
-        // 카드 뒷면일 때
-        if (uiState.isCardFlipped) {
-            FloatingActionButton(
-                onClick = { onConfirmRating() },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(20.dp),
-                containerColor =
-                    if (uiState.selectedRating != null) ThemePrimary
-                    else TextCorrect,
-                shape = CircleShape
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "다음 카드",
-                    tint = Color.White
-                )
-            }
-        }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = SpacingL, vertical = SpacingL),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(SpacingS))
+        // 현재 카드 개수 / 총 카드 개수 - 우측 정렬
+        Text(
+            text = "${uiState.currentCardIndex + 1}/${uiState.cards.size}",
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.End
+        )
+        // 클릭 시 플래시카드 뒤집기
+        SrsFlashCard(
+            card = card,
+            isFlipped = uiState.isCardFlipped,
+            isSpeaking = uiState.isSpeaking,
+            onFlip = onCardFlip,
+            onSpeak = onSpeak
+        )
+        Spacer(modifier = Modifier.height(SpacingXL))
+        // 앞면: 버튼 탭 -> 뒤집기 / 뒷면: 버튼 탭 -> 즉시 저장 + 다음 카드
+        SrsRatingButtons(
+            isFlipped = uiState.isCardFlipped,
+            selectedRating = uiState.selectedRating,
+            onRatingSelected = onRatingSelected,
+            onFlip = onCardFlip,
+            againLabel = uiState.againLabel,
+            hardLabel = uiState.hardLabel,
+            goodLabel = uiState.goodLabel,
+            easyLabel = uiState.easyLabel,
+        )
     }
 }
 
@@ -414,6 +393,10 @@ private fun SrsRatingButtons(
     selectedRating: ReviewRating?,
     onRatingSelected: (ReviewRating) -> Unit,
     onFlip: () -> Unit,
+    againLabel: String,
+    hardLabel: String,
+    goodLabel: String,
+    easyLabel: String,
 ) {
     Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -423,7 +406,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Again",
-                "1m",
+                againLabel,
                 RatingAgain,
                 isSelected = selectedRating == ReviewRating.AGAIN,
                 icon = Icons.Default.Refresh,
@@ -435,7 +418,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Hard",
-                "2h",
+                hardLabel,
                 RatingHard,
                 isSelected = selectedRating == ReviewRating.HARD,
                 icon = Icons.Default.SentimentNeutral,
@@ -454,7 +437,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Good",
-                "4h",
+                goodLabel,
                 ThemePrimary,
                 isSelected = selectedRating == ReviewRating.GOOD,
                 icon = Icons.Default.SentimentSatisfiedAlt,
@@ -469,7 +452,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Easy",
-                "Tomorrow",
+                easyLabel,
                 RatingEasy,
                 isSelected = selectedRating == ReviewRating.EASY,
                 icon = Icons.Default.SentimentVerySatisfied,
@@ -587,7 +570,11 @@ private fun SrsEmptyContent(
         Spacer(modifier = Modifier.height(SpacingL))
         Button(
             onClick = onNavigateToCorrection,
-            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary)
+            shape = RoundedCornerShape(ChipCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+            modifier = Modifier
+                .padding(top = SpacingL)
+                .padding(horizontal = SpacingL, vertical = SpacingS),
         ) {
             Text("AI 교정하러 가기")
         }

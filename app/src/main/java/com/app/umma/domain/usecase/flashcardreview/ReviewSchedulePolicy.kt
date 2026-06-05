@@ -17,7 +17,9 @@ class ReviewSchedulePolicy @Inject constructor() {
         rating: ReviewRating,
         reviewedAt: Long
     ): ReviewScheduleResult {
-        // 신규 카드도 첫 노출 기준이 흔들리지 않도록 1일을 기준 간격으로 잡는다.
+        // 1440분 = 1일
+        // baseInterval = 곱하기 계산 시작할 '기준 날짜'. (새 카드는 0일이라 강제로 1일 취급)
+        // 신규 카드도 첫 노출 기준이 흔들리지 않도록 1일을 기준 간격으로 잡는다
         val baseInterval = if (current.interval <= 0) 1440 else current.interval
         val currentEF = current.easeFactor
 
@@ -27,16 +29,24 @@ class ReviewSchedulePolicy @Inject constructor() {
                 // 다시 봐야 하는 카드라서 간격을 0으로 두고, 세션 재등장은 ViewModel이 관리한다.
                 0 to max(1.3, currentEF - 0.20)
             }
+
             ReviewRating.HARD -> {
                 // 어렵게 맞힌 카드는 간격을 조금만 늘린다.
                 val interval = max(1440.0, baseInterval * 1.2).toInt()
                 interval to max(1.3, currentEF - 0.15)
             }
+
             ReviewRating.GOOD -> {
-                // 무난하게 맞힌 카드는 표준 배수를 사용한다.
-                val interval = max(1440.0, baseInterval * currentEF).toInt()
+                // 신규/실패 카드(간격 0)는 첫 성공 시 1일로 졸업시키고
+                // 이미 간격이 있는 카드는 간격 × easeFactor로 늘린다
+                val interval = if (current.interval <= 0) {
+                    1440
+                } else {
+                    (current.interval * currentEF).toInt()
+                }
                 interval to currentEF
             }
+
             ReviewRating.EASY -> {
                 // 쉽게 맞힌 카드는 더 오래 뒤에 다시 본다.
                 val interval = max(5760.0, baseInterval * currentEF * 1.3).toInt()
@@ -45,6 +55,7 @@ class ReviewSchedulePolicy @Inject constructor() {
         }
 
         // 분 단위 간격을 실제 복습 타임스탬프로 바꿔 저장 계약으로 넘긴다.
+        // 다음 복습 시각 = 평가한 시각 + (간격(분) * 60초 * 1000밀리초)
         val nextReviewAt = reviewedAt + (nextInterval.toLong() * 60 * 1000)
 
         return ReviewScheduleResult(

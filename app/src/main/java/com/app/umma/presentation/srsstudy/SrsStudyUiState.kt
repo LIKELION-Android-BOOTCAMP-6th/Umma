@@ -31,6 +31,13 @@ data class SrsStudyUiState(
     // 완료 화면에 표시할 학습 카드 수
     // 덱이 처음 로드된 시점의 카드 수로 고정, Again 은 포함하지 않음
     val studiedCardCount: Int = 0,
+    // 평가 버튼에 표시할 다음 복습 간격 문자열
+    // 카드가 바뀔 때마ㅏㄷ ViewModel이 실제 스케줄 계산 결과로 표기
+    // Again 은 세션 내 재등장이므로 "다시" 고정 나머지는 동적 계산값
+    val againLabel: String = "다시",
+    val hardLabel: String = "1일",
+    val goodLabel: String = "2일",
+    val easyLabel: String = "4일",
 ) {
     /** 지금 보고 있는 카드, 없으면 null */
     val currentCard: Flashcard?
