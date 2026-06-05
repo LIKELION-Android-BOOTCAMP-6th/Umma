@@ -3,6 +3,7 @@ package com.app.umma.presentation.chat
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.user.Topic
+import com.app.umma.watchbridge.SessionOwner
 
 /**
  * AI Chat 화면의 UI 상태를 정의하는 데이터 클래스입니다.
@@ -74,6 +75,7 @@ data class ChatUiState(
     val topicError: String? = null,
     val isSavingTurn: Boolean = false,
     val saveErrorMessage: String? = null,
+    val sessionOwner: SessionOwner = SessionOwner.NONE,
 ) {
     /**
      * 유저가 발화를 시작할 수 있는 경우 ->
@@ -89,6 +91,7 @@ data class ChatUiState(
                 && aiState != AIState.SPEAKING
                 && aiState != AIState.THINKING
                 && aiState != AIState.RECONNECTING
+                && sessionOwner != SessionOwner.WATCH
 
     /**
      * 유저가 발화를 끝낼 수 있는 경우 ->

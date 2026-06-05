@@ -21,23 +21,18 @@ import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
-import com.app.umma.domain.usecase.chat.CancelPendingUserTurnUseCase
 import com.app.umma.domain.usecase.chat.CleanupChatUsageUseCase
-import com.app.umma.domain.usecase.chat.EndUserTurnUseCase
-import com.app.umma.domain.usecase.chat.ObserveAIEventUseCase
 import com.app.umma.domain.usecase.chat.RecordChatUsageUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
-import com.app.umma.domain.usecase.chat.RetryConnectionUseCase
-import com.app.umma.domain.usecase.chat.SendAudioDataUseCase
-import com.app.umma.domain.usecase.chat.StartSessionUseCase
-import com.app.umma.domain.usecase.chat.StopSessionUseCase
 import com.app.umma.domain.usecase.chat.SyncChatSessionUsageUseCase
 import com.app.umma.domain.usecase.chat.SyncPendingChatUsageUseCase
 import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
 import com.app.umma.domain.usecase.user.GetUserProfileUseCase
 import com.app.umma.domain.usecase.user.GetUserNicknameUseCase
 import com.app.umma.domain.usecase.user.SaveInterestTopicsUseCase
+import com.app.umma.watchbridge.PhoneChatSessionController
+import com.app.umma.watchbridge.SessionOwner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -57,13 +52,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val startSessionUseCase: StartSessionUseCase,
-    private val retryConnectionUseCase: RetryConnectionUseCase,
-    private val observeAIEventUseCase: ObserveAIEventUseCase,
-    private val sendAudioDataUseCase: SendAudioDataUseCase,
-    private val endUserTurnUseCase: EndUserTurnUseCase,
-    private val cancelPendingUserTurnUseCase: CancelPendingUserTurnUseCase,
-    private val stopSessionUseCase: StopSessionUseCase,
+    private val phoneChatSessionController: PhoneChatSessionController,
     private val getUserProfileUseCase: GetUserProfileUseCase,
     private val getUserNicknameUseCase: GetUserNicknameUseCase,
     private val saveInterestTopicsUseCase: SaveInterestTopicsUseCase,
@@ -114,8 +103,19 @@ class ChatViewModel @Inject constructor(
     private var currentUserTurnEndedAtMs: Long? = null
 
     init {
+        observeSessionOwner()
         observeAudioOutputLevel()
         observeAudioOutputPlayback()
+    }
+
+    private fun observeSessionOwner() {
+        viewModelScope.launch {
+            phoneChatSessionController.snapshot.collectLatest { snapshot ->
+                _uiState.update {
+                    it.copy(sessionOwner = snapshot.owner)
+                }
+            }
+        }
     }
 
     /**
@@ -180,6 +180,23 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
+            val currentControllerSnapshot = phoneChatSessionController.currentSnapshot()
+            if (currentControllerSnapshot.owner == SessionOwner.WATCH) {
+                _uiState.update {
+                    it.copy(
+                        entryStage = ChatEntryStage.READY,
+                        blockedReason = null,
+                        sessionState = SessionState.READY,
+                        aiState = watchStatusToAiState(currentControllerSnapshot.status),
+                        activeSessionId = currentControllerSnapshot.activeSessionId,
+                        errorMessage = null,
+                        isRecoverableError = false,
+                        sessionOwner = SessionOwner.WATCH
+                    )
+                }
+                return@launch
+            }
+
             _uiState.update {
                 it.copy(
                     // 기존 active session 복구를 시도하는 동안에는 입력을 막고,
@@ -195,7 +212,7 @@ class ChatViewModel @Inject constructor(
                 )
             }
             delay(entryStageDelayMs)
-            val restoreResult = retryConnectionUseCase()
+            val restoreResult = phoneChatSessionController.retryConnection(SessionOwner.PHONE)
             when (restoreResult) {
                 is RetryConnectionResult.Reconnected -> {
                     handleSessionStarted(restoreResult.sessionId)
@@ -231,7 +248,7 @@ class ChatViewModel @Inject constructor(
             // NO_ACTIVE_SESSION 은 첫 진입에서도 자연스럽게 발생하므로 fallback 완료 메시지를 띄우지 않는다.
             val fallbackCompletionMessage = restoreResult.toFallbackCompletionMessage()
 
-            startSessionUseCase()
+            phoneChatSessionController.startSession(SessionOwner.PHONE)
                 .onSuccess { sessionId ->
                     handleSessionStarted(
                         sessionId = sessionId,
@@ -346,7 +363,7 @@ class ChatViewModel @Inject constructor(
 
         currentUserTurnStartedAtMs = System.currentTimeMillis()
         currentUserTurnEndedAtMs = null
-        cancelPendingUserTurnUseCase()
+        phoneChatSessionController.cancelPendingUserTurn(SessionOwner.PHONE)
 
         _uiState.update {
             it.copy(
@@ -481,9 +498,12 @@ class ChatViewModel @Inject constructor(
 
         currentUserTurnStartedAtMs = null
         currentUserTurnEndedAtMs = null
-        cancelPendingUserTurnUseCase()
+        phoneChatSessionController.cancelPendingUserTurn(SessionOwner.PHONE)
         audioPlayer.stopPlaying()
-        stopSessionUseCase(clearAppSession = false)
+        phoneChatSessionController.stopSession(
+            owner = SessionOwner.PHONE,
+            clearAppSession = false
+        )
 
         pendingTurnSaveCount = 0
         if (resetUiState) {
@@ -498,7 +518,7 @@ class ChatViewModel @Inject constructor(
         if (eventJob?.isActive == true) return
 
         eventJob = viewModelScope.launch {
-            observeAIEventUseCase().collect { event ->
+            phoneChatSessionController.observeAIEvents().collect { event ->
                 when (event) {
                     is AIEvent.Initializing -> handleInitializing()
                     is AIEvent.Initialized -> handleInitialized(event)
@@ -892,7 +912,7 @@ class ChatViewModel @Inject constructor(
             it.copy(inputLevel = frame.level)
         }
         try {
-            sendAudioDataUseCase(frame.pcm)
+            phoneChatSessionController.sendAudioData(SessionOwner.PHONE, frame.pcm)
         } catch (error: Exception) {
             Log.e(
                 TAG,
@@ -1147,7 +1167,7 @@ class ChatViewModel @Inject constructor(
         // 사용자가 정지 버튼으로 turn 을 끝낸 시점은 단순 duration 저장보다 의미가 크다.
         // OpenAI Realtime 은 이 호출을 기준으로 input audio commit 을 수행하고,
         // USER transcript 확정 이후 AI response 를 시작한다.
-        endUserTurnUseCase(durationMs)
+        phoneChatSessionController.endUserTurn(SessionOwner.PHONE, durationMs)
     }
 
     /**
@@ -1287,6 +1307,17 @@ class ChatViewModel @Inject constructor(
             LangCode.JA -> "일본어"
             LangCode.DE -> "독일어"
             else -> code.uppercase()
+        }
+    }
+
+    private fun watchStatusToAiState(status: com.app.umma.watchbridge.contract.WatchChatStatus): AIState {
+        return when (status) {
+            com.app.umma.watchbridge.contract.WatchChatStatus.RECORDING -> AIState.LISTENING
+            com.app.umma.watchbridge.contract.WatchChatStatus.THINKING -> AIState.THINKING
+            com.app.umma.watchbridge.contract.WatchChatStatus.SPEAKING -> AIState.SPEAKING
+            com.app.umma.watchbridge.contract.WatchChatStatus.RECONNECTING -> AIState.RECONNECTING
+            com.app.umma.watchbridge.contract.WatchChatStatus.ERROR -> AIState.ERROR
+            else -> AIState.IDLE
         }
     }
 
