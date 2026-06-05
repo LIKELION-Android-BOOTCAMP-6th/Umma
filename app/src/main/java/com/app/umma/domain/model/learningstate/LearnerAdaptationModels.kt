@@ -11,8 +11,8 @@ data class LearnerAdaptationProfile(
     val core: LearnerAbilityProfile,
     // Chat prompt builder가 대화 길이와 질문 방식을 정할 때 쓰는 정책.
     val chatPolicy: ChatAdaptationPolicy,
-    // Correction prompt builder가 교정 강도와 설명 방식을 정할 때 쓰는 정책.
-    val correctionPolicy: CorrectionAdaptationPolicy
+    // Correction prompt builder가 교정 강도와 설명 방식을 정할 때 쓰는 6단계 성장 정책(COR-TUNE-003).
+    val correctionPolicy: CorrectionGrowthPolicy
 )
 
 /**
@@ -59,7 +59,7 @@ data class LearningFocusSummary(
  * Chat 대화에서 사용할 적응 정책.
  */
 data class ChatAdaptationPolicy(
-    // Chat에서만 쓰는 전체 대화 가능 단계. Correction의 ChallengeLevel과 분리해 대화 흐름을 더 세밀하게 조절한다.
+    // Chat에서만 쓰는 전체 대화 가능 단계. Correction의 CorrectionGrowthBand와 별도 축으로 대화 흐름을 세밀하게 조절한다.
     val conversationBand: ConversationAbilityBand,
     // 사용자의 불완전한 발화를 AI가 얼마나 적극적으로 의도 추론할지.
     val intentSupport: IntentSupportPolicy,
@@ -113,26 +113,12 @@ enum class PrimaryBridgeReason {
     PrimaryDominantTurn
 }
 
-/**
- * Correction 교정에서 사용할 적응 정책.
- */
-data class CorrectionAdaptationPolicy(
-    // 교정 결과를 현재 능력에 맞출지, 약간 확장할지 정하는 공통 challenge.
-    val challengeLevel: ChallengeLevel,
-    // 교정 설명을 얼마나 자세히 제공할지.
-    val correctionStyle: CorrectionStylePolicy,
-    // 어휘를 단순 유지할지, 표현을 조금 확장할지.
-    val vocabularyStrategy: VocabularyStrategyPolicy,
-    // 문법 오류만 고칠지, 문장 구조까지 확장할지.
-    val grammarStrategy: GrammarStrategyPolicy,
-    // 구어체/격식체 register를 어느 정도 다룰지.
-    val spokenRegisterStrategy: SpokenRegisterStrategy,
-    // 교정 설명에서 primaryLang을 얼마나 보조로 쓸지.
-    val primaryLanguageSupport: PrimaryLanguageSupportPolicy
-)
+// COR-TUNE-003: CorrectionAdaptationPolicy(4단계)는 CorrectionGrowthPolicy(6단계)로 완전 교체되었다.
+// correctionPolicy 필드 타입과 이 파일의 관련 enum은 모두 CorrectionGrowthPolicyModels.kt 로 이전했다.
 
 /**
  * metric 숫자를 바로 prompt에 넣지 않기 위한 skill 단계.
+ * Chat과 Correction 공통으로 사용하는 내부 판단 단계다.
  */
 enum class SkillStage {
     // 짧고 쉬운 패턴 중심의 지원이 필요한 단계.
@@ -147,19 +133,8 @@ enum class SkillStage {
     Refined
 }
 
-/**
- * Chat/Correction이 현재 능력보다 얼마나 더 밀어도 되는지.
- */
-enum class ChallengeLevel {
-    // 이해와 안정감을 우선하고 새 표현은 거의 넣지 않는다.
-    Support,
-    // 현재 능력에 맞춰 대화와 교정을 제공한다.
-    Match,
-    // 현재 능력보다 조금 높은 표현을 하나씩 제안한다.
-    Stretch,
-    // 고급 사용자를 대상으로 뉘앙스와 register까지 다듬는다.
-    Refine
-}
+// COR-TUNE-003: ChallengeLevel(4단계)은 Correction 경로에서 CorrectionGrowthBand(6단계)로 완전 교체되었다.
+// Chat 경로는 ChallengeLevel을 사용하지 않으므로 이 enum은 제거한다.
 
 /**
  * Chat 전용 대화 가능 단계.
@@ -307,61 +282,8 @@ enum class SpeechSpeedPolicy {
     Advanced
 }
 
-/**
- * Correction 설명 방식.
- */
-enum class CorrectionStylePolicy {
-    // 의미 전달을 막는 핵심 오류만 최소 수정한다.
-    MinimalFix,
-    // 한 가지 주요 이유만 짧게 설명한다.
-    ExplainOneReason,
-    // 자연스러운 구어체 rewrite를 제안한다.
-    NaturalSpokenRewrite,
-    // 뉘앙스와 register 차이까지 설명한다.
-    NuanceAndRegister
-}
-
-/**
- * Correction 어휘 전략.
- */
-enum class VocabularyStrategyPolicy {
-    // 사용자가 이미 아는 쉬운 단어를 유지한다.
-    KeepSimpleWords,
-    // 유용한 표현 하나만 추가한다.
-    AddOneUsefulExpression,
-    // collocation과 자연스러운 조합을 개선한다.
-    ImproveCollocation,
-    // 고급 사용자를 위해 원어민식 단어 선택을 다듬는다.
-    RefineNativeChoice
-}
-
-/**
- * Correction 문법 전략.
- */
-enum class GrammarStrategyPolicy {
-    // 의미 전달을 막는 오류만 우선 고친다.
-    FixBlockingErrorOnly,
-    // 한 번에 하나의 주요 문법 패턴을 설명한다.
-    FixOneMainPattern,
-    // 문장 구조를 조금 더 자연스럽게 확장한다.
-    ExpandSentenceStructure,
-    // 고급 문장 구조를 더 정교하게 다듬는다.
-    RefineAdvancedStructure
-}
-
-/**
- * Correction 구어체/격식체 register 전략.
- */
-enum class SpokenRegisterStrategy {
-    // 단순하고 직접적인 표현을 우선한다.
-    Simple,
-    // 일상 대화에서 자연스러운 구어체를 제안한다.
-    EverydaySpoken,
-    // 원어민이 실제로 자주 쓰는 캐주얼 표현을 제안한다.
-    NativeLikeCasual,
-    // 상황에 따라 격식 표현도 구분해 준다.
-    FormalWhenNeeded
-}
+// COR-TUNE-003: CorrectionStylePolicy / VocabularyStrategyPolicy / GrammarStrategyPolicy / SpokenRegisterStrategy
+// (구 Correction 전용 4단계 enum)은 CorrectionGrowthPolicyModels.kt 의 6단계 enum으로 대체되어 제거한다.
 
 /**
  * primaryLang 보조 설명 정책.

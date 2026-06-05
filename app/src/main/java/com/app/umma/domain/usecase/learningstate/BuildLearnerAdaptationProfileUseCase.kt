@@ -1,30 +1,26 @@
 package com.app.umma.domain.usecase.learningstate
 
-import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
-import com.app.umma.domain.model.learningstate.CorrectionAdaptationPolicy
-import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
+import com.app.umma.domain.model.learningstate.CorrectionGrowthPolicy
 import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
-import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
 import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LearnerAbilityProfile
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.LearningFocus
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
+import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
-import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
-import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
-import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
+import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.VocabLevel
-import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
 import javax.inject.Inject
 
 /**
@@ -83,11 +79,6 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             naturalnessStage = naturalnessStage,
             focus = focusSummary
         )
-        val challenge = chooseChallengeLevel(
-            confidence = confidence,
-            stages = listOf(grammarStage, vocabularyStage, fluencyStage, naturalnessStage)
-        )
-
         // core는 공유하고, chat/correction은 같은 능력 판단을 각 기능의 말투/설명 방식으로만 바꾼다.
         return LearnerAdaptationProfile(
             core = core,
@@ -100,11 +91,13 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
                 naturalnessStage = naturalnessStage
             ),
             correctionPolicy = buildCorrectionPolicy(
-                challenge = challenge,
                 confidence = confidence,
                 grammarStage = grammarStage,
                 vocabularyStage = vocabularyStage,
-                naturalnessStage = naturalnessStage
+                fluencyStage = fluencyStage,
+                naturalnessStage = naturalnessStage,
+                focus = focusSummary,
+                langState = langState
             )
         )
     }
@@ -136,13 +129,8 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
                 fluencyStage = SkillStage.Foundation,
                 naturalnessStage = SkillStage.Foundation
             ),
-            correctionPolicy = buildCorrectionPolicy(
-                challenge = ChallengeLevel.Support,
-                confidence = ProfileConfidence.Low,
-                grammarStage = SkillStage.Foundation,
-                vocabularyStage = SkillStage.Foundation,
-                naturalnessStage = SkillStage.Foundation
-            )
+            // 근거 없음 = 실력 낮음이 아니라 과한 교정 방지. MeaningFirst가 가장 보수적인 기본값이다.
+            correctionPolicy = CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst)
         )
     }
 
@@ -391,122 +379,133 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         return ConversationAbilityBand.SimpleSentence
     }
 
+    /**
+     * 교정 성장 정책을 산출한다(COR-TUNE-003 / CHAT-TUNE-004 핸드오버).
+     *
+     * 흐름: [chooseCorrectionGrowthBand]로 band를 결정 → [CorrectionGrowthPolicy.defaultsForBand]로 기본 정책 매핑.
+     * confidence가 낮으면 band를 낮춰 보수적 정책을 적용하고, 의미차단 focus가 있으면 패턴 안정화를 우선한다.
+     */
     private fun buildCorrectionPolicy(
-        challenge: ChallengeLevel,
         confidence: ProfileConfidence,
         grammarStage: SkillStage,
         vocabularyStage: SkillStage,
-        naturalnessStage: SkillStage
-    ): CorrectionAdaptationPolicy {
-        // confidence가 낮으면 교정도 최소 수정 중심으로 둔다.
-        if (confidence == ProfileConfidence.Low) {
-            return CorrectionAdaptationPolicy(
-                challengeLevel = ChallengeLevel.Support,
-                correctionStyle = CorrectionStylePolicy.MinimalFix,
-                vocabularyStrategy = VocabularyStrategyPolicy.KeepSimpleWords,
-                grammarStrategy = GrammarStrategyPolicy.FixBlockingErrorOnly,
-                spokenRegisterStrategy = SpokenRegisterStrategy.Simple,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
-            )
-        }
-
-        // confidence가 충분할 때만 stage별로 교정 설명의 깊이를 다르게 한다.
-        // challenge는 공통 기준이고, 각 세부 전략은 stage에 따라 덜/더 확장되도록 분리한다.
-        return CorrectionAdaptationPolicy(
-            challengeLevel = challenge,
-            correctionStyle = correctionStyleFor(challenge),
-            vocabularyStrategy = vocabularyStrategyFor(vocabularyStage, challenge),
-            grammarStrategy = grammarStrategyFor(grammarStage, challenge),
-            spokenRegisterStrategy = registerStrategyFor(naturalnessStage, challenge),
-            primaryLanguageSupport = supportPolicyFor(challenge)
-        )
-    }
-
-    private fun chooseChallengeLevel(
-        confidence: ProfileConfidence,
-        stages: List<SkillStage>
-    ): ChallengeLevel {
-        // confidence가 낮으면 점수가 높아 보여도 도전 강도를 올리지 않는다.
-        if (confidence == ProfileConfidence.Low) return ChallengeLevel.Support
-
-        // 가장 약한 영역이 실제 대화 난이도의 병목이므로 weakest stage를 기준으로 둔다.
-        val weakestStage = stages.minByOrNull { it.ordinal } ?: SkillStage.Foundation
-        return when (weakestStage) {
-            SkillStage.Foundation -> ChallengeLevel.Support
-            SkillStage.Developing -> ChallengeLevel.Match
-            SkillStage.Stable -> if (confidence == ProfileConfidence.High) {
-                ChallengeLevel.Stretch
-            } else {
-                ChallengeLevel.Match
-            }
-            SkillStage.Expanding -> ChallengeLevel.Stretch
-            SkillStage.Refined -> if (confidence == ProfileConfidence.High) {
-                ChallengeLevel.Refine
-            } else {
-                ChallengeLevel.Stretch
-            }
-        }
-    }
-
-    private fun correctionStyleFor(challenge: ChallengeLevel): CorrectionStylePolicy {
-        return when (challenge) {
-            ChallengeLevel.Support -> CorrectionStylePolicy.MinimalFix
-            ChallengeLevel.Match -> CorrectionStylePolicy.ExplainOneReason
-            ChallengeLevel.Stretch -> CorrectionStylePolicy.NaturalSpokenRewrite
-            ChallengeLevel.Refine -> CorrectionStylePolicy.NuanceAndRegister
-        }
-    }
-
-    private fun vocabularyStrategyFor(
-        vocabularyStage: SkillStage,
-        challenge: ChallengeLevel
-    ): VocabularyStrategyPolicy {
-        // 어휘 stage가 낮으면 challenge가 높더라도 단어 확장을 제한한다.
-        if (vocabularyStage.ordinal <= SkillStage.Developing.ordinal) return VocabularyStrategyPolicy.KeepSimpleWords
-        return when (challenge) {
-            ChallengeLevel.Support -> VocabularyStrategyPolicy.KeepSimpleWords
-            ChallengeLevel.Match -> VocabularyStrategyPolicy.AddOneUsefulExpression
-            ChallengeLevel.Stretch -> VocabularyStrategyPolicy.ImproveCollocation
-            ChallengeLevel.Refine -> VocabularyStrategyPolicy.RefineNativeChoice
-        }
-    }
-
-    private fun grammarStrategyFor(
-        grammarStage: SkillStage,
-        challenge: ChallengeLevel
-    ): GrammarStrategyPolicy {
-        // 문법 stage가 낮으면 구조 확장보다 의미를 막는 오류 수정이 먼저다.
-        if (grammarStage == SkillStage.Foundation) return GrammarStrategyPolicy.FixBlockingErrorOnly
-        return when (challenge) {
-            ChallengeLevel.Support -> GrammarStrategyPolicy.FixBlockingErrorOnly
-            ChallengeLevel.Match -> GrammarStrategyPolicy.FixOneMainPattern
-            ChallengeLevel.Stretch -> GrammarStrategyPolicy.ExpandSentenceStructure
-            ChallengeLevel.Refine -> GrammarStrategyPolicy.RefineAdvancedStructure
-        }
-    }
-
-    private fun registerStrategyFor(
+        fluencyStage: SkillStage,
         naturalnessStage: SkillStage,
-        challenge: ChallengeLevel
-    ): SpokenRegisterStrategy {
-        // 자연스러움 stage가 낮으면 register 설명보다 단순한 일상 표현을 우선한다.
-        if (naturalnessStage.ordinal <= SkillStage.Developing.ordinal) return SpokenRegisterStrategy.Simple
-        return when (challenge) {
-            ChallengeLevel.Support -> SpokenRegisterStrategy.Simple
-            ChallengeLevel.Match -> SpokenRegisterStrategy.EverydaySpoken
-            ChallengeLevel.Stretch -> SpokenRegisterStrategy.NativeLikeCasual
-            ChallengeLevel.Refine -> SpokenRegisterStrategy.FormalWhenNeeded
-        }
+        focus: LearningFocusSummary,
+        langState: LangState?
+    ): CorrectionGrowthPolicy {
+        val band = chooseCorrectionGrowthBand(
+            confidence = confidence,
+            grammarStage = grammarStage,
+            vocabularyStage = vocabularyStage,
+            fluencyStage = fluencyStage,
+            naturalnessStage = naturalnessStage,
+            focus = focus,
+            langState = langState
+        )
+        return CorrectionGrowthPolicy.defaultsForBand(band)
     }
 
-    private fun supportPolicyFor(challenge: ChallengeLevel): PrimaryLanguageSupportPolicy {
-        // 같은 challenge라도 설명 보조 언어 강도는 builder에서 명확히 분리해 재사용한다.
-        return when (challenge) {
-            ChallengeLevel.Support -> PrimaryLanguageSupportPolicy.PrimaryLanguageFirst
-            ChallengeLevel.Match -> PrimaryLanguageSupportPolicy.BriefPrimaryLanguageHint
-            ChallengeLevel.Stretch -> PrimaryLanguageSupportPolicy.TargetLanguageFirstWithPrimaryFallback
-            ChallengeLevel.Refine -> PrimaryLanguageSupportPolicy.TargetLanguageOnly
+    /**
+     * 교정 성장 band를 산출하는 인터림 휴리스틱 (CHAT-TUNE-004 "산출 우선순위" 기반).
+     *
+     * --- LearningState 담당자 정교화 지점 ---
+     * 이 함수는 계약(CHAT-TUNE-004 핸드오버)을 만족하는 인터림 산출 로직이다.
+     * 다음 두 축의 정밀화는 LearningState 담당자가 CHAT-TUNE-004 기준으로 완성한다:
+     *   1. analysisMeta.metricEvidence / activeFocus 기반 band 보수 조정
+     *      (현재는 focus.primaryFocus/confidence 요약에서 의미차단 여부만 본다)
+     *   2. 높은 sentenceComplexity가 낮은 grammar와 함께 올 때 SentenceShape 방어
+     *      (현재는 grammarStage ≤ Developing이면 내려가지만, sentenceComplexity가 독립 방어 조건은 아님)
+     * ---
+     *
+     * 산출 우선순위 (CHAT-TUNE-004 FlowDB 스펙 라인 378-383):
+     *  1. meaningful LangState 없음 또는 ProfileConfidence.Low → 낮은 band로 보수 조정
+     *  2. 의미 전달을 막는 active focus → MeaningFirst 또는 PatternFix
+     *  3. grammarStage 또는 sentenceComplexity가 낮음 → SentenceShape 이하
+     *  4. grammar/vocabulary/fluency가 안정될 때만 EverydayNatural 이상 허용
+     *  5. naturalness+vocabulary 높고 confidence High → NuanceRefine
+     */
+    private fun chooseCorrectionGrowthBand(
+        confidence: ProfileConfidence,
+        grammarStage: SkillStage,
+        vocabularyStage: SkillStage,
+        fluencyStage: SkillStage,
+        naturalnessStage: SkillStage,
+        focus: LearningFocusSummary,
+        langState: LangState?
+    ): CorrectionGrowthBand {
+        // 1. Low confidence → 보수 조정. 하나의 고점 metric만으로 band를 올리지 않는다.
+        if (confidence == ProfileConfidence.Low) {
+            // Foundation이 지배적이면 MeaningFirst, 일부 vocabulary 근거가 있으면 PatternFix.
+            return if (grammarStage.ordinal <= SkillStage.Foundation.ordinal &&
+                vocabularyStage.ordinal <= SkillStage.Foundation.ordinal
+            ) {
+                CorrectionGrowthBand.MeaningFirst
+            } else {
+                CorrectionGrowthBand.PatternFix
+            }
         }
+
+        // 2. 의미 전달 오류나 핵심 문법 focus → 자연스러움 개선보다 패턴 안정화 우선.
+        if (hasMeaningBlockingFocus(focus)) {
+            return if (grammarStage == SkillStage.Foundation) {
+                CorrectionGrowthBand.MeaningFirst
+            } else {
+                CorrectionGrowthBand.PatternFix
+            }
+        }
+
+        // 3. grammarStage 또는 sentenceComplexity가 낮으면 SentenceShape 이하.
+        val sentenceComplexityStage = langState?.let { stageFromScore(it.internal.sentenceComplexity) }
+            ?: grammarStage // LangState가 없으면 grammar로 대리
+        if (grammarStage.ordinal <= SkillStage.Developing.ordinal ||
+            sentenceComplexityStage.ordinal <= SkillStage.Developing.ordinal
+        ) {
+            return if (grammarStage == SkillStage.Foundation) {
+                CorrectionGrowthBand.PatternFix
+            } else {
+                CorrectionGrowthBand.SentenceShape
+            }
+        }
+
+        // 4. grammar/vocabulary/fluency 중 2개 이상 Stable 이상이어야 EverydayNatural 허용.
+        val stableCount = listOf(grammarStage, vocabularyStage, fluencyStage)
+            .count { it.ordinal >= SkillStage.Stable.ordinal }
+        if (stableCount < 2) {
+            return CorrectionGrowthBand.SentenceShape
+        }
+
+        // 5. naturalness+vocabulary 높고 High confidence → NuanceRefine.
+        if (confidence == ProfileConfidence.High &&
+            naturalnessStage == SkillStage.Refined &&
+            vocabularyStage.ordinal >= SkillStage.Expanding.ordinal
+        ) {
+            return CorrectionGrowthBand.NuanceRefine
+        }
+
+        // naturalness/vocabulary Expanding 이상이면 ConnectedExpression.
+        if (naturalnessStage.ordinal >= SkillStage.Expanding.ordinal &&
+            vocabularyStage.ordinal >= SkillStage.Expanding.ordinal
+        ) {
+            return CorrectionGrowthBand.ConnectedExpression
+        }
+
+        return CorrectionGrowthBand.EverydayNatural
+    }
+
+    /**
+     * 의미 전달을 막는 active focus 여부를 확인한다.
+     *
+     * 의미차단 focus: [LearningFocusType.SentenceFragment](불완전 문장), [LearningFocusType.MissingContext](주어/목적어 누락).
+     * confidence Low 또는 관측 0이면 focus 게이트를 통과하지 않는다.
+     */
+    private fun hasMeaningBlockingFocus(focus: LearningFocusSummary): Boolean {
+        if (focus.confidence == ProfileConfidence.Low || focus.observedCount <= 0) return false
+        val meaningBlockingTypes = setOf(
+            LearningFocusType.SentenceFragment,
+            LearningFocusType.MissingContext
+        )
+        return focus.primaryFocus in meaningBlockingTypes || focus.secondaryFocus in meaningBlockingTypes
     }
 
     private fun confidenceFromScore(

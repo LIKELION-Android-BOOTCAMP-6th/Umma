@@ -1,15 +1,11 @@
 package com.app.umma.domain.usecase.chat
 
-import com.app.umma.domain.model.chat.ChatTurnContextSignal
-import com.app.umma.domain.model.chat.LatestUserTurnRole
-import com.app.umma.domain.model.learningstate.ChallengeLevel
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
-import com.app.umma.domain.model.learningstate.CorrectionAdaptationPolicy
-import com.app.umma.domain.model.learningstate.CorrectionStylePolicy
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
+import com.app.umma.domain.model.learningstate.CorrectionGrowthPolicy
 import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
-import com.app.umma.domain.model.learningstate.GrammarStrategyPolicy
 import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LearnerAbilityProfile
@@ -18,19 +14,16 @@ import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
 import com.app.umma.domain.model.learningstate.PrimaryBridgeReason
-import com.app.umma.domain.model.learningstate.PrimaryLanguageSupportPolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
-import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.SentenceDensityPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
-import com.app.umma.domain.model.learningstate.SpokenRegisterStrategy
-import com.app.umma.domain.model.learningstate.VocabLevel
-import com.app.umma.domain.model.learningstate.VocabularyStrategyPolicy
-import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.TurnSpeaker
+import com.app.umma.domain.model.learningstate.VocabLevel
+import com.app.umma.domain.model.realtime.SessionTurn
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -352,14 +345,8 @@ class BuildPromptUseCaseTest {
                 responseLength = responseLength,
                 speechSpeed = SpeechSpeedPolicy.NormalLearning
             ),
-            correctionPolicy = CorrectionAdaptationPolicy(
-                challengeLevel = correctionChallengeFor(conversationBand),
-                correctionStyle = CorrectionStylePolicy.ExplainOneReason,
-                vocabularyStrategy = VocabularyStrategyPolicy.AddOneUsefulExpression,
-                grammarStrategy = GrammarStrategyPolicy.FixOneMainPattern,
-                spokenRegisterStrategy = SpokenRegisterStrategy.EverydaySpoken,
-                primaryLanguageSupport = PrimaryLanguageSupportPolicy.BriefPrimaryLanguageHint
-            )
+            // Correction 정책은 Chat 프롬프트 테스트 입력이 아니지만 profile 계약을 완성하기 위해 채운다.
+            correctionPolicy = CorrectionGrowthPolicy.defaultsForBand(correctionBandFor(conversationBand))
         )
     }
 
@@ -399,15 +386,15 @@ class BuildPromptUseCaseTest {
         }
     }
 
-    private fun correctionChallengeFor(band: ConversationAbilityBand): ChallengeLevel {
-        // 이 fixture는 Chat band와 Correction challenge가 별도 축이라는 점을 유지하기 위해 최소 매핑만 둔다.
+    private fun correctionBandFor(band: ConversationAbilityBand): CorrectionGrowthBand {
+        // 이 fixture는 Chat band와 Correction band가 별도 축이라는 점을 유지하기 위해 대응 매핑만 둔다.
         return when (band) {
-            ConversationAbilityBand.IntentOnly,
-            ConversationAbilityBand.PhraseEmerging -> ChallengeLevel.Support
-            ConversationAbilityBand.SimpleSentence,
-            ConversationAbilityBand.BasicConversation -> ChallengeLevel.Match
-            ConversationAbilityBand.ConnectedExpression -> ChallengeLevel.Stretch
-            ConversationAbilityBand.NuanceControl -> ChallengeLevel.Refine
+            ConversationAbilityBand.IntentOnly -> CorrectionGrowthBand.MeaningFirst
+            ConversationAbilityBand.PhraseEmerging -> CorrectionGrowthBand.PatternFix
+            ConversationAbilityBand.SimpleSentence -> CorrectionGrowthBand.SentenceShape
+            ConversationAbilityBand.BasicConversation -> CorrectionGrowthBand.EverydayNatural
+            ConversationAbilityBand.ConnectedExpression -> CorrectionGrowthBand.ConnectedExpression
+            ConversationAbilityBand.NuanceControl -> CorrectionGrowthBand.NuanceRefine
         }
     }
 }

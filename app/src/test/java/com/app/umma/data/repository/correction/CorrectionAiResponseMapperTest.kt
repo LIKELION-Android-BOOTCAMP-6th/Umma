@@ -196,17 +196,53 @@ class CorrectionAiResponseMapperTest {
     }
 
     @Test
-    fun `excludes unknown issue category element but keeps signal`() {
+    fun `drops signal when issue category element is unknown`() {
         val suggestion = mapper.map(
             signalJson(issueCategories = """["GrammarForm","NotAReal","WordOrder"]"""),
             baseInput()
         ).single()
+        // unknown enum 원소가 하나라도 있으면 부분 제외하지 않고 signal 전체를 drop 한다.
+        assertEquals("I go to school.", suggestion.afterText)
+        assertNull(suggestion.learningSignal)
+    }
+
+    @Test
+    fun `drops signal when improvement type element is unknown`() {
+        val suggestion = mapper.map(
+            signalJson(improvementTypes = """["GrammarFixed","NotReal"]"""),
+            baseInput()
+        ).single()
+        assertEquals("I go to school.", suggestion.afterText)
+        assertNull(suggestion.learningSignal)
+    }
+
+    @Test
+    fun `drops signal when edit span enum is unknown`() {
+        // editSpan 의 issueCategory/improvementType 이 unknown 이면 그 span 만 빼지 않고 signal 전체를 drop 한다.
+        val suggestion = mapper.map(
+            signalJson(
+                editSpans = """[{"sourceFragment":"go","correctedFragment":"go to","issueCategory":"NotReal","languageFeatureKey":"EN.Tense","improvementType":"GrammarFixed"}]"""
+            ),
+            baseInput()
+        ).single()
+        assertEquals("I go to school.", suggestion.afterText)
+        assertNull(suggestion.learningSignal)
+    }
+
+    @Test
+    fun `drops signal when meaningPreserved is missing`() {
+        // meaningPreserved 누락은 의미 보존이 검증되지 않은 것이므로 signal 전체를 drop 한다.
+        val suggestion = mapper.map(signalJson(meaningPreserved = null), baseInput()).single()
+        assertEquals("I go to school.", suggestion.afterText)
+        assertNull(suggestion.learningSignal)
+    }
+
+    @Test
+    fun `keeps signal with meaningPreserved false`() {
+        // false 는 "의미 변형"을 알리는 중요한 관찰값이므로 유지한다.
+        val suggestion = mapper.map(signalJson(meaningPreserved = "false"), baseInput()).single()
         val signal = requireNotNull(suggestion.learningSignal)
-        // unknown 원소만 제외하고 알려진 값은 보존한다.
-        assertEquals(
-            listOf(CorrectionIssueCategory.GrammarForm, CorrectionIssueCategory.WordOrder),
-            signal.issueCategories
-        )
+        assertEquals(false, signal.meaningPreserved)
     }
 
     @Test
@@ -262,7 +298,7 @@ class CorrectionAiResponseMapperTest {
 
     /**
      * 핵심 4필드는 고정하고 learningSignal 의 한 부분만 바꿔 가며 정규화를 검증하기 위한 JSON 빌더.
-     * confidence=null 이면 키 자체를 생략해 "누락" 상황을 만든다.
+     * meaningPreserved/confidence 는 null 이면 키 자체를 생략해 "누락" 상황을 만든다.
      */
     private fun signalJson(
         issueCategories: String = """["GrammarForm"]""",
@@ -271,9 +307,10 @@ class CorrectionAiResponseMapperTest {
         editSpans: String = "[]",
         register: String = "EverydaySpoken",
         severity: String = "MajorPattern",
-        meaningPreserved: String = "true",
+        meaningPreserved: String? = "true",
         confidence: String? = "0.8"
     ): String {
+        val meaningPreservedLine = if (meaningPreserved == null) "" else ""","meaningPreserved":$meaningPreserved"""
         val confidenceLine = if (confidence == null) "" else ""","confidence":$confidence"""
         return """
             {
@@ -289,8 +326,7 @@ class CorrectionAiResponseMapperTest {
                     "improvementTypes": $improvementTypes,
                     "editSpans": $editSpans,
                     "register": "$register",
-                    "severity": "$severity",
-                    "meaningPreserved": $meaningPreserved$confidenceLine
+                    "severity": "$severity"$meaningPreservedLine$confidenceLine
                   }
                 }
               ]
