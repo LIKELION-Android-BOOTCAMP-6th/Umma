@@ -31,6 +31,15 @@ class BuildChatTurnContextSignalUseCase @Inject constructor() {
             ?.let(::looksLikeAssistantQuestion)
             ?: false
 
+        // 세션 시작 인사나 "대화하자"는 의도 표시는 짧아도 막힘이 아니다.
+        // 여기서 fragment로 보내면 turn policy가 초보 보조를 과하게 열어 첫 응답이 느리고 수동적으로 느껴진다.
+        if (!followsAssistantQuestion && looksLikeConversationStart(normalized)) {
+            return ChatTurnContextSignal(
+                latestUserTurnRole = LatestUserTurnRole.TopicContinuation,
+                followsAssistantQuestion = false
+            )
+        }
+
         // 명시적 되묻기는 짧아도 답변이 아니라 설명 요청이다.
         if (looksLikeClarificationRequest(normalized)) {
             return ChatTurnContextSignal(
@@ -83,6 +92,12 @@ class BuildChatTurnContextSignalUseCase @Inject constructor() {
         // 사용자가 되묻는 경우는 짧아도 직전 질문의 답변이 아니라 설명 요청으로 다뤄야 한다.
         val lowerText = text.lowercase()
         return CLARIFICATION_HINTS.any { hint -> lowerText.contains(hint) }
+    }
+
+    private fun looksLikeConversationStart(text: String): Boolean {
+        // 시작 표현은 짧고 간단한 것이 정상이다. 길이 기준보다 의도 신호를 먼저 봐야 첫 turn 과보정을 막을 수 있다.
+        val lowerText = text.lowercase()
+        return CONVERSATION_START_HINTS.any { hint -> lowerText.contains(hint) }
     }
 
     private fun looksLikeShortAnswer(text: String): Boolean {
@@ -152,12 +167,38 @@ class BuildChatTurnContextSignalUseCase @Inject constructor() {
             "what do you mean",
             "say again",
             "again please",
+            "pardon",
+            "can you repeat",
+            "could you repeat",
+            "please repeat",
+            "too complex",
+            "complex sentences",
+            "i can't understand",
+            "i cant understand",
             "i don't understand",
             "i dont understand",
+            "i cannot understand",
+            "simplify",
+            "make it simple",
             "다시",
             "무슨 뜻",
             "이해 안",
             "설명"
+        )
+        private val CONVERSATION_START_HINTS = listOf(
+            "hello",
+            "hi",
+            "hey",
+            "good to see you",
+            "let's talk",
+            "lets talk",
+            "can we talk",
+            "start talking",
+            "talk with me",
+            "대화하자",
+            "얘기하자",
+            "話しましょう",
+            "話そう"
         )
     }
 }

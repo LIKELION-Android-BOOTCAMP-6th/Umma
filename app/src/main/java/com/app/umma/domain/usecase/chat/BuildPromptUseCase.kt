@@ -261,7 +261,7 @@ class BuildPromptUseCase @Inject constructor() {
             PrimaryBridgePolicy.Brief ->
                 "support_rule: 사용자가 막히면 $primaryLanguageName 힌트로 이해를 돕고 $selectedLanguageName 표현은 짧게 둔다."
             PrimaryBridgePolicy.FallbackOnly ->
-                "support_rule: 먼저 학습언어($selectedLanguageName)로 답하고, 의도 복원이 어려울 때만 기준언어($primaryLanguageName)를 짧게 섞는다."
+                "support_rule: 먼저 학습언어($selectedLanguageName)로 답하고, 명시적 도움 요청이나 의도 복원이 어려운 경우에만 기준언어($primaryLanguageName)를 짧게 섞는다. 칭찬, 요약, 공감만을 위해 기준언어를 덧붙이지 않는다."
             PrimaryBridgePolicy.None ->
                 "support_rule: 사용자가 요청한 경우를 제외하고 ${selectedLanguageName}만 사용한다."
         }
@@ -276,6 +276,7 @@ class BuildPromptUseCase @Inject constructor() {
         return """
             - natural_reaction: 교정 설명보다 일상 대화 반응을 먼저 한다.
             - flow: 대화가 끊기지 않게 짧게 이어가되, 매번 같은 질문 형식으로 끝내지 않는다.
+            - conversation_lead: 대화 시작이나 재개 때는 최근 주제나 가벼운 일상 주제를 먼저 제안하고, 사용자가 모든 주제를 정하게 하지 않는다.
         """.trimIndent()
     }
 
@@ -339,7 +340,7 @@ class BuildPromptUseCase @Inject constructor() {
         return when (policy) {
             PrimaryBridgePolicy.Active -> "이해가 끊길 것 같으면 보조 언어로 짧게 확인하고 바로 목표 언어로 돌아온다."
             PrimaryBridgePolicy.Brief -> "사용자가 막힐 때만 보조 언어 힌트를 짧게 사용한다."
-            PrimaryBridgePolicy.FallbackOnly -> "기본은 목표 언어이고, 오해가 생길 때만 보조 언어를 한 줄 쓴다."
+            PrimaryBridgePolicy.FallbackOnly -> "기본은 목표 언어이고, 명시적 도움 요청이나 큰 오해가 있을 때만 보조 언어를 한 줄 쓴다."
             PrimaryBridgePolicy.None -> "사용자가 요청하지 않으면 목표 언어만 사용한다."
         }
     }
@@ -424,9 +425,9 @@ class BuildPromptUseCase @Inject constructor() {
             ResponseLengthPolicy.Flexible -> "response_length: 필요할 때만 조금 길게 설명한다."
         }
         val questionRule = when (questionLoad) {
-            QuestionLoadPolicy.ConcreteChoice -> "turn_space: 필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 준다."
-            QuestionLoadPolicy.OneConcreteFollowUp -> "turn_space: 사용자의 말에서 자연스럽게 이어지는 짧은 여지를 둔다."
-            QuestionLoadPolicy.OpenShort -> "turn_space: 너무 넓지 않은 짧은 open-ended 여지를 둔다."
+            QuestionLoadPolicy.ConcreteChoice -> "turn_space: 필요할 때 음식, 장소, 감정, 행동처럼 실제 내용으로 짧게 답할 여지를 주고, 넓은 주제 선택을 사용자에게 떠넘기지 않는다."
+            QuestionLoadPolicy.OneConcreteFollowUp -> "turn_space: 사용자의 말이나 최근 주제에서 자연스럽게 이어지는 짧은 여지를 둔다."
+            QuestionLoadPolicy.OpenShort -> "turn_space: 너무 넓지 않은 짧은 open-ended 여지를 두되, 시작할 때는 AI가 가벼운 주제나 선택지를 먼저 제안한다."
             QuestionLoadPolicy.NuanceFollowUp -> "turn_space: 대화가 안정될 때만 이유나 뉘앙스로 가볍게 넓힌다."
         }
         // Realtime speed 값만 낮추면 문장 자체가 길 때 초저숙련 사용자는 여전히 이해하기 어렵다.
@@ -496,7 +497,7 @@ class BuildPromptUseCase @Inject constructor() {
             PrimaryBridgePolicy.Brief ->
                 "막힌 부분만 ${primaryLanguageName} 힌트로 짧게 돕고 ${selectedLanguageName} 대화로 자연스럽게 돌아온다."
             PrimaryBridgePolicy.FallbackOnly ->
-                "기본은 ${selectedLanguageName}이고 오해가 클 때만 ${primaryLanguageName} 한 줄을 보조로 쓴다."
+                "기본은 ${selectedLanguageName}이고 명시적 도움 요청이나 큰 오해가 있을 때만 ${primaryLanguageName} 한 줄을 보조로 쓴다. 칭찬, 요약, 공감만을 위해 ${primaryLanguageName}를 덧붙이지 않는다."
             PrimaryBridgePolicy.None ->
                 "사용자가 요청하지 않으면 ${selectedLanguageName}만 사용한다."
         }
@@ -573,7 +574,7 @@ class BuildPromptUseCase @Inject constructor() {
             $recentTurns
             - recent_topics:
             $topicLines
-            - rule: 최근 맥락은 주제 이해에만 쓰고, 이전 AI의 응답 습관은 모방하지 않는다.
+            - rule: 최근 맥락은 주제 이해와 가벼운 대화 제안에만 쓰고, 이전 AI의 응답 습관은 모방하지 않는다.
         """.trimIndent()
     }
 

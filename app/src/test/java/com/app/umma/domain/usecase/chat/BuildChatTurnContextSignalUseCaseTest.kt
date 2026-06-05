@@ -38,6 +38,44 @@ class BuildChatTurnContextSignalUseCaseTest {
     }
 
     @Test
+    fun `conversation start phrase is not classified as failed fragment`() {
+        // "Hello, let's talk"은 세션 시작 의도이지 막힘이 아니므로 첫 turn 초보 보조를 과하게 열면 안 된다.
+        val signal = useCase(
+            recentFullContext = emptyList(),
+            userFinalTranscript = "Hello, let's talk."
+        )
+
+        assertEquals(LatestUserTurnRole.TopicContinuation, signal.latestUserTurnRole)
+    }
+
+    @Test
+    fun `explicit simplify request is classified as clarification before fluent length`() {
+        // 사용자가 복잡해서 이해하지 못했다고 말하면 긴 영어 문장이어도 fluent continuation보다 설명 요청이 우선이다.
+        val signal = useCase(
+            recentFullContext = listOf(
+                turn("ai-1", TurnSpeaker.AI, "Keep moderation in mind so you feel refreshed later.")
+            ),
+            userFinalTranscript = "I'm sorry, that's two complex sentences I can't understand totally."
+        )
+
+        assertEquals(LatestUserTurnRole.ClarificationRequest, signal.latestUserTurnRole)
+    }
+
+    @Test
+    fun `pardon request is classified as clarification request`() {
+        // "pardon" 계열은 직전 질문의 답이 아니라 다시 말해 달라는 신호다.
+        val signal = useCase(
+            recentFullContext = listOf(
+                turn("ai-1", TurnSpeaker.AI, "What do you enjoy most about urban travel?")
+            ),
+            userFinalTranscript = "Excuse me, can you pardon?"
+        )
+
+        assertEquals(LatestUserTurnRole.ClarificationRequest, signal.latestUserTurnRole)
+        assertTrue(signal.followsAssistantQuestion)
+    }
+
+    @Test
     fun `short japanese answer after clear question without punctuation is classified as answer`() {
         // 일본어 Realtime transcript는 물음표가 빠질 수 있으므로 명확한 질문 어미는 보수적으로 질문으로 본다.
         val signal = useCase(
