@@ -8,7 +8,7 @@
 
 # 완료 기준(AC) (Acceptance Criteria)
 
-- [ ] 저장할 Flashcard 항목이 준비된 이후에만 완료 처리를 시작한다.
+- [ ] 저장할 Flashcard 항목이 준비된 이후에만 완료 처리를 시작한다. 단, `COR-TUNE-007` 품질 필터로 저장 가능한 항목이 0개가 된 요청은 저장 실패가 아니라 no-op 완료 성공으로 처리한다.
 - [ ] `SYS-CORRECTION-INFRA`에서 준비한 `CompleteCorrectionUseCase`를 호출한다.
 - [ ] `CompleteCorrectionUseCase` 성공 결과에 저장된 Flashcard ID가 포함된다.
 - [ ] 로컬 완료 성공 결과를 받으면 Done 상태로 전환한다.
@@ -71,6 +71,7 @@ compression 실패는 저장 완료 자체를 롤백하지 않고 후속 재시�
 - 파이프라인 내부의 rollback / commit marker 정책은 이 이슈에서 재정의하지 않는다.
 - Firestore sync 실패는 `CompleteCorrectionUseCase`의 로컬 완료 실패와 분리된 결과로 다룬다.
 - Session Memory compression 실패는 Done 결과에 pending 상태로 포함하고 후속 재시도 대상으로 다룬다.
+- 품질 필터로 저장 가능한 Flashcard가 0개가 된 경우에는 저장소, LangState 분석, statistics, compression을 호출하지 않는다. 대신 correctionAvailable 신호만 false로 닫고 `CompleteCorrectionUseCase` 성공 결과로 Done에 진입한다.
 
 ## 완료 순서
 

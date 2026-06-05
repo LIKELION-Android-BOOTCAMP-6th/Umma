@@ -7,6 +7,8 @@ import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.CorrectionLearningSignal
 import com.app.umma.domain.model.learningstate.CorrectionSeverity
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummary
@@ -38,6 +40,7 @@ import com.app.umma.domain.repository.FlashcardRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.StatisticsRepository
 import com.app.umma.domain.repository.SessionMemoryRepository
+import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.DefaultLangStateAnalysisPolicy
@@ -70,10 +73,14 @@ class CompleteCorrectionUseCaseTest {
         learningStateRepo,
         DefaultLangStateAnalysisPolicy()
     )
+    private val applyCorrectionSignalUpdateUseCase = ApplyCorrectionSignalUpdateUseCase(
+        learningStateRepo
+    )
     private val useCase = CompleteCorrectionUseCase(
         prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
         correctionRepository = correctionRepository,
         applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase,
+        applyCorrectionSignalUpdateUseCase = applyCorrectionSignalUpdateUseCase,
         recordStatisticsHistoryUseCase = RecordStatisticsHistoryUseCase(
             buildStatisticsHistoryUseCase = BuildStatisticsHistoryUseCase(),
             statisticsRepository = statisticsRepository
@@ -187,9 +194,66 @@ class CompleteCorrectionUseCaseTest {
         // signal 이 있는 suggestion 1개만 집계된다.
         assertEquals(1, captured.learningSignals.size)
         assertEquals("c-1", captured.learningSignals.single().candidateId)
-        // 핵심 집계(correctedText/correctionCount)는 기존대로 둘 다 반영한다.
-        assertEquals(2, captured.correctionCount)
+        // 품질 필터/중복 제거로 저장 대상에 남은 suggestion 만 LangState 근거가 된다.
+        assertEquals(1, captured.correctionCount)
     }
+
+    @Test
+    fun `completes as noop when all save request flashcards are excluded by quality filter`() =
+        kotlinx.coroutines.runBlocking {
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(
+                        baseSuggestion().copy(
+                            id = "s-1",
+                            beforeText = "same",
+                            afterText = "same"
+                        ),
+                        baseSuggestion().copy(
+                            id = "s-2",
+                            afterText = "A"
+                        )
+                    ),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isSuccess)
+            val completed = result.getOrThrow()
+            assertTrue(completed.savedFlashcardIds.isEmpty())
+            assertTrue(completed.pendingSyncFlashcardIds.isEmpty())
+            assertFalse(completed.flashcardSummaryApplied)
+            assertFalse(completed.statisticsHistoryApplied)
+            assertFalse(completed.sessionCompressionApplied)
+            assertEquals(listOf("update-correction-signal"), events)
+            assertEquals(false, learningStateRepo.lastCorrectionSignalInput!!.correctionAvailable)
+            assertTrue(learningStateRepo.lastCorrectionSignalInput!!.sourceEventId.isNotBlank())
+            assertEquals(null, learningStateRepo.lastUpdateInput)
+            assertEquals(null, sessionMemoryRepository.lastCompressionCommand)
+        }
+
+    @Test
+    fun `empty save request completion fails when correction signal cannot be closed`() =
+        kotlinx.coroutines.runBlocking {
+            learningStateRepo.failCorrectionSignalUpdate = true
+
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(
+                        baseSuggestion().copy(
+                            id = "s-1",
+                            beforeText = "same",
+                            afterText = "same"
+                        )
+                    ),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isFailure)
+            assertEquals(listOf("update-correction-signal"), events)
+            assertEquals(null, learningStateRepo.lastUpdateInput)
+        }
 
     @Test
     fun `fails when selected suggestions are empty`() = kotlinx.coroutines.runBlocking {
@@ -394,7 +458,9 @@ class CompleteCorrectionUseCaseTest {
         private val events: MutableList<String>
     ) : LearningStateRepo {
         var lastUpdateInput: LangStateUpdateInput? = null
+        var lastCorrectionSignalInput: CorrectionSignalUpdateInput? = null
         var failUpdate: Boolean = false
+        var failCorrectionSignalUpdate: Boolean = false
 
         override fun observeLearningState(): Flow<GlobalLangState> =
             flowOf(GlobalLangState.initial())
@@ -463,6 +529,28 @@ class CompleteCorrectionUseCaseTest {
                     lang = input.lang,
                     flashcardSummary = flashcardSummary,
                     dashSummary = dashSummary,
+                    applied = true,
+                    sourceEventId = input.sourceEventId,
+                    updatedAt = input.updatedAt
+                )
+            )
+        }
+
+        override suspend fun updateCorrectionSignal(
+            input: CorrectionSignalUpdateInput
+        ): Result<CorrectionSignalUpdateResult> {
+            events += "update-correction-signal"
+            if (failCorrectionSignalUpdate) {
+                return Result.failure(IllegalStateException("correction signal update failed"))
+            }
+            lastCorrectionSignalInput = input
+            return Result.success(
+                CorrectionSignalUpdateResult(
+                    lang = input.lang,
+                    sessionSummary = SessionSummary.initial(input.lang)
+                        .copy(correctionAvailable = input.correctionAvailable),
+                    dashSummary = DashSummary.initial(input.lang)
+                        .copy(correctionAvailable = input.correctionAvailable),
                     applied = true,
                     sourceEventId = input.sourceEventId,
                     updatedAt = input.updatedAt

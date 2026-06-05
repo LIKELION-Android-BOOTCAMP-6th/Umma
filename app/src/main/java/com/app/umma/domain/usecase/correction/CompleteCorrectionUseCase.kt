@@ -5,12 +5,14 @@ import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionResult
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.repository.CorrectionRepository
 import com.app.umma.domain.repository.FlashcardRepository
+import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import com.app.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
@@ -32,6 +34,7 @@ class CompleteCorrectionUseCase @Inject constructor(
     private val prepareSaveRequestUseCase: PrepareSaveRequestUseCase,
     private val correctionRepository: CorrectionRepository,
     private val applyLanguageStateUpdateUseCase: ApplyLanguageStateUpdateUseCase,
+    private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
     private val recordStatisticsHistoryUseCase: RecordStatisticsHistoryUseCase,
     private val buildSessionCompressionPayloadUseCase: BuildSessionCompressionPayloadUseCase,
     private val compressSessionMemoryUseCase: CompressSessionMemoryUseCase,
@@ -63,14 +66,26 @@ class CompleteCorrectionUseCase @Inject constructor(
             return Result.failure(error)
         }
 
+        val saveableSuggestions = filterSaveableSuggestions(
+            selectedSuggestions = input.selectedSuggestions,
+            saveRequest = saveRequest
+        )
+
+        if (saveRequest.flashcards.isEmpty()) {
+            return completeEmptySaveRequest(input)
+        }
+
         // 교정 결과는 LangState 업데이트용 최소 모델만 넘긴다.
-        // 화면 카드용 CorrectionSuggestion 을 LearningState 모델로 직접 저장하지 않기 위한 분리다.
-        val correctionResult = buildCorrectionResult(input.selectedSuggestions)
+        // 품질 필터로 제외된 suggestion 은 저장 가치가 없으므로 학습 근거에도 섞지 않는다.
+        val correctionResult = buildCorrectionResult(saveableSuggestions)
 
         // 0) compression payload 를 단계 진입 직후 한 번만 계산해 캐시한다.
         // 이 payload 의 recentTopics 는 Session Memory 압축용 키워드로만 사용한다.
         // Dashboard 주제 칩(recentTopic)은 단어 키워드가 아니라 AI 세션 요약 title 로만 갱신한다. (#173)
-        val compressionCommandResult = buildCompressionCommand(input)
+        val compressionCommandResult = buildCompressionCommand(
+            input = input,
+            selectedSuggestions = saveableSuggestions
+        )
         val cachedCompressionCommand = compressionCommandResult.getOrNull()
 
         var saveResult: CorrectionSaveResult? = null
@@ -216,16 +231,72 @@ class CompleteCorrectionUseCase @Inject constructor(
     }
 
     private fun buildCompressionCommand(
-        input: CompleteCorrectionInput
+        input: CompleteCorrectionInput,
+        selectedSuggestions: List<CorrectionSuggestion>
     ): Result<CompressSessionMemoryCommand?> {
         // CompressionPayload 는 Correction 이 알고 있는 교정 결과와 분석 turn 으로 만들지만,
         // 실제 Session Memory 저장/초기화 실행은 RT-003 UseCase 가 담당한다.
         return buildSessionCompressionPayloadUseCase(
             language = input.langStateUpdateInput.lang,
-            selectedSuggestions = input.selectedSuggestions,
+            selectedSuggestions = selectedSuggestions,
             recentUserTurns = input.langStateUpdateInput.recentUserTurns,
             compressedAt = input.requestedAt
         )
+    }
+
+    /**
+     * COR-TUNE-007 빈 저장 결과 완료 경로.
+     *
+     * 저장 가능한 Flashcard가 0개라는 것은 저장소 실패가 아니라 품질 필터가 이번 선택을 모두
+     * 정리했다는 뜻이다. 따라서 Flashcard 저장과 LangState 분석은 건너뛰되, 사용자가 이 교정
+     * 세션을 처리했다는 사실만 summary 신호로 닫아 같은 교정이 다시 노출되지 않게 한다.
+     */
+    private suspend fun completeEmptySaveRequest(
+        input: CompleteCorrectionInput
+    ): Result<CompleteCorrectionResult> {
+        val signalResult = applyCorrectionSignalUpdateUseCase(
+            CorrectionSignalUpdateInput(
+                uid = input.langStateUpdateInput.uid,
+                lang = input.langStateUpdateInput.lang,
+                sessionMemoryKey = input.langStateUpdateInput.sessionMemoryKey,
+                sourceEventId = input.langStateUpdateInput.analysisEventId
+                    ?.takeIf { it.isNotBlank() }
+                    ?: buildNoopCompletionEventId(input),
+                correctionAvailable = false,
+                updatedAt = input.requestedAt
+            )
+        )
+        if (signalResult.isFailure) {
+            return Result.failure(signalResult.exceptionOrNull()!!)
+        }
+
+        return Result.success(
+            CompleteCorrectionResult(
+                savedFlashcardIds = emptyList(),
+                pendingSyncFlashcardIds = emptyList(),
+                sessionMemoryKey = input.langStateUpdateInput.sessionMemoryKey,
+                completedAt = input.requestedAt
+            )
+        )
+    }
+
+    private fun filterSaveableSuggestions(
+        selectedSuggestions: List<CorrectionSuggestion>,
+        saveRequest: CorrectionSaveRequest
+    ): List<CorrectionSuggestion> {
+        val suggestionsById = selectedSuggestions.distinctBy { it.id }.associateBy { it.id }
+        return saveRequest.flashcards.mapNotNull { item -> suggestionsById[item.suggestionId] }
+    }
+
+    private fun buildNoopCompletionEventId(
+        input: CompleteCorrectionInput
+    ): String {
+        val selectedIds = input.selectedSuggestions
+            .map { it.id.trim() }
+            .filter { it.isNotBlank() }
+            .sorted()
+            .joinToString(separator = ",")
+        return "correction-noop:${input.langStateUpdateInput.sessionMemoryKey}:$selectedIds"
     }
 
     private suspend fun rollbackLocalChanges(
