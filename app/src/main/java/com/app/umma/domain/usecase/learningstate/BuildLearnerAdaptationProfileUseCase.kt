@@ -13,6 +13,7 @@ import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.LearningFocus
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
+import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
@@ -407,16 +408,11 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
     }
 
     /**
-     * 교정 성장 band를 산출하는 인터림 휴리스틱 (CHAT-TUNE-004 "산출 우선순위" 기반).
+     * 교정 성장 band를 산출한다 (CHAT-TUNE-004 "산출 우선순위" 기반).
      *
-     * --- LearningState 담당자 정교화 지점 ---
-     * 이 함수는 계약(CHAT-TUNE-004 핸드오버)을 만족하는 인터림 산출 로직이다.
-     * 다음 두 축의 정밀화는 LearningState 담당자가 CHAT-TUNE-004 기준으로 완성한다:
-     *   1. analysisMeta.metricEvidence / activeFocus 기반 band 보수 조정
-     *      (현재는 focus.primaryFocus/confidence 요약에서 의미차단 여부만 본다)
-     *   2. 높은 sentenceComplexity가 낮은 grammar와 함께 올 때 SentenceShape 방어
-     *      (현재는 grammarStage ≤ Developing이면 내려가지만, sentenceComplexity가 독립 방어 조건은 아님)
-     * ---
+     * 이 함수는 사용자가 "교정 결과를 이해하고 다시 쓸 수 있는가"를 우선한다.
+     * 그래서 Chat band처럼 대화 지속 가능성만 보지 않고, 문장 구조와 correction evidence가
+     * 상위 교정을 지지하는지까지 함께 확인한다.
      *
      * 산출 우선순위 (CHAT-TUNE-004 FlowDB 스펙 라인 378-383):
      *  1. meaningful LangState 없음 또는 ProfileConfidence.Low → 낮은 band로 보수 조정
@@ -434,6 +430,10 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         focus: LearningFocusSummary,
         langState: LangState?
     ): CorrectionGrowthBand {
+        // metricEvidence는 "점수만 높은 상태"와 "반복 근거가 실제로 누적된 상태"를 구분하는 보수 게이트다.
+        // null이면 근거가 없다는 뜻이므로 상위 band 판단에서 고점 metric만 믿지 않도록 한다.
+        val evidenceProfile = langState?.correctionGrowthEvidenceProfile()
+
         // 1. Low confidence → 보수 조정. 하나의 고점 metric만으로 band를 올리지 않는다.
         if (confidence == ProfileConfidence.Low) {
             // Foundation이 지배적이면 MeaningFirst, 일부 vocabulary 근거가 있으면 PatternFix.
@@ -443,6 +443,16 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
                 CorrectionGrowthBand.MeaningFirst
             } else {
                 CorrectionGrowthBand.PatternFix
+            }
+        }
+
+        // evidence 방향이 충돌하거나 핵심 구조 지표에 반복 하락 근거가 있으면 자연스러움/뉘앙스 교정보다
+        // 사용자가 다시 말할 수 있는 문장 형태 안정화를 우선한다.
+        if (evidenceProfile?.hasMixedDirection == true || evidenceProfile?.hasRepeatedCoreWeakness == true) {
+            return if (grammarStage == SkillStage.Foundation) {
+                CorrectionGrowthBand.PatternFix
+            } else {
+                CorrectionGrowthBand.SentenceShape
             }
         }
 
@@ -458,6 +468,8 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         // 3. grammarStage 또는 sentenceComplexity가 낮으면 SentenceShape 이하.
         val sentenceComplexityStage = langState?.let { stageFromScore(it.internal.sentenceComplexity) }
             ?: grammarStage // LangState가 없으면 grammar로 대리
+        // sentenceComplexity는 문장 확장을 감당할 수 있는지 보는 독립 방어값이다.
+        // grammar/vocabulary가 높아도 실제 문장 구조 근거가 낮으면 상위 natural/nuance 교정은 과할 수 있다.
         if (grammarStage.ordinal <= SkillStage.Developing.ordinal ||
             sentenceComplexityStage.ordinal <= SkillStage.Developing.ordinal
         ) {
@@ -478,14 +490,17 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         // 5. naturalness+vocabulary 높고 High confidence → NuanceRefine.
         if (confidence == ProfileConfidence.High &&
             naturalnessStage == SkillStage.Refined &&
-            vocabularyStage.ordinal >= SkillStage.Expanding.ordinal
+            vocabularyStage.ordinal >= SkillStage.Expanding.ordinal &&
+            evidenceProfile?.supportsNuanceRefine() == true
         ) {
             return CorrectionGrowthBand.NuanceRefine
         }
 
-        // naturalness/vocabulary Expanding 이상이면 ConnectedExpression.
+        // ConnectedExpression은 자연스러움/어휘 점수만으로 올리지 않는다.
+        // "조금 어려운 다음 단계"를 유지하려면 최소 두 metric에서 반복 상승 근거가 있어야 한다.
         if (naturalnessStage.ordinal >= SkillStage.Expanding.ordinal &&
-            vocabularyStage.ordinal >= SkillStage.Expanding.ordinal
+            vocabularyStage.ordinal >= SkillStage.Expanding.ordinal &&
+            evidenceProfile?.supportsConnectedExpression() == true
         ) {
             return CorrectionGrowthBand.ConnectedExpression
         }
@@ -506,6 +521,60 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             LearningFocusType.MissingContext
         )
         return focus.primaryFocus in meaningBlockingTypes || focus.secondaryFocus in meaningBlockingTypes
+    }
+
+    /**
+     * correction band 산출에 필요한 evidence만 작게 요약한다.
+     *
+     * raw metric 숫자가 좋아 보여도 evidence가 충돌하거나 핵심 구조 지표가 반복적으로 내려가면
+     * 상위 교정 band를 주지 않기 위한 gate다. 이 요약은 저장하지 않고 profile 계산 중에만 사용한다.
+     */
+    private fun LangState.correctionGrowthEvidenceProfile(): CorrectionGrowthEvidenceProfile {
+        val evidenceValues = analysisMeta.metricEvidence.values
+        val hasMixedDirection = evidenceValues.any { evidence ->
+            evidence.direction == EvidenceDirection.Mixed
+        }
+        val repeatedCoreWeaknessKeys = setOf(
+            LearningMetricKey.GrammarAccuracy,
+            LearningMetricKey.SentenceComplexity,
+            LearningMetricKey.VocabularyAppropriateness
+        )
+        val hasRepeatedCoreWeakness = analysisMeta.metricEvidence.any { (key, evidence) ->
+            key in repeatedCoreWeaknessKeys &&
+                evidence.direction == EvidenceDirection.Down &&
+                evidence.observedCount >= MEDIUM_EVIDENCE_COUNT &&
+                evidence.confidence >= MEDIUM_CONFIDENCE_SCORE
+        }
+        val positiveSupportCount = analysisMeta.metricEvidence.count { (_, evidence) ->
+            evidence.direction == EvidenceDirection.Up &&
+                evidence.directionCount >= MEDIUM_EVIDENCE_COUNT &&
+                evidence.confidence >= MEDIUM_CONFIDENCE_SCORE
+        }
+        val strongPositiveSupportCount = analysisMeta.metricEvidence.count { (_, evidence) ->
+            evidence.direction == EvidenceDirection.Up &&
+                evidence.directionCount >= MEDIUM_EVIDENCE_COUNT &&
+                evidence.confidence >= HIGH_CONFIDENCE_SCORE
+        }
+
+        return CorrectionGrowthEvidenceProfile(
+            hasMixedDirection = hasMixedDirection,
+            hasRepeatedCoreWeakness = hasRepeatedCoreWeakness,
+            positiveSupportCount = positiveSupportCount,
+            strongPositiveSupportCount = strongPositiveSupportCount
+        )
+    }
+
+    private data class CorrectionGrowthEvidenceProfile(
+        val hasMixedDirection: Boolean,
+        val hasRepeatedCoreWeakness: Boolean,
+        val positiveSupportCount: Int,
+        val strongPositiveSupportCount: Int
+    ) {
+        // ConnectedExpression은 자연스러움/어휘 고점만으로 올리지 않고, 최소 두 축의 반복 상승 근거가 있어야 한다.
+        fun supportsConnectedExpression(): Boolean = positiveSupportCount >= CONNECTED_EXPRESSION_EVIDENCE_COUNT
+
+        // NuanceRefine은 가장 높은 교정 band이므로 강한 상승 근거가 여러 축에서 반복될 때만 허용한다.
+        fun supportsNuanceRefine(): Boolean = strongPositiveSupportCount >= NUANCE_REFINE_EVIDENCE_COUNT
     }
 
     private fun confidenceFromScore(
@@ -607,5 +676,7 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         private const val HIGH_SPREAD_STAGE_DISTANCE = 3
         private const val MEANINGFUL_METRIC_MIN = 0.05
         private const val EXPRESSION_RANGE_C2_THRESHOLD = 80.0
+        private const val CONNECTED_EXPRESSION_EVIDENCE_COUNT = 2
+        private const val NUANCE_REFINE_EVIDENCE_COUNT = 3
     }
 }
