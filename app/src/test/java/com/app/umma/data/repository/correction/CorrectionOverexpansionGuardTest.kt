@@ -49,7 +49,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `NoExpansion 정책에서 길이비가 상한을 초과하면 해당 suggestion이 drop된다`() {
+    fun `drops suggestion when length ratio exceeds NoExpansion limit`() {
         // NoExpansion 상한 1.5. "hi" (1단어) → 7단어 = ratio 7.0 → drop.
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
@@ -62,7 +62,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `TinyPhraseOnly 정책에서 길이비가 상한을 초과하면 drop된다`() {
+    fun `drops suggestion when length ratio exceeds TinyPhraseOnly limit`() {
         // TinyPhraseOnly 상한 2.0. "go school" (2단어) → 5단어 = ratio 2.5 → drop.
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.PatternFix))
         val suggestions = listOf(
@@ -79,7 +79,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `더 짧아진 교정은 정책에 관계없이 통과한다`() {
+    fun `keeps shorter correction regardless of policy`() {
         // ratio ≤ 1.0 → 항상 통과.
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
@@ -95,7 +95,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `길이 비율이 상한 이내이면 통과한다`() {
+    fun `keeps correction when length ratio is within limit`() {
         // NoExpansion 상한 1.5. "i go school" (3단어) → "I go to school." (4단어) = ratio ≈ 1.33 → 통과.
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
@@ -112,7 +112,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `meaningPreserved=false이면 길이와 무관하게 drop된다`() {
+    fun `drops suggestion when meaningPreserved is false regardless of length`() {
         // 길이는 정상(ratio 1.33)이지만 의미가 바뀐 경우.
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
@@ -129,7 +129,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `meaningPreserved=true이고 길이 위반 없으면 통과한다`() {
+    fun `keeps suggestion when meaningPreserved is true and length is within limit`() {
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
             suggestion(
@@ -145,7 +145,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `learningSignal이 null이면 meaningPreserved 검사를 건너뛰고 길이만 본다`() {
+    fun `skips meaningPreserved check and only checks length when learningSignal is null`() {
         // signal 없음(learningSignal=null) + 길이 정상 → 통과.
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
@@ -166,7 +166,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `일본어 과확장은 글자 수 기준으로 감지된다`() {
+    fun `detects Japanese overexpansion by character count`() {
         // JA: 공백 없음 → 글자(코드포인트) 수로 측정.
         // "学校に行く" = 6글자. 과도하게 긴 문장 = ratio >> 1.5 → drop.
         val input = inputWith(
@@ -187,7 +187,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `일본어 공백 없는 원문에서 단어 수 기준으로는 감지 불가인 케이스를 글자 수로 잡는다`() {
+    fun `catches Japanese overexpansion by character count where word count would miss it`() {
         // JA는 공백이 없어 split 하면 전부 "1단어". 단어 수만 쓰면 ratio = 1/1 = 1.0 → 통과(오감지).
         // 글자 수 기준이면 ratio = 28/5 = 5.6 → drop(정확).
         val input = inputWith(
@@ -210,7 +210,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `None 정책에서 신규 토큰이 상한을 초과하면 drop된다`() {
+    fun `drops suggestion when new token count exceeds None limit`() {
         // None 정책(maxNewTokens=3). 길이비가 상한(1.5) 이내이지만 신규 토큰이 4개 → drop.
         // before 10단어, after 14단어 → ratio 1.4 < 1.5 → 길이 통과.
         // 신규 토큰 "brand", "new", "fresh", "ideas" = 4 > 3 → 토큰 검사에서 drop.
@@ -232,7 +232,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `위반 suggestion만 drop되고 정상 suggestion은 유지된다`() {
+    fun `drops only violating suggestions and keeps valid ones`() {
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val good = suggestion(id = "good", beforeText = "i go school", afterText = "I go to school.")
         val bad = suggestion(id = "bad", beforeText = "hi", afterText = "Hi there, how are you doing today")
@@ -244,7 +244,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `위반 없으면 전체 목록이 그대로 반환된다`() {
+    fun `returns full list when there is no violation`() {
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
         val suggestions = listOf(
             suggestion(id = "s1", beforeText = "i go school", afterText = "I go to school."),
@@ -257,7 +257,7 @@ class CorrectionOverexpansionGuardTest {
     }
 
     @Test
-    fun `빈 목록 입력은 빈 목록을 반환한다`() {
+    fun `returns empty list for empty input`() {
         val input = inputWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
 
         val result = guard.filter(emptyList(), input)
@@ -270,7 +270,7 @@ class CorrectionOverexpansionGuardTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `CorrectionAiResponseMapper 계약(핵심 4필드)은 이 가드와 독립적으로 유지된다`() {
+    fun `keeps CorrectionAiResponseMapper core four field contract independent of the guard`() {
         // 가드는 CorrectionSuggestion 목록을 받아 필터링만 하고, mapper·DTO·learningSignal 계약을 변경하지 않는다.
         // 기존 mapper 테스트에서 쓰던 suggestion 모양(beforeText=candidateSourceText, learningSignal nullable)이
         // 가드를 통과해야 mapper 회귀 무손상이 유지된다.
