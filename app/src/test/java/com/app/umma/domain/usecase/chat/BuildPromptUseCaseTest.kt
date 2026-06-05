@@ -1,7 +1,5 @@
 package com.app.umma.domain.usecase.chat
 
-import com.app.umma.domain.model.chat.ChatTurnContextSignal
-import com.app.umma.domain.model.chat.LatestUserTurnRole
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
@@ -284,11 +282,7 @@ class BuildPromptUseCaseTest {
             basePolicy = basePolicy,
             turnPolicy = basePolicy,
             primaryLang = LangCode.KO,
-            selectedLang = LangCode.EN,
-            contextSignal = ChatTurnContextSignal(
-                latestUserTurnRole = LatestUserTurnRole.ProgressingInContext,
-                followsAssistantQuestion = true
-            )
+            selectedLang = LangCode.EN
         )
 
         assertFalse(instruction?.contains("current_turn_override:") == true)

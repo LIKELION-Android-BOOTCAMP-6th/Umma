@@ -34,10 +34,23 @@ interface ChatPromptReviewRepository {
     ): Result<Unit>
 
     /**
-     * 메모리에 모인 세션 리뷰 자료를 Firestore에 한 번에 저장합니다.
+     * 현재 세션을 분석 대상으로 표시하고, 지금까지 모인 리뷰 자료를 즉시 저장합니다.
+     *
+     * 신고된 세션만 Firestore에 남기기 위해 일반 세션 종료 flush와 분리합니다.
+     */
+    suspend fun reportSession(
+        userId: String,
+        sessionId: String
+    ): Result<Unit>
+
+    /**
+     * 신고된 세션의 리뷰 자료를 Firestore에 한 번에 저장합니다.
+     *
+     * 신고되지 않은 세션은 비용과 노이즈를 줄이기 위해 no-op으로 처리합니다.
      */
     suspend fun flushSession(
         userId: String,
-        sessionId: String
+        sessionId: String,
+        finalFlush: Boolean = false
     ): Result<Unit>
 }

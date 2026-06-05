@@ -6,6 +6,7 @@ import com.app.umma.BuildConfig
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewEvent
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewEventType
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepository
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewSessionReporter
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
@@ -69,7 +70,7 @@ import okhttp3.WebSocketListener
 class ChatRepositoryImpl @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val chatPromptReviewRepository: ChatPromptReviewRepository
-) : ChatRepository {
+) : ChatRepository, ChatPromptReviewSessionReporter {
 
     // OkHttp WebSocket 과 Cloud Function token endpoint 호출을 함께 처리하는 client 입니다.
     // OpenAI API key 는 Android 에 없고, 이 client 는 short-lived client secret 만 받아 사용합니다.
@@ -323,6 +324,34 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override fun observeAIEvent(): Flow<AIEvent> = events.asSharedFlow()
+
+    override suspend fun reportCurrentSession(): Result<Unit> {
+        if (!chatPromptReviewRepository.isEnabled()) return Result.success(Unit)
+
+        val userId = firebaseAuth.currentUser?.uid
+        val sessionId = activeSessionId
+        val language = currentLang
+        if (userId.isNullOrBlank() || sessionId.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("active chat session is required for prompt review report"))
+        }
+        if (language == null) {
+            return Result.failure(IllegalStateException("active chat language is required for prompt review report"))
+        }
+
+        // 신고 버튼은 transport 상태를 바꾸지 않고, 현재까지 메모리에 모인 dev review buffer만 저장한다.
+        // 실패해도 대화 기능 자체의 실패가 아니므로 caller가 UI 메시지만 보여줄 수 있게 Result로 전달한다.
+        chatPromptReviewRepository.recordSessionStarted(
+            userId = userId,
+            sessionId = sessionId,
+            language = language,
+            sessionPromptTrace = currentSystemInstructionDebugTrace,
+            metadata = "label=manual_report speed=$currentOutputAudioSpeed"
+        ).getOrThrow()
+        return chatPromptReviewRepository.reportSession(
+            userId = userId,
+            sessionId = sessionId
+        )
+    }
 
     override suspend fun stopSession(clearAppSession: Boolean) = sessionMutex.withLock {
         stopInternal(clearAppSession)
@@ -1340,8 +1369,7 @@ class ChatRepositoryImpl @Inject constructor(
         closeRealtimeTransport()
         pendingUserTurnDurationMs = null
 
-        // stopSession(false)는 Chat 화면 정상 이탈 경로에서도 쓰인다.
-        // 앱 세션 상태를 보존하더라도 transport는 닫히므로, 개발용 리뷰 버퍼는 여기서 flush해야 한다.
+        // 신고된 세션만 종료 시 최종 flush한다. 신고하지 않은 일반 개발 세션은 원격에 남기지 않는다.
         flushPromptReviewSession(
             userId = userIdToFlush,
             sessionId = sessionIdToFlush
@@ -1365,11 +1393,12 @@ class ChatRepositoryImpl @Inject constructor(
         if (!chatPromptReviewRepository.isEnabled()) return
         if (userId.isNullOrBlank() || sessionId.isNullOrBlank()) return
 
-        // flush는 개발용 리뷰 데이터 저장이므로 stopSession 완료를 막지 않고 백그라운드에서 처리합니다.
+        // final flush는 개발용 리뷰 데이터 저장이므로 stopSession 완료를 막지 않고 백그라운드에서 처리합니다.
         repositoryScope.launch {
             chatPromptReviewRepository.flushSession(
                 userId = userId,
-                sessionId = sessionId
+                sessionId = sessionId,
+                finalFlush = true
             ).onFailure { error ->
                 Log.w(TAG, "chat prompt review flush skipped: ${error.message}", error)
             }

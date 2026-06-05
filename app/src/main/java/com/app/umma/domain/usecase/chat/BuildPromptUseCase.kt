@@ -184,8 +184,7 @@ class BuildPromptUseCase @Inject constructor() {
         basePolicy: ChatTurnAdaptationPolicy,
         turnPolicy: ChatTurnAdaptationPolicy,
         primaryLang: LangCode,
-        selectedLang: LangCode,
-        contextSignal: ChatTurnContextSignal = ChatTurnContextSignal.Neutral
+        selectedLang: LangCode
     ): String? {
         // turn override도 내부 enum 이름을 노출하지 않기 위해 언어명을 자연어로 변환한다.
         val primaryLanguageName = languageName(primaryLang)

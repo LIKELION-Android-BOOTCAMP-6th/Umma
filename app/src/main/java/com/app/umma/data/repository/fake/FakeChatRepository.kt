@@ -5,6 +5,7 @@ import com.app.umma.data.repository.fake.demo.chat.ChatDemoFixtures
 import com.app.umma.data.repository.fake.demo.chat.ChatDemoPreset
 import com.app.umma.data.repository.fake.demo.chat.ChatDemoPresetConfig
 import com.app.umma.data.repository.fake.demo.chat.HandoffFixture
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewSessionReporter
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
@@ -27,7 +28,7 @@ import kotlinx.coroutines.launch
  * Fake chat transport used by `mockDebug` to reproduce deterministic chat flows.
  */
 @Singleton
-class FakeChatRepository @Inject constructor() : ChatRepository {
+class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptReviewSessionReporter {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val events = MutableSharedFlow<AIEvent>(extraBufferCapacity = 32)
@@ -256,6 +257,12 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
     }
 
     override fun observeAIEvent(): Flow<AIEvent> = events.asSharedFlow()
+
+    override suspend fun reportCurrentSession(): Result<Unit> {
+        // mock transport는 Firestore 리뷰 도구를 사용하지 않는다.
+        // 신고 버튼 클릭이 데모/QA 대화 흐름을 막지 않도록 성공 no-op으로 맞춘다.
+        return Result.success(Unit)
+    }
 
     override suspend fun stopSession(clearAppSession: Boolean) {
         stopInternal(clearAppSession = clearAppSession)

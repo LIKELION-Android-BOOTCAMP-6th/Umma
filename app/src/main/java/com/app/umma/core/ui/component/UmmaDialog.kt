@@ -1,9 +1,12 @@
 package com.app.umma.core.ui.component
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,9 +62,12 @@ import com.app.umma.core.theme.TitleDialogSB
  *
  * @param title 다이얼로그 상단 중앙에 표시할 제목 문자열.
  * @param modifier 다이얼로그 [Surface]에 적용할 [Modifier].
- * @param onCancel 우측 상단 취소(X) 버튼 클릭 시 호출되는 콜백.
+ * @param titleColor 다이얼로그 제목 색상. `null`이면 기본 텍스트 색상을 사용한다.
+ * @param onCancel 우측 상단 취소(X), 외부 dismiss, 선택적 하단 취소 버튼 클릭 시 호출되는 콜백.
  * @param onConfirm 하단 확인 버튼 클릭 시 호출되는 콜백.
  * @param confirmText 하단 확인 버튼에 표시할 텍스트. 기본값은 `"확인"`.
+ * @param dismissText 하단에 취소 버튼을 함께 표시할 때 사용할 텍스트. `null`이면 기존 단일 확인 버튼만 표시한다.
+ *   신고/삭제처럼 실수 방지가 필요한 확인 흐름에서만 값을 전달한다.
  * @param showCancelButton 우측 상단 취소 버튼 표시 여부. 필수 선택 다이얼로그는 false 로 숨긴다.
  * @param dismissOnBackPress 뒤로가기로 다이얼로그를 닫을 수 있는지 여부.
  * @param dismissOnClickOutside 외부 터치로 다이얼로그를 닫을 수 있는지 여부.
@@ -71,11 +77,12 @@ import com.app.umma.core.theme.TitleDialogSB
 @Composable
 fun UmmaDialog(
     title: String,
-    titleColor: Color? = null,
     modifier: Modifier = Modifier,
+    titleColor: Color? = null,
     onCancel: () -> Unit,
     onConfirm: () -> Unit,
     confirmText: String = "확인",
+    dismissText: String? = null,
     confirmButtonColor: Color? = null,
     showCancelButton: Boolean = true,
     dismissOnBackPress: Boolean = true,
@@ -140,21 +147,66 @@ fun UmmaDialog(
                 content()
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // confirmEnabled 로 저장 중 중복 클릭이나 필수 조건 미충족 상태를 공통 버튼에서 막는다.
-                Button(
-                    onClick = onConfirm,
-                    enabled = confirmEnabled,
-                    modifier = Modifier
-                        .width(92.dp)
-                        .heightIn(min = 48.dp)
-                        .padding(bottom = 16.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = confirmButtonColor ?: ThemePrimary)
-                ) {
-                    Text(
-                        text = confirmText,
-                        style = ButtonDialogSB
-                    )
+                if (dismissText != null) {
+                    // 삭제/신고처럼 사용자가 한 번 더 판단해야 하는 흐름은 하단에 명시적 취소/확인을 함께 둔다.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = onCancel,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BackgroundPrimary,
+                                contentColor = TextPrimary
+                            ),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = TextPrimary.copy(alpha = 0.16f)
+                            )
+                        ) {
+                            Text(
+                                text = dismissText,
+                                style = ButtonDialogSB
+                            )
+                        }
+                        Button(
+                            onClick = onConfirm,
+                            enabled = confirmEnabled,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = confirmButtonColor ?: ThemePrimary)
+                        ) {
+                            Text(
+                                text = confirmText,
+                                style = ButtonDialogSB
+                            )
+                        }
+                    }
+                } else {
+                    // confirmEnabled 로 저장 중 중복 클릭이나 필수 조건 미충족 상태를 공통 버튼에서 막는다.
+                    Button(
+                        onClick = onConfirm,
+                        enabled = confirmEnabled,
+                        modifier = Modifier
+                            .width(92.dp)
+                            .heightIn(min = 48.dp)
+                            .padding(bottom = 16.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = confirmButtonColor ?: ThemePrimary)
+                    ) {
+                        Text(
+                            text = confirmText,
+                            style = ButtonDialogSB
+                        )
+                    }
                 }
             }
         }
@@ -178,8 +230,6 @@ fun UmmaPreview() {
             modifier = Modifier.padding(horizontal = 32.dp),
             confirmText = "확인",
         ) {
-
-            val languages = listOf("영어", "한국어", "일본어", "중국어", "독일어")
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally

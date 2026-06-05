@@ -1,6 +1,7 @@
 package com.app.umma.di
 
 import com.app.umma.data.repository.ChatRepositoryImpl
+import com.app.umma.devtools.chatpromptreview.ChatPromptReviewSessionReporter
 import com.app.umma.domain.repository.ChatRepository
 import dagger.Module
 import dagger.Provides
@@ -25,6 +26,15 @@ object DevChatRepositoryModule {
     ): ChatRepository {
         // provider 선택 분기를 남기면 실제 테스트가 어떤 엔진에서 도는지 흐려진다.
         // devDebug 는 OpenAI Realtime만 사용하고, 예외 시 화면/로그로 실패를 확인한다.
+        return impl
+    }
+
+    @Provides
+    @Singleton
+    fun provideChatPromptReviewSessionReporter(
+        impl: ChatRepositoryImpl
+    ): ChatPromptReviewSessionReporter {
+        // devDebug의 실제 transport가 들고 있는 active session 상태를 그대로 신고해야 한다.
         return impl
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -81,6 +82,7 @@ import com.app.umma.core.theme.SpacingXL
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
+import com.app.umma.core.theme.TextSecondary
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
@@ -101,6 +103,8 @@ fun ChatScreen(
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
+    // 신고 버튼은 실제 Firestore report index를 만들기 때문에, 실수 클릭 방지를 위해 확인 다이얼로그를 거친다.
+    val promptReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
     // screenHeightDp 대신 실제 Compose window container 높이를 사용한다.
     // 이렇게 해야 회전, multi-window, split-screen 에서 다이얼로그/자막 높이 계산이 실제 화면과 맞는다.
     val containerHeightDp = with(density) {
@@ -189,6 +193,48 @@ fun ChatScreen(
             UmmaAppBar(
                 title = "대화",
                 isCenterTitle = true,
+                leadingActions = {
+                    if (uiState.showPromptReviewReportButton) {
+                        // 자막 토글과 오터치가 생기지 않도록 신고 버튼은 AppBar 왼쪽 보조 액션으로 분리한다.
+                        Button(
+                            onClick = { promptReviewReportConfirmDialogState.value = true },
+                            enabled = !uiState.isPromptReviewReporting && !uiState.hasPromptReviewReported,
+                            modifier = Modifier
+                                .padding(start = 10.dp)
+                                .height(32.dp),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (uiState.hasPromptReviewReported) {
+                                    ThemePrimary.copy(alpha = 0.36f)
+                                } else {
+                                    ThemePrimary
+                                }
+                            ),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (uiState.hasPromptReviewReported) {
+                                    ThemePrimary.copy(alpha = 0.16f)
+                                } else {
+                                    ThemePrimary
+                                },
+                                contentColor = if (uiState.hasPromptReviewReported) {
+                                    ThemePrimary
+                                } else {
+                                    TextSecondary
+                                },
+                                disabledContainerColor = ThemePrimary.copy(alpha = 0.14f),
+                                disabledContentColor = ThemePrimary.copy(alpha = 0.72f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
+                        ) {
+                            Text(
+                                text = if (uiState.hasPromptReviewReported) "접수됨" else "신고",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
                 actions = {
                     IconButton(
                         onClick = { viewModel.toggleSubtitle() },
@@ -375,6 +421,35 @@ fun ChatScreen(
                     )
                 }
             }
+        }
+    }
+
+    if (promptReviewReportConfirmDialogState.value) {
+        UmmaDialog(
+            title = "대화 신고",
+            titleColor = ThemePrimary,
+            modifier = Modifier.padding(horizontal = SpacingL),
+            onCancel = { promptReviewReportConfirmDialogState.value = false },
+            onConfirm = {
+                // 확인 이후에만 실제 신고를 실행한다. 버튼 클릭 자체는 Firestore write를 만들지 않는다.
+                promptReviewReportConfirmDialogState.value = false
+                viewModel.reportPromptReviewSession()
+            },
+            confirmText = "신고",
+            dismissText = "취소",
+            showCancelButton = false,
+            confirmButtonColor = ThemePrimary
+        ) {
+            Text(
+                text = "대화 불편을 신고할까요?\n대화내용이 저장됩니다.\n민감한 정보가 있었다면 취소를 눌러주세요.",
+                color = TextPrimary,
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+                lineHeight = 21.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SpacingL)
+            )
         }
     }
 

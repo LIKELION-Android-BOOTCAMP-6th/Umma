@@ -24,7 +24,6 @@ main().catch((error) => {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const project = args.project || DEFAULT_PROJECT;
-  const uid = required(args.uid, "--uid is required");
   const database = args.database || DEFAULT_DATABASE;
   const outPath = args.out || null;
 
@@ -40,6 +39,25 @@ async function main() {
     auth: true,
   });
 
+  if (args.reports === "true") {
+    const reports = await listReports({
+      client,
+      project,
+      database,
+      limit: Number(args.limit || 50),
+    });
+    const markdown = renderReportsMarkdown({
+      project,
+      reports,
+    });
+    const resolvedOutPath = outPath || defaultReportsOutputPath();
+    fs.mkdirSync(path.dirname(resolvedOutPath), { recursive: true });
+    fs.writeFileSync(resolvedOutPath, markdown, "utf8");
+    console.log(`Wrote ${resolvedOutPath}`);
+    return;
+  }
+
+  const uid = required(args.uid, "--uid is required");
   const sessionId = args.session || await findLatestSessionId({
     client,
     project,
@@ -136,6 +154,22 @@ async function findLatestSessionId({ client, project, database, uid }) {
   return sessions[0]?.sessionId || sessions[0]?.id || null;
 }
 
+async function listReports({ client, project, database, limit }) {
+  const docs = await listDocuments({
+    client,
+    project,
+    database,
+    collectionPath: "chat_prompt_review_reports",
+    pageSize: Math.min(Math.max(limit, 1), 100),
+  });
+  return docs
+    .map(decodeDocument)
+    .sort((a, b) => {
+      return (b.updatedAt || b.reportedAt || 0) - (a.updatedAt || a.reportedAt || 0);
+    })
+    .slice(0, limit);
+}
+
 async function getDocument({ client, project, database, documentPath }) {
   const pathPart = `/v1/projects/${project}/databases/${database}/documents/${documentPath}`;
   const response = await client.get(pathPart);
@@ -192,8 +226,6 @@ function compareEvents(a, b) {
 
 function eventPriority(type) {
   switch (type) {
-    case "SessionPromptTrace":
-      return 0;
     case "FinalTurn":
       return 1;
     case "TurnOverrideTrace":
@@ -236,6 +268,32 @@ function renderMarkdown({ project, uid, sessionId, session, events }) {
     renderEvent(lines, event, index + 1);
   });
 
+  return `${lines.join("\n")}\n`;
+}
+
+function renderReportsMarkdown({ project, reports }) {
+  const lines = [];
+  lines.push("# AI Chat Prompt Review Reports");
+  lines.push("");
+  lines.push("## Source");
+  lines.push(`- project: ${project}`);
+  lines.push(`- exportedAt: ${formatTime(Date.now())}`);
+  lines.push(`- reports: ${reports.length}`);
+  lines.push("");
+  lines.push("## Reports");
+  lines.push("");
+  lines.push("| reportedAt | status | uid | sessionId | language | eventCount | reviewPath |");
+  lines.push("| --- | --- | --- | --- | --- | ---: | --- |");
+  reports.forEach((report) => {
+    lines.push(
+      `| ${formatTime(report.reportedAt || report.updatedAt)} | ${report.status || ""} | ` +
+        `${code(report.uid || "")} | ${code(report.sessionId || "")} | ${report.language || ""} | ` +
+        `${report.eventCount || 0} | ${code(report.reviewPath || "")} |`
+    );
+  });
+  lines.push("");
+  lines.push("Use `uid` and `sessionId` to export a specific reported session.");
+  lines.push("");
   return `${lines.join("\n")}\n`;
 }
 
@@ -385,6 +443,10 @@ function singleLinePreview(text) {
   return text.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
+function code(value) {
+  return `\`${String(value).replace(/`/g, "\\`")}\``;
+}
+
 function defaultOutputPath(sessionId) {
   const safeSessionId = String(sessionId).replace(/[^A-Za-z0-9_-]/g, "_");
   return path.join(
@@ -392,5 +454,14 @@ function defaultOutputPath(sessionId) {
     "chat_prompt_review",
     "output",
     `chat_prompt_review_${safeSessionId}.md`
+  );
+}
+
+function defaultReportsOutputPath() {
+  return path.join(
+    "tools",
+    "chat_prompt_review",
+    "output",
+    "chat_prompt_review_reports.md"
   );
 }
