@@ -35,6 +35,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import com.app.umma.core.theme.CardElevation
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -71,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.core.theme.BackgroundHighlight
+import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
@@ -216,6 +218,7 @@ fun MyPageScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+                elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     SettingRow(
@@ -237,6 +240,7 @@ fun MyPageScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+                elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
             ) {
                 SettingRow(
                     icon = Icons.Default.Warning,
@@ -333,6 +337,7 @@ private fun ProfileCard(nickname: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+        elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
     ) {
         Row(
             modifier = Modifier
@@ -379,7 +384,7 @@ private fun SettingRow(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(color = BackgroundHighlight, shape = CircleShape),
+                    .background(color = BackgroundPrimary, shape = CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(imageVector = icon, contentDescription = label, tint = tint)
@@ -411,6 +416,7 @@ private fun NotificationSettingsCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+        elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             ListItem(
@@ -496,7 +502,7 @@ private fun NotificationLeadingIcon(
     Box(
         modifier = Modifier
             .size(40.dp)
-            .background(color = BackgroundHighlight, shape = CircleShape),
+            .background(color = BackgroundPrimary, shape = CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
