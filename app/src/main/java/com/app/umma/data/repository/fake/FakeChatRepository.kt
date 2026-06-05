@@ -45,6 +45,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
         langCode: LangCode,
         systemInstruction: String,
         outputAudioSpeed: Double,
+        systemInstructionDebugTrace: String?,
         responseOverrideProvider: ChatResponseOverrideProvider?
     ): Result<String> {
         stopInternal(clearAppSession = true)
@@ -82,6 +83,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository {
     override suspend fun reconnectSession(
         systemInstruction: String,
         outputAudioSpeed: Double,
+        systemInstructionDebugTrace: String?,
         responseOverrideProvider: ChatResponseOverrideProvider?
     ): Result<String> {
         val sessionId = activeSessionId

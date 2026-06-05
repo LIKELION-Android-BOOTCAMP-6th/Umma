@@ -61,7 +61,7 @@ class BuildPromptUseCaseTest {
         assertTrue(prompt.contains("grammar: 기본 대화를 안정적으로 이어간다"))
         assertTrue(prompt.contains("focus: 자연스러운 기회가 있을 때 어순"))
         // 기본 응답과 재표현은 문법적으로 맞는 문장보다 실제 원어민 구어체를 우선해야 한다.
-        assertTrue(prompt.contains("수업을 진행하는 선생님이 아니라 영어 일상 대화를 자연스럽게 이어 주는 원어민 대화 파트너"))
+        assertTrue(prompt.contains("모국어는 영어이고 한국어도 잘 구사하는, 눈치 빠른 원어민 친구"))
         assertTrue(prompt.contains("모든 응답의 첫 원칙은 실제 일상 대화처럼 자연스럽게 반응하는 것이다."))
         assertTrue(prompt.contains("학습 보조는 대화를 깨지 않는 범위에서만 조용히 섞고, 원어민이 자주 쓰는 자연스러운 구어체를 우선한다."))
         assertTrue(prompt.contains("원어민이 실제 자주 쓰는 영어 문장 안에 자연스럽게 한 번 녹인다"))
@@ -93,7 +93,7 @@ class BuildPromptUseCaseTest {
         )
 
         // fragment 분기는 target 몰입보다 이해 보장을 먼저 두고, target 표현은 짧게 노출해야 한다.
-        assertTrue(prompt.contains("fragment: 뜻만 있는 단어 조각이면 기준언어(한국어)로 의미를 먼저 잡고 영어 핵심 표현 하나를 자연스럽게 붙인다."))
+        assertTrue(prompt.contains("fragment: 뜻만 있는 단어 조각이면 기준언어(한국어)로 의미를 먼저 받아 주고, 영어는 완성 문장보다 1~3단어 조합이나 아주 짧은 고정 표현 하나만 붙인다."))
         assertTrue(prompt.contains("priority_rule: 영어 노출보다 사용자가 이해하고 다음 말을 할 수 있게 하는 것이 먼저다."))
         // low confidence 는 낮은 실력 확정이 아니라 근거 부족이므로 현재 발화를 이해 가능한 반응으로 받아야 한다.
         assertTrue(prompt.contains("저장된 근거가 적어도 현재 발화가 이어질 수 있게 이해 가능한 반응을 우선한다."))
@@ -207,7 +207,7 @@ class BuildPromptUseCaseTest {
 
         assertTrue(instruction!!.contains("current_turn_override:"))
         assertTrue(instruction.contains("이번 응답은 짧게 반응하고 한 가지 의미만 전달한다."))
-        assertTrue(instruction.contains("한국어로 의미를 먼저 잡고 영어 쉬운 표현을 짧게 붙인다."))
+        assertTrue(instruction.contains("한국어로 의미를 먼저 받아 주고 영어는 1~3단어 조합이나 아주 짧은 표현만 붙인다."))
         assertTrue(instruction.contains("필요할 때 음식, 장소, 감정, 행동 중 하나로 짧게 답할 여지를 둔다."))
         // response override는 세션 persona/context를 반복하면 prompt 충돌과 지연을 키울 수 있다.
         assertFalse(instruction.contains("persona:"))
@@ -238,6 +238,31 @@ class BuildPromptUseCaseTest {
     }
 
     @Test
+    fun `progressing context does not create interpretation override when policy matches baseline`() {
+        // ProgressingInContext는 강한 보정을 막는 분류 신호이지, 그 자체로 반복 instruction을 만들지 않는다.
+        val basePolicy = ChatTurnAdaptationPolicy(
+            responseLength = ResponseLengthPolicy.ShortTwoStep,
+            sentenceDensity = SentenceDensityPolicy.SimpleTwoStep,
+            primaryBridge = PrimaryBridgePolicy.Brief,
+            questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+            speechSpeed = SpeechSpeedPolicy.Guided
+        )
+
+        val instruction = useCase.buildTurnOverrideInstruction(
+            basePolicy = basePolicy,
+            turnPolicy = basePolicy,
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN,
+            contextSignal = ChatTurnContextSignal(
+                latestUserTurnRole = LatestUserTurnRole.ProgressingInContext,
+                followsAssistantQuestion = true
+            )
+        )
+
+        assertFalse(instruction?.contains("current_turn_override:") == true)
+    }
+
+    @Test
     fun `explicit primary support request creates bridge override even when baseline matches`() {
         // 첫 세션 baseline이 이미 Active여도 사용자가 한국어 보조를 직접 요청하면 이번 응답에 그 요청을 다시 전달해야 한다.
         val basePolicy = ChatTurnAdaptationPolicy(
@@ -258,7 +283,30 @@ class BuildPromptUseCaseTest {
         )
 
         assertTrue(instruction!!.contains("current_turn_override:"))
-        assertTrue(instruction.contains("한국어 보조 요청을 반영해 한국어로 이해를 먼저 보장하고, 일본어는 짧은 핵심 표현만 붙인다."))
+        assertTrue(instruction.contains("한국어 보조 요청을 반영해 한국어로 이해를 먼저 보장하고, 일본어는 1~3단어 조합이나 아주 짧은 표현만 붙인다."))
+    }
+
+    @Test
+    fun `beginner auto support does not repeat bridge override when baseline matches`() {
+        // 1~2단계 자동 보조가 세션 기본값과 같으면 같은 기준언어 보조 instruction을 매 turn 반복하지 않는다.
+        val basePolicy = ChatTurnAdaptationPolicy(
+            responseLength = ResponseLengthPolicy.OneShortSentence,
+            sentenceDensity = SentenceDensityPolicy.OneIdea,
+            primaryBridge = PrimaryBridgePolicy.Active,
+            questionLoad = QuestionLoadPolicy.ConcreteChoice,
+            speechSpeed = SpeechSpeedPolicy.SlowBeginner
+        )
+
+        val instruction = useCase.buildTurnOverrideInstruction(
+            basePolicy = basePolicy,
+            turnPolicy = basePolicy.copy(
+                primaryBridgeReason = PrimaryBridgeReason.BeginnerAutoSupport
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.JA
+        )
+
+        assertFalse(instruction?.contains("current_turn_override:") == true)
     }
 
     private fun profile(
