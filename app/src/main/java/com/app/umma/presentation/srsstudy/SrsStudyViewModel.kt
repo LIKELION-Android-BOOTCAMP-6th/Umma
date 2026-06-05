@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.core.tts.TextToSpeechController
+import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.flashcard.ReviewDecision
 import com.app.umma.domain.model.flashcard.ReviewDeckState
 import com.app.umma.domain.model.flashcard.ReviewRating
@@ -11,6 +12,7 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.flashcardreview.ApplyReviewDecisionUseCase
 import com.app.umma.domain.usecase.flashcardreview.ObserveReviewDeckUseCase
+import com.app.umma.domain.usecase.flashcardreview.ReviewSchedulePolicy
 import com.app.umma.domain.usecase.flashcardreview.StartReviewSessionUseCase
 import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +38,7 @@ class SrsStudyViewModel @Inject constructor(
     private val applyReviewDecision: ApplyReviewDecisionUseCase,
     private val ttsController: TextToSpeechController,
     private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase,
+    private val schedulePolicy: ReviewSchedulePolicy,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SrsStudyUiState())
@@ -76,7 +79,7 @@ class SrsStudyViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        hasInitError = true
+                        hasInitError = true,
                     )
                 }
             }
@@ -105,6 +108,13 @@ class SrsStudyViewModel @Inject constructor(
                     is ReviewDeckState.Content -> _uiState.update { it ->
                         if (it.cards.isNotEmpty() && !it.isDone) {
                             it.copy(isLoading = false, hasInitError = false)
+                                .also { newState ->
+                                    newState.currentCard?.let { card ->
+                                        updateRatingLabels(
+                                            card
+                                        )
+                                    }
+                                }
                         } else {
                             it.copy(
                                 isLoading = false,
@@ -116,7 +126,11 @@ class SrsStudyViewModel @Inject constructor(
                                 // 덱 최초 로드 시점의 카드 수 고정
                                 // again 평가로 늘어난 카드 영향 X
                                 studiedCardCount = deckState.cards.size
-                            )
+                            ).also { newState ->
+                                newState.currentCard?.let { card ->
+                                    updateRatingLabels(card)
+                                }
+                            }
                         }
                     }
 
@@ -195,7 +209,10 @@ class SrsStudyViewModel @Inject constructor(
                         isDone = isDone,
                         isSaving = false,
                         isSpeaking = false
-                    )
+                    ).also { newState ->
+                        // 다음 카드 기준으로 버튼 간격 라벨 갱신
+                        newState.currentCard?.let { card -> updateRatingLabels(card) }
+                    }
                 }
             }.onFailure { e ->
                 Log.d("ummaDev", "SrsStudyViewModel onRatingSelected - $e")
@@ -225,6 +242,37 @@ class SrsStudyViewModel @Inject constructor(
         _uiState.update { it.copy(hasSaveError = false) }
     }
 
+    /**
+     * 플래시 카드 바뀔 때마다 호출
+     * 평가 버튼마다 간격 텍스트 갱신
+     * Again은 세션 내 재등장이라 "다시" 고정
+     */
+    private fun updateRatingLabels(card: Flashcard) {
+        val now = System.currentTimeMillis()
+        _uiState.update { state ->
+            state.copy(
+                hardLabel = calcLabel(card, ReviewRating.HARD, now),
+                goodLabel = calcLabel(card, ReviewRating.GOOD, now),
+                easyLabel = calcLabel(card, ReviewRating.EASY, now),
+            )
+        }
+    }
+
+    /**
+     * 분 단위 interval을 파악할수 있는 문자열로 변환
+     * ReviewSchedulePolicy이 변경되면 여기 숫자도 자동으로 변경
+     */
+    private fun calcLabel(card: Flashcard, rating: ReviewRating, now: Long): String {
+        val result = schedulePolicy.calculateNextSchedule(card.schedule, rating, now)
+        val minutes = result.interval
+        return when {
+            minutes < 60 -> "${minutes}분"
+            minutes < 1440 -> "${minutes / 60}시간"
+            minutes < 10080 -> "${minutes / 1440}일"
+            minutes < 43200 -> "${minutes / 10080}주"
+            else -> "${minutes / 43200}달"
+        }
+    }
 
     /**
      * 스피커 버튼 클릭 -> 텍스트 발음 재생

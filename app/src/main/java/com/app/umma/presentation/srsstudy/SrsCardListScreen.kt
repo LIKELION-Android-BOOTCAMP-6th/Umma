@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundSecondary
 import com.app.umma.core.theme.CardCornerRadius
 import com.app.umma.core.theme.CardElevation
+import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
@@ -113,7 +114,11 @@ fun SrsCardListScreen(
                         Spacer(modifier = Modifier.height(SpacingL))
                         Button(
                             onClick = onNavigateToCorrection,
-                            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary)
+                            shape = RoundedCornerShape(ChipCornerRadius),
+                            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+                            modifier = Modifier
+                                .padding(top = SpacingL)
+                                .padding(horizontal = SpacingL, vertical = SpacingS),
                         ) {
                             Text("AI 교정하러 가기")
                         }

@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.ButtonScreenB
 import com.app.umma.core.theme.CardElevation
+import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.RatingAgain
 import com.app.umma.core.theme.RatingEasy
 import com.app.umma.core.theme.RatingHard
@@ -207,6 +208,10 @@ private fun SrsStudyContent(
             selectedRating = uiState.selectedRating,
             onRatingSelected = onRatingSelected,
             onFlip = onCardFlip,
+            againLabel = uiState.againLabel,
+            hardLabel = uiState.hardLabel,
+            goodLabel = uiState.goodLabel,
+            easyLabel = uiState.easyLabel,
         )
     }
 }
@@ -388,6 +393,10 @@ private fun SrsRatingButtons(
     selectedRating: ReviewRating?,
     onRatingSelected: (ReviewRating) -> Unit,
     onFlip: () -> Unit,
+    againLabel: String,
+    hardLabel: String,
+    goodLabel: String,
+    easyLabel: String,
 ) {
     Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -397,7 +406,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Again",
-                "1m",
+                againLabel,
                 RatingAgain,
                 isSelected = selectedRating == ReviewRating.AGAIN,
                 icon = Icons.Default.Refresh,
@@ -409,7 +418,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Hard",
-                "2h",
+                hardLabel,
                 RatingHard,
                 isSelected = selectedRating == ReviewRating.HARD,
                 icon = Icons.Default.SentimentNeutral,
@@ -428,7 +437,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Good",
-                "4h",
+                goodLabel,
                 ThemePrimary,
                 isSelected = selectedRating == ReviewRating.GOOD,
                 icon = Icons.Default.SentimentSatisfiedAlt,
@@ -443,7 +452,7 @@ private fun SrsRatingButtons(
             SrsRatingButton(
                 Modifier.weight(1f),
                 "Easy",
-                "Tomorrow",
+                easyLabel,
                 RatingEasy,
                 isSelected = selectedRating == ReviewRating.EASY,
                 icon = Icons.Default.SentimentVerySatisfied,
@@ -561,7 +570,11 @@ private fun SrsEmptyContent(
         Spacer(modifier = Modifier.height(SpacingL))
         Button(
             onClick = onNavigateToCorrection,
-            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary)
+            shape = RoundedCornerShape(ChipCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
+            modifier = Modifier
+                .padding(top = SpacingL)
+                .padding(horizontal = SpacingL, vertical = SpacingS),
         ) {
             Text("AI 교정하러 가기")
         }
