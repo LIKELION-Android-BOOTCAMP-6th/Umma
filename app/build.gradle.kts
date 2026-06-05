@@ -115,6 +115,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation(project(":watchbridge-contract"))
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -164,6 +165,7 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
     implementation(libs.firebase.messaging)
+    implementation(libs.play.services.wearable)
 
     // Google Credential Manager (Auth)
     implementation(libs.androidx.credentials)
@@ -172,6 +174,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

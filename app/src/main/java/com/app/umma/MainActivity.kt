@@ -42,6 +42,11 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_OPEN_ROUTE = "extra_open_route"
+        const val OPEN_ROUTE_CHAT = "chat"
+    }
+
     // TimeZone 초기화 변수
     @Inject
     lateinit var refreshNotificationTimezoneUseCase: RefreshNotificationTimezoneUseCase
@@ -52,11 +57,13 @@ class MainActivity : ComponentActivity() {
 
     // 탭 화면 route Intent 발생 변수
     private var pendingNotificationTarget by mutableStateOf<NotificationNavigationTarget?>(null)
+    private var pendingOpenRoute by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         pendingNotificationTarget = intent.toNotificationNavigationTarget()
+        pendingOpenRoute = intent.toOpenRoute()
         enableEdgeToEdge()
         UmmaFirebaseMessagingService.ensureNotificationChannels(this)
         lifecycleScope.launch {
@@ -72,7 +79,9 @@ class MainActivity : ComponentActivity() {
             UmmaTheme {
                 UmmaApp(
                     pendingNotificationTarget = pendingNotificationTarget,
-                    onPendingNotificationConsumed = { pendingNotificationTarget = null }
+                    onPendingNotificationConsumed = { pendingNotificationTarget = null },
+                    pendingOpenRoute = pendingOpenRoute,
+                    onPendingOpenRouteConsumed = { pendingOpenRoute = null }
                 )
             }
         }
@@ -82,6 +91,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingNotificationTarget = intent.toNotificationNavigationTarget()
+        pendingOpenRoute = intent.toOpenRoute()
     }
 
     private fun hasNotificationPermission(): Boolean {
@@ -100,7 +110,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun UmmaApp(
     pendingNotificationTarget: NotificationNavigationTarget? = null,
-    onPendingNotificationConsumed: () -> Unit = {}
+    onPendingNotificationConsumed: () -> Unit = {},
+    pendingOpenRoute: String? = null,
+    onPendingOpenRouteConsumed: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -143,6 +155,28 @@ private fun UmmaApp(
         }
     }
 
+    LaunchedEffect(pendingOpenRoute, navBackStackEntry) {
+        val route = pendingOpenRoute ?: return@LaunchedEffect
+        val currentDestination = navBackStackEntry?.destination ?: return@LaunchedEffect
+        val isAuthenticatedGraph = currentDestination.hierarchy.any {
+            it.hasRoute<Route.HomeGraph>() ||
+                    it.hasRoute<Route.Dashboard>() ||
+                    it.hasRoute<Route.MyPage>() ||
+                    it.hasRoute<Route.Chat>() ||
+                    it.hasRoute<Route.CorrectionList>() ||
+                    it.hasRoute<Route.Statistics>() ||
+                    it.hasRoute<Route.SrsStudy>()
+        }
+        if (!isAuthenticatedGraph) return@LaunchedEffect
+
+        if (route == MainActivity.OPEN_ROUTE_CHAT) {
+            navController.navigate(Route.Chat) {
+                launchSingleTop = true
+            }
+            onPendingOpenRouteConsumed()
+        }
+    }
+
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
@@ -177,4 +211,9 @@ private fun Intent?.toNotificationNavigationTarget(): NotificationNavigationTarg
         lang = getStringExtra(UmmaFirebaseMessagingService.EXTRA_NOTIFICATION_LANG),
         historyId = getStringExtra(UmmaFirebaseMessagingService.EXTRA_NOTIFICATION_HISTORY_ID)
     )
+}
+
+private fun Intent?.toOpenRoute(): String? {
+    if (this == null) return null
+    return getStringExtra(MainActivity.EXTRA_OPEN_ROUTE)
 }

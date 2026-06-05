@@ -37,6 +37,26 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".watchbridge.PhoneWearMessageListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:path="/umma/watchbridge/command" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CHANNEL_EVENT" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:path="/umma/watchbridge/audio/input" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>
