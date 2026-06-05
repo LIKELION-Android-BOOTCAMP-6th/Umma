@@ -1,5 +1,6 @@
 package com.app.umma.domain.usecase.learningstate
 
+import com.app.umma.core.logging.LearningSignalFlowLog
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
@@ -38,6 +39,10 @@ class ApplyLanguageStateUpdateUseCase @Inject constructor(
             input.analysisEventId != null &&
             input.currentState.lastAnalysisEventId == input.analysisEventId
         ) {
+            LearningSignalFlowLog.d(
+                "update_skipped_duplicate lang=${input.lang.code} eventId=${input.analysisEventId} " +
+                    "signals=${input.correctionResult?.learningSignals?.size ?: 0}"
+            )
             // 중복 이벤트는 계산도 저장도 하지 않고 현재 상태를 그대로 돌려준다.
             return Result.success(
                 LearningStateUpdateResult(
@@ -50,10 +55,22 @@ class ApplyLanguageStateUpdateUseCase @Inject constructor(
             )
         }
 
+        LearningSignalFlowLog.d(
+            "update_start lang=${input.lang.code} eventId=${input.analysisEventId ?: "none"} " +
+                "turns=${input.recentUserTurns.size} corrections=${input.correctionResult?.correctionCount ?: 0} " +
+                "signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
+                "prepared=${input.preparedState != null}"
+        )
         // UseCase는 중복 방어와 저장 흐름만 조율하고, 실제 LangState 계산은 policy에 위임한다.
         // caller가 preparedState를 이미 넘긴 경우에는 기존 계약대로 그 값을 그대로 저장소에 전달한다.
         // preparedState가 없을 때만 policy를 호출해야 불필요한 재계산과 테스트 흔들림을 막을 수 있다.
         val preparedState = input.preparedState ?: analysisPolicy.analyze(input)
+        LearningSignalFlowLog.d(
+            "update_prepared lang=${input.lang.code} eventId=${input.analysisEventId ?: "none"} " +
+                "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
+                "focus=${preparedState.analysisMeta.activeFocus.size} " +
+                "lastSignalAt=${preparedState.analysisMeta.lastSignalAt ?: "none"}"
+        )
         // 저장소는 계산을 모르고, 받아온 preparedState를 snapshot으로만 저장한다.
         return repo.updateLanguageState(input.copy(preparedState = preparedState))
     }

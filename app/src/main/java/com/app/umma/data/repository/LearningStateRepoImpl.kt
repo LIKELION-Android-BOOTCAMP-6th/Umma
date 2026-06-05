@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.app.umma.core.logging.LearningSignalFlowLog
 import com.app.umma.data.model.learningstate.DashSummaryDto
 import com.app.umma.data.model.learningstate.FlashcardSummaryDto
 import com.app.umma.data.model.learningstate.LangStateDto
@@ -150,6 +151,10 @@ class LearningStateRepoImpl @Inject constructor(
                 input.analysisEventId != null &&
                 cachedState?.lastAnalysisEventId == input.analysisEventId
             ) {
+                LearningSignalFlowLog.d(
+                    "store_skipped_duplicate lang=${lang.code} eventId=${input.analysisEventId} " +
+                        "signals=${input.correctionResult?.learningSignals?.size ?: 0}"
+                )
                 return Result.success(
                     LearningStateUpdateResult(
                         lang = lang,
@@ -212,6 +217,14 @@ class LearningStateRepoImpl @Inject constructor(
             )
             _state.value = nextState
 
+            LearningSignalFlowLog.d(
+                "store_success lang=${lang.code} eventId=${input.analysisEventId ?: "none"} " +
+                    "applied=true signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
+                    "pendingKeys=3 correctionAvailable=$correctionAvailable " +
+                    "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
+                    "focus=${preparedState.analysisMeta.activeFocus.size}"
+            )
+
             Result.success(
                 LearningStateUpdateResult(
                     lang = lang,
@@ -222,6 +235,11 @@ class LearningStateRepoImpl @Inject constructor(
                 )
             )
         } catch (e: Exception) {
+            LearningSignalFlowLog.w(
+                "store_failed lang=${input.lang.code} eventId=${input.analysisEventId ?: "none"} " +
+                    "signals=${input.correctionResult?.learningSignals?.size ?: 0} reason=${e::class.simpleName}",
+                e
+            )
             Result.failure(e)
         }
     }

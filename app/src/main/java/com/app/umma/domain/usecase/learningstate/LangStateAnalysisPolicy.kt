@@ -1,5 +1,6 @@
 package com.app.umma.domain.usecase.learningstate
 
+import com.app.umma.core.logging.LearningSignalFlowLog
 import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.CorrectionImprovementType
 import com.app.umma.domain.model.learningstate.CorrectionIssueCategory
@@ -50,7 +51,15 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val now = input.analyzedAt
         // Correction signal은 raw DTO가 아니라 domain 계약으로 들어온 관찰 신호다.
         // 검증은 analyze 초입에서 한 번만 수행해 이후 metric/evidence/focus가 같은 입력을 공유하게 한다.
-        val validatedSignals = input.validatedCorrectionSignals()
+        // 진단 로그는 텍스트 원문을 남기지 않고 개수/이유만 남겨 pipeline 유실 지점을 추적한다.
+        val validation = input.validatedCorrectionSignalResult()
+        val validatedSignals = validation.validSignals
+        LearningSignalFlowLog.d(
+            "analysis_validation lang=${input.lang.code} eventId=${input.analysisEventId.safeEventId()} " +
+                "turns=${input.recentUserTurns.size} corrections=${input.correctionResult?.correctionCount ?: 0} " +
+                "signals=${validation.totalCount} valid=${validatedSignals.size} dropped=${validation.droppedCount} " +
+                "reasons=${validation.reasonSummary()}"
+        )
 
         // 이번 batch에서 추정 가능한 측정값만 뽑는다.
         // null인 측정값은 이후 smoothMetric에서 기존 상태를 유지하게 만든다.
@@ -144,6 +153,20 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
             currentState = current,
             signals = validatedSignals,
             observedAt = now
+        )
+        // 장기 score 반영 대상과 evidence/focus 반영 여부를 분리해 남긴다.
+        // 이렇게 해야 "signal은 들어왔지만 장기 점수에는 제외됨"과 "저장 자체 실패"를 구분할 수 있다.
+        val scoreEligibleCount = validatedSignals.count { signal ->
+            signal.isLongTermScoreEligible(current)
+        }
+        LearningSignalFlowLog.d(
+            "analysis_applied lang=${input.lang.code} eventId=${input.analysisEventId.safeEventId()} " +
+                "valid=${validatedSignals.size} scoreEligible=$scoreEligibleCount " +
+                "evidenceBefore=${current.analysisMeta.metricEvidence.size} " +
+                "evidenceAfter=${nextAnalysisMeta.metricEvidence.size} " +
+                "focusBefore=${current.analysisMeta.activeFocus.size} " +
+                "focusAfter=${nextAnalysisMeta.activeFocus.size} " +
+                "lastSignalAt=${nextAnalysisMeta.lastSignalAt ?: "none"}"
         )
 
         return current.copy(
@@ -309,19 +332,35 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         return longTermEligibleCount.coerceAtMost(result.correctionCount.coerceAtLeast(0))
     }
 
-    private fun LangStateUpdateInput.validatedCorrectionSignals(): List<CorrectionLearningSignal> {
+    private fun LangStateUpdateInput.validatedCorrectionSignalResult(): SignalValidationResult {
         val signals = correctionResult?.learningSignals.orEmpty()
-        if (signals.isEmpty()) return emptyList()
+        if (signals.isEmpty()) {
+            return SignalValidationResult(
+                totalCount = 0,
+                validSignals = emptyList(),
+                droppedReasons = emptyMap()
+            )
+        }
 
-        return signals.mapNotNull { signal ->
+        val droppedReasons = mutableMapOf<SignalDropReason, Int>()
+        fun drop(reason: SignalDropReason): CorrectionLearningSignal? {
+            droppedReasons[reason] = droppedReasons.getOrDefault(reason, 0) + 1
+            return null
+        }
+
+        val validSignals = signals.mapNotNull { signal ->
             // confidence가 범위를 벗어나면 raw AI 판단이 오염된 상태라 signal 전체를 버린다.
-            if (signal.confidence != null && signal.confidence !in 0.0..1.0) return@mapNotNull null
+            if (signal.confidence != null && signal.confidence !in 0.0..1.0) {
+                return@mapNotNull drop(SignalDropReason.InvalidConfidence)
+            }
             // 필수 문자열이 비어 있으면 source/corrected 비교와 focus 추적이 모두 불가능하다.
             if (signal.candidateId.isBlank() || signal.sourceText.isBlank() || signal.correctedText.isBlank()) {
-                return@mapNotNull null
+                return@mapNotNull drop(SignalDropReason.EmptyRequiredText)
             }
             // sourceTurnIndex는 sourceTurnId가 없을 때의 fallback이라 음수면 추적 근거로 쓸 수 없다.
-            if (signal.sourceTurnIndex < 0) return@mapNotNull null
+            if (signal.sourceTurnIndex < 0) {
+                return@mapNotNull drop(SignalDropReason.InvalidSourceTurnIndex)
+            }
 
             val features = signal.languageFeatures
                 .asSequence()
@@ -346,6 +385,11 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
                 editSpans = editSpans
             )
         }
+        return SignalValidationResult(
+            totalCount = signals.size,
+            validSignals = validSignals,
+            droppedReasons = droppedReasons
+        )
     }
 
     private fun updateAnalysisMeta(
@@ -752,6 +796,38 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val type: LearningFocusType,
         val confidence: Double
     )
+
+    private data class SignalValidationResult(
+        val totalCount: Int,
+        val validSignals: List<CorrectionLearningSignal>,
+        val droppedReasons: Map<SignalDropReason, Int>
+    ) {
+        val droppedCount: Int
+            get() = totalCount - validSignals.size
+
+        fun reasonSummary(): String {
+            // reason이 없을 때도 고정 문자열을 남겨 logcat 검색/집계가 쉬워지게 한다.
+            if (droppedReasons.isEmpty()) return "none"
+            return droppedReasons.entries.joinToString(separator = ",") { (reason, count) ->
+                "${reason.name}:$count"
+            }
+        }
+    }
+
+    private enum class SignalDropReason {
+        // AI confidence가 0.0..1.0 범위를 벗어나 장기 판단 입력으로 쓸 수 없는 경우.
+        InvalidConfidence,
+        // candidateId/sourceText/correctedText 중 하나가 비어 비교와 추적이 불가능한 경우.
+        EmptyRequiredText,
+        // sourceTurnId가 없을 때 fallback으로 쓰는 sourceTurnIndex가 유효하지 않은 경우.
+        InvalidSourceTurnIndex
+    }
+
+    private fun String?.safeEventId(): String {
+        // eventId가 없는 호출도 있으므로 null을 고정 토큰으로 출력해 로그 파싱을 쉽게 한다.
+        // 원문 텍스트나 교정문은 절대 eventId 대신 출력하지 않는다.
+        return this?.takeIf { it.isNotBlank() } ?: "none"
+    }
 
     private companion object {
         private const val AVG_UTTERANCE_TARGET_TOKENS = 14.0
