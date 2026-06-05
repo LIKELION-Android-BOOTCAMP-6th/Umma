@@ -144,35 +144,28 @@ class SrsStudyViewModel @Inject constructor(
         onEnter()
     }
 
-    /** 카드 클릭 시 앞 뒤 전환*/
+    /** 카드 클릭 시 앞 뒤 전환 */
     fun onCardFlip() {
         _uiState.update { it.copy(isCardFlipped = !it.isCardFlipped) }
     }
 
+    // 저장 실패 시 재시도 버튼을 누르면 이 값으로 다시 저장을 시도
+    private var lastRating: ReviewRating? = null
 
     /**
-     * 평가 버튼 클릭 -> 평가 값 저장
+     * 평가 버튼 클릭 -> 즉시 저장 -> 다음 카드로 이동
+     *
+     * 저장에 실패하면 hasSaveError=true -> 화면에서 Snackbar로 재시도를 안내
      */
     fun onRatingSelected(rating: ReviewRating) {
-        _uiState.update { it.copy(selectedRating = rating) }
-    }
-
-    /**
-     * 선택된 평가 있을 때 -> Room 저장 -> 다음 카드로 이동
-     * 평가 없으면 클릭 X
-     *
-     * 1. Room/Firestore 저장 + Summary 갱신: applyReviewDecision 안에서 다 처리
-     * 2. Again이면 cards 끝에 현재 카드 추가 혹은 그대로
-     * 3. 인덱스 계산-> 마지막 카드면 isDone = true 변경
-     */
-    fun onConfirmRating() {
-        // 저장 중이면 return
+        // 이미 저장 중이면 중복 실행 방지
         if (_uiState.value.isSaving) return
-        // 선택 안했으면 null: 종료
-        val rating = _uiState.value.selectedRating ?: return
-        // 현재 카드 없으면 null: 종료
         val card = _uiState.value.currentCard ?: return
         val userId = getCurrentUserUid.getCurrentUserUid() ?: return
+
+        // 실패 시 재시도할 수 있도록 마지막 평가를 기억
+        lastRating = rating
+
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, hasSaveError = false) }
 
@@ -182,9 +175,11 @@ class SrsStudyViewModel @Inject constructor(
                 reviewedAt = System.currentTimeMillis()
             )
             // SM-2 계산 + Room 저장 + Summary 갱신
+            // 평가 결과로 다음 복습 간격을 계산하고, 기기 DB와 대시보드 요약에 반영
             applyReviewDecision(userId, card, decision).onSuccess {
                 ttsController.stop()
                 _uiState.update { state ->
+                    // Again 선택 시 현재 카드를 덱 끝에 추가해 당일 재노출
                     val updatedCards = if (rating == ReviewRating.AGAIN) {
                         state.cards + card
                     } else {
@@ -194,26 +189,32 @@ class SrsStudyViewModel @Inject constructor(
                     val isDone = nextIndex >= updatedCards.size
                     state.copy(
                         cards = updatedCards,
-                        // 마지막 카드: 인덱스 유지, 아니라면 다음
+                        // 마지막 카드면 인덱스 유지, 아니면 다음으로 이동
                         currentCardIndex = if (isDone) state.currentCardIndex else nextIndex,
-                        // 다음 카드 앞면으로
                         isCardFlipped = false,
                         isDone = isDone,
-                        selectedRating = null,
                         isSaving = false,
                         isSpeaking = false
                     )
                 }
             }.onFailure { e ->
-                Log.d("ummaDev", "SrsStudyViewModel onConfirmRating - $e")
+                Log.d("ummaDev", "SrsStudyViewModel onRatingSelected - $e")
                 _uiState.update {
-                    it.copy(
-                        isSaving = false,
-                        hasSaveError = true
-                    )
+                    it.copy(isSaving = false, hasSaveError = true)
                 }
             }
         }
+    }
+
+    /**
+     * Snackbar 재시도 버튼 클릭 시 호출
+     *
+     * 마지막으로 선택한 평가(lastRating)로 다시 저장을 시도
+     * lastRating이 없으면(예: 앱 재시작) 아무것도 하지 않음
+     */
+    fun onRetryRating() {
+        val rating = lastRating ?: return
+        onRatingSelected(rating)
     }
 
     /**
