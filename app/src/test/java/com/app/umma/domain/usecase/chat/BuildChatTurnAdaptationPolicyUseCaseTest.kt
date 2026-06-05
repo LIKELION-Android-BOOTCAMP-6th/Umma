@@ -1,5 +1,7 @@
 package com.app.umma.domain.usecase.chat
 
+import com.app.umma.domain.model.chat.ChatTurnContextSignal
+import com.app.umma.domain.model.chat.LatestUserTurnRole
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionGrowthBand

@@ -73,6 +73,47 @@ class ExtractSessionCandidatesUseCaseTest {
         assertEquals("turn-1", result.first().sourceText)
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // 경계 어댑터 회귀 가드 — COR-TUNE-004 분할/필터 도입 후 sourceTurnId 정합성 확인
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `split candidates from one turn all retain same source turn id`() {
+        // 단일 SessionTurn 이 분할되어 여러 후보가 생겨도, 모든 분할 후보가
+        // 동일한 sourceTurnId 를 갖는지 확인한다.
+        // ExtractSessionCandidatesUseCase 의 sourceTurnIndex 기반 매칭이 분할에도 안전한지 검증하는 회귀 가드.
+        val result = useCase(
+            selectedLang = LangCode.EN,
+            sessionLang = LangCode.EN,
+            sessionTurns = listOf(
+                sessionTurn("ai-1", TurnSpeaker.AI, "Tell me about your day.", 1_000L),
+                sessionTurn("user-1", TurnSpeaker.USER, "I went to the market. It was crowded.", 2_000L)
+            )
+        )
+
+        assertEquals(2, result.size)
+        // 두 분할 후보 모두 원본 SessionTurn 의 turnId 를 가리켜야 한다.
+        assertEquals("user-1", result[0].sourceTurnId)
+        assertEquals("user-1", result[1].sourceTurnId)
+        // sourceTurnIndex 도 동일한 원본 turn 순서를 유지해야 한다.
+        assertEquals(1, result[0].sourceTurnIndex)
+        assertEquals(1, result[1].sourceTurnIndex)
+    }
+
+    @Test
+    fun `trivial session turn produces no candidate`() {
+        // 경계 어댑터를 통해서도 사소한 발화는 후보에서 제외되어야 한다.
+        val result = useCase(
+            selectedLang = LangCode.EN,
+            sessionLang = LangCode.EN,
+            sessionTurns = listOf(
+                sessionTurn("user-1", TurnSpeaker.USER, "hi", 1_000L)
+            )
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
     private fun sessionTurn(
         id: String,
         role: TurnSpeaker,
