@@ -94,7 +94,7 @@ class CompleteCorrectionUseCaseTest {
             sourceTurnIndex = 0,
             beforeText = "i go school",
             nativeText = "나는 학교에 간다",
-            afterText = "I go school.",
+            afterText = "I go to school.",
             explanation = "demo"
         )
 

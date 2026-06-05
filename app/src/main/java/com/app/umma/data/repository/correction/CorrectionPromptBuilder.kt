@@ -2,6 +2,7 @@ package com.app.umma.data.repository.correction
 
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.CorrectionExplanationPolicy
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
 import com.app.umma.domain.model.learningstate.CorrectionImprovementType
 import com.app.umma.domain.model.learningstate.CorrectionIssueCategory
 import com.app.umma.domain.model.learningstate.CorrectionScopePolicy
@@ -77,6 +78,12 @@ class CorrectionPromptBuilder @Inject constructor() {
             focusLine(focus)?.let { appendLine("- $it") }
             appendLine()
             appendLine("Task: For each candidate sentence below, return one corrected version that preserves the speaker's meaning and is natural at the learner's level.")
+            appendLine()
+            // COR-TUNE-005: band별 few-shot anchor. 모델 출력을 band 기대 형태(길이/강도)에 맞춘다.
+            // 예시는 anchor일 뿐, candidate 언어 조합을 강제하지 않는다(교정은 항상 selectedLang).
+            // 언어를 하드코딩하지 않고 selectedLang.code를 참조한다. band 이름·점수·레벨은 노출하지 않는다.
+            appendLine("Example of the expected correction style for this learner (illustrative only; always correct in ${selectedLang.code} and do not copy this example):")
+            appendLine("- ${bandFewShotExample(policy.band, selectedLang)}")
             appendLine()
             appendLine("Candidates:")
             input.candidates.forEach { candidate ->
@@ -256,6 +263,31 @@ class CorrectionPromptBuilder @Inject constructor() {
         LearningFocusType.UnnaturalCollocation -> "natural word combinations"
         LearningFocusType.TooFormal -> "a more spoken, less formal tone"
         LearningFocusType.MissingContext -> "missing context (subject/object)"
+    }
+
+    /**
+     * COR-TUNE-005: band별 few-shot anchor 한 줄.
+     *
+     * 고정 외국어 문장을 박지 않고 "source 형태 → selectedLang corrected 형태" 변환 패턴만 기술한다.
+     * 따라서 어떤 selectedLang 조합에도 안전하며(언어 비종속), 토큰을 최소화한다(band당 1줄, 빌드당 1줄만 삽입).
+     * 설명 언어는 여기서 다시 고정하지 않고 Explanation 정책(explanationLine)에 위임한다(COR-TUNE-003-FIX 유지).
+     */
+    private fun bandFewShotExample(band: CorrectionGrowthBand, selectedLang: LangCode): String {
+        val lang = selectedLang.code
+        return when (band) {
+            CorrectionGrowthBand.MeaningFirst ->
+                "disconnected words or fragments become one or two very short complete sentences in $lang that keep the exact meaning and add no new words."
+            CorrectionGrowthBand.PatternFix ->
+                "a short phrase with one broken core pattern becomes the same phrase in $lang with only that single pattern fixed and nothing else changed."
+            CorrectionGrowthBand.SentenceShape ->
+                "a short sentence with shaky word order or grammar becomes one complete, well-formed short sentence in $lang with at most one tiny addition."
+            CorrectionGrowthBand.EverydayNatural ->
+                "an understandable but stiff or literal sentence becomes the same meaning in $lang expressed with one more natural everyday phrase."
+            CorrectionGrowthBand.ConnectedExpression ->
+                "two ideas stated flatly become the same ideas in $lang joined with a natural connective and a more spoken phrasing."
+            CorrectionGrowthBand.NuanceRefine ->
+                "a correct but plain sentence becomes the same meaning in $lang refined for tone and register with a more native-like word choice."
+        }
     }
 
     /** LangCode → 자연어 이름. Chat 의 BuildPromptUseCase.languageName() 과 동일한 매핑을 유지한다. */

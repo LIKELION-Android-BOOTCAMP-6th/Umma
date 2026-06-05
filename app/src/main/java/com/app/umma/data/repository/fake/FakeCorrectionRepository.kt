@@ -4,6 +4,7 @@ import com.app.umma.data.repository.CorrectionRepositoryImpl
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.app.umma.data.repository.correction.CorrectionFlashcardStore
+import com.app.umma.data.repository.correction.CorrectionOverexpansionGuard
 import com.app.umma.data.repository.correction.CorrectionPromptBuilder
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtureBuilder
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
@@ -41,8 +42,10 @@ class FakeCorrectionRepository @Inject constructor(
     // AI 호출 어댑터 (super 가 사용 — 위와 동일하게 fake override 가 가로채는 게 정상 동작).
     aiClient: CorrectionAiClient,
     // AI 응답 매퍼 (super 가 사용 — 위와 동일).
-    responseMapper: CorrectionAiResponseMapper
-) : CorrectionRepositoryImpl(flashcardStore, promptBuilder, aiClient, responseMapper) {
+    responseMapper: CorrectionAiResponseMapper,
+    // COR-TUNE-006: 과확장 가드 (super 가 사용 — fake 의 generateSuggestions override 가 가로채므로 보통 동작하지 않음).
+    overexpansionGuard: CorrectionOverexpansionGuard
+) : CorrectionRepositoryImpl(flashcardStore, promptBuilder, aiClient, responseMapper, overexpansionGuard) {
 
     /**
      * null 이면 fixture builder 결과로 fallback 한다 (실제 Gemini 호출은 fake 모드에서 의도와 어긋난다).

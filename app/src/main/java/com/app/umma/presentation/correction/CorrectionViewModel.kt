@@ -477,11 +477,22 @@ class CorrectionViewModel @Inject constructor(
 
             // 4. LangStateUpdateInput 조립 — LS-008 정책에 따라 sessionMemoryKey / analysisEventId /
             //    recentUserTurns 를 결정한다. 조립 실패는 완료 실패로 처리한다(Done 으로 보내지 않음).
+            //
+            // [COR-TUNE-008] 분석 base는 화면이 동결한 stateSnapshot.langStateSnapshot 대신
+            // 완료 직전의 최신 langStates[lang]을 사용한다(stale snapshot 덮어쓰기 방지).
+            // observeLearningState().first()는 preload가 이미 완료된 StateFlow라 캐시를 즉시 반환한다.
+            // 최신 조회(IO)만 여기서 하고, base 선택/fallback 결정은 순수 helper resolveCompletionBaseState로 분리한다.
+            val freshGlobal = runCatching { observeLearningState().first() }.getOrNull()
+            val freshLangState = resolveCompletionBaseState(
+                freshGlobal = freshGlobal,
+                lang = lang,
+                frozenSnapshot = stateSnapshot.langStateSnapshot,
+            )
             val command = BuildLangStateUpdateInputCommand(
                 uid = uid,
                 lang = lang,
                 selectedLang = stateSnapshot.selectedLearningLanguage ?: lang,
-                currentState = stateSnapshot.langStateSnapshot,
+                currentState = freshLangState,
                 correctionContextTurns = contextTurns,
                 stableEventParts = selectedSuggestions.map { it.id },
                 analyzedAt = launch.saveRequest.requestedAt,

@@ -320,6 +320,102 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `each band exposes its own few-shot anchor wording`() {
+        // COR-TUNE-005: band별 빌드 시 해당 band의 고유 anchor 문구가 노출되고, 다른 band 문구가 새어 나오지 않는지 확인.
+        val candidate = CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+
+        val meaningFirstPrompt = builder.build(inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
+        ))
+        assertTrue("MeaningFirst few-shot anchor 누락", meaningFirstPrompt.contains("disconnected words or fragments"))
+        assertFalse("MeaningFirst에 NuanceRefine anchor가 새어 나옴", meaningFirstPrompt.contains("refined for tone and register"))
+
+        val patternFixPrompt = builder.build(inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.PatternFix))
+        ))
+        assertTrue("PatternFix few-shot anchor 누락", patternFixPrompt.contains("single pattern fixed"))
+
+        val sentenceShapePrompt = builder.build(inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.SentenceShape))
+        ))
+        assertTrue("SentenceShape few-shot anchor 누락", sentenceShapePrompt.contains("shaky word order or grammar"))
+
+        val everydayNaturalPrompt = builder.build(inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.EverydayNatural))
+        ))
+        assertTrue("EverydayNatural few-shot anchor 누락", everydayNaturalPrompt.contains("more natural everyday phrase"))
+
+        val connectedPrompt = builder.build(inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.ConnectedExpression))
+        ))
+        assertTrue("ConnectedExpression few-shot anchor 누락", connectedPrompt.contains("natural connective"))
+
+        val nuancePrompt = builder.build(inputOf(
+            candidates = listOf(candidate),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.NuanceRefine))
+        ))
+        assertTrue("NuanceRefine few-shot anchor 누락", nuancePrompt.contains("refined for tone and register"))
+        assertFalse("NuanceRefine에 MeaningFirst anchor가 새어 나옴", nuancePrompt.contains("disconnected words or fragments"))
+    }
+
+    @Test
+    fun `few-shot anchor does not leak band names or raw metrics`() {
+        // COR-TUNE-005: 예시 삽입 후에도 band 이름·점수·레벨이 프롬프트에 노출되지 않아야 한다.
+        val bands = CorrectionGrowthBand.entries
+        val candidate = CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
+
+        bands.forEach { band ->
+            val prompt = builder.build(inputOf(
+                candidates = listOf(candidate),
+                profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(band))
+            ))
+            assertFalse("band 이름 '${band.name}'이 프롬프트에 노출됨", prompt.contains(band.name))
+            assertFalse("CEFR 레벨이 노출됨 (band=$band)", prompt.contains("A1"))
+            assertFalse("raw metric 숫자(%.2f)가 노출됨 (band=$band)", Regex("""\d\.\d{2}""").containsMatchIn(prompt))
+        }
+    }
+
+    @Test
+    fun `few-shot anchor language follows selectedLang dynamically`() {
+        // COR-TUNE-005: 예시 문구에 selectedLang.code가 동적으로 반영되어야 한다. 하드코딩된 언어가 없어야 한다.
+        val candidateJa = CorrectionCandidate(id = "ja-0-a", lang = LangCode.JA, sourceTurnIndex = 0, sourceText = "わたし学校行く")
+        val promptJa = builder.build(inputOf(
+            candidates = listOf(candidateJa),
+            lang = LangCode.JA,
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst))
+        ))
+        // selectedLang=JA이면 예시에 "in ja"가 포함되어야 한다.
+        assertTrue("JA 빌드에 'in ja' 누락", promptJa.contains("in ja"))
+    }
+
+    @Test
+    fun `few-shot anchor does not break existing schema regression`() {
+        // COR-TUNE-005: few-shot 삽입 후에도 핵심 4필드·learningSignal 키·위임 문구 회귀가 없어야 한다.
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            profile = profileWith(CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.EverydayNatural))
+        )
+        val prompt = builder.build(input)
+
+        // 핵심 4필드 유지.
+        listOf("suggestions", "candidateId", "nativeText", "afterText", "explanation").forEach { key ->
+            assertTrue("few-shot 삽입 후 schema key '$key' 누락", prompt.contains(key))
+        }
+        // learningSignal 강화 문구 유지(COR-TUNE-002-FIX).
+        assertTrue("meaningPreserved ALWAYS 지시 누락", prompt.contains("ALWAYS include"))
+        assertTrue("drop 경고 누락", prompt.contains("discards the whole learningSignal"))
+        // Explanation policy 위임 유지(COR-TUNE-003-FIX).
+        assertTrue("Explanation policy 위임 문구 누락", prompt.contains("Explanation policy above"))
+    }
+
+    @Test
     fun `focus line appears only when focus is trustworthy`() {
         val candidate = CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
 

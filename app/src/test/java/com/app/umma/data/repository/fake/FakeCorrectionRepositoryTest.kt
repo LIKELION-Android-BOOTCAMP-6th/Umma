@@ -4,6 +4,7 @@ import com.app.umma.data.model.correction.CorrectionFlashcardDto
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.app.umma.data.repository.correction.CorrectionFlashcardStore
+import com.app.umma.data.repository.correction.CorrectionOverexpansionGuard
 import com.app.umma.data.repository.correction.CorrectionPromptBuilder
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.data.source.local.TestCorrectionFlashcardLocalDataSource
@@ -27,7 +28,8 @@ class FakeCorrectionRepositoryTest {
         // 그래도 super 생성자 invariant 를 만족시키기 위해 real instance 를 넘긴다.
         promptBuilder = CorrectionPromptBuilder(),
         aiClient = ThrowingCorrectionAiClient,
-        responseMapper = CorrectionAiResponseMapper()
+        responseMapper = CorrectionAiResponseMapper(),
+        overexpansionGuard = CorrectionOverexpansionGuard()
     )
 
     @Test
