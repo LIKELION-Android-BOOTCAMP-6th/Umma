@@ -25,4 +25,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "Umma"
 include(":app")
+include(":watchbridge-contract")
+include(":wear")
  

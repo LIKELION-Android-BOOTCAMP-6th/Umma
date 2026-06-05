@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Umma</string>
+    <string name="placeholder_message">WATCH-002 placeholder\nCurrent status: %1$s</string>
+    <string name="watch_debug_attach">Debug Attach</string>
+    <string name="watch_debug_release_owner">Release Phone Owner</string>
+    <string name="watch_debug_status">Watch bridge debug is idle.</string>
+    <string name="watch_debug_sending">Sending attach request to phone…</string>
+    <string name="watch_debug_waiting">Attach request sent.\nWaiting for phone response…</string>
+    <string name="watch_debug_releasing">Sending release-owner request to phone…</string>
+</resources>
