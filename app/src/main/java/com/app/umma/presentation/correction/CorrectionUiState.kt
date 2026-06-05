@@ -336,6 +336,23 @@ internal fun CorrectionUiState.computeCompletionLaunch(
 }
 
 /**
+ * 교정 완료 시 LangState 분석의 base 가 될 currentState 를 고른다. (COR-TUNE-008)
+ *
+ * 교정 생성이 시작되면 [CorrectionViewModel] 은 generationLaunched 가드로 GlobalLangState emit 을 무시하므로,
+ * 화면이 들고 있는 [frozenSnapshot] 은 Generating 진입 시점에 동결된다. 그 사이 원격 sync 등이
+ * langStates[lang] 을 갱신했다면, 동결 snapshot 을 base 로 저장할 때 그 최신값을 덮어쓰는 lost update 가 생긴다.
+ * 따라서 완료 직전 다시 읽은 [freshGlobal] 의 langStates[lang] 을 우선 사용하고,
+ * 조회 실패(null)나 해당 언어 항목이 없으면 동결 snapshot 으로 안전하게 fallback 한다.
+ *
+ * 이 함수는 순수 결정 로직만 담당한다. observeLearningState().first() 같은 IO 는 ViewModel 이 수행한다.
+ */
+internal fun resolveCompletionBaseState(
+    freshGlobal: GlobalLangState?,
+    lang: LangCode,
+    frozenSnapshot: LangState?,
+): LangState? = freshGlobal?.langStates?.get(lang) ?: frozenSnapshot
+
+/**
  * 완료 in-flight 윈도우를 연다. [CompletionLaunchOutcome.Launched] 직후 ViewModel 이 viewModelScope.launch 안에서
  * 실제 호출에 들어가기 직전에 적용한다.
  */

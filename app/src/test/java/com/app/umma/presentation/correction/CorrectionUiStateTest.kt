@@ -847,4 +847,53 @@ class CorrectionUiStateTest {
         assertNull(state.selectedLearningLanguage)
         assertNull(state.primaryLanguage)
     }
+
+    // ─── COR-TUNE-008: resolveCompletionBaseState 회귀 ──────────────────────────
+    // 교정 완료 시 분석 base 로 동결 snapshot 대신 완료 직전 최신 langStates[lang] 을 쓰는지,
+    // 최신 조회 실패/미존재 시 동결 snapshot 으로 fallback 하는지 못 박는다.
+
+    @Test
+    fun `resolveCompletionBaseState prefers fresh langState over frozen snapshot`() {
+        // Generating 진입 시 동결된 snapshot(grammar=0.3) 이후, 완료 직전 최신 state(grammar=0.7)가 들어왔다면
+        // 최신값을 base 로 써야 stale 덮어쓰기(lost update)를 막는다.
+        val lang = LangCode.EN
+        val frozen = LangState.initial(lang).copy(
+            internal = LangState.initial(lang).internal.copy(grammarAccuracy = 0.3)
+        )
+        val fresh = LangState.initial(lang).copy(
+            internal = LangState.initial(lang).internal.copy(grammarAccuracy = 0.7)
+        )
+        val freshGlobal = GlobalLangState.initial().copy(langStates = mapOf(lang to fresh))
+
+        val base = resolveCompletionBaseState(freshGlobal, lang, frozen)
+
+        assertEquals(0.7, base!!.internal.grammarAccuracy, 0.0001)
+    }
+
+    @Test
+    fun `resolveCompletionBaseState falls back to frozen snapshot when fresh global is null`() {
+        // 최신 조회(observeLearningState().first())가 실패해 null 이면 동결 snapshot 으로 완료를 이어간다.
+        val lang = LangCode.EN
+        val frozen = LangState.initial(lang).copy(
+            internal = LangState.initial(lang).internal.copy(grammarAccuracy = 0.3)
+        )
+
+        val base = resolveCompletionBaseState(freshGlobal = null, lang = lang, frozenSnapshot = frozen)
+
+        assertSame(frozen, base)
+    }
+
+    @Test
+    fun `resolveCompletionBaseState falls back to frozen snapshot when fresh global lacks the language`() {
+        // 최신 global 에 해당 언어 항목이 없으면(예: 다른 언어만 존재) 동결 snapshot 으로 fallback 한다.
+        val lang = LangCode.EN
+        val frozen = LangState.initial(lang).copy(
+            internal = LangState.initial(lang).internal.copy(grammarAccuracy = 0.3)
+        )
+        val freshGlobalWithoutLang = GlobalLangState.initial().copy(langStates = emptyMap())
+
+        val base = resolveCompletionBaseState(freshGlobalWithoutLang, lang, frozen)
+
+        assertSame(frozen, base)
+    }
 }
