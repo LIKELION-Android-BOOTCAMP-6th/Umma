@@ -34,15 +34,28 @@ class PrepareSaveRequestUseCase @Inject constructor() {
                 "selectedSuggestions must use the same language"
             }
 
-            val flashcards = normalizedSuggestions.map { suggestion ->
-                require(suggestion.nativeText.isNotBlank()) {
-                    "nativeText must not be blank"
-                }
-                require(suggestion.afterText.isNotBlank()) {
-                    "afterText must not be blank"
-                }
+            // COR-TUNE-007: 저품질 카드 제외 후 배치 내 텍스트 중복을 skip한다.
+            // 제외·중복으로 카드 수가 줄거나 0개가 돼도 예외를 던지지 않고 자연스럽게 진행한다.
+            val seenKeys = mutableSetOf<String>()
+            val filteredSuggestions = normalizedSuggestions.filter { suggestion ->
+                val normalizedBefore = CorrectionCardTextNormalizer.normalize(suggestion.beforeText)
+                val normalizedAfter = CorrectionCardTextNormalizer.normalize(suggestion.afterText)
+                val normalizedFront = CorrectionCardTextNormalizer.normalize(suggestion.nativeText)
 
-                // SYS-CORRECTION-INFRA 저장 계약: 앞면은 모국어, 뒷면은 교정 문장과 설명이다.
+                // 교정 전후 동일한 카드는 학습 가치가 없으므로 제외한다.
+                if (normalizedBefore == normalizedAfter) return@filter false
+                // 교정 문장이 지나치게 짧은 카드는 학습 자료로 성립하지 않으므로 제외한다.
+                if (normalizedAfter.length < MIN_CARD_CHAR_LENGTH) return@filter false
+                // 앞면 텍스트가 없는 카드는 모국어 단서를 잃으므로 제외한다.
+                if (normalizedFront.isEmpty()) return@filter false
+
+                // 배치 내에서 (앞면, 뒷면) 텍스트가 동일한 카드는 첫 번째만 유지하고 이후는 skip한다.
+                val key = "$normalizedFront\t$normalizedAfter"
+                seenKeys.add(key)
+            }
+
+            // SYS-CORRECTION-INFRA 저장 계약: 앞면은 모국어, 뒷면은 교정 문장과 설명이다.
+            val flashcards = filteredSuggestions.map { suggestion ->
                 CorrectionFlashcardSaveItem(
                     suggestionId = suggestion.id,
                     frontText = suggestion.nativeText.trim(),
@@ -58,5 +71,11 @@ class PrepareSaveRequestUseCase @Inject constructor() {
                 requestedAt = requestedAt
             )
         }
+    }
+
+    companion object {
+        // 정규화 후 이 글자 수 미만이면 교정 Flashcard에서 제외한다.
+        // 보수적 기준으로, 한 글자라도 교정 가치가 있는 카드는 최대한 보존한다.
+        internal const val MIN_CARD_CHAR_LENGTH = 2
     }
 }

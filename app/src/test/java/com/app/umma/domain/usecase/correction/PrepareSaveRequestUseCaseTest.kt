@@ -127,31 +127,100 @@ class PrepareSaveRequestUseCaseTest {
         assertTrue(result.isFailure)
     }
 
+    // COR-TUNE-007: 빈 nativeText는 저품질 필터로 제외한다 (저장 실패가 아닌 자연스러운 처리).
     @Test
-    fun `fails when nativeText is blank`() {
-        // 앞면이 비면 Flashcard 가 모국어 단서를 잃는다.
+    fun `excludes card when native text is blank`() {
         val result = useCase(
             uid = "uid-1",
             selectedSuggestions = listOf(sampleSuggestion(id = "s-1", nativeText = "   ")),
         )
 
-        assertTrue(result.isFailure)
+        assertTrue(result.isSuccess)
+        assertEquals(0, result.getOrThrow().flashcards.size)
     }
 
+    // COR-TUNE-007: 빈 afterText는 저품질 필터로 제외한다 (저장 실패가 아닌 자연스러운 처리).
     @Test
-    fun `fails when afterText is blank`() {
-        // 뒷면 교정 문장이 비면 학습 자료 자체가 성립하지 않는다.
+    fun `excludes card when corrected text is blank`() {
         val result = useCase(
             uid = "uid-1",
             selectedSuggestions = listOf(sampleSuggestion(id = "s-1", afterText = "   ")),
         )
 
-        assertTrue(result.isFailure)
+        assertTrue(result.isSuccess)
+        assertEquals(0, result.getOrThrow().flashcards.size)
+    }
+
+    @Test
+    fun `excludes card when correction before and after are identical after normalization`() {
+        // 교정 전후가 (대소문자·구두점·공백 정규화 후) 동일하면 학습 가치가 없어 제외한다.
+        val result = useCase(
+            uid = "uid-1",
+            selectedSuggestions = listOf(
+                sampleSuggestion(id = "s-1", beforeText = "I go to school.", afterText = "I go to school."),
+                sampleSuggestion(id = "s-2", beforeText = "i go to school", afterText = "I go to school!"),
+                sampleSuggestion(id = "s-3"),
+            ),
+        )
+
+        assertTrue(result.isSuccess)
+        val flashcards = result.getOrThrow().flashcards
+        // s-1(전후 동일), s-2(정규화 후 동일) 제외, s-3(정상) 유지
+        assertEquals(1, flashcards.size)
+        assertEquals("s-3", flashcards.first().suggestionId)
+    }
+
+    @Test
+    fun `excludes card when corrected text is too short after normalization`() {
+        // 정규화 후 MIN_CARD_CHAR_LENGTH 미만이면 학습 자료로 성립하지 않아 제외한다.
+        val result = useCase(
+            uid = "uid-1",
+            selectedSuggestions = listOf(sampleSuggestion(id = "s-1", afterText = "A")),
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(0, result.getOrThrow().flashcards.size)
+    }
+
+    @Test
+    fun `deduplicates cards with same front and back text after normalization`() {
+        // 정규화 후 (앞면, 뒷면)이 동일한 카드는 첫 번째만 유지하고 이후는 skip한다.
+        val result = useCase(
+            uid = "uid-1",
+            selectedSuggestions = listOf(
+                sampleSuggestion(id = "s-1", nativeText = "나는 학교에 간다", afterText = "I go to school."),
+                sampleSuggestion(id = "s-2", nativeText = "나는 학교에 간다", afterText = "I go to school."),
+                sampleSuggestion(id = "s-3", nativeText = "나는 학교에 간다", afterText = "I GO TO SCHOOL!"),
+            ),
+        )
+
+        assertTrue(result.isSuccess)
+        val flashcards = result.getOrThrow().flashcards
+        // s-1 유지, s-2(s-1과 정규화 후 동일) skip, s-3(정규화 후 동일) skip
+        assertEquals(1, flashcards.size)
+        assertEquals("s-1", flashcards.first().suggestionId)
+    }
+
+    @Test
+    fun `returns success with empty flashcards when all suggestions are excluded by quality filter`() {
+        // 전부 제외돼도 저장 실패로 보이지 않게 Result.success + 빈 flashcards로 반환한다.
+        // CompleteCorrectionUseCase는 빈 저장 결과를 이미 안전하게 처리한다.
+        val result = useCase(
+            uid = "uid-1",
+            selectedSuggestions = listOf(
+                sampleSuggestion(id = "s-1", beforeText = "same", afterText = "same"),
+                sampleSuggestion(id = "s-2", afterText = "A"),
+            ),
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(0, result.getOrThrow().flashcards.size)
     }
 
     private fun sampleSuggestion(
         id: String,
         lang: LangCode = LangCode.EN,
+        beforeText: String = "i go school",
         nativeText: String = "나는 학교에 간다",
         afterText: String = "I go to school.",
         explanation: String = "demo explanation",
@@ -160,7 +229,7 @@ class PrepareSaveRequestUseCaseTest {
         lang = lang,
         sourceCandidateIds = listOf("c-$id"),
         sourceTurnIndex = 0,
-        beforeText = "i go school",
+        beforeText = beforeText,
         nativeText = nativeText,
         afterText = afterText,
         explanation = explanation,
