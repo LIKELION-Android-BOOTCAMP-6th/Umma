@@ -4,6 +4,7 @@ import com.app.umma.data.model.correction.CorrectionFlashcardDto
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.app.umma.data.repository.correction.CorrectionFlashcardStore
+import com.app.umma.data.repository.correction.CorrectionOverexpansionGuard
 import com.app.umma.data.repository.correction.CorrectionPromptBuilder
 import com.app.umma.data.source.local.TestCorrectionFlashcardLocalDataSource
 import com.app.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
@@ -35,7 +36,8 @@ class CorrectionRepositoryImplTest {
         ),
         promptBuilder = CorrectionPromptBuilder(),
         aiClient = aiClient,
-        responseMapper = CorrectionAiResponseMapper()
+        responseMapper = CorrectionAiResponseMapper(),
+        overexpansionGuard = CorrectionOverexpansionGuard()
     )
 
     // ──────────────────────────────────────────────────────────────

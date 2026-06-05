@@ -3,6 +3,7 @@ package com.app.umma.data.repository
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.app.umma.data.repository.correction.CorrectionFlashcardStore
+import com.app.umma.data.repository.correction.CorrectionOverexpansionGuard
 import com.app.umma.data.repository.correction.CorrectionPromptBuilder
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
@@ -32,7 +33,9 @@ open class CorrectionRepositoryImpl @Inject constructor(
     // AI 파이프라인 2단: Gemini 2.5-flash 단발 JSON 호출 어댑터. 테스트에서는 fake 로 교체된다.
     private val aiClient: CorrectionAiClient,
     // AI 파이프라인 3단: raw JSON → CorrectionSuggestion 변환 + candidateId 매칭/필수 필드 검증.
-    private val responseMapper: CorrectionAiResponseMapper
+    private val responseMapper: CorrectionAiResponseMapper,
+    // COR-TUNE-006: 매핑 후 과확장·의미 위반 suggestion을 drop하는 런타임 가드.
+    private val overexpansionGuard: CorrectionOverexpansionGuard
 ) : CorrectionRepository {
 
     override suspend fun generateSuggestions(
@@ -49,7 +52,9 @@ open class CorrectionRepositoryImpl @Inject constructor(
             val rawJson = aiClient.generateJson(prompt)
             // mapper 가 candidateId 매칭과 필수 필드 검증을 require 로 막아 둔다.
             // 매칭 실패 / 누락 → IllegalArgumentException → 여기 runCatching 으로 Result.failure 변환 → 화면 Error.
-            responseMapper.map(rawJson, input)
+            val mapped = responseMapper.map(rawJson, input)
+            // COR-TUNE-006: 과확장 런타임 가드. 가드 실패 시 원본 결과로 폴백해 핵심 4필드 흐름을 무손상으로 유지한다.
+            runCatching { overexpansionGuard.filter(mapped, input) }.getOrDefault(mapped)
         }
     }
 
