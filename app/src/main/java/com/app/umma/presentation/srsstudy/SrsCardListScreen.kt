@@ -213,13 +213,17 @@ private fun SrsCardListItem(
             Text(
                 text = card.backText,
                 style = TextPrimaryR,
-                color = TextCorrect
+                color = TextCorrect,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
             // 모국어
             Text(
                 text = card.frontText,
                 style = TextExplanationR,
-                color = TextWrong
+                color = TextWrong,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
         }
     }
