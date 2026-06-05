@@ -311,6 +311,99 @@ class BuildLearnerAdaptationProfileUseCaseTest {
     }
 
     @Test
+    fun `mixed metric evidence keeps correction band conservative`() {
+        // 숫자 metric은 높아 보여도 evidence 방향이 Mixed면 성장 방향 자체가 충돌한 상태다.
+        // 이 경우 NuanceRefine처럼 높은 교정을 주면 사용자가 따라갈 수 없는 rewrite가 될 수 있다.
+        val state = analyzedState(
+            internal = refinedInternalMetrics(),
+            external = refinedExternalMetrics(),
+            evidence = mapOf(
+                LearningMetricKey.GrammarAccuracy to evidence(
+                    observedCount = 3,
+                    confidence = 0.86,
+                    direction = EvidenceDirection.Mixed
+                ),
+                LearningMetricKey.VocabularyAppropriateness to evidence(3, 0.84),
+                LearningMetricKey.SpokenNaturalness to evidence(3, 0.82)
+            )
+        )
+
+        val profile = useCase(state)
+
+        // estimateProfileConfidence가 Mixed를 Low로 낮추고, correction band도 낮은 단계로 보수화한다.
+        assertEquals(ProfileConfidence.Low, profile.core.levelConfidence)
+        assertEquals(CorrectionGrowthBand.PatternFix, profile.correctionPolicy.band)
+    }
+
+    @Test
+    fun `repeated core weakness caps correction band at SentenceShape`() {
+        // 반복적인 GrammarAccuracy 하락 근거가 있으면 naturalness/어휘가 좋아도 먼저 문장 뼈대를 안정화해야 한다.
+        // 이는 "좋은 문장으로 멋지게 바꾸기"보다 사용자가 재사용 가능한 구조를 받게 하려는 방어다.
+        val state = analyzedState(
+            internal = refinedInternalMetrics(),
+            external = refinedExternalMetrics(),
+            evidence = mapOf(
+                LearningMetricKey.GrammarAccuracy to evidence(
+                    observedCount = 3,
+                    confidence = 0.82,
+                    direction = EvidenceDirection.Down
+                ),
+                LearningMetricKey.VocabularyAppropriateness to evidence(3, 0.86),
+                LearningMetricKey.SpokenNaturalness to evidence(3, 0.84),
+                LearningMetricKey.NaturalExpressionUsage to evidence(3, 0.8)
+            )
+        )
+
+        val profile = useCase(state)
+
+        // high confidence 근거가 있어도 core weakness가 반복되면 NuanceRefine이 아니라 SentenceShape로 제한한다.
+        assertEquals(ProfileConfidence.High, profile.core.levelConfidence)
+        assertEquals(CorrectionGrowthBand.SentenceShape, profile.correctionPolicy.band)
+    }
+
+    @Test
+    fun `low sentence complexity blocks upper correction band despite high other metrics`() {
+        // grammar/vocabulary/naturalness가 높아도 sentenceComplexity가 낮으면 긴 rewrite나 nuance 교정은 과하다.
+        // 사용자가 실제로 감당할 문장 구조 근거가 약하므로 SentenceShape 이하로 방어한다.
+        val state = analyzedState(
+            internal = refinedInternalMetrics().copy(sentenceComplexity = 0.2),
+            external = refinedExternalMetrics(),
+            evidence = highConfidenceEvidence()
+        )
+
+        val profile = useCase(state)
+
+        assertEquals(ProfileConfidence.High, profile.core.levelConfidence)
+        assertEquals(CorrectionGrowthBand.SentenceShape, profile.correctionPolicy.band)
+    }
+
+    @Test
+    fun `single high evidence axis does not unlock connected correction band`() {
+        // 전체 metric 점수는 좋아 보여도 반복 상승 근거가 한 축에만 몰리면 "다음 단계" 판단이 불안정하다.
+        // 이 케이스를 ConnectedExpression으로 올리면 사용자가 감당할 수 있는 10% 성장폭을 넘길 수 있다.
+        val state = analyzedState(
+            internal = refinedInternalMetrics().copy(
+                // NuanceRefine 조건은 피하고 ConnectedExpression 조건만 검증하기 위해 naturalness를 Expanding 구간에 둔다.
+                spokenNaturalness = 0.78,
+                naturalExpressionUsage = 0.78
+            ),
+            external = refinedExternalMetrics().copy(naturalnessScore = 0.78),
+            evidence = mapOf(
+                LearningMetricKey.GrammarAccuracy to evidence(
+                    observedCount = 6,
+                    confidence = 0.9
+                )
+            )
+        )
+
+        val profile = useCase(state)
+
+        // observedCount가 충분해 confidence는 High지만, 상승 근거가 한 축뿐이면 EverydayNatural에 머문다.
+        assertEquals(ProfileConfidence.High, profile.core.levelConfidence)
+        assertEquals(CorrectionGrowthBand.EverydayNatural, profile.correctionPolicy.band)
+    }
+
+    @Test
     fun `profile does not store primary or selected language`() {
         // primaryLang/selectedLang은 prompt builder 입력이지 profile 저장 필드가 아니다.
         val profile = useCase(analyzedState())
@@ -381,16 +474,46 @@ class BuildLearnerAdaptationProfileUseCaseTest {
 
     private fun evidence(
         observedCount: Int,
-        confidence: Double
+        confidence: Double,
+        direction: EvidenceDirection = EvidenceDirection.Up
     ): MetricEvidence {
         // sourceTypes와 direction은 "어떤 경로에서 어떤 방향으로 누적됐는지"를 profile이 나중에 다시 해석할 수 있게 남긴다.
         return MetricEvidence(
             observedCount = observedCount,
             confidence = confidence,
             sourceTypes = setOf(LearningSignalSource.CorrectionSignal),
-            direction = EvidenceDirection.Up,
+            direction = direction,
             directionCount = observedCount,
             lastObservedAt = 2_000L
+        )
+    }
+
+    private fun refinedInternalMetrics(): InternalMetrics {
+        // 여러 지표가 높은 상태를 만들어, correction band 방어가 없으면 NuanceRefine까지 올라갈 수 있는 fixture다.
+        return InternalMetrics(
+            grammarAccuracy = 0.9,
+            vocabularyAppropriateness = 0.9,
+            lexicalDiversity = 0.86,
+            vocabularyLevel = VocabLevel.C1,
+            sentenceComplexity = 0.86,
+            speechRate = 0.82,
+            pauseFrequency = 0.08,
+            avgUtteranceLength = 0.84,
+            spokenNaturalness = 0.9,
+            naturalExpressionUsage = 0.88,
+            errorRecurrence = 0.05,
+            reviewRetention = 0.9
+        )
+    }
+
+    private fun refinedExternalMetrics(): ExternalMetrics {
+        // external은 표시용이지만 fixture를 실제 snapshot처럼 유지하기 위해 internal 고점과 맞춘다.
+        return ExternalMetrics(
+            vocabularyLevel = VocabLevel.C1,
+            grammarAccuracy = 0.9,
+            expressionRange = 75,
+            fluencyScore = 0.85,
+            naturalnessScore = 0.89
         )
     }
 
