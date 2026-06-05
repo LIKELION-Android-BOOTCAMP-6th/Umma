@@ -33,6 +33,9 @@ import com.app.umma.watchbridge.SessionOwner
  * @property microphonePermissionPermanentlyDenied 마이크 권한 영구 거부 여부
  * @property fallbackMessage 재연결 폴백 시 메시지
  * @property didFallbackToNewSession 재연결 폴백 후 새 세션 실행 여부
+ * @property showPromptReviewReportButton 개발용 프롬프트 리뷰 신고 버튼 노출 여부
+ * @property isPromptReviewReporting 신고 요청 중복 클릭 방지 상태
+ * @property hasPromptReviewReported 현재 화면 세션에서 이미 신고가 완료됐는지 여부
  * @property errorMessage 세션 오류 메시지
  */
 data class ChatUiState(
@@ -75,6 +78,9 @@ data class ChatUiState(
     val topicError: String? = null,
     val isSavingTurn: Boolean = false,
     val saveErrorMessage: String? = null,
+    val showPromptReviewReportButton: Boolean = false,
+    val isPromptReviewReporting: Boolean = false,
+    val hasPromptReviewReported: Boolean = false,
     val sessionOwner: SessionOwner = SessionOwner.NONE,
 ) {
     /**
@@ -177,7 +183,6 @@ enum class ChatEntryStage {
 }
 
 enum class ChatBlockedReason {
-    MISSING_LANG,
     OFFLINE,
     UNRECOVERABLE
 }

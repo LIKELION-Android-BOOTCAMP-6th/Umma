@@ -112,8 +112,7 @@ class RetryConnectionUseCase @Inject constructor(
                 basePolicy = baseTurnPolicy,
                 turnPolicy = turnPolicy,
                 primaryLang = userPref.primaryLang,
-                selectedLang = userPref.selectedLang,
-                contextSignal = contextSignal
+                selectedLang = userPref.selectedLang
             )
             // speed 역시 같은 profile/turnPolicy 조합으로 계산해 start와 retry의 정책 차이를 없앤다.
             val turnAudioSpeed = buildChatSpeechSpeedUseCase(

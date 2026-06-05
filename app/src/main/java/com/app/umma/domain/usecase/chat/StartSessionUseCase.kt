@@ -98,8 +98,7 @@ class StartSessionUseCase @Inject constructor(
                 basePolicy = baseTurnPolicy,
                 turnPolicy = turnPolicy,
                 primaryLang = userPref.primaryLang,
-                selectedLang = userPref.selectedLang,
-                contextSignal = contextSignal
+                selectedLang = userPref.selectedLang
             )
             // 실제 audio speed 는 turnPolicy 를 반영해 계산하고, repository 가 변경 필요 시 session.update 로 적용한다.
             val turnAudioSpeed = buildChatSpeechSpeedUseCase(

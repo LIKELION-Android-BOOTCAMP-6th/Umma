@@ -5,7 +5,8 @@
 ## 앱 저장 스위치
 
 현재 프롬프트 튜닝 단계에서는 debug build 기본값이 켜져 있습니다.
-따라서 별도 설정 없이 `devDebug` / `mockDebug`에서 리뷰 데이터가 저장됩니다.
+따라서 별도 설정 없이 `devDebug`에서 채팅 화면 상단에 개발용 `신고` 버튼이 표시됩니다.
+`mockDebug`는 fake transport를 사용하는 화면 검증용이므로 신고 버튼을 표시하지 않습니다.
 
 로컬에서 끄고 싶으면 `local.properties`에 아래 값을 추가합니다.
 
@@ -15,16 +16,23 @@ CHAT_PROMPT_REVIEW_ENABLED=false
 
 release build에서는 코드에서 `BuildConfig.DEBUG`로 한 번 더 막기 때문에 저장되지 않습니다.
 
-저장 위치:
+세션 리뷰 저장 위치:
 
 ```text
 users/{uid}/chat_prompt_reviews/{sessionId}
 ```
 
-이 컬렉션은 개발용입니다. `SessionMemory`, `usage`, `Correction` 저장 모델과 분리되어 있습니다.
-앱은 turn마다 Firestore에 쓰지 않고 메모리에 모았다가 세션 종료 시 세션 문서 하나에 `events` 배열로 한 번만 저장합니다.
+신고 인덱스 저장 위치:
 
-세션 저장이 성공하면 Logcat에 아래 태그로 export 식별 정보가 남습니다.
+```text
+chat_prompt_review_reports/{reportId}
+```
+
+이 컬렉션은 개발용입니다. `SessionMemory`, `usage`, `Correction` 저장 모델과 분리되어 있습니다.
+앱은 turn마다 Firestore에 쓰지 않고 메모리에만 모읍니다.
+팀원이 `신고` 버튼을 누른 세션만 Firestore에 저장하며, 신고하지 않은 세션은 원격에 남기지 않습니다.
+
+신고 저장이 성공하면 Logcat에 아래 태그로 export 식별 정보가 남습니다.
 
 ```text
 tag:AiChatPromptReview
@@ -33,10 +41,10 @@ tag:AiChatPromptReview
 예시:
 
 ```text
-sessionFlushed uid=USER_UID sessionId=SESSION_ID eventCount=12 firestorePath=users/USER_UID/chat_prompt_reviews/SESSION_ID
+sessionFlushed uid=USER_UID sessionId=SESSION_ID eventCount=12 status=reported firestorePath=users/USER_UID/chat_prompt_reviews/SESSION_ID reportPath=chat_prompt_review_reports/REPORT_ID
 ```
 
-이 로그의 `uid`와 `sessionId`를 사용하면 방금 종료한 세션을 정확히 문서화할 수 있습니다.
+이제 팀원이 로그를 복사하지 않아도 Firestore의 `chat_prompt_review_reports`에서 신고된 세션 목록을 확인할 수 있습니다.
 
 ## 실행
 
@@ -53,6 +61,23 @@ node tools/chat_prompt_review/export_review_doc.js \
   --project umma-6804c \
   --uid USER_UID \
   --session SESSION_ID
+```
+
+신고된 세션 목록을 문서화합니다.
+
+```bash
+node tools/chat_prompt_review/export_review_doc.js \
+  --project umma-6804c \
+  --reports
+```
+
+최근 N개 신고만 확인할 수도 있습니다.
+
+```bash
+node tools/chat_prompt_review/export_review_doc.js \
+  --project umma-6804c \
+  --reports \
+  --limit 20
 ```
 
 `--session`을 생략하면 `updatedAt` 기준 최신 리뷰 세션을 사용합니다.
@@ -99,4 +124,4 @@ tools/chat_prompt_review/output/chat_prompt_review_{sessionId}.md
 tools/chat_prompt_review/output/REVIEW_NOTES.md
 ```
 
-`chat_prompt_review_*.md` 산출물은 Git에 올리지 않고, `REVIEW_NOTES.md`만 추적합니다.
+`chat_prompt_review_*.md`, `chat_prompt_review_reports.md`, `REVIEW_NOTES.md` 산출물은 Git에 올리지 않습니다.

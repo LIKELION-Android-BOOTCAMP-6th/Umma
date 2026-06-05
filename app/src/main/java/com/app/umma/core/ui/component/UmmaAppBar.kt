@@ -1,6 +1,7 @@
 package com.app.umma.core.ui.component
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
@@ -28,7 +29,7 @@ import com.app.umma.core.theme.TitleScreenSB
  * 앱 전반에서 공통으로 사용되는 상단 앱 바 컴포저블입니다.
  *
  * 타이틀 정렬 방식(좌측/중앙)에 따라 [TopAppBar] 또는 [CenterAlignedTopAppBar]를 렌더링하며,
- * 뒤로가기 버튼과 우측 액션 버튼을 선택적으로 포함할 수 있습니다.
+ * 뒤로가기 버튼, 좌측 보조 액션, 우측 액션 버튼을 선택적으로 포함할 수 있습니다.
  *
  * 사용 예시:
  * ```
@@ -50,6 +51,8 @@ import com.app.umma.core.theme.TitleScreenSB
  *   `false`이면 좌측 정렬([TopAppBar]). 기본값은 `false`.
  * @param scrollBehavior 스크롤 연동 동작을 정의하는 [TopAppBarScrollBehavior].
  *   `null`이면 스크롤에 반응하지 않음. 기본값은 `null`.
+ * @param leadingActions 앱 바 좌측에 배치할 보조 액션 컴포저블 블록 ([RowScope] 내부).
+ *   뒤로가기와 같은 navigation 영역에 놓여야 하는 개발용/보조 액션에만 사용한다.
  * @param actions 앱 바 우측에 배치할 액션 아이콘 컴포저블 블록 ([RowScope] 내부).
  *   기본값은 빈 블록.
  * @param onBackClick 뒤로가기 버튼 클릭 시 호출되는 콜백.
@@ -63,6 +66,7 @@ fun UmmaAppBar(
     isCenterTitle: Boolean = false,
     scrollBehavior: TopAppBarScrollBehavior? = null,
     onBackClick: (() -> Unit)? = null,
+    leadingActions: @Composable RowScope.() -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val appBarColors = TopAppBarDefaults.topAppBarColors(
@@ -77,16 +81,20 @@ fun UmmaAppBar(
     }
 
     val navigationIcon = @Composable {
-        if (onBackClick != null) {
-            IconButton(
-                onClick = onBackClick
-            ) {
-                Icon(
-                    Icons.Default.ArrowBackIosNew,
-                    contentDescription = "뒤로가기",
-                    tint = TextPrimary
-                )
+        // 좌측 보조 액션은 우측 action과 오터치를 만들 수 있는 기능을 navigation 영역으로 분리하기 위한 슬롯이다.
+        Row {
+            if (onBackClick != null) {
+                IconButton(
+                    onClick = onBackClick
+                ) {
+                    Icon(
+                        Icons.Default.ArrowBackIosNew,
+                        contentDescription = "뒤로가기",
+                        tint = TextPrimary
+                    )
+                }
             }
+            leadingActions()
         }
     }
 

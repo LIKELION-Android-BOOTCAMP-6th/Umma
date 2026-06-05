@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.umma.BuildConfig
 import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.di.ApplicationScope
+import com.app.umma.devtools.chatpromptreview.ReportPromptReviewSessionUseCase
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.audio.AudioInputFrame
@@ -60,6 +62,7 @@ class ChatViewModel @Inject constructor(
     private val appendTurnUseCase: AppendTurnUseCase,
     private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
     private val recordChatUsageUseCase: RecordChatUsageUseCase,
+    private val reportPromptReviewSessionUseCase: ReportPromptReviewSessionUseCase,
     private val syncChatSessionUsageUseCase: SyncChatSessionUsageUseCase,
     private val syncPendingChatUsageUseCase: SyncPendingChatUsageUseCase,
     private val cleanupChatUsageUseCase: CleanupChatUsageUseCase,
@@ -69,11 +72,16 @@ class ChatViewModel @Inject constructor(
     private val audioPlayer: AudioOutput
 ) : ViewModel() {
     private val entryStageDelayMs = 350L
+    @Suppress("KotlinConstantConditions")
+    private val shouldShowPromptReviewReportButton =
+        BuildConfig.DEBUG &&
+            BuildConfig.FLAVOR == "dev" &&
+            BuildConfig.CHAT_PROMPT_REVIEW_ENABLED
 
     /**
      * 화면에서 구독하는 단일 UI 상태입니다.
      */
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState = MutableStateFlow(initialChatUiState())
 
     /**
      * 외부에 노출하는 불변 UI 상태입니다.
@@ -108,6 +116,13 @@ class ChatViewModel @Inject constructor(
         observeAudioOutputPlayback()
     }
 
+    private fun initialChatUiState(): ChatUiState {
+        // 개발용 프롬프트 신고 버튼은 실제 Firestore 리뷰가 가능한 devDebug에서만 노출한다.
+        // mockDebug는 fake transport라 버튼이 보여도 저장이 되지 않아 테스트 판단을 흐릴 수 있다.
+        // 상태 초기화가 여러 번 일어나도 같은 조건을 유지하도록 초기 상태 생성을 한 곳에 둔다.
+        return ChatUiState(
+            showPromptReviewReportButton = shouldShowPromptReviewReportButton
+        )
     private fun observeSessionOwner() {
         viewModelScope.launch {
             phoneChatSessionController.snapshot.collectLatest { snapshot ->
@@ -470,6 +485,41 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * 현재 대화 세션을 프롬프트 리뷰 대상으로 신고합니다.
+     *
+     * 신고는 대화 transport나 SessionMemory 흐름을 변경하지 않고, 개발용 리뷰 버퍼만 Firestore에 남깁니다.
+     */
+    fun reportPromptReviewSession() {
+        val current = _uiState.value
+        if (!current.showPromptReviewReportButton || current.isPromptReviewReporting || current.hasPromptReviewReported) {
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isPromptReviewReporting = true)
+            }
+
+            val result = reportPromptReviewSessionUseCase()
+            _uiState.update {
+                if (result.isSuccess) {
+                    it.copy(
+                        isPromptReviewReporting = false,
+                        hasPromptReviewReported = true
+                    )
+                } else {
+                    // 신고 실패는 개발 도구 실패일 뿐 대화 실패가 아니므로 기존 chat error 상태와 섞지 않는다.
+                    it.copy(isPromptReviewReporting = false)
+                }
+            }
+
+            result.onFailure { error ->
+                Log.w(TAG, "prompt review report failed: ${error.message}", error)
+            }
+        }
+    }
+
+    /**
      * Chat destination 이 back stack 에 저장된 채 화면에서만 내려가는 경우에도 usage sync 를 시도합니다.
      *
      * Bottom navigation 의 saveState/restoreState 경로에서는 Composable 이 즉시 dispose 되지 않을 수 있습니다.
@@ -507,7 +557,7 @@ class ChatViewModel @Inject constructor(
 
         pendingTurnSaveCount = 0
         if (resetUiState) {
-            _uiState.value = ChatUiState()
+            _uiState.value = initialChatUiState()
         }
     }
 
