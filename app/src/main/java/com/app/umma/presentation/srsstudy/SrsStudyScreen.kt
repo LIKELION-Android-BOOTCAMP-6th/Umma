@@ -72,13 +72,13 @@ import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.SpacingXL
-import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextCardR
 import com.app.umma.core.theme.TextCorrect
 import com.app.umma.core.theme.TextCorrectionSB
 import com.app.umma.core.theme.TextExplanationR
 import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.TextSecondaryR
+import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleB
 import com.app.umma.core.theme.TitleScreenSB
@@ -324,25 +324,34 @@ private fun SrsCardBack(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = SpacingL),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "V CORRECT ANSWER",
+                    text = "CORRECT ANSWER",
                     style = TextCorrectionSB,
                     color = TextCorrect
 
                 )
             }
             Spacer(modifier = Modifier.height(SpacingM))
+
+            Text(
+                text = card.frontText,
+                style = TextExplanationR,
+                color = TextWrong,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = SpacingXL)
+            )
+            Spacer(modifier = Modifier.height(SpacingM))
             // 정답 문장
             Text(
                 text = card.backText,
                 style = TitleScreenSB,
                 modifier = Modifier.padding(horizontal = SpacingXL)
-
             )
             // Grammar Note 박스
             if (card.explanation.isNotBlank()) {
@@ -510,12 +519,13 @@ private fun SrsRatingButton(
                         .align(Alignment.Center)
                 )
             }
+            // Again, Hard, Good, Easy
             Text(
                 text = label,
-                fontWeight = ButtonScreenB.fontWeight,
-                fontSize = TextAnalysisR.fontSize,
+                style = ButtonScreenB,
                 color = TextPrimary
             )
+            // 다시, 10분, 1일, 4일
             Text(
                 text = time,
                 style = TextCardR,

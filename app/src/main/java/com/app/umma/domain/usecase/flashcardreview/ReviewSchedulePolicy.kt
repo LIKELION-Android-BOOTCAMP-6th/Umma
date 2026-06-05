@@ -18,39 +18,36 @@ class ReviewSchedulePolicy @Inject constructor() {
         reviewedAt: Long
     ): ReviewScheduleResult {
         // 1440분 = 1일
-        // baseInterval = 곱하기 계산 시작할 '기준 날짜'. (새 카드는 0일이라 강제로 1일 취급)
-        // 신규 카드도 첫 노출 기준이 흔들리지 않도록 1일을 기준 간격으로 잡는다
-        val baseInterval = if (current.interval <= 0) 1440 else current.interval
+        // interval이 1일(1440분) 이상이면 졸업한 복습 카드, 미만이면 학습 중인 카드
+        val graduated = current.interval >= 1440
         val currentEF = current.easeFactor
 
         // 등급별로 간격과 easeFactor를 함께 갱신해 다음 복습 시점을 계산한다.
         val (nextInterval, nextEF) = when (rating) {
             ReviewRating.AGAIN -> {
-                // 다시 봐야 하는 카드라서 간격을 0으로 두고, 세션 재등장은 ViewModel이 관리한다.
-                0 to max(1.3, currentEF - 0.20)
+                // 다시(Again): 복습 카드는 10분 뒤 + EF 깎기, 학습 카드는 1분 뒤
+                if (graduated) 10 to max(1.3, currentEF - 0.20)
+                else 1 to currentEF
             }
 
             ReviewRating.HARD -> {
-                // 어렵게 맞힌 카드는 간격을 조금만 늘린다.
-                val interval = max(1440.0, baseInterval * 1.2).toInt()
-                interval to max(1.3, currentEF - 0.15)
+                // 어려움(Hard): 복습 카드는 간격 1.2배(최소 1일) + EF 깎기, 학습 카드는 10분 뒤
+                if (graduated) max(1440.0, current.interval * 1.2).toInt() to
+                        max(1.3, currentEF - 0.15)
+                else 10 to currentEF
             }
 
             ReviewRating.GOOD -> {
-                // 신규/실패 카드(간격 0)는 첫 성공 시 1일로 졸업시키고
-                // 이미 간격이 있는 카드는 간격 × easeFactor로 늘린다
-                val interval = if (current.interval <= 0) {
-                    1440
-                } else {
-                    (current.interval * currentEF).toInt()
-                }
-                interval to currentEF
+                // 괜찮음(Good): 복습 카드는 간격 × EF, 학습 카드는 바로 졸업(1일)
+                if (graduated) (current.interval * currentEF).toInt() to currentEF
+                else 1440 to currentEF
             }
 
             ReviewRating.EASY -> {
                 // 쉽게 맞힌 카드는 더 오래 뒤에 다시 본다.
-                val interval = max(5760.0, baseInterval * currentEF * 1.3).toInt()
-                interval to (currentEF + 0.15)
+                // 쉬움(Easy): 복습 카드는 간격 × EF × 1.3 + EF 올리기, 학습 카드는 바로 졸업(4일)
+                if (graduated) (current.interval * currentEF * 1.3).toInt() to (currentEF + 0.15)
+                else 5760 to currentEF
             }
         }
 
