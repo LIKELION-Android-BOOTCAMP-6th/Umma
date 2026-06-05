@@ -123,6 +123,7 @@ class ChatViewModel @Inject constructor(
         return ChatUiState(
             showPromptReviewReportButton = shouldShowPromptReviewReportButton
         )
+    }
     private fun observeSessionOwner() {
         viewModelScope.launch {
             phoneChatSessionController.snapshot.collectLatest { snapshot ->
