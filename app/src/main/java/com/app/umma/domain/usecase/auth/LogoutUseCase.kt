@@ -1,6 +1,7 @@
 package com.app.umma.domain.usecase.auth
 
 import com.app.umma.domain.repository.LearningStateRepo
+import com.app.umma.domain.repository.ChatConversationAnalysisJobRepository
 import com.app.umma.domain.usecase.notification.UnregisterNotificationDeviceUseCase
 import javax.inject.Inject
 
@@ -18,6 +19,7 @@ import javax.inject.Inject
 class LogoutUseCase @Inject constructor(
     private val signOutUseCase: SignOutUseCase,
     private val learningStateRepo: LearningStateRepo,
+    private val chatConversationAnalysisJobRepository: ChatConversationAnalysisJobRepository,
     private val unregisterNotificationDeviceUseCase: UnregisterNotificationDeviceUseCase
 ) {
     suspend operator fun invoke(): Result<Unit> {
@@ -34,6 +36,9 @@ class LogoutUseCase @Inject constructor(
         // (UserLangPref, LangState, DashSummary, SessionSummary, FlashcardSummary)
         // 다음 사용자가 로그인했을 때 이전 사용자 데이터가 보이지 않도록
         learningStateRepo.clear()
+        // Chat 분석 pending job은 로그인 사용자 기준으로 재시도되므로 로그아웃 시 같이 제거한다.
+        // 실패해도 sign-out은 완료된 상태라 로그아웃 흐름을 되돌리지는 않는다.
+        chatConversationAnalysisJobRepository.clearAll()
         return Result.success(Unit)
 
     }

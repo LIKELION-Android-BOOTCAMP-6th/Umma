@@ -441,6 +441,41 @@ class BuildLearnerAdaptationProfileUseCaseTest {
     }
 
     @Test
+    fun `chat only evidence does not unlock upper correction band`() {
+        // CHAT-TUNE-006 1차에서는 ChatSession evidence를 저장만 하고 correction band 계산에는 쓰지 않는다.
+        // source filtering이 없으면 아래 반복 상승 근거가 ConnectedExpression/NuanceRefine을 열 수 있다.
+        val state = analyzedState(
+            internal = refinedInternalMetrics().copy(
+                spokenNaturalness = 0.78,
+                naturalExpressionUsage = 0.78
+            ),
+            external = refinedExternalMetrics().copy(naturalnessScore = 0.78),
+            evidence = mapOf(
+                LearningMetricKey.GrammarAccuracy to evidence(
+                    observedCount = 6,
+                    confidence = 0.9,
+                    sourceTypes = setOf(LearningSignalSource.ChatSession)
+                ),
+                LearningMetricKey.VocabularyAppropriateness to evidence(
+                    observedCount = 6,
+                    confidence = 0.9,
+                    sourceTypes = setOf(LearningSignalSource.ChatSession)
+                ),
+                LearningMetricKey.SpokenNaturalness to evidence(
+                    observedCount = 6,
+                    confidence = 0.9,
+                    sourceTypes = setOf(LearningSignalSource.ChatSession)
+                )
+            )
+        )
+
+        val profile = useCase(state)
+
+        // internal metric은 높지만 correction source 근거가 없으므로 상위 correction band를 열지 않는다.
+        assertEquals(CorrectionGrowthBand.EverydayNatural, profile.correctionPolicy.band)
+    }
+
+    @Test
     fun `profile does not store primary or selected language`() {
         // primaryLang/selectedLang은 prompt builder 입력이지 profile 저장 필드가 아니다.
         val profile = useCase(analyzedState())
@@ -512,13 +547,14 @@ class BuildLearnerAdaptationProfileUseCaseTest {
     private fun evidence(
         observedCount: Int,
         confidence: Double,
-        direction: EvidenceDirection = EvidenceDirection.Up
+        direction: EvidenceDirection = EvidenceDirection.Up,
+        sourceTypes: Set<LearningSignalSource> = setOf(LearningSignalSource.CorrectionSignal)
     ): MetricEvidence {
         // sourceTypes와 direction은 "어떤 경로에서 어떤 방향으로 누적됐는지"를 profile이 나중에 다시 해석할 수 있게 남긴다.
         return MetricEvidence(
             observedCount = observedCount,
             confidence = confidence,
-            sourceTypes = setOf(LearningSignalSource.CorrectionSignal),
+            sourceTypes = sourceTypes,
             direction = direction,
             directionCount = observedCount,
             lastObservedAt = 2_000L

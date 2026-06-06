@@ -1,5 +1,14 @@
 package com.app.umma.domain.usecase.learningstate
 
+import com.app.umma.domain.model.chat.ChatConversationEvidence
+import com.app.umma.domain.model.chat.ChatConversationEvidenceSource
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.ChatSignalUpdateInput
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.CorrectionEditSpan
@@ -22,6 +31,7 @@ import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
+import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.model.learningstate.TurnSpeaker
@@ -142,6 +152,83 @@ class LearningStateWriteUseCasesTest {
         // caller가 이미 preparedState를 만든 경우에는 기존 계약대로 그 snapshot을 그대로 저장소에 넘긴다.
         assertEquals(prepared, result.savedState)
         assertEquals(0, policy.analyzeCalls)
+        assertEquals(1, repo.languageStateUpdateCalls)
+    }
+
+    @Test
+    fun `chat signal accumulates ChatSession evidence without changing internal or external metrics`() = runBlocking {
+        // Chat source는 대화 지속 능력 근거만 남기며 점수 snapshot은 직접 움직이면 안 된다.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyChatSignalUpdateUseCase(repo)
+
+        val result = useCase(
+            chatInput(
+                evidence = chatEvidence(
+                    confidence = ProfileConfidence.Medium,
+                    production = TargetLanguageProductionEvidence.SimpleSentences,
+                    comprehension = TargetLanguageComprehensionEvidence.SimpleSentence,
+                    sustainability = ConversationSustainabilityEvidence.SustainedSimple
+                )
+            )
+        ).getOrThrow()
+
+        assertTrue(result.applied)
+        assertEquals(1, repo.languageStateUpdateCalls)
+        assertEquals(repo.initialInternal, result.savedState.internal)
+        assertEquals(repo.initialExternal, result.savedState.external)
+        assertEquals("chat-session:session-1", result.savedState.analysisMeta.lastChatAnalysisEventId)
+        assertEquals(repo.initialState.lastAnalysisEventId, result.savedState.lastAnalysisEventId)
+        assertTrue(result.savedState.analysisMeta.metricEvidence.values.any { evidence ->
+            evidence.sourceTypes.contains(LearningSignalSource.ChatSession)
+        })
+    }
+
+    @Test
+    fun `chat signal keeps correction analysis event id separate from chat idempotency id`() = runBlocking {
+        // Correction 재시도 중복 방어는 LangState.lastAnalysisEventId를 사용한다.
+        // Chat update가 이 값을 chat-session id로 덮으면 같은 correction batch가 다시 반영될 수 있다.
+        val repo = RecordingLearningStateRepo(
+            initialState = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+                lastAnalysisEventId = "correction:session-1",
+                lastAnalyzedAt = 1_000L
+            )
+        )
+        val useCase = ApplyChatSignalUpdateUseCase(repo)
+
+        val result = useCase(chatInput(evidence = chatEvidence())).getOrThrow()
+
+        assertTrue(result.applied)
+        assertEquals("correction:session-1", result.savedState.lastAnalysisEventId)
+        assertEquals("chat-session:session-1", result.savedState.analysisMeta.lastChatAnalysisEventId)
+    }
+
+    @Test
+    fun `chat signal with low confidence stores idempotency id without metric evidence`() = runBlocking {
+        // Low confidence는 재분석 중복만 막고 공식 metric evidence에는 반영하지 않는다.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyChatSignalUpdateUseCase(repo)
+
+        val result = useCase(
+            chatInput(evidence = chatEvidence(confidence = ProfileConfidence.Low))
+        ).getOrThrow()
+
+        assertTrue(result.applied)
+        assertTrue(result.savedState.analysisMeta.metricEvidence.isEmpty())
+        assertEquals("chat-session:session-1", result.savedState.analysisMeta.lastChatAnalysisEventId)
+    }
+
+    @Test
+    fun `chat signal skips duplicate source session by lastChatAnalysisEventId`() = runBlocking {
+        // Correction의 lastAnalysisEventId와 별개로 Chat source 자체의 중복 반영을 막아야 한다.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyChatSignalUpdateUseCase(repo)
+        val input = chatInput(evidence = chatEvidence())
+
+        val first = useCase(input).getOrThrow()
+        val second = useCase(input).getOrThrow()
+
+        assertTrue(first.applied)
+        assertFalse(second.applied)
         assertEquals(1, repo.languageStateUpdateCalls)
     }
 
@@ -625,9 +712,16 @@ class LearningStateWriteUseCasesTest {
         assertEquals(0, repo.flashcardSummaryUpdateCalls)
     }
 
-    private class RecordingLearningStateRepo : LearningStateRepo {
+    private class RecordingLearningStateRepo(
+        val initialState: LangState = LangState.initial(LangCode.EN)
+    ) : LearningStateRepo {
         // fake repo는 저장 여부만 기록하고, 실제 계산/저장소 부작용은 만들지 않는다.
-        private val state = MutableStateFlow(GlobalLangState.initial())
+        // Chat 중복 방어 테스트는 observeLangState가 이전 저장 결과를 다시 읽어야 하므로 StateFlow로 보관한다.
+        private val state = MutableStateFlow(
+            GlobalLangState.initial().copy(
+                langStates = mapOf(initialState.lang to initialState)
+            )
+        )
         var languageStateUpdateCalls: Int = 0
         var flashcardSummaryUpdateCalls: Int = 0
         var correctionSignalUpdateCalls: Int = 0
@@ -659,6 +753,9 @@ class LearningStateWriteUseCasesTest {
             // UseCase가 만든 preparedState가 그대로 저장소로 넘어왔는지 확인하려고 echo한다.
             languageStateUpdateCalls += 1
             val savedState = input.preparedState ?: input.currentState
+            state.value = state.value.copy(
+                langStates = state.value.langStates + (input.lang to savedState)
+            )
             return Result.success(
                 LearningStateUpdateResult(
                     lang = input.lang,
@@ -748,6 +845,58 @@ class LearningStateWriteUseCasesTest {
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
+
+        val initialInternal = initialState.internal
+        val initialExternal = initialState.external
+    }
+
+    private fun chatInput(
+        evidence: ChatConversationEvidence = chatEvidence()
+    ): ChatSignalUpdateInput {
+        // Chat update 입력은 저장 확정 USER turn을 포함해야 repository summary가 잘못 꺼지지 않는다.
+        // 실제 summary는 PreserveExisting으로 보존되지만, 입력 검증은 USER turn 부재를 공식 evidence 반영 제외 조건으로 본다.
+        return ChatSignalUpdateInput(
+            uid = "uid-1",
+            lang = LangCode.EN,
+            sessionMemoryKey = "uid-1_en",
+            sourceSessionId = "session-1",
+            evidence = evidence,
+            recentUserTurns = listOf(
+                ConversationTurn(
+                    speaker = TurnSpeaker.USER,
+                    text = "I like coffee",
+                    tokenCount = 3,
+                    durationMs = 2_000L,
+                    confidence = 0.9
+                )
+            ),
+            analyzedAt = 10_000L
+        )
+    }
+
+    private fun chatEvidence(
+        confidence: ProfileConfidence = ProfileConfidence.Medium,
+        production: TargetLanguageProductionEvidence = TargetLanguageProductionEvidence.SimpleSentences,
+        comprehension: TargetLanguageComprehensionEvidence = TargetLanguageComprehensionEvidence.SimpleSentence,
+        sustainability: ConversationSustainabilityEvidence = ConversationSustainabilityEvidence.SustainedSimple,
+        supportDependence: LanguageDependenceEvidence = LanguageDependenceEvidence.Low,
+        scaffoldDependence: LanguageDependenceEvidence = LanguageDependenceEvidence.Low
+    ): ChatConversationEvidence {
+        // 기본 fixture는 LangState evidence 저장 조건을 통과하는 중간 신뢰도 Chat 세션을 재현한다.
+        return ChatConversationEvidence(
+            selectedLang = LangCode.EN,
+            targetLanguageComprehension = comprehension,
+            targetLanguageProduction = production,
+            supportLanguageDependence = supportDependence,
+            aiScaffoldingDependence = scaffoldDependence,
+            conversationSustainability = sustainability,
+            consistency = ConversationConsistencyEvidence.Mixed,
+            responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
+            confidence = confidence,
+            source = ChatConversationEvidenceSource.GeminiConversationAnalysis,
+            sourceSessionId = "session-1",
+            updatedAt = 10_000L
+        )
     }
 
     private class RecordingLangStateAnalysisPolicy : LangStateAnalysisPolicy {

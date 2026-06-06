@@ -1,5 +1,7 @@
 package com.app.umma.domain.model.learningstate
 
+import com.app.umma.domain.model.chat.ChatConversationEvidence
+
 /**
  * 타입 A/B/C 분석이 공통으로 다루는 세션 발화 한 단위.
  *
@@ -94,9 +96,23 @@ data class LangStateUpdateInput(
     val flashcardReviewEvents: List<FlashcardReviewEvent>,
     // 분석이 끝난 시각.
     val analyzedAt: Long,
+    // LangState 저장과 함께 화면/세션 요약을 다시 계산할지 정한다.
+    // Correction batch update는 기존처럼 summary를 함께 갱신하지만,
+    // Chat evidence update는 LangState 근거만 누적해야 하므로 기존 summary를 보존한다.
+    val summaryUpdatePolicy: LangStateSummaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput,
     // 강제로 재분석해야 하는지 여부.
     val forceReanalysis: Boolean = false
 )
+
+/**
+ * LangState update가 Dashboard/Session Summary까지 함께 갱신할지에 대한 저장 정책.
+ */
+enum class LangStateSummaryUpdatePolicy {
+    // 기존 Correction batch update 계약. 분석 입력으로 recentMinutes/delta/correctionAvailable을 다시 계산한다.
+    RecalculateFromInput,
+    // Chat evidence처럼 LangState 근거만 저장하고 기존 Summary 값은 그대로 둔다.
+    PreserveExisting
+}
 
 /**
  * Language State 저장이 끝난 뒤 후속 Flow가 참조할 수 있는 완료 결과.
@@ -170,6 +186,31 @@ data class CorrectionSignalUpdateInput(
     val recentTopic: String? = null,
     // 신호가 확정된 시각.
     val updatedAt: Long
+)
+
+/**
+ * Chat 세션 후 Gemini가 만든 대화 능력 evidence를 LangState 근거로 반영하기 위한 입력.
+ *
+ * 이 입력은 CorrectionResult와 섞이지 않는다. Chat source는 점수 자체가 아니라
+ * analysisMeta.metricEvidence에 source가 분리된 근거를 남기는 데만 사용한다.
+ */
+data class ChatSignalUpdateInput(
+    // 사용자 식별자. sessionMemoryKey와 중복 방어 event id의 계정 경계를 만든다.
+    val uid: String,
+    // 갱신 대상 학습 언어.
+    val lang: LangCode,
+    // 어떤 Session Memory 스코프에서 나온 분석인지 추적하기 위한 키.
+    val sessionMemoryKey: String,
+    // Gemini 분석의 source가 된 Chat session id.
+    val sourceSessionId: String,
+    // Gemini가 산출한 구조화 evidence.
+    val evidence: ChatConversationEvidence,
+    // summary 부작용이 잘못 꺼지지 않도록 저장 확정된 USER turn만 전달한다.
+    val recentUserTurns: List<ConversationTurn>,
+    // 분석이 끝난 시각.
+    val analyzedAt: Long,
+    // 개발/재분석 상황에서 같은 session id를 다시 반영해야 할 때만 사용한다.
+    val forceReanalysis: Boolean = false
 )
 
 /**

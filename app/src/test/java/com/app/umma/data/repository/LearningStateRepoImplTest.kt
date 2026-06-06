@@ -22,6 +22,7 @@ import com.app.umma.domain.model.learningstate.LangStateAnalysisMeta
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
+import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
 import com.app.umma.domain.model.learningstate.LearningFocus
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
@@ -122,7 +123,9 @@ class LearningStateRepoImplTest {
                         confidence = 0.82,
                         sourceTypes = setOf(
                             LearningSignalSource.CorrectionSignal,
-                            LearningSignalSource.UserTurn
+                            LearningSignalSource.UserTurn,
+                            // Chat evidence source도 같은 DTO 경로에서 손실 없이 round-trip 되어야 한다.
+                            LearningSignalSource.ChatSession
                         ),
                         direction = EvidenceDirection.Up,
                         directionCount = 2,
@@ -139,7 +142,9 @@ class LearningStateRepoImplTest {
                         lastObservedAt = 2_000L
                     )
                 ),
-                lastSignalAt = 2_000L
+                lastSignalAt = 2_000L,
+                // Chat source 중복 반영 방어 id도 analysisMeta 안에서 함께 보존한다.
+                lastChatAnalysisEventId = "chat-session:session-1"
             )
         )
 
@@ -425,6 +430,85 @@ class LearningStateRepoImplTest {
         assertFalse(retry.applied)
         assertFalse(state.sessionSummaries[LangCode.EN]?.correctionAvailable == true)
         assertFalse(state.dashSummaries[LangCode.EN]?.correctionAvailable == true)
+    }
+
+    @Test
+    fun `updateLanguageState can preserve existing summaries for chat evidence update`() = runBlocking {
+        val remoteDataSource = RecordingLearningStateRemoteDataSource()
+        val repo = createRepository(remoteDataSource)
+
+        repo.createInitial(
+            userUid = USER_UID,
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = LangCode.EN),
+            langState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+            dashSummary = DashSummary.initial(LangCode.EN).copy(
+                recentMinutes = 12,
+                recentTopic = "Coffee",
+                correctionAvailable = true,
+                updatedAt = 1_500L
+            ),
+            sessionSummary = SessionSummary.initial(LangCode.EN).copy(
+                recentMinutes = 12,
+                recentTopic = "Coffee",
+                correctionAvailable = true,
+                updatedAt = 1_500L
+            ),
+            flashcardSummary = FlashcardSummary.initial(LangCode.EN)
+        ).getOrThrow()
+        // createInitial이 만든 pending key를 먼저 비워야 이번 update의 pending 대상만 검증할 수 있다.
+        repo.sync().getOrThrow()
+
+        val preparedState = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+            updatedAt = 2_000L,
+            lastAnalyzedAt = 2_000L,
+            lastAnalysisEventId = "chat-session:session-1",
+            analysisMeta = LangStateAnalysisMeta.initial().copy(
+                lastChatAnalysisEventId = "chat-session:session-1"
+            )
+        )
+
+        repo.updateLanguageState(
+            LangStateUpdateInput(
+                uid = USER_UID,
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "chat-session:session-1",
+                currentState = LangState.initial(LangCode.EN, createdAt = 1_000L),
+                preparedState = preparedState,
+                // Chat 분석 turn payload는 summary 계산용이 아니다.
+                // duration이 0이어도 기존 recentMinutes가 지워지면 안 된다.
+                recentUserTurns = listOf(
+                    ConversationTurn(
+                        speaker = TurnSpeaker.USER,
+                        text = "hello",
+                        tokenCount = 1,
+                        durationMs = 0L
+                    )
+                ),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.PreserveExisting
+            )
+        ).getOrThrow()
+
+        val localState = repo.observeLearningState().first()
+        assertEquals(12, localState.dashSummaries[LangCode.EN]?.recentMinutes)
+        assertEquals("Coffee", localState.dashSummaries[LangCode.EN]?.recentTopic)
+        assertTrue(localState.dashSummaries[LangCode.EN]?.correctionAvailable == true)
+        assertEquals(1_500L, localState.dashSummaries[LangCode.EN]?.updatedAt)
+        assertEquals(12, localState.sessionSummaries[LangCode.EN]?.recentMinutes)
+        assertEquals("Coffee", localState.sessionSummaries[LangCode.EN]?.recentTopic)
+        assertTrue(localState.sessionSummaries[LangCode.EN]?.correctionAvailable == true)
+        assertEquals(1_500L, localState.sessionSummaries[LangCode.EN]?.updatedAt)
+
+        repo.sync().getOrThrow()
+
+        // PreserveExisting은 remote write-back도 LangState만 보낸다.
+        // summary pending key가 섞이면 Firestore summary가 불필요하게 덮일 수 있다.
+        assertEquals("en", remoteDataSource.lastUpdate?.langStates?.single()?.language)
+        assertTrue(remoteDataSource.lastUpdate?.dashSummaries.orEmpty().isEmpty())
+        assertTrue(remoteDataSource.lastUpdate?.sessionSummaries.orEmpty().isEmpty())
     }
 
     @Test

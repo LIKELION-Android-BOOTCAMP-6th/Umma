@@ -26,9 +26,12 @@ import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.CleanupChatUsageUseCase
 import com.app.umma.domain.usecase.chat.AnalyzeChatConversationSessionUseCase
 import com.app.umma.domain.usecase.chat.ChatConversationSessionAnalysisResult
+import com.app.umma.domain.usecase.chat.CompleteChatConversationAnalysisJobUseCase
+import com.app.umma.domain.usecase.chat.EnqueueChatConversationAnalysisJobUseCase
 import com.app.umma.domain.usecase.chat.RecordChatUsageUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
+import com.app.umma.domain.usecase.chat.SyncPendingChatConversationAnalysisJobsUseCase
 import com.app.umma.domain.usecase.chat.SyncChatSessionUsageUseCase
 import com.app.umma.domain.usecase.chat.SyncPendingChatUsageUseCase
 import com.app.umma.domain.usecase.realtime.AppendTurnUseCase
@@ -64,6 +67,9 @@ class ChatViewModel @Inject constructor(
     private val appendTurnUseCase: AppendTurnUseCase,
     private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
     private val analyzeChatConversationSessionUseCase: AnalyzeChatConversationSessionUseCase,
+    private val enqueueChatConversationAnalysisJobUseCase: EnqueueChatConversationAnalysisJobUseCase,
+    private val completeChatConversationAnalysisJobUseCase: CompleteChatConversationAnalysisJobUseCase,
+    private val syncPendingChatConversationAnalysisJobsUseCase: SyncPendingChatConversationAnalysisJobsUseCase,
     private val recordChatUsageUseCase: RecordChatUsageUseCase,
     private val reportPromptReviewSessionUseCase: ReportPromptReviewSessionUseCase,
     private val syncChatSessionUsageUseCase: SyncChatSessionUsageUseCase,
@@ -159,6 +165,9 @@ class ChatViewModel @Inject constructor(
             // 원격 sync는 네트워크 대기를 포함할 수 있으므로 세션 진입 flow와 병렬로 실행한다.
             viewModelScope.launch {
                 syncPendingChatUsageBestEffort()
+            }
+            viewModelScope.launch {
+                syncPendingConversationAnalysisBestEffort()
             }
 
             _uiState.update {
@@ -893,9 +902,28 @@ class ChatViewModel @Inject constructor(
         if (sessionId.isNullOrBlank() || selectedLang == null) {
             Log.d(
                 PROMPT_TRACE_TAG,
-                "chat conversation evidence schedule skipped " +
-                    "reason=missing_session_or_lang sessionId=$sessionId lang=${selectedLang?.code} " +
-                    "finalTurnCount=$finalTurnCount"
+                "chat_ability schedule_skipped reason=missing_session_or_lang " +
+                    "lang=${selectedLang?.code ?: "none"}"
+            )
+            return
+        }
+        if (finalTurnCount < MIN_CONVERSATION_ANALYSIS_TURNS) {
+            // USER/AI 왕복이 없는 세션은 대화 능력 분석 근거가 아니라 단독 transcript에 가깝다.
+            // queue에 올리지 않아 다음 진입 때 불필요한 Gemini 분석이 반복되지 않게 한다.
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat_ability schedule_skipped lang=${selectedLang.code} session=$sessionId " +
+                    "reason=not_enough_turns turns=$finalTurnCount"
+            )
+            return
+        }
+        val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+        if (uid.isNullOrBlank()) {
+            // 공식 LangState update는 uid scope가 필수다.
+            // uid 없이 분석하면 snapshot/debug만 남길 수 있으므로 pending 예약 자체를 건너뛴다.
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat_ability schedule_skipped lang=${selectedLang.code} session=$sessionId reason=missing_uid"
             )
             return
         }
@@ -905,25 +933,44 @@ class ChatViewModel @Inject constructor(
             // 사용자가 background 이후 대화를 더 이어가면 turn count가 증가하므로 최종 분석을 다시 허용한다.
             Log.d(
                 PROMPT_TRACE_TAG,
-                "chat conversation evidence schedule skipped reason=duplicate_or_no_new_turns " +
-                    "sessionId=$sessionId lang=${selectedLang.code} finalTurnCount=$finalTurnCount " +
-                    "lastScheduledTurnCount=$lastScheduledTurnCount"
+                "chat_ability schedule_skipped lang=${selectedLang.code} session=$sessionId " +
+                    "reason=no_new_turns turns=$finalTurnCount"
             )
             return
         }
         scheduledConversationAnalysisTurnCounts[sessionId] = finalTurnCount
         Log.i(
             PROMPT_TRACE_TAG,
-            "chat conversation evidence scheduled sessionId=$sessionId lang=${selectedLang.code} " +
-                "finalTurnCount=$finalTurnCount"
+            "chat_ability scheduled lang=${selectedLang.code} session=$sessionId turns=$finalTurnCount"
         )
 
         applicationScope.launch {
             awaitFinalTurnSaveBeforeConversationAnalysis()
+            enqueueChatConversationAnalysisJobUseCase(
+                userId = uid,
+                selectedLang = selectedLang,
+                sessionId = sessionId,
+                finalTurnCount = finalTurnCount
+            )
+                .onSuccess {
+                    Log.d(
+                        PROMPT_TRACE_TAG,
+                        "chat_ability pending_enqueued lang=${selectedLang.code} session=$sessionId"
+                    )
+                }
+                .onFailure { error ->
+                    // pending job 저장 실패는 즉시 분석 시도를 막지 않는다.
+                    // 다만 앱 강제종료 복구가 불가능해지므로 원인 추적을 위해 로그를 남긴다.
+                    Log.w(
+                        PROMPT_TRACE_TAG,
+                        "chat_ability pending_enqueue_failed lang=${selectedLang.code} session=$sessionId " +
+                            "reason=${error::class.simpleName}",
+                        error
+                    )
+                }
             Log.d(
                 PROMPT_TRACE_TAG,
-                "chat conversation evidence analysis started sessionId=$sessionId lang=${selectedLang.code} " +
-                    "scheduledFinalTurnCount=$finalTurnCount"
+                "chat_ability analysis_started lang=${selectedLang.code} session=$sessionId turns=$finalTurnCount"
             )
             analyzeChatConversationSessionUseCase(
                 selectedLang = selectedLang,
@@ -934,30 +981,128 @@ class ChatViewModel @Inject constructor(
                         is ChatConversationSessionAnalysisResult.Saved -> {
                             Log.i(
                                 PROMPT_TRACE_TAG,
-                                "chat conversation evidence saved sessionId=$sessionId lang=${selectedLang.code} " +
-                                    "source=${result.evidence.source} " +
+                                "chat_ability analyzed lang=${selectedLang.code} session=$sessionId " +
                                     "confidence=${result.evidence.confidence} " +
-                                    "debugRecommendedBand=${result.evidence.debugRecommendedBand}"
+                                    "band=${result.evidence.debugRecommendedBand ?: "none"} " +
+                                    "snapshot=${result.snapshotStatusForLog()} " +
+                                    "langState=${result.langStateStatusForLog()}"
+                            )
+                            if (result.snapshotFailureMessage != null || result.langStateFailureMessage != null) {
+                                Log.w(
+                                    PROMPT_TRACE_TAG,
+                                    "chat_ability partial_failure lang=${selectedLang.code} session=$sessionId " +
+                                        "snapshot=${result.snapshotStatusForLog()} " +
+                                        "langState=${result.langStateStatusForLog()}"
+                                )
+                            }
+                            completeConversationAnalysisJobIfDone(
+                                userId = uid,
+                                selectedLang = selectedLang,
+                                sessionId = sessionId,
+                                result = result
                             )
                         }
                         is ChatConversationSessionAnalysisResult.Skipped -> {
                             Log.d(
                                 PROMPT_TRACE_TAG,
-                                "chat conversation evidence skipped sessionId=$sessionId reason=${result.reason} " +
-                                    "turnCount=${result.turnCount} userTurnCount=${result.userTurnCount} " +
-                                    "aiTurnCount=${result.aiTurnCount}"
+                                "chat_ability analysis_skipped lang=${selectedLang.code} session=$sessionId " +
+                                    "reason=${result.reason} turns=${result.turnCount}"
                             )
+                            completeChatConversationAnalysisJobUseCase(
+                                userId = uid,
+                                selectedLang = selectedLang,
+                                sessionId = sessionId
+                            ).onFailure { error ->
+                                Log.w(
+                                    PROMPT_TRACE_TAG,
+                                    "chat_ability pending_complete_failed lang=${selectedLang.code} " +
+                                        "session=$sessionId reason=${error::class.simpleName}",
+                                    error
+                                )
+                            }
                         }
                     }
                 }
                 .onFailure { error ->
                     Log.w(
                         PROMPT_TRACE_TAG,
-                        "chat conversation evidence analysis failed: sessionId=$sessionId message=${error.message}",
+                        "chat_ability analysis_failed lang=${selectedLang.code} session=$sessionId " +
+                            "reason=${error::class.simpleName}",
                         error
                     )
                 }
         }
+    }
+
+    private suspend fun completeConversationAnalysisJobIfDone(
+        userId: String,
+        selectedLang: LangCode,
+        sessionId: String,
+        result: ChatConversationSessionAnalysisResult.Saved
+    ) {
+        val langStateUpdated = result.langStateUpdate != null && result.langStateFailureMessage == null
+        // debug snapshot만 저장된 상태에서는 job을 제거하지 않는다.
+        // 다음 Chat 진입 때 retry해 공식 LangState 반영까지 회복할 수 있게 한다.
+        if (!langStateUpdated) return
+        completeChatConversationAnalysisJobUseCase(
+            userId = userId,
+            selectedLang = selectedLang,
+            sessionId = sessionId
+        )
+            .onSuccess {
+                Log.d(
+                    PROMPT_TRACE_TAG,
+                    "chat_ability pending_completed lang=${selectedLang.code} session=$sessionId"
+                )
+            }
+            .onFailure { error ->
+                Log.w(
+                    PROMPT_TRACE_TAG,
+                    "chat_ability pending_complete_failed lang=${selectedLang.code} session=$sessionId " +
+                        "reason=${error::class.simpleName}",
+                    error
+                )
+            }
+    }
+
+    private fun ChatConversationSessionAnalysisResult.Saved.snapshotStatusForLog(): String {
+        return if (snapshotSaved) "saved" else "failed"
+    }
+
+    private fun ChatConversationSessionAnalysisResult.Saved.langStateStatusForLog(): String {
+        return when {
+            langStateFailureMessage != null -> "failed"
+            langStateUpdate == null -> "skipped"
+            langStateUpdate.applied -> "applied"
+            else -> "duplicate"
+        }
+    }
+
+    /**
+     * 이전 앱 실행에서 분석 시작 전/중간 종료로 남은 Chat conversation analysis job을 재시도합니다.
+     *
+     * 이 retry는 공식 LangState 반영 복구용 보조 작업이며, 실패해도 새 Chat 진입을 막지 않는다.
+     */
+    private suspend fun syncPendingConversationAnalysisBestEffort() {
+        val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+        if (uid.isNullOrBlank()) return
+
+        syncPendingChatConversationAnalysisJobsUseCase(uid)
+            .onSuccess { completedCount ->
+                if (completedCount > 0) {
+                    Log.i(
+                        PROMPT_TRACE_TAG,
+                        "chat_ability pending_synced completed=$completedCount"
+                    )
+                }
+            }
+            .onFailure { error ->
+                Log.w(
+                    PROMPT_TRACE_TAG,
+                    "chat_ability pending_sync_failed reason=${error::class.simpleName}",
+                    error
+                )
+            }
     }
 
     /**
@@ -1499,6 +1644,7 @@ class ChatViewModel @Inject constructor(
         const val DIAG_TAG = "AiChatPlayback"
         const val REQUIRED_TOPIC_COUNT = 5
         const val CHAT_USAGE_PRICING_VERSION = "openai-realtime-2026-05"
+        const val MIN_CONVERSATION_ANALYSIS_TURNS = 2
         const val CONVERSATION_ANALYSIS_SAVE_SETTLE_DELAY_MS = 250L
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_ATTEMPTS = 6
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS = 180L

@@ -10,6 +10,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -30,6 +31,18 @@ object DataStoreModule {
         // 초기 저장값과 이후 local preload가 같은 파일을 바라보도록 고정한다.
         return PreferenceDataStoreFactory.create(
             produceFile = { context.preferencesDataStoreFile("learning_state.preferences_pb") }
+        )
+    }
+
+    @Provides
+    @Singleton
+    @Named("chatConversationAnalysisDataStore")
+    fun provideChatConversationAnalysisDataStore(
+        @ApplicationContext context: Context
+    ): DataStore<Preferences> {
+        // Gemini 분석 결과가 아니라 재시도에 필요한 최소 turn snapshot job만 보관하는 전용 파일이다.
+        return PreferenceDataStoreFactory.create(
+            produceFile = { context.preferencesDataStoreFile("chat_conversation_analysis.preferences_pb") }
         )
     }
 }
