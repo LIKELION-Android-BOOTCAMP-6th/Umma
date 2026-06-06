@@ -4,7 +4,6 @@ import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
-import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
 import javax.inject.Inject
 
 /**
@@ -15,27 +14,17 @@ import javax.inject.Inject
  */
 class BuildChatSpeechSpeedUseCase @Inject constructor() {
     operator fun invoke(
-        profile: LearnerAdaptationProfile,
-        turnPolicy: ChatTurnAdaptationPolicy? = null
+        profile: LearnerAdaptationProfile
     ): Double {
         // 신뢰도가 낮으면 실제 실력을 단정할 수 없지만, 첫 응답이 빠르면 초저숙련 사용자는 바로 이탈한다.
         // 그래서 첫 selectedLang 세션 fallback 은 "혹시 fluent일 수도 있음"보다 "못 알아들어도 대화가 끊기지 않음"을 우선한다.
         if (profile.core.levelConfidence == ProfileConfidence.Low) {
-            // 근거 부족 상태에서는 장기 profile보다 이번 발화 신호가 더 중요하다.
-            // 단, 조각난 발화의 SlowBeginner는 세션 시작 안전 속도보다 빨라지면 안 되므로 0.8을 유지한다.
-            return when (turnPolicy?.speechSpeed) {
-                null,
-                SpeechSpeedPolicy.SlowBeginner -> FIRST_SESSION_SAFE_SPEED
-                else -> speedForPolicy(turnPolicy.speechSpeed)
-            }.coerceIn(MIN_SAFE_SPEED, MAX_LEARNING_SPEED)
+            // 현재 구조에서는 USER transcript를 앱이 해석해 turn별 speed를 바꾸지 않는다.
+            // 근거 부족 상태의 첫 세션은 안전 속도로 시작하고, 이후 적응은 모델의 대화 내용에 맡긴다.
+            return FIRST_SESSION_SAFE_SPEED
         }
 
-        val profileSpeed = profileBasedSpeed(profile)
-
-        // turnPolicy는 이번 응답에서만 더 느리게 낮추기 위한 보정이다.
-        // fluent 회복 turn에서 더 빠른 정책이 오더라도 장기 profile보다 빠르게 올리지는 않는다.
-        val turnSpeed = turnPolicy?.let { speedForPolicy(it.speechSpeed) } ?: profileSpeed
-        return minOf(profileSpeed, turnSpeed).coerceIn(MIN_SAFE_SPEED, MAX_LEARNING_SPEED)
+        return profileBasedSpeed(profile)
     }
 
     private fun profileBasedSpeed(profile: LearnerAdaptationProfile): Double {

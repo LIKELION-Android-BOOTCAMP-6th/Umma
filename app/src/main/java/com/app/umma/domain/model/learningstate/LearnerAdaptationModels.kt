@@ -75,42 +75,85 @@ data class ChatAdaptationPolicy(
     val responseLength: ResponseLengthPolicy,
     // Realtime 음성 출력 속도 정책. prompt보다 실제 audio 설정에서 우선 사용한다.
     val speechSpeed: SpeechSpeedPolicy
-)
-
-/**
- * 현재 사용자 turn 하나에만 적용할 Chat 임시 보정 정책.
- *
- * 장기 실력 판단은 [LearnerAdaptationProfile]이 담당하고, 이 모델은 방금 들어온
- * USER final transcript가 보여준 순간적인 막힘/회복 신호를 이번 AI 응답에만 반영한다.
- * 따라서 이 값은 저장하지 않고, `response.create.instructions`와 필요한 경우 `session.update`의 speed에만 사용한다.
- */
-data class ChatTurnAdaptationPolicy(
-    // 이번 응답 길이. 긴 응답은 초저숙련 사용자의 다음 turn을 막을 수 있어 turn 단위로 낮출 수 있다.
-    val responseLength: ResponseLengthPolicy,
-    // 이번 응답의 정보 밀도. 실제 audio speed가 느려도 정보량이 많으면 이해가 어려워 별도 정책으로 둔다.
-    val sentenceDensity: SentenceDensityPolicy,
-    // 이번 응답에서 primaryLang을 얼마나 섞을지. 장기 profile보다 현재 발화의 막힘 신호를 우선한다.
-    val primaryBridge: PrimaryBridgePolicy,
-    // 이번 응답의 후속 여지 부담. 사용자가 단어 하나로도 이어갈 수 있게 낮출 수 있다.
-    val questionLoad: QuestionLoadPolicy,
-    // 이번 응답의 실제 음성 속도 정책. speed 값이 바뀔 때만 session.update로 전달한다.
-    val speechSpeed: SpeechSpeedPolicy,
-    // primaryLang 보조가 열린 이유. 같은 Active라도 profile 기본값인지 사용자 요청인지에 따라 override 필요성이 다르다.
-    val primaryBridgeReason: PrimaryBridgeReason = PrimaryBridgeReason.ProfileDefault
-)
-
-/**
- * 이번 turn에서 primaryLang 보조가 필요한 이유.
- */
-enum class PrimaryBridgeReason {
-    // 세션 시작 profile이 정한 기본 보조 강도다. baseline과 같으면 override를 반복하지 않는다.
-    ProfileDefault,
-    // 사용자가 "한국어를 섞어줘"처럼 기준언어 보조를 직접 요청했다. baseline과 같아도 이번 응답에 짧게 재강조한다.
-    ExplicitSupportRequest,
-    // 1~2단계 초보 profile은 사용자가 명시 요청을 하지 않아도 이해 보장을 위해 기준언어를 자동 보조로 연다.
-    BeginnerAutoSupport,
-    // 사용자가 기준언어를 많이 섞어 말한 상태다. 명시 요청이 없어도 이번 응답에서는 이해 보장을 우선한다.
-    PrimaryDominantTurn
+) {
+    companion object {
+        /**
+         * Chat band 하나가 의미하는 전체 대화 정책을 한 곳에서 정의한다.
+         *
+         * LangState 기반 계산과 conversation evidence 기반 계산이 같은 정책을 써야
+         * "band는 domain policy가 계산한다"는 계약이 흔들리지 않는다.
+         */
+        fun defaultsForBand(band: ConversationAbilityBand): ChatAdaptationPolicy {
+            return when (band) {
+                ConversationAbilityBand.IntentOnly -> ChatAdaptationPolicy(
+                    // 의미 단서가 거의 없으므로 AI가 먼저 의도를 복원하고, 사용자는 단어/선택지만 말해도 이어갈 수 있게 한다.
+                    conversationBand = band,
+                    intentSupport = IntentSupportPolicy.InferActively,
+                    primaryBridge = PrimaryBridgePolicy.Active,
+                    recastStyle = RecastStylePolicy.TinyInline,
+                    expressionGrowth = ExpressionGrowthPolicy.OneTinyPhrase,
+                    questionLoad = QuestionLoadPolicy.ConcreteChoice,
+                    responseLength = ResponseLengthPolicy.OneShortSentence,
+                    speechSpeed = SpeechSpeedPolicy.SlowBeginner
+                )
+                ConversationAbilityBand.PhraseEmerging -> ChatAdaptationPolicy(
+                    // 단어와 짧은 구는 보이지만 문장 생성 부담이 크므로, 짧은 확인과 쉬운 패턴 하나를 우선한다.
+                    conversationBand = band,
+                    intentSupport = IntentSupportPolicy.ConfirmBriefly,
+                    primaryBridge = PrimaryBridgePolicy.Brief,
+                    recastStyle = RecastStylePolicy.SimpleInline,
+                    expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
+                    questionLoad = QuestionLoadPolicy.ConcreteChoice,
+                    responseLength = ResponseLengthPolicy.ShortTwoStep,
+                    speechSpeed = SpeechSpeedPolicy.Guided
+                )
+                ConversationAbilityBand.SimpleSentence -> ChatAdaptationPolicy(
+                    // 짧은 문장 생산은 가능하므로 의도 확인은 줄이되, 질문은 실제 내용 하나로 제한해 다음 발화를 보호한다.
+                    conversationBand = band,
+                    intentSupport = IntentSupportPolicy.ConfirmBriefly,
+                    primaryBridge = PrimaryBridgePolicy.Brief,
+                    recastStyle = RecastStylePolicy.SimpleInline,
+                    expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
+                    questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
+                    responseLength = ResponseLengthPolicy.ShortTwoStep,
+                    speechSpeed = SpeechSpeedPolicy.Guided
+                )
+                ConversationAbilityBand.BasicConversation -> ChatAdaptationPolicy(
+                    // 기본 왕복 대화가 가능하므로 target 언어 중심으로 반응하고, 자연스러운 일상 표현 하나만 확장한다.
+                    conversationBand = band,
+                    intentSupport = IntentSupportPolicy.TrustMeaning,
+                    primaryBridge = PrimaryBridgePolicy.FallbackOnly,
+                    recastStyle = RecastStylePolicy.NaturalInline,
+                    expressionGrowth = ExpressionGrowthPolicy.OneEverydayExpression,
+                    questionLoad = QuestionLoadPolicy.OpenShort,
+                    responseLength = ResponseLengthPolicy.NaturalBrief,
+                    speechSpeed = SpeechSpeedPolicy.NormalLearning
+                )
+                ConversationAbilityBand.ConnectedExpression -> ChatAdaptationPolicy(
+                    // 이유/감정/상황 설명이 가능하므로 대화 흐름을 넓히되, prompt 비대를 막기 위해 확장은 한 표현으로 제한한다.
+                    conversationBand = band,
+                    intentSupport = IntentSupportPolicy.TrustMeaning,
+                    primaryBridge = PrimaryBridgePolicy.FallbackOnly,
+                    recastStyle = RecastStylePolicy.NaturalInline,
+                    expressionGrowth = ExpressionGrowthPolicy.OneEverydayExpression,
+                    questionLoad = QuestionLoadPolicy.OpenShort,
+                    responseLength = ResponseLengthPolicy.NaturalBrief,
+                    speechSpeed = SpeechSpeedPolicy.SlightlyFast
+                )
+                ConversationAbilityBand.NuanceControl -> ChatAdaptationPolicy(
+                    // 의미 전달은 안정적인 단계이므로 보조 언어를 닫고, 사용자가 이끄는 일반 대화 안에서 뉘앙스만 미세 조정한다.
+                    conversationBand = band,
+                    intentSupport = IntentSupportPolicy.FollowUserLead,
+                    primaryBridge = PrimaryBridgePolicy.None,
+                    recastStyle = RecastStylePolicy.NuanceOnly,
+                    expressionGrowth = ExpressionGrowthPolicy.OneNativeLikeChoice,
+                    questionLoad = QuestionLoadPolicy.NuanceFollowUp,
+                    responseLength = ResponseLengthPolicy.Flexible,
+                    speechSpeed = SpeechSpeedPolicy.Advanced
+                )
+            }
+        }
+    }
 }
 
 // COR-TUNE-003: CorrectionAdaptationPolicy(4단계)는 CorrectionGrowthPolicy(6단계)로 완전 교체되었다.
@@ -142,17 +185,17 @@ enum class SkillStage {
  * 내부 판단용 이름이며 prompt나 사용자 노출 문구에 그대로 넣지 않는다.
  */
 enum class ConversationAbilityBand {
-    // 단어 조각이나 기준언어 혼합 발화에서 의도 복원이 먼저 필요한 단계.
+    // 학습언어만으로 대화가 거의 불가능해 AI가 기준언어와 짧은 학습언어 표현으로 흐름을 대부분 리드해야 하는 단계.
     IntentOnly,
-    // 짧은 구와 고정 표현은 가능하지만 문장 구성은 아직 불안정한 단계.
+    // 단어와 짧은 구에는 일부 반응하지만 자유 문장 생성은 아직 불안정한 단계.
     PhraseEmerging,
-    // 짧은 문장은 가능하지만 어순, 시제, 기본 문법이 자주 흔들리는 단계.
+    // 짧고 단순한 자유 문장은 가능하지만 긴 문장이나 복잡한 전환은 놓칠 수 있는 단계.
     SimpleSentence,
-    // 짧은 일상 왕복 대화와 이유/선호 질문을 감당할 수 있는 단계.
+    // 짧은 일상 왕복 대화와 간단한 이유/선호 표현을 감당할 수 있는 단계.
     BasicConversation,
-    // 이유, 감정, 상황 설명을 연결하며 표현 폭을 넓힐 수 있는 단계.
+    // 이유, 감정, 상황 설명을 연결하면서 실생활 표현을 더 넓게 들을 수 있는 단계.
     ConnectedExpression,
-    // 의미 전달은 안정적이고 뉘앙스와 원어민식 표현이 성장 지점인 단계.
+    // 의미 전달은 안정적이고 자연스러운 톤, 리듬, 뉘앙스를 듣고 흡수하는 단계.
     NuanceControl
 }
 
@@ -249,20 +292,6 @@ enum class ResponseLengthPolicy {
     // 자연스럽지만 장황하지 않은 답변을 제공한다.
     NaturalBrief,
     // 고급 사용자에게 필요한 설명과 예시를 더 유연하게 허용한다.
-    Flexible
-}
-
-/**
- * AI 응답 한 번에 담을 의미/정보량.
- */
-enum class SentenceDensityPolicy {
-    // 한 응답에 하나의 의미만 담아 사용자가 바로 이해하고 답할 수 있게 한다.
-    OneIdea,
-    // 짧은 반응과 후속 여지처럼 두 단계까지 허용한다.
-    SimpleTwoStep,
-    // 일반적인 짧은 대화 밀도를 허용한다.
-    NaturalBrief,
-    // 고급 사용자가 감당할 수 있을 때만 조금 더 풍부한 설명을 허용한다.
     Flexible
 }
 

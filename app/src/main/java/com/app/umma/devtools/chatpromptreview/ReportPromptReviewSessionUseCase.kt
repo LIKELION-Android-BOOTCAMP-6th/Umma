@@ -11,7 +11,9 @@ import javax.inject.Inject
 class ReportPromptReviewSessionUseCase @Inject constructor(
     private val reporter: ChatPromptReviewSessionReporter
 ) {
-    suspend operator fun invoke(): Result<Unit> {
-        return reporter.reportCurrentSession()
+    suspend operator fun invoke(reportNote: String? = null): Result<Unit> {
+        // reportNote는 테스터가 불편을 느낀 상황을 사람이 해석하기 위한 보조 메모다.
+        // 운영 저장 모델과 분리된 devtools 경계에서만 전달한다.
+        return reporter.reportCurrentSession(reportNote = reportNote)
     }
 }

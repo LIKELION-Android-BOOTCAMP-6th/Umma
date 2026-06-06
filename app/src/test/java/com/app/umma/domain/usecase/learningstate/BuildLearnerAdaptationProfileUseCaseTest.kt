@@ -102,6 +102,42 @@ class BuildLearnerAdaptationProfileUseCaseTest {
     }
 
     @Test
+    fun `fixed phrase evidence without sentence response ability stays intent only`() {
+        // 단어와 고정 표현을 일부 기억해도 짧은 자유 문장과 대화 반응 근거가 없으면 0단계 대화 리드가 필요하다.
+        val state = analyzedState(
+            internal = InternalMetrics(
+                grammarAccuracy = 0.18,
+                vocabularyAppropriateness = 0.36,
+                lexicalDiversity = 0.28,
+                vocabularyLevel = VocabLevel.A1,
+                sentenceComplexity = 0.12,
+                speechRate = 0.2,
+                pauseFrequency = 0.86,
+                avgUtteranceLength = 0.14,
+                spokenNaturalness = 0.18,
+                naturalExpressionUsage = 0.16,
+                errorRecurrence = 0.7,
+                reviewRetention = 0.2
+            ),
+            external = ExternalMetrics(
+                vocabularyLevel = VocabLevel.A1,
+                grammarAccuracy = 0.18,
+                expressionRange = 18,
+                fluencyScore = 0.18,
+                naturalnessScore = 0.18
+            ),
+            evidence = mediumConfidenceEvidence()
+        )
+
+        val profile = useCase(state)
+
+        // CHAT-TUNE-005: "단어를 조금 앎"만으로 PhraseEmerging에 올리지 않고 AI가 대화를 대부분 리드한다.
+        assertEquals(SkillStage.Foundation, profile.core.grammarStage)
+        assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
+    }
+
+    @Test
     fun `stages are calculated independently for each skill area`() {
         // 각 영역이 서로 다른 값을 가져야 총점 하나로 뭉개지지 않는다는 점을 검증한다.
         val state = analyzedState(
@@ -175,7 +211,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(SkillStage.Foundation, profile.core.grammarStage)
         assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
         assertEquals(SkillStage.Foundation, profile.core.naturalnessStage)
-        assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
+        // CHAT-TUNE-005: vocabulary만 높아 보이고 문장/대화 지속 근거가 없으면 아직 AI가 흐름을 대부분 리드해야 한다.
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
         // grammarStage=Foundation → PatternFix (vocabulary=Stable이 있어 MeaningFirst보다 한 단계 위).
         assertEquals(CorrectionGrowthBand.PatternFix, profile.correctionPolicy.band)
     }

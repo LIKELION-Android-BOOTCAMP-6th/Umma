@@ -28,9 +28,22 @@ users/{uid}/chat_prompt_reviews/{sessionId}
 chat_prompt_review_reports/{reportId}
 ```
 
+`reportId`는 Firestore 콘솔에서 바로 찾기 쉽도록 KST 24시간 기준으로 생성합니다.
+
+```text
+yyyyMMdd_HHmmss_{language}_{sessionPrefix}
+```
+
+예:
+
+```text
+20260606_185432_en_b0db18c9
+```
+
 이 컬렉션은 개발용입니다. `SessionMemory`, `usage`, `Correction` 저장 모델과 분리되어 있습니다.
 앱은 turn마다 Firestore에 쓰지 않고 메모리에만 모읍니다.
 팀원이 `신고` 버튼을 누른 세션만 Firestore에 저장하며, 신고하지 않은 세션은 원격에 남기지 않습니다.
+	신고 시 입력한 불편 상황 메모, `promptVersion`, `promptBand`가 함께 저장되어 테스트 브랜치/프롬프트 버전과 적용 band별로 신고를 구분할 수 있습니다.
 
 신고 저장이 성공하면 Logcat에 아래 태그로 export 식별 정보가 남습니다.
 
@@ -41,7 +54,7 @@ tag:AiChatPromptReview
 예시:
 
 ```text
-sessionFlushed uid=USER_UID sessionId=SESSION_ID eventCount=12 status=reported firestorePath=users/USER_UID/chat_prompt_reviews/SESSION_ID reportPath=chat_prompt_review_reports/REPORT_ID
+sessionFlushed uid=USER_UID sessionId=SESSION_ID eventCount=12 status=reported promptBand=SimpleSentence firestorePath=users/USER_UID/chat_prompt_reviews/SESSION_ID reportPath=chat_prompt_review_reports/REPORT_ID
 ```
 
 이제 팀원이 로그를 복사하지 않아도 Firestore의 `chat_prompt_review_reports`에서 신고된 세션 목록을 확인할 수 있습니다.
@@ -104,19 +117,16 @@ node tools/chat_prompt_review/export_review_doc.js \
 tools/chat_prompt_review/output/chat_prompt_review_{sessionId}.md
 ```
 
-문서에는 세션 prompt trace, USER/AI final transcript, turn override trace가 시간순으로 정렬됩니다.
+문서에는 세션 prompt trace와 USER/AI final transcript가 시간순으로 정렬됩니다.
 품질 판단은 자동화하지 않고, 이 문서를 기준으로 수동 리뷰합니다.
 문서 상단의 `Session Summary`에는 여러 세션 비교에 필요한 카운트와 분포만 자동 요약합니다.
 
 자동 요약 항목:
 
 - USER/AI final turn 수
-- turn override 수
-- `hasInstructions` true/false 횟수
-- `contextSignal` 분포
-- `primaryBridge` 정책/사유 분포
-- `outputAudioSpeed` 값
 - target language 대화 중 primary language가 섞인 의심 AI final 수
+- promptVersion
+- 신고 메모
 
 수동 분석 결과와 열린 개선 항목은 아래 문서에 남깁니다.
 

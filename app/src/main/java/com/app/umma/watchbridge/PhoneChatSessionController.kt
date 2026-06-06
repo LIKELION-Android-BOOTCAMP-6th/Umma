@@ -38,6 +38,14 @@ class PhoneChatSessionController @Inject constructor(
 
     fun currentSnapshot(): PhoneChatSessionSnapshot = snapshot.value
 
+    /**
+     * 현재 앱 레벨 세션의 학습 언어를 반환합니다.
+     *
+     * 세션 종료 후 분석처럼 sessionId와 language를 함께 캡처해야 하는 경계에서만 사용하고,
+     * Chat 정책 해석은 domain usecase가 담당한다.
+     */
+    fun getCurrentSessionLang() = runtime.getCurrentSessionLang()
+
     fun tryAcquireOwner(owner: SessionOwner): Boolean {
         val currentOwner = snapshot.value.owner
         if (currentOwner != SessionOwner.NONE && currentOwner != owner) {

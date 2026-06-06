@@ -2,6 +2,8 @@ package com.app.umma.di
 
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.GeminiCorrectionAiClient
+import com.app.umma.data.repository.chatconversation.ChatConversationEvidenceAiClient
+import com.app.umma.data.repository.chatconversation.GeminiChatConversationEvidenceAiClient
 import com.app.umma.data.repository.realtime.GeminiTopicSummaryAiClient
 import com.app.umma.data.repository.realtime.TopicSummaryAiClient
 import com.google.firebase.Firebase
@@ -47,6 +49,7 @@ object AIModule {
  */
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class CorrectionAiBindings {
 
     @Binds
@@ -63,6 +66,7 @@ abstract class CorrectionAiBindings {
  */
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class TopicSummaryAiBindings {
 
     @Binds
@@ -70,4 +74,19 @@ abstract class TopicSummaryAiBindings {
     abstract fun bindTopicSummaryAiClient(
         impl: GeminiTopicSummaryAiClient
     ): TopicSummaryAiClient
+}
+
+/**
+ * Chat conversation evidence 분석용 단발 AI 호출 어댑터 바인딩.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+@Suppress("unused")
+abstract class ChatConversationEvidenceAiBindings {
+
+    @Binds
+    @Singleton
+    abstract fun bindChatConversationEvidenceAiClient(
+        impl: GeminiChatConversationEvidenceAiClient
+    ): ChatConversationEvidenceAiClient
 }

@@ -1,7 +1,6 @@
 package com.app.umma.domain.usecase.chat
 
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
-import com.app.umma.domain.model.learningstate.ChatTurnAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
 import com.app.umma.domain.model.learningstate.CorrectionGrowthPolicy
@@ -15,7 +14,6 @@ import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
 import com.app.umma.domain.model.learningstate.RecastStylePolicy
 import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
-import com.app.umma.domain.model.learningstate.SentenceDensityPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -31,8 +29,7 @@ class BuildChatSpeechSpeedUseCaseTest {
         val speed = useCase(
             profile(
                 confidence = ProfileConfidence.Low,
-                stage = SkillStage.Stable,
-                speechSpeed = SpeechSpeedPolicy.Advanced
+                stage = SkillStage.Stable
             )
         )
 
@@ -45,8 +42,7 @@ class BuildChatSpeechSpeedUseCaseTest {
         val speed = useCase(
             profile(
                 confidence = ProfileConfidence.High,
-                stage = SkillStage.Foundation,
-                speechSpeed = SpeechSpeedPolicy.Advanced
+                stage = SkillStage.Foundation
             )
         )
 
@@ -59,8 +55,7 @@ class BuildChatSpeechSpeedUseCaseTest {
         val speed = useCase(
             profile(
                 confidence = ProfileConfidence.High,
-                stage = SkillStage.Refined,
-                speechSpeed = SpeechSpeedPolicy.Advanced
+                stage = SkillStage.Refined
             )
         )
 
@@ -68,30 +63,22 @@ class BuildChatSpeechSpeedUseCaseTest {
     }
 
     @Test
-    fun `low confidence fluent turn can recover from first session safe speed`() {
-        // LangState 근거가 없더라도 현재 발화가 충분히 유창하면 첫 세션 safe speed에 계속 고정하지 않는다.
+    fun `low confidence stays on first session safe speed without turn transcript analysis`() {
+        // 현재 구조는 USER transcript를 앱이 해석해 turn별 speed를 회복시키지 않는다.
+        // 근거 부족 세션은 안전 속도로 시작하고 실제 난이도 조절은 모델의 대화 내용에 맡긴다.
         val speed = useCase(
-            profile = profile(
+            profile(
                 confidence = ProfileConfidence.Low,
-                stage = SkillStage.Stable,
-                speechSpeed = SpeechSpeedPolicy.SlowBeginner
-            ),
-            turnPolicy = ChatTurnAdaptationPolicy(
-                responseLength = ResponseLengthPolicy.NaturalBrief,
-                sentenceDensity = SentenceDensityPolicy.NaturalBrief,
-                primaryBridge = PrimaryBridgePolicy.FallbackOnly,
-                questionLoad = QuestionLoadPolicy.OpenShort,
-                speechSpeed = SpeechSpeedPolicy.NormalLearning
+                stage = SkillStage.Stable
             )
         )
 
-        assertEquals(1.0, speed, 0.0)
+        assertEquals(0.8, speed, 0.0)
     }
 
     private fun profile(
         confidence: ProfileConfidence,
-        stage: SkillStage,
-        speechSpeed: SpeechSpeedPolicy
+        stage: SkillStage
     ): LearnerAdaptationProfile {
         // speed 정책은 core stage와 chat speechSpeed만 보므로 나머지 값은 최소 fixture로 채운다.
         return LearnerAdaptationProfile(
@@ -119,8 +106,8 @@ class BuildChatSpeechSpeedUseCaseTest {
                 expressionGrowth = ExpressionGrowthPolicy.OneNativeLikeChoice,
                 questionLoad = QuestionLoadPolicy.NuanceFollowUp,
                 responseLength = ResponseLengthPolicy.NaturalBrief,
-                // 실제 검증 대상은 이 speechSpeed 값과 core weakest stage 중 더 보수적인 값이 선택되는지다.
-                speechSpeed = speechSpeed
+                // 실제 검증 대상은 가장 빠른 speed 정책이 core weakest stage에 의해 보수적으로 제한되는지다.
+                speechSpeed = SpeechSpeedPolicy.Advanced
             ),
             // Correction 정책은 speed usecase 입력이 아니지만 profile 계약을 완성하기 위해 채운다.
             correctionPolicy = CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.NuanceRefine)

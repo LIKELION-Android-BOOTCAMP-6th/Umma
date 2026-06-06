@@ -24,6 +24,8 @@ import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseC
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.CleanupChatUsageUseCase
+import com.app.umma.domain.usecase.chat.AnalyzeChatConversationSessionUseCase
+import com.app.umma.domain.usecase.chat.ChatConversationSessionAnalysisResult
 import com.app.umma.domain.usecase.chat.RecordChatUsageUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
@@ -61,6 +63,7 @@ class ChatViewModel @Inject constructor(
     private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
     private val appendTurnUseCase: AppendTurnUseCase,
     private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
+    private val analyzeChatConversationSessionUseCase: AnalyzeChatConversationSessionUseCase,
     private val recordChatUsageUseCase: RecordChatUsageUseCase,
     private val reportPromptReviewSessionUseCase: ReportPromptReviewSessionUseCase,
     private val syncChatSessionUsageUseCase: SyncChatSessionUsageUseCase,
@@ -109,6 +112,7 @@ class ChatViewModel @Inject constructor(
     private var outputPlaybackJob: Job? = null
     private var currentUserTurnStartedAtMs: Long? = null
     private var currentUserTurnEndedAtMs: Long? = null
+    private val scheduledConversationAnalysisTurnCounts = mutableMapOf<String, Int>()
 
     init {
         observeSessionOwner()
@@ -474,8 +478,15 @@ class ChatViewModel @Inject constructor(
      * 현재 chat 세션을 종료하고 상태를 초기화합니다.
      */
     fun stopChat() {
-        val sessionIdForUsageSync = _uiState.value.activeSessionId
+        val current = _uiState.value
+        val sessionIdForUsageSync = current.activeSessionId
+        val selectedLangForAnalysis = phoneChatSessionController.getCurrentSessionLang()
         launchChatUsageSync(sessionIdForUsageSync)
+        launchConversationEvidenceAnalysis(
+            sessionId = sessionIdForUsageSync,
+            selectedLang = selectedLangForAnalysis,
+            finalTurnCount = current.handledFinalTurnIds.size
+        )
 
         stopChatJob?.cancel()
         stopChatJob = viewModelScope.launch {
@@ -490,7 +501,7 @@ class ChatViewModel @Inject constructor(
      *
      * 신고는 대화 transport나 SessionMemory 흐름을 변경하지 않고, 개발용 리뷰 버퍼만 Firestore에 남깁니다.
      */
-    fun reportPromptReviewSession() {
+    fun reportPromptReviewSession(reportNote: String? = null) {
         val current = _uiState.value
         if (!current.showPromptReviewReportButton || current.isPromptReviewReporting || current.hasPromptReviewReported) {
             return
@@ -501,7 +512,7 @@ class ChatViewModel @Inject constructor(
                 it.copy(isPromptReviewReporting = true)
             }
 
-            val result = reportPromptReviewSessionUseCase()
+            val result = reportPromptReviewSessionUseCase(reportNote = reportNote)
             _uiState.update {
                 if (result.isSuccess) {
                     it.copy(
@@ -528,8 +539,15 @@ class ChatViewModel @Inject constructor(
      * lifecycle ON_STOP 경계에서 현재 세션의 pending usage만 best-effort로 올립니다.
      */
     fun syncCurrentUsageForHiddenScreen() {
-        val sessionId = _uiState.value.activeSessionId
+        val current = _uiState.value
+        val sessionId = current.activeSessionId
+        val selectedLang = phoneChatSessionController.getCurrentSessionLang()
         launchChatUsageSync(sessionId)
+        launchConversationEvidenceAnalysis(
+            sessionId = sessionId,
+            selectedLang = selectedLang,
+            finalTurnCount = current.handledFinalTurnIds.size
+        )
     }
 
     /**
@@ -862,6 +880,101 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Chat 세션 종료/화면 이탈 시 대화 능력 evidence 분석을 백그라운드로 예약합니다.
+     *
+     * 이 작업은 다음 세션 시작 profile 보정용이며, 신고 도구나 UI 상태와 독립적으로 동작한다.
+     * 네트워크/AI 분석 실패가 있어도 사용자의 화면 이탈과 transport 종료를 막지 않는다.
+     */
+    private fun launchConversationEvidenceAnalysis(
+        sessionId: String?,
+        selectedLang: LangCode?,
+        finalTurnCount: Int
+    ) {
+        if (sessionId.isNullOrBlank() || selectedLang == null) {
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat conversation evidence schedule skipped " +
+                    "reason=missing_session_or_lang sessionId=$sessionId lang=${selectedLang?.code} " +
+                    "finalTurnCount=$finalTurnCount"
+            )
+            return
+        }
+        val lastScheduledTurnCount = scheduledConversationAnalysisTurnCounts[sessionId] ?: 0
+        if (finalTurnCount <= lastScheduledTurnCount) {
+            // ON_STOP, onDispose, onCleared가 같은 turn 수로 순차 호출되면 같은 세션 중복 분석을 막는다.
+            // 사용자가 background 이후 대화를 더 이어가면 turn count가 증가하므로 최종 분석을 다시 허용한다.
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat conversation evidence schedule skipped reason=duplicate_or_no_new_turns " +
+                    "sessionId=$sessionId lang=${selectedLang.code} finalTurnCount=$finalTurnCount " +
+                    "lastScheduledTurnCount=$lastScheduledTurnCount"
+            )
+            return
+        }
+        scheduledConversationAnalysisTurnCounts[sessionId] = finalTurnCount
+        Log.i(
+            PROMPT_TRACE_TAG,
+            "chat conversation evidence scheduled sessionId=$sessionId lang=${selectedLang.code} " +
+                "finalTurnCount=$finalTurnCount"
+        )
+
+        applicationScope.launch {
+            awaitFinalTurnSaveBeforeConversationAnalysis()
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat conversation evidence analysis started sessionId=$sessionId lang=${selectedLang.code} " +
+                    "scheduledFinalTurnCount=$finalTurnCount"
+            )
+            analyzeChatConversationSessionUseCase(
+                selectedLang = selectedLang,
+                sessionId = sessionId
+            )
+                .onSuccess { result ->
+                    when (result) {
+                        is ChatConversationSessionAnalysisResult.Saved -> {
+                            Log.i(
+                                PROMPT_TRACE_TAG,
+                                "chat conversation evidence saved sessionId=$sessionId lang=${selectedLang.code} " +
+                                    "source=${result.evidence.source} " +
+                                    "confidence=${result.evidence.confidence} " +
+                                    "debugRecommendedBand=${result.evidence.debugRecommendedBand}"
+                            )
+                        }
+                        is ChatConversationSessionAnalysisResult.Skipped -> {
+                            Log.d(
+                                PROMPT_TRACE_TAG,
+                                "chat conversation evidence skipped sessionId=$sessionId reason=${result.reason} " +
+                                    "turnCount=${result.turnCount} userTurnCount=${result.userTurnCount} " +
+                                    "aiTurnCount=${result.aiTurnCount}"
+                            )
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    Log.w(
+                        PROMPT_TRACE_TAG,
+                        "chat conversation evidence analysis failed: sessionId=$sessionId message=${error.message}",
+                        error
+                    )
+                }
+        }
+    }
+
+    /**
+     * 세션 종료 직후 final turn 저장 coroutine이 아직 완료되지 않았을 수 있어 분석만 짧게 늦춥니다.
+     *
+     * 화면 이탈/transport 종료는 기다리지 않고, background 분석 coroutine 안에서만 대기해 사용자 흐름을
+     * 막지 않는다. 제한 시간 이후에도 저장 중이면 best-effort 원칙에 따라 현재 저장된 turn만 분석한다.
+     */
+    private suspend fun awaitFinalTurnSaveBeforeConversationAnalysis() {
+        delay(CONVERSATION_ANALYSIS_SAVE_SETTLE_DELAY_MS)
+        repeat(CONVERSATION_ANALYSIS_SAVE_WAIT_ATTEMPTS) {
+            if (!_uiState.value.isSavingTurn) return
+            delay(CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS)
+        }
+    }
+
+    /**
      * 이전 앱 실행이나 네트워크 실패로 남은 pending usage를 재시도합니다.
      *
      * pending retry는 Chat 진입의 보조 작업입니다. 실패해도 세션 시작이나 대화 입력을 막지 않습니다.
@@ -1153,6 +1266,14 @@ class ChatViewModel @Inject constructor(
         // Firestore usage sync는 네트워크 요청이라 onCleared/runBlocking 경계에 묶지 않고,
         // local PENDING row를 다음 Chat 진입의 pending retry가 처리하도록 둔다.
         runBlocking {
+            val current = _uiState.value
+            val sessionIdForAnalysis = current.activeSessionId
+            val selectedLangForAnalysis = phoneChatSessionController.getCurrentSessionLang()
+            launchConversationEvidenceAnalysis(
+                sessionId = sessionIdForAnalysis,
+                selectedLang = selectedLangForAnalysis,
+                finalTurnCount = current.handledFinalTurnIds.size
+            )
             stopChatInternal(resetUiState = false)
         }
     }
@@ -1374,9 +1495,13 @@ class ChatViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "ChatViewModel"
+        const val PROMPT_TRACE_TAG = "AiChatPromptTrace"
         const val DIAG_TAG = "AiChatPlayback"
         const val REQUIRED_TOPIC_COUNT = 5
         const val CHAT_USAGE_PRICING_VERSION = "openai-realtime-2026-05"
+        const val CONVERSATION_ANALYSIS_SAVE_SETTLE_DELAY_MS = 250L
+        const val CONVERSATION_ANALYSIS_SAVE_WAIT_ATTEMPTS = 6
+        const val CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS = 180L
 
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }

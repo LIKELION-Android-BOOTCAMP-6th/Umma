@@ -9,5 +9,5 @@ interface ChatPromptReviewSessionReporter {
     /**
      * 현재 활성 세션을 신고하고 지금까지 모인 review buffer를 Firestore에 저장합니다.
      */
-    suspend fun reportCurrentSession(): Result<Unit>
+    suspend fun reportCurrentSession(reportNote: String? = null): Result<Unit>
 }

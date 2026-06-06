@@ -11,8 +11,6 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
-import com.app.umma.domain.model.realtime.ChatResponseOverride
-import com.app.umma.domain.model.realtime.ChatResponseOverrideProvider
 import com.app.umma.domain.model.realtime.ChatTokenUsage
 import com.app.umma.domain.model.realtime.ChatUsageKind
 import com.app.umma.domain.model.realtime.SessionInterruptedReason
@@ -103,8 +101,6 @@ class ChatRepositoryImpl @Inject constructor(
     private var currentSystemInstructionDebugTrace: String? = null
     // 자동/수동 재연결 때도 학습자 수준에 맞춘 음성 속도를 동일하게 복원하기 위해 함께 캐시한다.
     private var currentOutputAudioSpeed: Double? = null
-    // USER final transcript 이후 이번 response에만 적용할 override provider. 정책 판단은 domain/usecase가 맡는다.
-    private var currentResponseOverrideProvider: ChatResponseOverrideProvider? = null
     // 실제 이탈/명시적 reconnect 로 닫은 socket 을 인스턴스 단위로 추적해 불필요한 자동 재연결을 막는다.
     // OkHttp callback 과 coroutine cleanup 이 서로 다른 thread 에서 접근하므로 synchronized set 으로 둔다.
     private val requestedCloseSockets: MutableSet<WebSocket> =
@@ -151,8 +147,7 @@ class ChatRepositoryImpl @Inject constructor(
         langCode: LangCode,
         systemInstruction: String,
         outputAudioSpeed: Double,
-        systemInstructionDebugTrace: String?,
-        responseOverrideProvider: ChatResponseOverrideProvider?
+        systemInstructionDebugTrace: String?
     ): Result<String> = sessionMutex.withLock {
         // 화면 회전이나 LaunchedEffect 재실행으로 같은 조건의 startSession 이 다시 들어오면
         // 기존 transport 를 그대로 재사용한다. 이 guard 가 없으면 subtitle/저장 흐름이 중복될 수 있다.
@@ -163,7 +158,6 @@ class ChatRepositoryImpl @Inject constructor(
             currentSystemInstruction == systemInstruction &&
             currentOutputAudioSpeed == outputAudioSpeed
         ) {
-            currentResponseOverrideProvider = responseOverrideProvider
             return Result.success(activeSessionId!!)
         }
 
@@ -180,7 +174,6 @@ class ChatRepositoryImpl @Inject constructor(
                 systemInstruction = systemInstruction,
                 outputAudioSpeed = outputAudioSpeed,
                 systemInstructionDebugTrace = systemInstructionDebugTrace,
-                responseOverrideProvider = responseOverrideProvider,
                 sessionId = newSessionId,
                 resetTurnSequence = true
             )
@@ -198,8 +191,7 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun reconnectSession(
         systemInstruction: String,
         outputAudioSpeed: Double,
-        systemInstructionDebugTrace: String?,
-        responseOverrideProvider: ChatResponseOverrideProvider?
+        systemInstructionDebugTrace: String?
     ): Result<String> = sessionMutex.withLock {
         // 수동 재시도는 "새 대화 시작"이 아니라 "현재 앱 세션의 transport 복구"입니다.
         // 따라서 activeSessionId 와 currentLang 이 없으면 복구할 기준이 없어 실패로 반환합니다.
@@ -222,7 +214,6 @@ class ChatRepositoryImpl @Inject constructor(
                 systemInstruction = systemInstruction,
                 outputAudioSpeed = outputAudioSpeed,
                 systemInstructionDebugTrace = systemInstructionDebugTrace,
-                responseOverrideProvider = responseOverrideProvider,
                 sessionId = sessionId,
                 resetTurnSequence = false
             )
@@ -325,8 +316,10 @@ class ChatRepositoryImpl @Inject constructor(
 
     override fun observeAIEvent(): Flow<AIEvent> = events.asSharedFlow()
 
-    override suspend fun reportCurrentSession(): Result<Unit> {
-        if (!chatPromptReviewRepository.isEnabled()) return Result.success(Unit)
+    override suspend fun reportCurrentSession(reportNote: String?): Result<Unit> {
+        if (!chatPromptReviewRepository.isEnabled()) {
+            return Result.failure(IllegalStateException("prompt review is disabled"))
+        }
 
         val userId = firebaseAuth.currentUser?.uid
         val sessionId = activeSessionId
@@ -347,10 +340,12 @@ class ChatRepositoryImpl @Inject constructor(
             sessionPromptTrace = currentSystemInstructionDebugTrace,
             metadata = "label=manual_report speed=$currentOutputAudioSpeed"
         ).getOrThrow()
-        return chatPromptReviewRepository.reportSession(
+        chatPromptReviewRepository.reportSession(
             userId = userId,
-            sessionId = sessionId
-        )
+            sessionId = sessionId,
+            reportNote = reportNote
+        ).getOrThrow()
+        return Result.success(Unit)
     }
 
     override suspend fun stopSession(clearAppSession: Boolean) = sessionMutex.withLock {
@@ -421,7 +416,6 @@ class ChatRepositoryImpl @Inject constructor(
         systemInstruction: String,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String?,
-        responseOverrideProvider: ChatResponseOverrideProvider?,
         sessionId: String,
         resetTurnSequence: Boolean
     ) {
@@ -440,7 +434,6 @@ class ChatRepositoryImpl @Inject constructor(
         currentSystemInstruction = systemInstruction
         currentSystemInstructionDebugTrace = systemInstructionDebugTrace
         currentOutputAudioSpeed = outputAudioSpeed
-        currentResponseOverrideProvider = responseOverrideProvider
         if (resetTurnSequence) {
             turnSequence = 0L
         }
@@ -526,7 +519,7 @@ class ChatRepositoryImpl @Inject constructor(
                     usageEventId = payload.string("event_id")
                 )
                 Log.i(TAG, "OpenAI Realtime user transcription usage=${payload["usage"]}")
-                createResponseAfterUserTranscriptIfNeeded(userTranscript)
+                createResponseAfterUserTranscriptIfNeeded()
             }
             "response.output_audio.delta",
             "response.audio.delta" -> {
@@ -610,64 +603,19 @@ class ChatRepositoryImpl @Inject constructor(
         events.emit(AIEvent.StateChanged(AIState.THINKING))
     }
 
-    private suspend fun createResponseAfterUserTranscriptIfNeeded(userFinalTranscript: String?) {
+    private fun createResponseAfterUserTranscriptIfNeeded() {
         if (!responsePendingUntilUserTranscript) return
 
         // CHAT-ENGINE-001의 핵심 확인값은 "사용자 발화 종료 후 사용자 자막을 먼저 보여준 뒤
         // AI 응답을 시작할 수 있는가"이다. 따라서 commit 직후가 아니라 user transcription
-        // completed 이벤트를 받은 다음 response.create를 보낸다.
+        // completed 이벤트를 받은 다음 response.create를 보낸다. transcript 내용은 정책 판단에 사용하지 않는다.
         responsePendingUntilUserTranscript = false
-        val responseOverride = buildResponseOverride(userFinalTranscript)
-        applyTurnSpeedOverrideIfNeeded(responseOverride)
-        createResponse(responseOverride?.responseInstructions)
+        // 앱은 USER transcript를 조건/단어 규칙으로 해석해 response override를 만들지 않는다.
+        // 세션 prompt와 모델의 문맥 판단만으로 이번 응답을 생성한다.
+        createResponse()
     }
 
-    private suspend fun buildResponseOverride(userFinalTranscript: String?): ChatResponseOverride? {
-        val provider = currentResponseOverrideProvider ?: return null
-        val transcript = userFinalTranscript?.trim().orEmpty()
-        if (transcript.isBlank()) return null
-
-        // Repository는 transcript를 분석하지 않고, domain/usecase가 제공한 provider의 결과만 적용한다.
-        return runCatching {
-            provider.build(transcript)
-                .also { override ->
-                    logPromptTrace(
-                        label = "turn_override",
-                        trace = override?.debugTrace,
-                        metadata = "transcriptChars=${transcript.length} hasInstructions=${!override?.responseInstructions.isNullOrBlank()} speed=${override?.outputAudioSpeed}"
-                    )
-                    recordPromptReviewTurnOverride(
-                        userFinalTranscript = transcript,
-                        override = override
-                    )
-                }
-        }.getOrElse { error ->
-            // override 계산 실패가 대화 응답 생성을 막으면 안 된다. 기존 세션 설정으로 계속 진행한다.
-            Log.w(TAG, "chat turn override skipped: ${error.message}", error)
-            null
-        }
-    }
-
-    private fun applyTurnSpeedOverrideIfNeeded(responseOverride: ChatResponseOverride?) {
-        val speed = responseOverride?.outputAudioSpeed ?: return
-        val systemInstruction = currentSystemInstruction ?: return
-        val previousSpeed = currentOutputAudioSpeed
-
-        // 같은 speed이면 session.update를 반복하지 않아 응답 시작 지연을 줄인다.
-        if (previousSpeed != null && kotlin.math.abs(previousSpeed - speed) < SPEED_EPSILON) return
-
-        val sent = webSocket?.send(buildSessionUpdateEvent(systemInstruction, speed)) == true
-        if (sent) {
-            // WebSocket 이벤트는 순서대로 처리되므로 response.create 전에 update를 보낸 사실을 현재 설정으로 기록한다.
-            currentOutputAudioSpeed = speed
-            Log.i(TAG, "CHAT-TUNE-002 turn speed update sent speed=$speed")
-        } else {
-            // send 실패 시에도 response.create는 이어져야 한다. 대화 단절보다 기존 speed fallback이 낫다.
-            Log.w(TAG, "CHAT-TUNE-002 turn speed update skipped: websocket send failed")
-        }
-    }
-
-    private fun createResponse(responseInstructionsOverride: String? = null) {
+    private fun createResponse() {
         // response.create 를 보낸 시각이 first audio/transcript delta latency 의 기준점이다.
         responseCreatedAtMs = System.currentTimeMillis()
         firstAudioReceivedAtMs = null
@@ -676,7 +624,7 @@ class ChatRepositoryImpl @Inject constructor(
         // 아직 provider response id 를 모르는 구간이므로 첫 delta/done 에서 id 를 확정한다.
         activeResponseId = null
         responseDoneUntilNextCreate = false
-        webSocket?.send(buildResponseCreateEvent(responseInstructionsOverride))
+        webSocket?.send(buildResponseCreateEvent())
         repositoryScope.launch {
             events.emit(AIEvent.StateChanged(AIState.THINKING))
         }
@@ -762,42 +710,6 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun recordPromptReviewTurnOverride(
-        userFinalTranscript: String,
-        override: ChatResponseOverride?
-    ) {
-        if (!chatPromptReviewRepository.isEnabled()) return
-        val userId = firebaseAuth.currentUser?.uid ?: return
-        val sessionId = activeSessionId ?: return
-        val language = currentLang ?: return
-        val createdAt = System.currentTimeMillis()
-
-        // override trace는 USER final transcript와 response.create 사이 정책 판단을 복원하기 위한 자료다.
-        repositoryScope.launch {
-            chatPromptReviewRepository.recordEvent(
-                userId = userId,
-                event = ChatPromptReviewEvent(
-                    eventId = promptReviewEventId(
-                        createdAt = createdAt,
-                        type = ChatPromptReviewEventType.TurnOverrideTrace,
-                        suffix = "override"
-                    ),
-                    sessionId = sessionId,
-                    type = ChatPromptReviewEventType.TurnOverrideTrace,
-                    language = language,
-                    createdAt = createdAt,
-                    text = userFinalTranscript,
-                    debugTrace = override?.debugTrace,
-                    hasInstructions = !override?.responseInstructions.isNullOrBlank(),
-                    outputAudioSpeed = override?.outputAudioSpeed,
-                    metadata = "transcriptChars=${userFinalTranscript.length}"
-                )
-            ).onFailure { error ->
-                Log.w(TAG, "chat prompt review override record skipped: ${error.message}", error)
-            }
-        }
-    }
-
     private fun recordPromptReviewFinalTurn(event: AIEvent.FinalTranscription) {
         if (!chatPromptReviewRepository.isEnabled()) return
         val userId = firebaseAuth.currentUser?.uid ?: return
@@ -809,7 +721,6 @@ class ChatRepositoryImpl @Inject constructor(
                 event = ChatPromptReviewEvent(
                     eventId = promptReviewEventId(
                         createdAt = event.createdAt,
-                        type = ChatPromptReviewEventType.FinalTurn,
                         suffix = event.turnId
                     ),
                     sessionId = event.sessionId,
@@ -829,12 +740,11 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun promptReviewEventId(
         createdAt: Long,
-        type: ChatPromptReviewEventType,
         suffix: String
     ): String {
         // Firestore document id로 안전하게 쓰기 위해 사람이 읽을 수 있는 순서 prefix와 sanitized suffix를 함께 둔다.
         val safeSuffix = suffix.replace(Regex("[^A-Za-z0-9_-]"), "_")
-        return "$createdAt-${type.name}-$safeSuffix-${UUID.randomUUID()}"
+        return "$createdAt-${ChatPromptReviewEventType.FinalTurn.name}-$safeSuffix-${UUID.randomUUID()}"
     }
 
     private suspend fun emitUsageReport(
@@ -964,7 +874,6 @@ class ChatRepositoryImpl @Inject constructor(
                             systemInstruction = systemInstruction,
                             outputAudioSpeed = outputAudioSpeed,
                             systemInstructionDebugTrace = currentSystemInstructionDebugTrace,
-                            responseOverrideProvider = currentResponseOverrideProvider,
                             sessionId = sessionId,
                             resetTurnSequence = false
                         )
@@ -1251,16 +1160,12 @@ class ChatRepositoryImpl @Inject constructor(
         }.toString()
     }
 
-    private fun buildResponseCreateEvent(responseInstructionsOverride: String? = null): String {
+    private fun buildResponseCreateEvent(): String {
         return buildJsonObject {
             put("type", "response.create")
             put(
                 "response",
                 buildJsonObject {
-                    if (!responseInstructionsOverride.isNullOrBlank()) {
-                        // turn override는 세션 instruction을 교체하지 않고 이번 response에만 적용한다.
-                        put("instructions", responseInstructionsOverride)
-                    }
                     put(
                         "output_modalities",
                         buildJsonArray {
@@ -1382,7 +1287,6 @@ class ChatRepositoryImpl @Inject constructor(
         currentSystemInstruction = null
         currentSystemInstructionDebugTrace = null
         currentOutputAudioSpeed = null
-        currentResponseOverrideProvider = null
         turnSequence = 0L
     }
 
@@ -1498,8 +1402,6 @@ class ChatRepositoryImpl @Inject constructor(
         const val BYTE_MASK = 0xFF
         const val INPUT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
         const val OPENAI_VOICE = "marin"
-        // Double 비교 오차 때문에 같은 speed를 매 turn 반복 update하지 않도록 작은 허용치를 둔다.
-        const val SPEED_EPSILON = 0.0001
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }
 }
