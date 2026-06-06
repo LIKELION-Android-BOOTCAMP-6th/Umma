@@ -4,18 +4,20 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -35,7 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import com.app.umma.core.theme.CardElevation
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,19 +56,19 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -74,6 +76,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.core.theme.BackgroundHighlight
 import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
+import com.app.umma.core.theme.CardElevation
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingS
@@ -164,6 +167,9 @@ fun MyPageScreen(
             onNavigateToOnBoarding()
         }
     }
+    // 뒤로가기를 무시
+    BackHandler(enabled = authUiState.isLoading) {
+    }
 
     if (notificationUiState.showTimePicker) {
         NotificationHourPickerDialog(
@@ -172,156 +178,177 @@ fun MyPageScreen(
             onTimeConfirmed = { hour -> myPageViewModel.onTimeSelected(hour * 60) },
         )
     }
-
-    Scaffold(
-        topBar = {
-            UmmaAppBar(
-                title = "마이페이지",
-                isCenterTitle = true,
-                onBackClick = if (authUiState.isLoading) null else onBackClick,
-            )
-        },
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ProfileCard(nickname = notificationUiState.nickname)
-
-            NotificationSettingsCard(
-                uiState = notificationUiState,
-                onMarketingToggleChanged = { enabled ->
-                    myPageViewModel.onMarketingNotificationToggleChanged(
-                        enabled = enabled,
-                        permissionGranted = hasNotificationPermission(),
-                    )
-                },
-                onSrsToggleChanged = { enabled ->
-                    myPageViewModel.onSrsNotificationToggleChanged(
-                        enabled = enabled,
-                        permissionGranted = hasNotificationPermission(),
-                    )
-                },
-                onTimeSettingClicked = myPageViewModel::onTimeSettingClicked,
-            )
-
-            Text(
-                text = "설정",
-                fontSize = 18.sp,
-                color = TextPrimary,
-                modifier = Modifier.padding(SpacingS),
-            )
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
-                elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
+    Box(
+        modifier = Modifier
+            .fillMaxSize(),
+    ) {
+        Scaffold(
+            topBar = {
+                UmmaAppBar(
+                    title = "마이페이지",
+                    isCenterTitle = true,
+                    onBackClick = if (authUiState.isLoading) null else onBackClick,
+                )
+            },
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(paddingValues)
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                ProfileCard(nickname = notificationUiState.nickname)
+
+                NotificationSettingsCard(
+                    uiState = notificationUiState,
+                    onMarketingToggleChanged = { enabled ->
+                        myPageViewModel.onMarketingNotificationToggleChanged(
+                            enabled = enabled,
+                            permissionGranted = hasNotificationPermission(),
+                        )
+                    },
+                    onSrsToggleChanged = { enabled ->
+                        myPageViewModel.onSrsNotificationToggleChanged(
+                            enabled = enabled,
+                            permissionGranted = hasNotificationPermission(),
+                        )
+                    },
+                    onTimeSettingClicked = myPageViewModel::onTimeSettingClicked,
+                )
+
+                Text(
+                    text = "설정",
+                    fontSize = 18.sp,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(SpacingS),
+                )
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+                    elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        SettingRow(
+                            icon = Icons.Default.Language,
+                            label = "모국어 설정",
+                            enabled = !authUiState.isLoading,
+                            onClick = { showNativeLanguageDialog = true },
+                        )
+                        HorizontalDivider(color = BackgroundHighlight)
+                        SettingRow(
+                            icon = Icons.AutoMirrored.Filled.Logout,
+                            label = "로그아웃",
+                            enabled = !authUiState.isLoading,
+                            onClick = { showLogoutDialog = true },
+                        )
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
+                    elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
+                ) {
                     SettingRow(
-                        icon = Icons.Default.Language,
-                        label = "모국어 설정",
+                        icon = Icons.Default.Warning,
+                        label = "회원탈퇴",
                         enabled = !authUiState.isLoading,
-                        onClick = { showNativeLanguageDialog = true },
-                    )
-                    HorizontalDivider(color = BackgroundHighlight)
-                    SettingRow(
-                        icon = Icons.AutoMirrored.Filled.Logout,
-                        label = "로그아웃",
-                        enabled = !authUiState.isLoading,
-                        onClick = { showLogoutDialog = true },
+                        onClick = { showDeleteAccountDialog = true },
                     )
                 }
-            }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
-                elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
-            ) {
-                SettingRow(
-                    icon = Icons.Default.Warning,
-                    label = "회원탈퇴",
-                    enabled = !authUiState.isLoading,
-                    onClick = { showDeleteAccountDialog = true },
-                )
-            }
-
-            if (showNativeLanguageDialog) {
-                UmmaDialog(
-                    title = "모국어 선택",
-                    modifier = Modifier.padding(horizontal = SpacingL),
-                    onCancel = { showNativeLanguageDialog = false },
-                    onConfirm = { showNativeLanguageDialog = false },
-                    confirmText = "완료",
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
+                if (showNativeLanguageDialog) {
+                    UmmaDialog(
+                        title = "모국어 선택",
+                        modifier = Modifier.padding(horizontal = SpacingL),
+                        onCancel = { showNativeLanguageDialog = false },
+                        onConfirm = { showNativeLanguageDialog = false },
+                        confirmText = "완료",
                     ) {
-                        nativeLanguageOptions.forEach { (code, label) ->
-                            LanguageButton(
-                                text = label,
-                                isSelected = selectedNativeLanguage == code,
-                                onClick = { selectedNativeLanguage = code },
-                            )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp),
+                        ) {
+                            nativeLanguageOptions.forEach { (code, label) ->
+                                LanguageButton(
+                                    text = label,
+                                    isSelected = selectedNativeLanguage == code,
+                                    onClick = { selectedNativeLanguage = code },
+                                )
+                            }
                         }
+                    }
+                }
+
+                if (showLogoutDialog) {
+                    UmmaDialog(
+                        title = "로그아웃하시겠어요?",
+                        modifier = Modifier.padding(horizontal = SpacingL),
+                        confirmText = "확인",
+                        onConfirm = {
+                            showLogoutDialog = false
+                            authViewModel.signOut()
+                        },
+                        onCancel = { showLogoutDialog = false },
+                    ) {
+                        Text(
+                            text = "로그아웃 후 서비스를 이용하려면 다시 로그인해야 해요.",
+                            modifier = Modifier
+                                .background(
+                                    color = BackgroundSecondary,
+                                    shape = RoundedCornerShape(ChipCornerRadius),
+                                )
+                                .padding(horizontal = SpacingS, vertical = SpacingL),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+
+                if (showDeleteAccountDialog) {
+                    UmmaDialog(
+                        title = "탈퇴하시겠어요?",
+                        titleColor = TextLogout,
+                        modifier = Modifier.padding(horizontal = SpacingL),
+                        confirmText = "탈퇴",
+                        confirmButtonColor = TextLogout,
+                        onConfirm = {
+                            showDeleteAccountDialog = false
+                            authViewModel.deleteAccount()
+                        },
+                        onCancel = { showDeleteAccountDialog = false },
+                    ) {
+                        Text(
+                            text = "회원탈퇴 후 계정과 학습 기록은 영구적으로 삭제되며 복구할 수 없어요.",
+                            modifier = Modifier
+                                .background(
+                                    color = BackgroundSecondary,
+                                    shape = RoundedCornerShape(ChipCornerRadius),
+                                )
+                                .padding(horizontal = SpacingS, vertical = SpacingL),
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }
 
-            if (showLogoutDialog) {
-                UmmaDialog(
-                    title = "로그아웃하시겠어요?",
-                    modifier = Modifier.padding(horizontal = SpacingL),
-                    confirmText = "확인",
-                    onConfirm = {
-                        showLogoutDialog = false
-                        authViewModel.signOut()
-                    },
-                    onCancel = { showLogoutDialog = false },
-                ) {
-                    Text(
-                        text = "로그아웃 후 서비스를 이용하려면 다시 로그인해야 해요.",
-                        modifier = Modifier
-                            .background(
-                                color = BackgroundSecondary,
-                                shape = RoundedCornerShape(ChipCornerRadius),
-                            )
-                            .padding(horizontal = SpacingS, vertical = SpacingL),
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-
-            if (showDeleteAccountDialog) {
-                UmmaDialog(
-                    title = "탈퇴하시겠어요?",
-                    titleColor = TextLogout,
-                    modifier = Modifier.padding(horizontal = SpacingL),
-                    confirmText = "탈퇴",
-                    confirmButtonColor = TextLogout,
-                    onConfirm = {
-                        showDeleteAccountDialog = false
-                        authViewModel.deleteAccount()
-                    },
-                    onCancel = { showDeleteAccountDialog = false },
-                ) {
-                    Text(
-                        text = "회원탈퇴 후 계정과 학습 기록은 영구적으로 삭제되며 복구할 수 없어요.",
-                        modifier = Modifier
-                            .background(
-                                color = BackgroundSecondary,
-                                shape = RoundedCornerShape(ChipCornerRadius),
-                            )
-                            .padding(horizontal = SpacingS, vertical = SpacingL),
-                        textAlign = TextAlign.Center,
-                    )
-                }
+        }
+        // 작업 중 화면 전체 입력을 막고 진행 상태를 표시
+        if (authUiState.isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.24f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(color = ThemePrimary)
             }
         }
     }
@@ -613,7 +640,9 @@ private fun PeriodChip(
                 indication = ripple(
                     bounded = true,
                     radius = 28.dp,
-                    color = if (selected) Color.White.copy(alpha = 0.24f) else ThemePrimary.copy(alpha = 0.18f),
+                    color = if (selected) Color.White.copy(alpha = 0.24f) else ThemePrimary.copy(
+                        alpha = 0.18f
+                    ),
                 ),
                 onClick = onClick,
             )
@@ -695,7 +724,9 @@ private fun ClockDial(
                         indication = ripple(
                             bounded = true,
                             radius = 21.dp,
-                            color = if (isSelected) Color.White.copy(alpha = 0.24f) else ThemePrimary.copy(alpha = 0.18f),
+                            color = if (isSelected) Color.White.copy(alpha = 0.24f) else ThemePrimary.copy(
+                                alpha = 0.18f
+                            ),
                         ),
                     ) {
                         onHourSelected(toHour24(hour12 = hour12, isAm = isAm))
