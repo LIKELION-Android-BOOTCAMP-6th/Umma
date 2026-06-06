@@ -24,14 +24,8 @@ data class ChatPromptReviewEvent(
     val role: TurnSpeaker? = null,
     // USER/AI final turn의 turnId입니다.
     val turnId: String? = null,
-    // 실제 대화 turn 텍스트 또는 override 계산 기준 USER final transcript입니다.
+    // 실제 대화 final turn 텍스트입니다.
     val text: String? = null,
-    // Logcat AiChatPromptTrace와 같은 요약 문자열입니다. prompt 전문은 저장하지 않습니다.
-    val debugTrace: String? = null,
-    // response.create.instructions가 실제로 들어갔는지 분석 문서에서 바로 보기 위한 플래그입니다.
-    val hasInstructions: Boolean? = null,
-    // 이번 turn에서 계산된 audio speed입니다.
-    val outputAudioSpeed: Double? = null,
     // 세션 시작/재연결 구분처럼 문서 분석에 필요한 짧은 부가 정보입니다.
     val metadata: String? = null
 )
@@ -40,8 +34,6 @@ data class ChatPromptReviewEvent(
  * 프롬프트 리뷰 이벤트 종류입니다.
  */
 enum class ChatPromptReviewEventType {
-    // USER final transcript 이후 response.create 직전에 계산된 turn override trace입니다.
-    TurnOverrideTrace,
     // SessionMemory에 저장되는 것과 같은 USER/AI final transcript mirror입니다.
     FinalTurn
 }

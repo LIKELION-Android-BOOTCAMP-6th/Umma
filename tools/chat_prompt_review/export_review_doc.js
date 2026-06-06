@@ -228,8 +228,6 @@ function eventPriority(type) {
   switch (type) {
     case "FinalTurn":
       return 1;
-    case "TurnOverrideTrace":
-      return 2;
     default:
       return 9;
   }
@@ -248,6 +246,11 @@ function renderMarkdown({ project, uid, sessionId, session, events }) {
   lines.push(`- uid: ${uid}`);
   lines.push(`- sessionId: ${sessionId}`);
   lines.push(`- language: ${session.language || "unknown"}`);
+  lines.push(`- promptVersion: ${session.promptVersion || "unknown"}`);
+  lines.push(`- promptBand: ${session.promptBand || "unknown"}`);
+  if (session.reportNote) {
+    lines.push(`- reportNote: ${session.reportNote}`);
+  }
   lines.push(`- exportedAt: ${formatTime(Date.now())}`);
   lines.push(`- events: ${events.length}`);
   lines.push("");
@@ -282,12 +285,13 @@ function renderReportsMarkdown({ project, reports }) {
   lines.push("");
   lines.push("## Reports");
   lines.push("");
-  lines.push("| reportedAt | status | uid | sessionId | language | eventCount | reviewPath |");
-  lines.push("| --- | --- | --- | --- | --- | ---: | --- |");
+  lines.push("| reportId | reportedAt | status | promptVersion | promptBand | uid | sessionId | language | reportNote | eventCount | reviewPath |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
   reports.forEach((report) => {
     lines.push(
-      `| ${formatTime(report.reportedAt || report.updatedAt)} | ${report.status || ""} | ` +
-        `${code(report.uid || "")} | ${code(report.sessionId || "")} | ${report.language || ""} | ` +
+      `| ${code(report.reportId || report.id || "")} | ${formatTime(report.reportedAt || report.updatedAt)} | ${report.status || ""} | ` +
+        `${report.promptVersion || "unknown"} | ${report.promptBand || "unknown"} | ${code(report.uid || "")} | ${code(report.sessionId || "")} | ` +
+        `${report.language || ""} | ${escapeTableCell(report.reportNote || "")} | ` +
         `${report.eventCount || 0} | ${code(report.reviewPath || "")} |`
     );
   });
@@ -301,27 +305,6 @@ function buildSessionSummary({ language, events }) {
   const finalTurns = events.filter((event) => event.type === "FinalTurn");
   const userFinalTurns = finalTurns.filter((event) => event.role === "USER");
   const aiFinalTurns = finalTurns.filter((event) => event.role === "AI");
-  const overrideTraces = events.filter((event) => event.type === "TurnOverrideTrace");
-  const contextSignals = countBy(
-    overrideTraces
-      .map((event) => extractTraceValue(event.debugTrace, /contextSignal=\{role=([^,}]+)/))
-      .filter(Boolean)
-  );
-  const primaryBridgePolicies = countBy(
-    overrideTraces
-      .map((event) => extractTraceValue(event.debugTrace, /turn=\{[^}]*primaryBridge=([^,}]+)/))
-      .filter(Boolean)
-  );
-  const primaryBridgeReasons = countBy(
-    overrideTraces
-      .map((event) => extractTraceValue(event.debugTrace, /turn=\{[^}]*primaryBridgeReason=([^,}]+)/))
-      .filter(Boolean)
-  );
-  const outputAudioSpeeds = uniqueValues(
-    overrideTraces
-      .map((event) => event.outputAudioSpeed)
-      .filter((value) => value !== undefined && value !== null)
-  );
   const possiblePrimaryLanguageInAiFinals = aiFinalTurns
     .filter((event) => hasPossiblePrimaryLanguageText({
       targetLanguage: language,
@@ -335,13 +318,6 @@ function buildSessionSummary({ language, events }) {
   return {
     userFinalTurns: userFinalTurns.length,
     aiFinalTurns: aiFinalTurns.length,
-    overrideTraces: overrideTraces.length,
-    hasInstructionsTrue: overrideTraces.filter((event) => event.hasInstructions === true).length,
-    hasInstructionsFalse: overrideTraces.filter((event) => event.hasInstructions === false).length,
-    contextSignals,
-    primaryBridgePolicies,
-    primaryBridgeReasons,
-    outputAudioSpeeds,
     possiblePrimaryLanguageInAiFinals,
   };
 }
@@ -350,13 +326,6 @@ function renderSessionSummary(lines, summary) {
   lines.push("## Session Summary");
   lines.push(`- userFinalTurns: ${summary.userFinalTurns}`);
   lines.push(`- aiFinalTurns: ${summary.aiFinalTurns}`);
-  lines.push(`- overrideTraces: ${summary.overrideTraces}`);
-  lines.push(`- hasInstructionsTrue: ${summary.hasInstructionsTrue}`);
-  lines.push(`- hasInstructionsFalse: ${summary.hasInstructionsFalse}`);
-  lines.push(`- contextSignals: ${formatCounts(summary.contextSignals)}`);
-  lines.push(`- primaryBridgePolicies: ${formatCounts(summary.primaryBridgePolicies)}`);
-  lines.push(`- primaryBridgeReasons: ${formatCounts(summary.primaryBridgeReasons)}`);
-  lines.push(`- outputAudioSpeeds: ${summary.outputAudioSpeeds.join(", ") || "none"}`);
   lines.push(`- possiblePrimaryLanguageInAiFinals: ${summary.possiblePrimaryLanguageInAiFinals.length}`);
   if (summary.possiblePrimaryLanguageInAiFinals.length > 0) {
     summary.possiblePrimaryLanguageInAiFinals.forEach((item) => {
@@ -375,25 +344,12 @@ function renderEvent(lines, event, index) {
   lines.push(`- eventId: ${event.eventId || event.id || "unknown"}`);
   if (event.turnId) lines.push(`- turnId: ${event.turnId}`);
   if (event.role) lines.push(`- role: ${event.role}`);
-  if (event.hasInstructions !== undefined && event.hasInstructions !== null) {
-    lines.push(`- hasInstructions: ${event.hasInstructions}`);
-  }
-  if (event.outputAudioSpeed !== undefined && event.outputAudioSpeed !== null) {
-    lines.push(`- outputAudioSpeed: ${event.outputAudioSpeed}`);
-  }
   if (event.metadata) lines.push(`- metadata: ${event.metadata}`);
   if (event.text) {
     lines.push("");
     lines.push("Text:");
     lines.push("```text");
     lines.push(event.text);
-    lines.push("```");
-  }
-  if (event.debugTrace) {
-    lines.push("");
-    lines.push("Prompt Trace:");
-    lines.push("```text");
-    lines.push(event.debugTrace);
     lines.push("```");
   }
   lines.push("");
@@ -404,32 +360,6 @@ function formatTime(value) {
   const date = new Date(Number(value));
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toISOString();
-}
-
-function extractTraceValue(trace, pattern) {
-  if (!trace) return null;
-  const match = String(trace).match(pattern);
-  return match ? match[1] : null;
-}
-
-function countBy(values) {
-  return values.reduce((acc, value) => {
-    acc[value] = (acc[value] || 0) + 1;
-    return acc;
-  }, {});
-}
-
-function formatCounts(counts) {
-  const entries = Object.entries(counts);
-  if (entries.length === 0) return "none";
-  return entries
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${value}`)
-    .join(", ");
-}
-
-function uniqueValues(values) {
-  return Array.from(new Set(values.map((value) => String(value)))).sort();
 }
 
 function hasPossiblePrimaryLanguageText({ targetLanguage, text }) {
@@ -445,6 +375,13 @@ function singleLinePreview(text) {
 
 function code(value) {
   return `\`${String(value).replace(/`/g, "\\`")}\``;
+}
+
+function escapeTableCell(value) {
+  return String(value)
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "\\|")
+    .trim();
 }
 
 function defaultOutputPath(sessionId) {

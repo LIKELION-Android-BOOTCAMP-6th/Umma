@@ -5,8 +5,6 @@ import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
 import com.app.umma.domain.model.learningstate.CorrectionGrowthPolicy
 import com.app.umma.domain.model.learningstate.EvidenceDirection
-import com.app.umma.domain.model.learningstate.ExpressionGrowthPolicy
-import com.app.umma.domain.model.learningstate.IntentSupportPolicy
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LearnerAbilityProfile
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
@@ -14,13 +12,8 @@ import com.app.umma.domain.model.learningstate.LearningFocus
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
-import com.app.umma.domain.model.learningstate.PrimaryBridgePolicy
 import com.app.umma.domain.model.learningstate.ProfileConfidence
-import com.app.umma.domain.model.learningstate.QuestionLoadPolicy
-import com.app.umma.domain.model.learningstate.RecastStylePolicy
-import com.app.umma.domain.model.learningstate.ResponseLengthPolicy
 import com.app.umma.domain.model.learningstate.SkillStage
-import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.VocabLevel
 import javax.inject.Inject
 
@@ -239,75 +232,8 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             naturalnessStage = naturalnessStage
         )
 
-        // band별 정책은 prompt에 enum 이름으로 노출되지 않고, BuildPromptUseCase가 행동 문장으로 압축한다.
-        return when (band) {
-            ConversationAbilityBand.IntentOnly -> ChatAdaptationPolicy(
-                // 의미 단서가 거의 없으므로 AI가 먼저 의도를 복원하고, 사용자는 단어/선택지만 말해도 이어갈 수 있게 한다.
-                conversationBand = band,
-                intentSupport = IntentSupportPolicy.InferActively,
-                primaryBridge = PrimaryBridgePolicy.Active,
-                recastStyle = RecastStylePolicy.TinyInline,
-                expressionGrowth = ExpressionGrowthPolicy.OneTinyPhrase,
-                questionLoad = QuestionLoadPolicy.ConcreteChoice,
-                responseLength = ResponseLengthPolicy.OneShortSentence,
-                speechSpeed = SpeechSpeedPolicy.SlowBeginner
-            )
-            ConversationAbilityBand.PhraseEmerging -> ChatAdaptationPolicy(
-                // 단어와 짧은 구는 보이지만 문장 생성 부담이 크므로, 짧은 확인과 쉬운 패턴 하나를 우선한다.
-                conversationBand = band,
-                intentSupport = IntentSupportPolicy.ConfirmBriefly,
-                primaryBridge = PrimaryBridgePolicy.Brief,
-                recastStyle = RecastStylePolicy.SimpleInline,
-                expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
-                questionLoad = QuestionLoadPolicy.ConcreteChoice,
-                responseLength = ResponseLengthPolicy.ShortTwoStep,
-                speechSpeed = SpeechSpeedPolicy.Guided
-            )
-            ConversationAbilityBand.SimpleSentence -> ChatAdaptationPolicy(
-                // 짧은 문장 생산은 가능하므로 의도 확인은 줄이되, 질문은 실제 내용 하나로 제한해 다음 발화를 보호한다.
-                conversationBand = band,
-                intentSupport = IntentSupportPolicy.ConfirmBriefly,
-                primaryBridge = PrimaryBridgePolicy.Brief,
-                recastStyle = RecastStylePolicy.SimpleInline,
-                expressionGrowth = ExpressionGrowthPolicy.OneSimplePattern,
-                questionLoad = QuestionLoadPolicy.OneConcreteFollowUp,
-                responseLength = ResponseLengthPolicy.ShortTwoStep,
-                speechSpeed = SpeechSpeedPolicy.Guided
-            )
-            ConversationAbilityBand.BasicConversation -> ChatAdaptationPolicy(
-                // 기본 왕복 대화가 가능하므로 target 언어 중심으로 반응하고, 자연스러운 일상 표현 하나만 확장한다.
-                conversationBand = band,
-                intentSupport = IntentSupportPolicy.TrustMeaning,
-                primaryBridge = PrimaryBridgePolicy.FallbackOnly,
-                recastStyle = RecastStylePolicy.NaturalInline,
-                expressionGrowth = ExpressionGrowthPolicy.OneEverydayExpression,
-                questionLoad = QuestionLoadPolicy.OpenShort,
-                responseLength = ResponseLengthPolicy.NaturalBrief,
-                speechSpeed = SpeechSpeedPolicy.NormalLearning
-            )
-            ConversationAbilityBand.ConnectedExpression -> ChatAdaptationPolicy(
-                // 이유/감정/상황 설명이 가능하므로 대화 흐름을 넓히되, prompt 비대를 막기 위해 확장은 한 표현으로 제한한다.
-                conversationBand = band,
-                intentSupport = IntentSupportPolicy.TrustMeaning,
-                primaryBridge = PrimaryBridgePolicy.FallbackOnly,
-                recastStyle = RecastStylePolicy.NaturalInline,
-                expressionGrowth = ExpressionGrowthPolicy.OneEverydayExpression,
-                questionLoad = QuestionLoadPolicy.OpenShort,
-                responseLength = ResponseLengthPolicy.NaturalBrief,
-                speechSpeed = SpeechSpeedPolicy.SlightlyFast
-            )
-            ConversationAbilityBand.NuanceControl -> ChatAdaptationPolicy(
-                // 의미 전달은 안정적인 단계이므로 보조 언어를 닫고, 사용자가 이끄는 일반 대화 안에서 뉘앙스만 미세 조정한다.
-                conversationBand = band,
-                intentSupport = IntentSupportPolicy.FollowUserLead,
-                primaryBridge = PrimaryBridgePolicy.None,
-                recastStyle = RecastStylePolicy.NuanceOnly,
-                expressionGrowth = ExpressionGrowthPolicy.OneNativeLikeChoice,
-                questionLoad = QuestionLoadPolicy.NuanceFollowUp,
-                responseLength = ResponseLengthPolicy.Flexible,
-                speechSpeed = SpeechSpeedPolicy.Advanced
-            )
-        }
+        // band별 정책은 한 곳에서 관리해 LangState 기반 계산과 conversation evidence 기반 계산이 같은 결과를 쓰게 한다.
+        return ChatAdaptationPolicy.defaultsForBand(band)
     }
 
     private fun chooseConversationBand(
@@ -337,6 +263,20 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         val structureStage = stageFromScore(langState.internal.sentenceComplexity)
         val weakestCoreStage = listOf(grammarStage, vocabularyStage, fluencyStage).minByOrNull { it.ordinal }
             ?: SkillStage.Foundation
+
+        // 단어/표현 폭 하나가 보여도 문장 뼈대와 대화 지속 근거가 함께 없으면 아직 "구 반응 가능"으로 올리지 않는다.
+        // IntentOnly는 사용자가 학습언어만으로 대화를 이어갈 수 없는 상태를 보호하는 band다.
+        if (shouldStayIntentOnlyForChat(
+                grammarStage = grammarStage,
+                vocabularyStage = vocabularyStage,
+                fluencyStage = fluencyStage,
+                pauseStage = pauseStage,
+                utteranceStage = utteranceStage,
+                structureStage = structureStage
+            )
+        ) {
+            return ConversationAbilityBand.IntentOnly
+        }
 
         // 단어/구는 보이지만 문장 유지 근거가 부족하면 PhraseEmerging으로 둔다.
         if (
@@ -378,6 +318,33 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         }
 
         return ConversationAbilityBand.SimpleSentence
+    }
+
+    private fun shouldStayIntentOnlyForChat(
+        grammarStage: SkillStage,
+        vocabularyStage: SkillStage,
+        fluencyStage: SkillStage,
+        pauseStage: SkillStage,
+        utteranceStage: SkillStage,
+        structureStage: SkillStage
+    ): Boolean {
+        // 낮은 band의 핵심은 "무엇을 아는가"보다 "학습언어만으로 대화가 이어지는가"다.
+        val coreFoundationCount = listOf(grammarStage, vocabularyStage, fluencyStage)
+            .count { it == SkillStage.Foundation }
+        // 문장 구조와 이어 말하기가 모두 Foundation이면 단어/고정 표현 근거만으로 대화 가능 단계로 올릴 수 없다.
+        val cannotBuildShortFreeSentence =
+            structureStage == SkillStage.Foundation && utteranceStage == SkillStage.Foundation
+        // grammar 자체가 Foundation인 상태에서 pause까지 높으면 사용자가 target-only 응답을 받기 어렵다.
+        val conversationFlowBlocked =
+            pauseStage == SkillStage.Foundation &&
+                grammarStage == SkillStage.Foundation
+        // vocabulary만 상대적으로 높아 보이는 상태는 "알고 있는 단어"일 수 있으므로 독립 대화 근거가 되지 않는다.
+        val onlyVocabularyEvidence =
+            vocabularyStage.ordinal > SkillStage.Foundation.ordinal &&
+                grammarStage == SkillStage.Foundation &&
+                fluencyStage == SkillStage.Foundation
+
+        return coreFoundationCount >= 2 || cannotBuildShortFreeSentence || conversationFlowBlocked || onlyVocabularyEvidence
     }
 
     /**

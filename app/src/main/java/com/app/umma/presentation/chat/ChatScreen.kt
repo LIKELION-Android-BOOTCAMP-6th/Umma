@@ -39,8 +39,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -105,6 +107,8 @@ fun ChatScreen(
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
     // 신고 버튼은 실제 Firestore report index를 만들기 때문에, 실수 클릭 방지를 위해 확인 다이얼로그를 거친다.
     val promptReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
+    // 신고 메모는 개발용 리뷰 자료에만 저장되며, 실제 대화/자막/SessionMemory 상태와 분리한다.
+    var promptReviewReportNote by rememberSaveable { mutableStateOf("") }
     // screenHeightDp 대신 실제 Compose window container 높이를 사용한다.
     // 이렇게 해야 회전, multi-window, split-screen 에서 다이얼로그/자막 높이 계산이 실제 화면과 맞는다.
     val containerHeightDp = with(density) {
@@ -433,23 +437,57 @@ fun ChatScreen(
             onConfirm = {
                 // 확인 이후에만 실제 신고를 실행한다. 버튼 클릭 자체는 Firestore write를 만들지 않는다.
                 promptReviewReportConfirmDialogState.value = false
-                viewModel.reportPromptReviewSession()
+                viewModel.reportPromptReviewSession(reportNote = promptReviewReportNote)
             },
             confirmText = "신고",
             dismissText = "취소",
             showCancelButton = false,
             confirmButtonColor = ThemePrimary
         ) {
-            Text(
-                text = "대화 불편을 신고할까요?\n대화내용이 저장됩니다.\n민감한 정보가 있었다면 취소를 눌러주세요.",
-                color = TextPrimary,
-                textAlign = TextAlign.Center,
-                fontSize = 14.sp,
-                lineHeight = 21.sp,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = SpacingL)
-            )
+                    .padding(horizontal = SpacingL),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "대화 불편을 신고할까요?\n대화내용이 저장됩니다.\n민감한 정보가 있었다면 취소를 눌러주세요.",
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = promptReviewReportNote,
+                    onValueChange = { value ->
+                        // Firestore report index에서 바로 읽는 값이므로 과도한 길이는 화면에서 먼저 제한한다.
+                        promptReviewReportNote = value.take(PROMPT_REVIEW_REPORT_NOTE_MAX_LENGTH)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = SpacingL),
+                    minLines = 3,
+                    maxLines = 5,
+                    label = {
+                        Text(text = "불편했던 상황")
+                    },
+                    placeholder = {
+                        Text(text = "예: 일본어로만 답해서 따라가기 어려웠어요.")
+                    },
+                    supportingText = {
+                        Text(text = "${promptReviewReportNote.length}/$PROMPT_REVIEW_REPORT_NOTE_MAX_LENGTH")
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = BackgroundPrimary,
+                        unfocusedContainerColor = BackgroundPrimary,
+                        focusedIndicatorColor = ThemePrimary,
+                        unfocusedIndicatorColor = TextPrimary.copy(alpha = 0.18f),
+                        focusedLabelColor = ThemePrimary,
+                        unfocusedLabelColor = TextPrimary.copy(alpha = 0.62f)
+                    )
+                )
+            }
         }
     }
 
@@ -779,6 +817,7 @@ private fun calculateSubtitleMaxHeight(screenHeightDp: Int): Dp {
 }
 
 private const val REQUIRED_TOPIC_COUNT = 5
+private const val PROMPT_REVIEW_REPORT_NOTE_MAX_LENGTH = 500
 private const val SubtitleReservedVerticalSpaceDp = 500
 private const val SubtitleMinHeightDp = 120
 private const val SubtitleMaxHeightDp = 220

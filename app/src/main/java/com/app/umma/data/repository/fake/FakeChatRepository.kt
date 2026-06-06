@@ -10,7 +10,6 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIEvent
 import com.app.umma.domain.model.realtime.AIState
-import com.app.umma.domain.model.realtime.ChatResponseOverrideProvider
 import com.app.umma.domain.repository.ChatRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -46,8 +45,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptRevie
         langCode: LangCode,
         systemInstruction: String,
         outputAudioSpeed: Double,
-        systemInstructionDebugTrace: String?,
-        responseOverrideProvider: ChatResponseOverrideProvider?
+        systemInstructionDebugTrace: String?
     ): Result<String> {
         stopInternal(clearAppSession = true)
         if (!usesInjectedPreset) {
@@ -84,8 +82,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptRevie
     override suspend fun reconnectSession(
         systemInstruction: String,
         outputAudioSpeed: Double,
-        systemInstructionDebugTrace: String?,
-        responseOverrideProvider: ChatResponseOverrideProvider?
+        systemInstructionDebugTrace: String?
     ): Result<String> {
         val sessionId = activeSessionId
             ?: return Result.failure(IllegalStateException("Active session not found"))
@@ -258,7 +255,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptRevie
 
     override fun observeAIEvent(): Flow<AIEvent> = events.asSharedFlow()
 
-    override suspend fun reportCurrentSession(): Result<Unit> {
+    override suspend fun reportCurrentSession(reportNote: String?): Result<Unit> {
         // mock transport는 Firestore 리뷰 도구를 사용하지 않는다.
         // 신고 버튼 클릭이 데모/QA 대화 흐름을 막지 않도록 성공 no-op으로 맞춘다.
         return Result.success(Unit)

@@ -3,7 +3,9 @@ package com.app.umma.di
 import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
+import com.app.umma.data.repository.ChatConversationEvidenceRepositoryImpl
 import com.app.umma.data.repository.ChatUsageRepositoryImpl
+import com.app.umma.data.repository.chatconversation.ChatConversationAnalysisRepositoryImpl
 import com.app.umma.data.repository.NotificationSettingsRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
@@ -19,6 +21,8 @@ import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepository
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepositoryImpl
 import com.app.umma.domain.repository.AuthRepository
+import com.app.umma.domain.repository.ChatConversationAnalysisRepository
+import com.app.umma.domain.repository.ChatConversationEvidenceRepository
 import com.app.umma.domain.repository.ChatUsageRepository
 import com.app.umma.domain.repository.NotificationSettingsRepository
 import com.app.umma.domain.repository.UserProfileRepository
@@ -36,6 +40,7 @@ import javax.inject.Singleton
  */
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class RepositoryModule {
 
     @Binds
@@ -83,6 +88,18 @@ abstract class RepositoryModule {
     abstract fun bindStatisticsHistoryRemoteDataSource(
         impl: FirestoreStatisticsHistoryRemoteDataSource
     ): StatisticsHistoryRemoteDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindChatConversationAnalysisRepository(
+        impl: ChatConversationAnalysisRepositoryImpl
+    ): ChatConversationAnalysisRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindChatConversationEvidenceRepository(
+        impl: ChatConversationEvidenceRepositoryImpl
+    ): ChatConversationEvidenceRepository
 
     @Binds
     @Singleton

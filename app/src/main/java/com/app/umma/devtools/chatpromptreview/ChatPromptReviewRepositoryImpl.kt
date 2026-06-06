@@ -5,6 +5,10 @@ import com.app.umma.BuildConfig
 import com.app.umma.domain.model.learningstate.LangCode
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.tasks.await
@@ -55,6 +59,10 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                     createdAt = existing?.createdAt ?: now,
                     updatedAt = now,
                     reportedAt = existing?.reportedAt,
+                    reportId = existing?.reportId,
+                    reportNote = existing?.reportNote,
+                    promptVersion = extractPromptVersion(sessionPromptTrace) ?: existing?.promptVersion,
+                    promptBand = extractPromptBand(sessionPromptTrace) ?: existing?.promptBand,
                     sessionPromptTrace = sessionPromptTrace,
                     metadata = metadata,
                     events = existing?.events.orEmpty().toMutableList()
@@ -85,6 +93,10 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                     createdAt = event.createdAt,
                     updatedAt = event.createdAt,
                     sessionPromptTrace = null,
+                    reportId = null,
+                    promptVersion = null,
+                    promptBand = null,
+                    reportNote = null,
                     metadata = null,
                     events = mutableListOf()
                 )
@@ -99,7 +111,8 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
 
     override suspend fun reportSession(
         userId: String,
-        sessionId: String
+        sessionId: String,
+        reportNote: String?
     ): Result<Unit> {
         if (!isEnabled()) return Result.success(Unit)
         if (userId.isBlank() || sessionId.isBlank()) return Result.success(Unit)
@@ -107,13 +120,23 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
         return runCatching {
             val now = System.currentTimeMillis()
             val key = bufferKey(userId, sessionId)
+            val sanitizedReportNote = sanitizeReportNote(reportNote)
             bufferMutex.withLock {
                 val existing = sessionBuffers[key] ?: return@withLock
+                val reportedAt = existing.reportedAt ?: now
+                val reportId = existing.reportId ?: reportDocumentId(
+                    reportedAt = reportedAt,
+                    language = existing.language,
+                    sessionId = sessionId
+                )
                 // 신고 버튼은 "이 세션을 분석 대상으로 남긴다"는 의사 표시다.
                 // 이후 종료 flush에서도 저장되도록 버퍼에 reported 상태를 보존한다.
+                // reportNote는 문제를 느낀 상황을 사람이 빠르게 재구성하기 위한 메모라 세션 단위로 보관한다.
                 sessionBuffers[key] = existing.copy(
-                    reportedAt = existing.reportedAt ?: now,
-                    updatedAt = now
+                    reportedAt = reportedAt,
+                    updatedAt = now,
+                    reportId = reportId,
+                    reportNote = sanitizedReportNote ?: existing.reportNote
                 )
             }
 
@@ -157,7 +180,12 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
             val sessionRef = reviewSessionDocument(userId, sessionId)
             val sortedEvents = snapshot.events
                 .sortedWith(compareBy<ChatPromptReviewEvent> { it.createdAt }.thenBy { it.eventId })
-            val reportRef = reviewReportDocument(userId, sessionId)
+            val reportId = snapshot.reportId ?: reportDocumentId(
+                reportedAt = snapshot.reportedAt ?: snapshot.updatedAt,
+                language = snapshot.language,
+                sessionId = sessionId
+            )
+            val reportRef = reviewReportDocument(reportId)
             val reviewPath = "users/$userId/$CHAT_PROMPT_REVIEWS_COLLECTION/$sessionId"
             val status = if (finalFlush) "ready" else "reported"
             val sessionMap = mapOf(
@@ -167,6 +195,9 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 "createdAt" to snapshot.createdAt,
                 "updatedAt" to snapshot.updatedAt,
                 "reportedAt" to snapshot.reportedAt,
+                "promptVersion" to snapshot.promptVersion,
+                "promptBand" to snapshot.promptBand,
+                "reportNote" to snapshot.reportNote,
                 "sessionPromptTrace" to snapshot.sessionPromptTrace,
                 "metadata" to snapshot.metadata,
                 "appBuildType" to BuildConfig.BUILD_TYPE,
@@ -175,13 +206,16 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 "events" to sortedEvents.map(::eventMap)
             )
             val reportMap = mapOf(
-                "reportId" to reportDocumentId(userId, sessionId),
+                "reportId" to reportId,
                 "uid" to userId,
                 "sessionId" to sessionId,
                 "reviewPath" to reviewPath,
                 "language" to snapshot.language.code,
                 "status" to status,
                 "reportedAt" to snapshot.reportedAt,
+                "promptVersion" to snapshot.promptVersion,
+                "promptBand" to snapshot.promptBand,
+                "reportNote" to snapshot.reportNote,
                 "updatedAt" to snapshot.updatedAt,
                 "appBuildType" to BuildConfig.BUILD_TYPE,
                 "appFlavor" to BuildConfig.FLAVOR,
@@ -197,7 +231,8 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
             Log.i(
                 LOG_TAG,
                 "sessionFlushed uid=$userId sessionId=$sessionId eventCount=${sortedEvents.size} " +
-                    "status=$status firestorePath=$reviewPath reportPath=$CHAT_PROMPT_REVIEW_REPORTS_COLLECTION/${reportDocumentId(userId, sessionId)}"
+                    "status=$status promptBand=${snapshot.promptBand ?: "unknown"} " +
+                    "firestorePath=$reviewPath reportPath=$CHAT_PROMPT_REVIEW_REPORTS_COLLECTION/$reportId"
             )
         }
     }
@@ -208,9 +243,9 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
         .collection(CHAT_PROMPT_REVIEWS_COLLECTION)
         .document(sessionId)
 
-    private fun reviewReportDocument(userId: String, sessionId: String) = firestore
+    private fun reviewReportDocument(reportId: String) = firestore
         .collection(CHAT_PROMPT_REVIEW_REPORTS_COLLECTION)
-        .document(reportDocumentId(userId, sessionId))
+        .document(reportId)
 
     private companion object {
         private const val LOG_TAG = "AiChatPromptReview"
@@ -227,6 +262,10 @@ private data class ChatPromptReviewSessionBuffer(
     val createdAt: Long,
     val updatedAt: Long,
     val reportedAt: Long? = null,
+    val reportId: String?,
+    val promptVersion: String?,
+    val promptBand: String?,
+    val reportNote: String?,
     val sessionPromptTrace: String?,
     val metadata: String?,
     val events: MutableList<ChatPromptReviewEvent>
@@ -238,6 +277,10 @@ private data class ChatPromptReviewSessionSnapshot(
     val createdAt: Long,
     val updatedAt: Long,
     val reportedAt: Long?,
+    val reportId: String?,
+    val promptVersion: String?,
+    val promptBand: String?,
+    val reportNote: String?,
     val sessionPromptTrace: String?,
     val metadata: String?,
     val events: List<ChatPromptReviewEvent>
@@ -250,6 +293,10 @@ private fun ChatPromptReviewSessionBuffer.toSnapshot(): ChatPromptReviewSessionS
         createdAt = createdAt,
         updatedAt = updatedAt,
         reportedAt = reportedAt,
+        reportId = reportId,
+        promptVersion = promptVersion,
+        promptBand = promptBand,
+        reportNote = reportNote,
         sessionPromptTrace = sessionPromptTrace,
         metadata = metadata,
         // MutableList를 그대로 넘기면 partial flush 중 새 event 추가와 충돌할 수 있어 복사본만 밖으로 내보낸다.
@@ -261,9 +308,60 @@ private fun bufferKey(userId: String, sessionId: String): String {
     return "$userId/$sessionId"
 }
 
-private fun reportDocumentId(userId: String, sessionId: String): String {
-    // uid/sessionId를 그대로 이어 붙이면 같은 세션 신고가 하나의 index 문서로 merge되어 중복 신고를 만들지 않는다.
-    return "${userId}_${sessionId}".replace(Regex("[^A-Za-z0-9_-]"), "_")
+private fun reportDocumentId(
+    reportedAt: Long,
+    language: LangCode,
+    sessionId: String
+): String {
+    // Firestore 콘솔에서 시간순으로 바로 찾을 수 있게 KST 24시간 표기와 언어를 문서 ID 앞에 둔다.
+    // 같은 초에 같은 언어 신고가 여러 개 생길 수 있어 session prefix를 뒤에 붙여 충돌을 피한다.
+    val timestamp = formatReportTimestamp(reportedAt)
+    val sessionPrefix = sessionId
+        .take(REPORT_ID_SESSION_PREFIX_LENGTH)
+        .ifBlank { "unknown" }
+    return "${timestamp}_${language.code}_$sessionPrefix"
+        .replace(Regex("[^A-Za-z0-9_-]"), "_")
+}
+
+private fun extractPromptVersion(sessionPromptTrace: String?): String? {
+    // trace 전체를 별도 파싱 모델로 만들지 않고, index에 필요한 promptVersion 값만 안전하게 추출한다.
+    if (sessionPromptTrace.isNullOrBlank()) return null
+    return Regex("""\bpromptVersion=([^\s]+)""")
+        .find(sessionPromptTrace)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf { it.isNotBlank() }
+}
+
+private fun extractPromptBand(sessionPromptTrace: String?): String? {
+    // 신고 목록에서 세션별 적용 band를 바로 볼 수 있도록 trace의 style 요약에서 band만 추출한다.
+    if (sessionPromptTrace.isNullOrBlank()) return null
+    return Regex("""style=\{band=([^,}]+)""")
+        .find(sessionPromptTrace)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf { it.isNotBlank() }
+}
+
+private fun sanitizeReportNote(reportNote: String?): String? {
+    // 신고 메모는 Firestore index에서 바로 읽는 사람이 보는 값이므로 공백을 정리하고 과도한 길이는 제한한다.
+    return reportNote
+        ?.trim()
+        ?.replace(Regex("\\s+"), " ")
+        ?.take(MAX_REPORT_NOTE_LENGTH)
+        ?.takeIf { it.isNotBlank() }
+}
+
+private const val MAX_REPORT_NOTE_LENGTH = 500
+private const val REPORT_ID_SESSION_PREFIX_LENGTH = 8
+private const val REPORT_ID_TIME_ZONE = "Asia/Seoul"
+private const val REPORT_ID_TIME_PATTERN = "yyyyMMdd_HHmmss"
+
+private fun formatReportTimestamp(timestampMillis: Long): String {
+    // minSdk 24에서는 java.time desugaring 의존 없이 동작하도록 java.text 포맷터를 매 호출 생성한다.
+    return SimpleDateFormat(REPORT_ID_TIME_PATTERN, Locale.US)
+        .apply { timeZone = TimeZone.getTimeZone(REPORT_ID_TIME_ZONE) }
+        .format(Date(timestampMillis))
 }
 
 private fun eventMap(event: ChatPromptReviewEvent): Map<String, Any?> {
@@ -276,9 +374,6 @@ private fun eventMap(event: ChatPromptReviewEvent): Map<String, Any?> {
         "role" to event.role?.name,
         "turnId" to event.turnId,
         "text" to event.text,
-        "debugTrace" to event.debugTrace,
-        "hasInstructions" to event.hasInstructions,
-        "outputAudioSpeed" to event.outputAudioSpeed,
         "metadata" to event.metadata
     )
 }

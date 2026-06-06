@@ -40,7 +40,8 @@ interface ChatPromptReviewRepository {
      */
     suspend fun reportSession(
         userId: String,
-        sessionId: String
+        sessionId: String,
+        reportNote: String? = null
     ): Result<Unit>
 
     /**
