@@ -96,7 +96,9 @@ data class LangStateAnalysisMetaDto(
     // 최근 반복 약점 후보. profile 단계에서 상위 1~2개만 사용한다.
     val activeFocus: List<LearningFocusDto> = emptyList(),
     // 마지막 correction/user/review signal 관측 시각.
-    val lastSignalAt: Long? = null
+    val lastSignalAt: Long? = null,
+    // Chat source만의 중복 반영 방어 id. 기존 correction event id와 충돌하지 않게 meta에 둔다.
+    val lastChatAnalysisEventId: String? = null
 )
 
 @Serializable
@@ -307,7 +309,8 @@ fun LangStateAnalysisMeta.toDto(): LangStateAnalysisMetaDto {
         metricEvidence = metricEvidence.mapKeys { (key, _) -> key.name }
             .mapValues { (_, value) -> value.toDto() },
         activeFocus = activeFocus.map { it.toDto() },
-        lastSignalAt = lastSignalAt
+        lastSignalAt = lastSignalAt,
+        lastChatAnalysisEventId = lastChatAnalysisEventId
     )
 }
 
@@ -328,7 +331,8 @@ fun LangStateAnalysisMetaDto.toDomain(): LangStateAnalysisMeta {
     return LangStateAnalysisMeta(
         metricEvidence = restoredEvidence,
         activeFocus = restoredFocus,
-        lastSignalAt = lastSignalAt
+        lastSignalAt = lastSignalAt,
+        lastChatAnalysisEventId = lastChatAnalysisEventId
     )
 }
 

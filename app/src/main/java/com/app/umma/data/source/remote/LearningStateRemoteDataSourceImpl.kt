@@ -167,7 +167,8 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
             activeFocus = list("activeFocus").mapNotNull { rawFocus ->
                 (rawFocus as? Map<*, *>)?.toStringAnyMap()?.toLearningFocusDto()
             },
-            lastSignalAt = long("lastSignalAt")
+            lastSignalAt = long("lastSignalAt"),
+            lastChatAnalysisEventId = string("lastChatAnalysisEventId")
         )
     }
 

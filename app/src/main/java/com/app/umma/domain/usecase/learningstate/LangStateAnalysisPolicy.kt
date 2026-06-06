@@ -407,6 +407,7 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
                     previous = acc[update.key],
                     direction = update.direction,
                     confidence = signal.weightedConfidence(),
+                    source = LearningSignalSource.CorrectionSignal,
                     observedAt = observedAt
                 ))
             }
@@ -511,37 +512,16 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         previous: MetricEvidence?,
         direction: EvidenceDirection,
         confidence: Double,
+        source: LearningSignalSource,
         observedAt: Long
     ): MetricEvidence {
-        if (previous == null) {
-            return MetricEvidence(
-                observedCount = 1,
-                confidence = confidence,
-                sourceTypes = setOf(LearningSignalSource.CorrectionSignal),
-                direction = direction,
-                directionCount = 1,
-                lastObservedAt = observedAt
-            )
-        }
-
-        val mergedDirection = when {
-            previous.direction == direction -> direction
-            previous.direction == EvidenceDirection.Mixed -> EvidenceDirection.Mixed
-            direction == EvidenceDirection.Stable -> previous.direction
-            previous.direction == EvidenceDirection.Stable -> direction
-            else -> EvidenceDirection.Mixed
-        }
-        val directionCount = if (previous.direction == direction) previous.directionCount + 1 else 1
-        val observedCount = previous.observedCount + 1
-        val mergedConfidence = ((previous.confidence * previous.observedCount) + confidence) / observedCount
-
-        return previous.copy(
-            observedCount = observedCount,
-            confidence = clamp01(mergedConfidence),
-            sourceTypes = previous.sourceTypes + LearningSignalSource.CorrectionSignal,
-            direction = mergedDirection,
-            directionCount = directionCount,
-            lastObservedAt = observedAt
+        // merge 규칙은 source와 무관하게 같고, source만 caller가 명시해 오염을 막는다.
+        return MetricEvidenceMergePolicy.merge(
+            previous = previous,
+            direction = direction,
+            confidence = confidence,
+            source = source,
+            observedAt = observedAt
         )
     }
 

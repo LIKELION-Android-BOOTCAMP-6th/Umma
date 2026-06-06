@@ -1,19 +1,34 @@
 package com.app.umma.domain.usecase.learningstate
 
 import com.app.umma.core.logging.LearningSignalFlowLog
+import com.app.umma.core.logging.ChatPromptTraceLog
+import com.app.umma.domain.model.chat.ChatConversationEvidence
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.ChatSignalUpdateInput
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
+import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
+import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LearningMetricKey
+import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
+import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.repository.LearningStateRepo
+import kotlinx.coroutines.flow.firstOrNull
 import javax.inject.Inject
 
 /**
@@ -128,6 +143,241 @@ class ApplyCorrectionSignalUpdateUseCase @Inject constructor(
         // 검증이 끝난 신호만 repository에 전달한다.
         return repo.updateCorrectionSignal(input)
     }
+}
+
+/**
+ * Chat 대화 분석 결과를 LangState에 연결하는 얇은 adapter.
+ *
+ * Correction처럼 점수 계산을 직접 실행하지 않고, Chat evidence를 "근거 방향"으로만 누적한다.
+ * 이렇게 해야 Chat 실험 과정에서 잘못 측정된 한 세션이 내부 숙련도 점수를 즉시 왜곡하지 않는다.
+ */
+class ApplyChatSignalUpdateUseCase @Inject constructor(
+    private val repo: LearningStateRepo
+) {
+    /**
+     * Chat 세션 분석 evidence를 공식 LangState의 analysisMeta 근거로만 누적한다.
+     *
+     * Chat source는 대화 지속 능력 근거이지 문법/통계 점수 source가 아니므로,
+     * InternalMetrics와 ExternalMetrics는 그대로 두고 source가 분리된 MetricEvidence만 갱신한다.
+     */
+    suspend operator fun invoke(input: ChatSignalUpdateInput): Result<LearningStateUpdateResult> {
+        val validationFailure = validateInput(input)
+        if (validationFailure != null) return Result.failure(validationFailure)
+
+        // Chat source는 correction analysis event와 별도 idempotency key를 사용한다.
+        // 같은 sourceSessionId가 다시 들어와도 evidence observedCount가 중복 증가하지 않게 한다.
+        val analysisEventId = buildChatAnalysisEventId(input.sourceSessionId)
+        repo.preload()
+        val currentState = repo.observeLangState(input.lang).firstOrNull()
+            ?: LangState.initial(
+                lang = input.lang,
+                createdAt = input.analyzedAt,
+                updatedAt = input.analyzedAt
+            )
+
+        if (!input.forceReanalysis &&
+            currentState.analysisMeta.lastChatAnalysisEventId == analysisEventId
+        ) {
+            ChatPromptTraceLog.d(
+                "chat_ability langstate_skipped lang=${input.lang.code} " +
+                    "session=${input.sourceSessionId} reason=duplicate"
+            )
+            return Result.success(
+                LearningStateUpdateResult(
+                    lang = input.lang,
+                    savedState = currentState,
+                    sourceEventId = analysisEventId,
+                    applied = false,
+                    updatedAt = currentState.updatedAt ?: input.analyzedAt
+                )
+            )
+        }
+
+        // Gemini가 만든 label을 LangState가 이해하는 metric 방향으로 낮춰서 저장한다.
+        // 이 단계는 "점수 반영"이 아니라 "나중에 profile 계산이 참고할 관찰 근거"를 만드는 단계다.
+        val metricUpdates = input.evidence.toMetricDirectionUpdates()
+        val nextEvidence = metricUpdates.fold(currentState.analysisMeta.metricEvidence) { evidence, update ->
+            evidence + (update.key to MetricEvidenceMergePolicy.merge(
+                previous = evidence[update.key],
+                direction = update.direction,
+                confidence = input.evidence.toMetricConfidence(),
+                source = LearningSignalSource.ChatSession,
+                observedAt = input.analyzedAt
+            ))
+        }
+        val nextMeta = currentState.analysisMeta.copy(
+            metricEvidence = nextEvidence,
+            // 유효 metric이 생겼을 때만 lastSignalAt을 옮겨 low/불충분 evidence가 signal처럼 보이지 않게 한다.
+            lastSignalAt = if (metricUpdates.isNotEmpty()) input.analyzedAt else currentState.analysisMeta.lastSignalAt,
+            lastChatAnalysisEventId = analysisEventId
+        )
+        val preparedState = currentState.copy(
+            internal = currentState.internal,
+            external = currentState.external,
+            analysisMeta = nextMeta,
+            updatedAt = input.analyzedAt,
+            lastAnalyzedAt = input.analyzedAt,
+            // Chat source 중복 방어는 analysisMeta.lastChatAnalysisEventId가 전담한다.
+            // 공용 lastAnalysisEventId를 chat-session 값으로 덮으면 Correction 재시도 중복 방어가 약해질 수 있다.
+            lastAnalysisEventId = currentState.lastAnalysisEventId
+        )
+
+        ChatPromptTraceLog.d(
+            "chat_ability langstate_prepared lang=${input.lang.code} " +
+                "session=${input.sourceSessionId} metrics=${metricUpdates.size} confidence=${input.evidence.confidence}"
+        )
+
+        val updateResult = repo.updateLanguageState(
+            LangStateUpdateInput(
+                uid = input.uid,
+                lang = input.lang,
+                sessionMemoryKey = input.sessionMemoryKey,
+                analysisEventId = analysisEventId,
+                currentState = currentState,
+                preparedState = preparedState,
+                recentUserTurns = input.recentUserTurns,
+                correctionResult = null,
+                correctionAvailableOverride = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = input.analyzedAt,
+                // Chat evidence는 공식 LangState 근거만 누적하고,
+                // recentMinutes/correctionAvailable 같은 Summary는 기존 값을 보존한다.
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.PreserveExisting,
+                forceReanalysis = input.forceReanalysis
+            )
+        )
+        updateResult
+            .onSuccess { result ->
+                ChatPromptTraceLog.i(
+                    "chat_ability langstate_saved lang=${input.lang.code} " +
+                        "session=${input.sourceSessionId} applied=${result.applied} metrics=${metricUpdates.size}"
+                )
+            }
+            .onFailure { error ->
+                ChatPromptTraceLog.w(
+                    "chat_ability langstate_failed lang=${input.lang.code} " +
+                        "session=${input.sourceSessionId} reason=${error::class.simpleName}",
+                    error
+                )
+            }
+        return updateResult
+    }
+
+    private fun validateInput(input: ChatSignalUpdateInput): IllegalArgumentException? {
+        // LangState에 들어가는 Chat evidence는 사용자, 언어, 세션 범위가 모두 특정되어야 한다.
+        // 범위가 모호한 입력은 debug snapshot에는 남을 수 있어도 공식 상태에는 올리지 않는다.
+        return when {
+            input.uid.isBlank() -> IllegalArgumentException("uid must not be blank")
+            input.sessionMemoryKey.isBlank() -> IllegalArgumentException("sessionMemoryKey must not be blank")
+            input.sourceSessionId.isBlank() -> IllegalArgumentException("sourceSessionId must not be blank")
+            input.evidence.selectedLang != input.lang -> IllegalArgumentException(
+                "chat evidence language mismatch: evidence=${input.evidence.selectedLang}, input=${input.lang}"
+            )
+            input.recentUserTurns.isEmpty() -> IllegalArgumentException("recentUserTurns must not be empty")
+            else -> null
+        }
+    }
+
+    private fun ChatConversationEvidence.toMetricDirectionUpdates(): List<MetricDirectionUpdate> {
+        // Low confidence와 강한 보조 의존 evidence는 공식 LangState 근거로 누적하지 않는다.
+        if (!isEligibleForLangStateEvidence()) return emptyList()
+
+        val rawUpdates = buildList {
+            when (targetLanguageProduction) {
+                TargetLanguageProductionEvidence.ConnectedTurns,
+                TargetLanguageProductionEvidence.SimpleSentences -> {
+                    // 사용자가 학습언어로 문장을 직접 만들어 이어간 경우에만 길이/복잡도 근거를 올린다.
+                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Up))
+                    add(MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Up))
+                }
+                TargetLanguageProductionEvidence.ShortPhrases -> {
+                    // 짧은 구 단위 발화는 성장 신호라기보다 현재 수준 유지 근거에 가깝다.
+                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Stable))
+                }
+                TargetLanguageProductionEvidence.WordsOrFragments,
+                TargetLanguageProductionEvidence.None -> Unit
+            }
+
+            when (conversationSustainability) {
+                ConversationSustainabilityEvidence.SustainedNatural,
+                ConversationSustainabilityEvidence.SustainedSimple -> {
+                    // 대화가 AI 보조 없이 이어진 경우는 발화 길이 metric의 긍정 근거로만 반영한다.
+                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Up))
+                }
+                ConversationSustainabilityEvidence.SupportedShort -> {
+                    // 보조가 있는 짧은 지속은 과평가를 막기 위해 stable로 제한한다.
+                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Stable))
+                }
+                ConversationSustainabilityEvidence.RequiresSupport -> Unit
+            }
+
+            if (targetLanguageComprehension == TargetLanguageComprehensionEvidence.NaturalFlow ||
+                targetLanguageComprehension == TargetLanguageComprehensionEvidence.SimpleSentence
+            ) {
+                // 이해 근거는 사용자가 직접 말한 문장보다 약한 신호라 SentenceComplexity 근거만 보조한다.
+                add(MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Up))
+            }
+
+            if (responseDifficultyFit == ResponseDifficultyFitEvidence.Fits &&
+                conversationSustainability != ConversationSustainabilityEvidence.SupportedShort
+            ) {
+                // 난이도가 맞고 대화가 스스로 유지된 경우에만 자연스러움 근거로 인정한다.
+                add(MetricDirectionUpdate(LearningMetricKey.SpokenNaturalness, EvidenceDirection.Up))
+            }
+        }
+
+        // 같은 Chat evidence 안에서 같은 metric이 두 번 관측돼도 observedCount는 한 번만 증가해야 한다.
+        return rawUpdates
+            .groupBy { update -> update.key }
+            .map { (key, updates) ->
+                MetricDirectionUpdate(
+                    key = key,
+                    direction = mergeDirectionsWithinChatEvidence(updates.map { update -> update.direction })
+                )
+            }
+    }
+
+    private fun ChatConversationEvidence.isEligibleForLangStateEvidence(): Boolean {
+        // LangState는 누적 상태이므로 보조 의존/난이도 과다/낮은 신뢰도 세션을 보수적으로 제외한다.
+        // 이런 세션은 debug snapshot에는 남지만 공식 profile 근거로는 쓰지 않는다.
+        return confidence != ProfileConfidence.Low &&
+            supportLanguageDependence != LanguageDependenceEvidence.High &&
+            aiScaffoldingDependence != LanguageDependenceEvidence.High &&
+            consistency != ConversationConsistencyEvidence.Low &&
+            responseDifficultyFit != ResponseDifficultyFitEvidence.TooHard &&
+            targetLanguageProduction != TargetLanguageProductionEvidence.None &&
+            targetLanguageComprehension != TargetLanguageComprehensionEvidence.None
+    }
+
+    private fun ChatConversationEvidence.toMetricConfidence(): Double {
+        // Chat evidence는 Correction보다 간접 근거라 High도 1.0으로 두지 않는다.
+        // 이후 merge policy가 source별 관찰을 완만하게 누적하도록 confidence를 낮춰 전달한다.
+        return when (confidence) {
+            ProfileConfidence.Low -> 0.0
+            ProfileConfidence.Medium -> 0.55
+            ProfileConfidence.High -> 0.75
+        }
+    }
+
+    private fun mergeDirectionsWithinChatEvidence(
+        directions: List<EvidenceDirection>
+    ): EvidenceDirection {
+        val meaningfulDirections = directions.filter { direction -> direction != EvidenceDirection.Stable }.distinct()
+        return when {
+            meaningfulDirections.isEmpty() -> EvidenceDirection.Stable
+            meaningfulDirections.size == 1 -> meaningfulDirections.first()
+            else -> EvidenceDirection.Mixed
+        }
+    }
+
+    private fun buildChatAnalysisEventId(sourceSessionId: String): String {
+        return "chat-session:${sourceSessionId.trim()}"
+    }
+
+    private data class MetricDirectionUpdate(
+        val key: LearningMetricKey,
+        val direction: EvidenceDirection
+    )
 }
 
 class InitLearningStateUseCase @Inject constructor(

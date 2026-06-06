@@ -145,6 +145,8 @@ enum class LearningSignalSource {
     UserTurn,
     // Correction AI가 교정 과정에서 구조화해 넘긴 관찰 신호.
     CorrectionSignal,
+    // Chat 세션 종료 후 Gemini가 분석한 대화 지속 능력 신호.
+    ChatSession,
     // Flashcard/SRS 복습 결과에서 온 신호.
     ReviewEvent,
     // 사전/패턴/규칙 기반 분석에서 온 신호.
@@ -232,7 +234,9 @@ data class LangStateAnalysisMeta(
     // 다음 Chat/Correction에서 도울 수 있는 active focus 후보.
     val activeFocus: List<LearningFocus>,
     // 마지막 learning signal 관측 시각.
-    val lastSignalAt: Long? = null
+    val lastSignalAt: Long? = null,
+    // Chat 세션 분석은 correction 분석 사이에 끼어들 수 있어 source별 중복 방어 id를 별도로 둔다.
+    val lastChatAnalysisEventId: String? = null
 ) {
     companion object {
         fun initial(): LangStateAnalysisMeta {
@@ -240,7 +244,8 @@ data class LangStateAnalysisMeta(
             return LangStateAnalysisMeta(
                 metricEvidence = emptyMap(),
                 activeFocus = emptyList(),
-                lastSignalAt = null
+                lastSignalAt = null,
+                lastChatAnalysisEventId = null
             )
         }
     }

@@ -39,7 +39,7 @@ class ChatConversationEvidenceRepositoryImpl @Inject constructor(
         return runCatching {
             val uid = authRepository.getCurrentUserUid()
             if (uid == null) {
-                Log.d(TAG, "getEvidence skipped reason=missing_uid lang=${selectedLang.code}")
+                Log.d(TAG, "chat_ability evidence_load_skipped lang=${selectedLang.code} reason=missing_uid")
                 return@runCatching null
             }
 
@@ -57,7 +57,7 @@ class ChatConversationEvidenceRepositoryImpl @Inject constructor(
             if (data == null) {
                 Log.d(
                     TAG,
-                    "getEvidence empty_or_timeout path=users/$uid/$COLLECTION/${selectedLang.code}"
+                    "chat_ability evidence_loaded lang=${selectedLang.code} applied=false reason=empty_or_timeout"
                 )
                 return@runCatching null
             }
@@ -65,8 +65,8 @@ class ChatConversationEvidenceRepositoryImpl @Inject constructor(
             val evidence = data.toChatConversationEvidence(defaultLang = selectedLang)
             Log.d(
                 TAG,
-                "getEvidence loaded path=users/$uid/$COLLECTION/${selectedLang.code} " +
-                    "applied=${evidence != null} rawKeys=${data.keys.sorted()}"
+                "chat_ability evidence_loaded lang=${selectedLang.code} applied=${evidence != null} " +
+                    "band=${evidence?.debugRecommendedBand ?: "none"}"
             )
             evidence
         }
@@ -83,12 +83,6 @@ class ChatConversationEvidenceRepositoryImpl @Inject constructor(
                 .document(evidence.selectedLang.code)
                 .set(evidence.toMap(), SetOptions.merge())
                 .await()
-            Log.i(
-                TAG,
-                "saveEvidence completed path=users/$uid/$COLLECTION/${evidence.selectedLang.code} " +
-                    "source=${evidence.source} confidence=${evidence.confidence} " +
-                    "debugRecommendedBand=${evidence.debugRecommendedBand}"
-            )
         }
     }
 

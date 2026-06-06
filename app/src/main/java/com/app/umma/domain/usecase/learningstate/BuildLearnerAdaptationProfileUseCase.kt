@@ -12,6 +12,8 @@ import com.app.umma.domain.model.learningstate.LearningFocus
 import com.app.umma.domain.model.learningstate.LearningFocusSummary
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
+import com.app.umma.domain.model.learningstate.LearningSignalSource
+import com.app.umma.domain.model.learningstate.MetricEvidence
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -130,7 +132,8 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
 
     private fun estimateProfileConfidence(langState: LangState): ProfileConfidence {
         // evidence는 장기 지표의 반복 관측 근거이고, confidence는 그 근거를 얼마나 믿을지 정한다.
-        val evidence = langState.analysisMeta.metricEvidence.values
+        // CHAT-TUNE-006 1차에서는 ChatSession-only evidence를 저장만 하고 profile 계산에는 아직 쓰지 않는다.
+        val evidence = langState.analysisMeta.metricEvidence.values.excludeChatOnlyEvidence()
         // evidence가 없고 분석 시각도 없으면 초기 snapshot이므로 low confidence로 둔다.
         if (evidence.isEmpty() && langState.lastAnalyzedAt == null) return ProfileConfidence.Low
 
@@ -497,7 +500,11 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
      * 상위 교정 band를 주지 않기 위한 gate다. 이 요약은 저장하지 않고 profile 계산 중에만 사용한다.
      */
     private fun LangState.correctionGrowthEvidenceProfile(): CorrectionGrowthEvidenceProfile {
-        val evidenceValues = analysisMeta.metricEvidence.values
+        // Correction band는 ChatSession-only evidence로 상향/하향되지 않아야 한다.
+        val correctionScopedEvidence = analysisMeta.metricEvidence.filterValues { evidence ->
+            !evidence.isChatOnlyEvidence()
+        }
+        val evidenceValues = correctionScopedEvidence.values
         val hasMixedDirection = evidenceValues.any { evidence ->
             evidence.direction == EvidenceDirection.Mixed
         }
@@ -506,18 +513,18 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             LearningMetricKey.SentenceComplexity,
             LearningMetricKey.VocabularyAppropriateness
         )
-        val hasRepeatedCoreWeakness = analysisMeta.metricEvidence.any { (key, evidence) ->
+        val hasRepeatedCoreWeakness = correctionScopedEvidence.any { (key, evidence) ->
             key in repeatedCoreWeaknessKeys &&
                 evidence.direction == EvidenceDirection.Down &&
                 evidence.observedCount >= MEDIUM_EVIDENCE_COUNT &&
                 evidence.confidence >= MEDIUM_CONFIDENCE_SCORE
         }
-        val positiveSupportCount = analysisMeta.metricEvidence.count { (_, evidence) ->
+        val positiveSupportCount = correctionScopedEvidence.count { (_, evidence) ->
             evidence.direction == EvidenceDirection.Up &&
                 evidence.directionCount >= MEDIUM_EVIDENCE_COUNT &&
                 evidence.confidence >= MEDIUM_CONFIDENCE_SCORE
         }
-        val strongPositiveSupportCount = analysisMeta.metricEvidence.count { (_, evidence) ->
+        val strongPositiveSupportCount = correctionScopedEvidence.count { (_, evidence) ->
             evidence.direction == EvidenceDirection.Up &&
                 evidence.directionCount >= MEDIUM_EVIDENCE_COUNT &&
                 evidence.confidence >= HIGH_CONFIDENCE_SCORE
@@ -542,6 +549,14 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
 
         // NuanceRefine은 가장 높은 교정 band이므로 강한 상승 근거가 여러 축에서 반복될 때만 허용한다.
         fun supportsNuanceRefine(): Boolean = strongPositiveSupportCount >= NUANCE_REFINE_EVIDENCE_COUNT
+    }
+
+    private fun Collection<MetricEvidence>.excludeChatOnlyEvidence(): List<MetricEvidence> {
+        return filterNot { evidence -> evidence.isChatOnlyEvidence() }
+    }
+
+    private fun MetricEvidence.isChatOnlyEvidence(): Boolean {
+        return sourceTypes == setOf(LearningSignalSource.ChatSession)
     }
 
     private fun confidenceFromScore(

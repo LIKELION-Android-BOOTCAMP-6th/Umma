@@ -27,6 +27,7 @@ import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
+import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.UserLangPref
@@ -166,61 +167,83 @@ class LearningStateRepoImpl @Inject constructor(
                 )
             }
 
-            // LS-006에서 계산된 결과를 그대로 반영하고, 화면용 요약은 함께 갱신한다.
-            val measuredMinutes = calculateRecentMinutes(input)
-            val hasUserTurns =
-                input.recentUserTurns.any { it.speaker == com.app.umma.domain.model.learningstate.TurnSpeaker.USER }
-            val correctionAvailable = input.correctionAvailableOverride ?: hasUserTurns
-
             val updatedDash = current.dashSummaries[lang]
                 ?: DashSummary.initial(lang)
             val updatedSession = current.sessionSummaries[lang]
                 ?: SessionSummary.initial(lang)
 
-            // 교정 완료 흐름이 새 주제를 넘겨준 경우에만 갱신하고, 그 외 부분 갱신 호출은 이전 값을 보존한다.
-            // updateCorrectionSignal 의 같은 패턴(L336)을 따라 dash/session 양쪽에 같은 값을 기록해
-            //   Dashboard 카드와 Chat 진입 시 주제가 어긋나지 않게 한다.
-            val nextTopic = input.recentTopic ?: updatedSession.recentTopic ?: updatedDash.recentTopic
+            // LS-006에서 계산된 결과를 그대로 반영하되, 호출 목적에 따라 Summary 갱신 여부를 분리한다.
+            // Correction batch update는 기존처럼 요약을 함께 갱신하고,
+            // Chat evidence update는 LangState analysisMeta만 저장해야 하므로 화면/세션 요약을 보존한다.
+            val nextDash: DashSummary
+            val nextSession: SessionSummary
+            val pendingSyncKeys: Set<String>
+            val correctionAvailableForLog: Boolean?
+            when (input.summaryUpdatePolicy) {
+                LangStateSummaryUpdatePolicy.RecalculateFromInput -> {
+                    val measuredMinutes = calculateRecentMinutes(input)
+                    val hasUserTurns =
+                        input.recentUserTurns.any {
+                            it.speaker == com.app.umma.domain.model.learningstate.TurnSpeaker.USER
+                        }
+                    val correctionAvailable = input.correctionAvailableOverride ?: hasUserTurns
+
+                    // 교정 완료 흐름이 새 주제를 넘겨준 경우에만 갱신하고, 그 외 부분 갱신 호출은 이전 값을 보존한다.
+                    // updateCorrectionSignal 의 같은 패턴(L336)을 따라 dash/session 양쪽에 같은 값을 기록해
+                    //   Dashboard 카드와 Chat 진입 시 주제가 어긋나지 않게 한다.
+                    val nextTopic = input.recentTopic ?: updatedSession.recentTopic ?: updatedDash.recentTopic
+                    nextDash = updatedDash.copy(
+                        recentMinutes = measuredMinutes,
+                        recentTopic = nextTopic,
+                        correctionAvailable = correctionAvailable,
+                        grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
+                        fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
+                        vocabDelta = deltaFromInternal(preparedState.external.vocabularyLevel.ordinal.toDouble() / 5.0),
+                        naturalnessDelta = deltaFromInternal(preparedState.external.naturalnessScore),
+                        updatedAt = input.analyzedAt
+                    )
+                    nextSession = updatedSession.copy(
+                        recentMinutes = measuredMinutes,
+                        recentTopic = nextTopic,
+                        correctionAvailable = correctionAvailable,
+                        updatedAt = input.analyzedAt
+                    )
+                    pendingSyncKeys = setOf(
+                        PendingSyncKey.langState(lang),
+                        PendingSyncKey.dashSummary(lang),
+                        PendingSyncKey.sessionSummary(lang)
+                    )
+                    correctionAvailableForLog = correctionAvailable
+                }
+                LangStateSummaryUpdatePolicy.PreserveExisting -> {
+                    // Chat evidence는 공식 LangState 근거만 누적한다.
+                    // Summary를 함께 갱신하면 recentMinutes/correctionAvailable 같은 화면 요약이 분석 turn payload에 의해 오염된다.
+                    nextDash = updatedDash
+                    nextSession = updatedSession
+                    pendingSyncKeys = setOf(PendingSyncKey.langState(lang))
+                    correctionAvailableForLog = null
+                }
+            }
 
             val nextState = current.copy(
                 langStates = current.langStates + (lang to preparedState),
-                dashSummaries = current.dashSummaries + (
-                        lang to updatedDash.copy(
-                            recentMinutes = measuredMinutes,
-                            recentTopic = nextTopic,
-                            correctionAvailable = correctionAvailable,
-                            grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
-                            fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
-                            vocabDelta = deltaFromInternal(preparedState.external.vocabularyLevel.ordinal.toDouble() / 5.0),
-                            naturalnessDelta = deltaFromInternal(preparedState.external.naturalnessScore),
-                            updatedAt = input.analyzedAt
-                        )
-                        ),
-                sessionSummaries = current.sessionSummaries + (
-                        lang to updatedSession.copy(
-                            recentMinutes = measuredMinutes,
-                            recentTopic = nextTopic,
-                            correctionAvailable = correctionAvailable,
-                            updatedAt = input.analyzedAt
-                        )
-                ),
+                dashSummaries = current.dashSummaries + (lang to nextDash),
+                sessionSummaries = current.sessionSummaries + (lang to nextSession),
                 isPreloaded = true
             )
             // 이 배치로 바뀐 항목만 pending sync 대상으로 기록한다.
             persistSnapshot(
                 state = nextState,
-                addPendingSyncKeys = setOf(
-                    PendingSyncKey.langState(lang),
-                    PendingSyncKey.dashSummary(lang),
-                    PendingSyncKey.sessionSummary(lang)
-                )
+                addPendingSyncKeys = pendingSyncKeys
             )
             _state.value = nextState
 
             LearningSignalFlowLog.d(
-                "store_success lang=${lang.code} eventId=${input.analysisEventId ?: "none"} " +
-                    "applied=true signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
-                    "pendingKeys=3 correctionAvailable=$correctionAvailable " +
+                    "store_success lang=${lang.code} eventId=${input.analysisEventId ?: "none"} " +
+                        "applied=true signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
+                    "pendingKeys=${pendingSyncKeys.size} " +
+                    "summaryPolicy=${input.summaryUpdatePolicy} " +
+                    "correctionAvailable=${correctionAvailableForLog ?: "preserved"} " +
                     "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
                     "focus=${preparedState.analysisMeta.activeFocus.size}"
             )
