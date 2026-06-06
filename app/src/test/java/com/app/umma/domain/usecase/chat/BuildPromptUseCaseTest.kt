@@ -85,7 +85,7 @@ class BuildPromptUseCaseTest {
 
         // 언어별 예시가 없는 경우에는 문장 예시 대신 리듬 설명만 제공해 출력 언어를 오염시키지 않는다.
         assertTrue(prompt.contains("아직 언어별 문장 예시가 없으므로"))
-        assertTrue(prompt.contains("독일어 단어 또는 두 단어 표현만 붙인다."))
+        assertTrue(prompt.contains("독일어 말 한 조각만 붙인다."))
         assertFalse(prompt.contains("Sleep well?"))
         assertFalse(prompt.contains("Hungry?"))
     }
@@ -104,18 +104,83 @@ class BuildPromptUseCaseTest {
         )
 
         // prompt는 금지어 목록이 아니라 상위 행동 원칙으로만 모델을 유도해야 한다.
-        assertTrue(prompt.contains("답을 요구하는 질문보다 안부, 감정, 몸 상태처럼 바로 느낄 수 있는 짧은 말을 건넨다."))
+        assertTrue(prompt.contains("음식, 잠, 날씨, 몸 상태, 기분처럼 바로 느낄 수 있는 생활 소재를 하나 골라"))
+        assertTrue(prompt.contains("사용자가 고를 수 있는 아주 쉬운 반응 길을 함께 준다."))
+        assertTrue(prompt.contains("사용자의 짧은 반응은 대화 반응으로 받아들이고"))
+        assertTrue(prompt.contains("뜻을 물으면 한 번만 짧게 받쳐 주고"))
         assertTrue(prompt.contains("영어 만으로는 거의 대화를 이어가기 어렵다."))
-        assertTrue(prompt.contains("AI가 대화를 거의 전부 리드하고"))
-        assertTrue(prompt.contains("한국어의 아주 짧은 친구 말 옆에 영어 단어 하나나 두 단어 표현만 붙여 준다."))
-        assertTrue(prompt.contains("사용자가 문장으로 답해야 하는 질문 대신"))
-        assertTrue(prompt.contains("잠은 잘 잤어? Sleep well?"))
+        assertTrue(prompt.contains("AI가 생활 소재를 하나씩 꺼내 대화를 거의 전부 리드하고"))
+        assertTrue(prompt.contains("한국어의 아주 짧은 친구 말 옆에 영어 말 한 조각만 붙여 준다."))
+        assertTrue(prompt.contains("사용자가 응/아니/좋아/밥처럼 아주 작게 고를 수 있게 한다."))
+        assertTrue(prompt.contains("같은 표현에 머물지 않고 다음 작은 생활 말로 이어 간다."))
+        assertTrue(prompt.contains("나는 커피 좋아. Coffee. 너는 밥? Rice?"))
+        assertFalse(prompt.contains("Sleep well?"))
+        assertFalse(prompt.contains("영어 단어 하나나 두 단어 표현"))
+        assertFalse(prompt.contains("고개"))
+        assertFalse(prompt.contains("끄덕"))
         assertFalse(prompt.contains("1~3단어"))
         assertFalse(prompt.contains("한 가지 의미"))
         assertFalse(prompt.contains("따라"))
         assertFalse(prompt.contains("준비"))
+        assertFalse(prompt.contains("연습"))
+        assertFalse(prompt.contains("반복"))
+        assertFalse(prompt.contains("문장 만들"))
         assertFalse(prompt.contains("i dont know"))
         assertFalse(prompt.contains("알겠다니까"))
+    }
+
+    @Test
+    fun `japanese intent only prompt uses small daily topics instead of reassurance loop`() {
+        val prompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.JA
+        )
+
+        // 신고된 회귀는 IntentOnly가 "천천히/괜찮아" 안심 루틴으로 굳는 문제였으므로 생활 소재 예시로 유도한다.
+        assertTrue(prompt.contains("생활 소재를 하나씩 꺼내 대화를 거의 전부 리드하고"))
+        assertTrue(prompt.contains("사용자가 고를 수 있는 아주 쉬운 반응 길을 함께 준다."))
+        assertTrue(prompt.contains("사용자의 짧은 반응은 대화 반응으로 받아들이고"))
+        assertTrue(prompt.contains("같은 표현을 다시 시키지 말고 다음 작은 생활 말로 돌아간다."))
+        assertTrue(prompt.contains("나는 커피 좋아. コーヒー. 너는 밥? ごはん?"))
+        assertTrue(prompt.contains("나는 조금 졸려. ねむい. 너도 졸려?"))
+        assertFalse(prompt.contains("일본어 단어 하나나 두 단어 표현"))
+        assertFalse(prompt.contains("같이 말해"))
+        assertFalse(prompt.contains("다시 한 번"))
+        assertFalse(prompt.contains("해보자"))
+        assertFalse(prompt.contains("연습"))
+        assertFalse(prompt.contains("반복"))
+        assertFalse(prompt.contains("문장 만들"))
+        assertFalse(prompt.contains("고개"))
+        assertFalse(prompt.contains("끄덕"))
+        assertFalse(prompt.contains("よく寝た?"))
+        assertFalse(prompt.contains("오늘은 천천히. ゆっくり."))
+    }
+
+    @Test
+    fun `all conversation bands avoid non verbal stage directions`() {
+        ConversationAbilityBand.entries.forEach { band ->
+            val prompt = useCase(
+                profile = profile(
+                    conversationBand = band,
+                    primaryBridge = PrimaryBridgePolicy.Brief,
+                    confidence = ProfileConfidence.Medium
+                ),
+                primaryLang = LangCode.KO,
+                selectedLang = LangCode.JA
+            )
+
+            // prompt를 늘리지 않고도, 자막에 괄호 지문을 만들 수 있는 비언어 동작 묘사만 차단한다.
+            assertFalse(prompt.contains("고개"))
+            assertFalse(prompt.contains("끄덕"))
+            assertFalse(prompt.contains("몸짓"))
+            assertFalse(prompt.contains("표정"))
+            assertFalse(prompt.contains("무대 지시"))
+        }
     }
 
     @Test
@@ -159,7 +224,12 @@ class BuildPromptUseCaseTest {
         )
 
         assertTrue(prompt.contains("생각, 이유, 상황을 어느 정도 이어 말할 수 있다."))
+        assertFalse(prompt.contains("targetLanguageComprehension"))
+        assertFalse(prompt.contains("targetLanguageProduction"))
+        assertFalse(prompt.contains("supportLanguageDependence"))
+        assertFalse(prompt.contains("aiScaffoldingDependence"))
         assertFalse(prompt.contains("conversationSustainability"))
+        assertFalse(prompt.contains("consistency"))
         assertFalse(prompt.contains("supportRequiredToContinue"))
         assertFalse(prompt.contains("userContributionLevel"))
         assertFalse(prompt.contains("responseDifficultyFit"))

@@ -54,7 +54,7 @@
 
 | Band | 내부 비유 | 핵심 기준 | AI 응답 방식 | 적절한 예시 |
 | --- | --- | --- | --- | --- |
-| `IntentOnly` | 0세 | 학습언어만으로는 거의 대화가 불가능하다. 단어를 거의 모르거나, 고정 표현, 짧은 소리, 기준언어 반응만 가능하다. | AI가 대화를 대부분 리드한다. 기준언어로 짧은 일상 반응을 만들고, 바로 옆에 학습언어 단어나 아주 짧은 표현을 붙인다. 사용자가 구체적인 문장을 만들지 못해도 기준언어, 단어 하나, 짧은 반응만으로 유대감 있는 대화가 이어지게 한다. | `잘 잤어? Sleep well? 오늘은 천천히 하자. Slowly. 배고파? Food?` |
+| `IntentOnly` | 0세 | 학습언어만으로는 거의 대화가 불가능하다. 단어를 거의 모르거나, 고정 표현, 짧은 소리, 기준언어 반응만 가능하다. | AI가 대화를 대부분 리드한다. 기준언어로 짧은 생활 반응을 만들고, 바로 옆에 학습언어 단어나 아주 짧은 표현을 붙인다. 사용자가 구체적인 문장을 만들지 못해도 기준언어, 단어 하나, 짧은 반응만으로 유대감 있는 일상 대화가 이어지게 한다. | `아침 먹었어? Breakfast? 밥, food? 졸려? Sleepy?` |
 | `PhraseEmerging` | 3세 | 학습언어 단어와 짧은 구를 일부 안다. 아주 쉬운 표현은 부분적으로 이해하지만 자유 문장 생성은 불안정하다. | AI가 여전히 대화를 리드한다. 기준언어로 짧게 받쳐주고, 쉬운 학습언어 표현을 붙인다. 사용자가 한 단어 또는 짧은 구로 반응할 수 있게 한다. 학습언어만으로 길게 말하지 않는다. | `좋아, 점심 얘기하자. I ate lunch. 너는 lunch 먹었어?` |
 | `SimpleSentence` | 6세 | 짧고 단순한 문장을 어느 정도 이해하고 만들 수 있다. 긴 문장, 복잡한 구조, 빠른 전환은 놓칠 수 있다. | 쉬운 학습언어 중심으로 짧게 말한다. 막히는 지점은 기준언어로 짧게 보조한다. 사용자가 짧은 문장으로 답할 수 있도록 구체적이고 부담 낮은 질문을 한다. | `Nice. You ate lunch. Was it good? 맛있었어?` |
 | `BasicConversation` | 10세 | 짧은 일상 왕복 대화가 가능하다. 선호, 경험, 간단한 이유를 말할 수 있지만 표현은 아직 단순하고 흔들릴 수 있다. | 학습언어로 자연스럽게 대화한다. 사용자의 답에서 주제를 받아 확장하고, 친구처럼 짧은 follow-up으로 대화를 리드한다. 필요할 때만 기준언어를 짧게 보조한다. | `That sounds nice. What did you eat? Something spicy or light?` |
@@ -125,9 +125,12 @@ users/{uid}/chat_conversation_evidence/{selectedLang}
 | Field | 의미 |
 | --- | --- |
 | `selectedLang` | evidence가 적용되는 학습언어 |
-| `conversationSustainability` | 학습언어 대화가 사용자의 반응으로 유지됐는지, 보조가 있어야 유지됐는지 |
-| `supportRequiredToContinue` | 기준언어 보조, 난이도 하향, 짧은 재구성이 있어야 대화가 회복됐는지 |
-| `userContributionLevel` | 사용자가 단어, 짧은 구, 짧은 문장, 연결 발화 중 어느 단위로 참여했는지 |
+| `targetLanguageComprehension` | 사용자가 AI의 학습언어 발화를 어느 수준까지 이해하고 반응했는지 |
+| `targetLanguageProduction` | 사용자가 학습언어로 직접 만든 의미 단위. 기준언어 발화는 능력 근거로 더하지 않는다. |
+| `supportLanguageDependence` | 기준언어가 없으면 학습언어 대화가 끊기는 정도 |
+| `aiScaffoldingDependence` | AI가 힌트, 선택지, 쉬운 재구성으로 얼마나 많이 리드해야 했는지 |
+| `conversationSustainability` | 학습언어 대화가 사용자의 학습언어 반응으로 유지됐는지, 보조가 있어야 유지됐는지 |
+| `consistency` | 한두 turn이 아니라 세션 전체에서 같은 능력 단서가 유지됐는지 |
 | `responseDifficultyFit` | AI 응답 난이도가 사용자가 감당 가능한 수준이었는지 |
 | `confidence` | 이 evidence를 얼마나 믿을지 |
 | `source` | `ManualReview`, `ReportedSessionReview`, `GeminiConversationAnalysis` 등 |
@@ -301,9 +304,12 @@ Statistics / Prompt / Correction / Dashboard
 
 | Signal | 의미 | 주 사용처 |
 | --- | --- | --- |
-| `conversationSustainability` | 대화가 사용자의 반응으로 유지됐는지, 지원이 있어야 유지됐는지, 근거가 부족한지 | Chat band의 기본 경계 |
-| `supportRequiredToContinue` | 기준언어 설명, 난이도 하향, 더 짧은 재구성이 있어야 사용자의 반응이 회복됐는지 | `IntentOnly` 방어 |
-| `userContributionLevel` | 사용자가 단어, 짧은 구, 짧은 문장, 연결 발화 중 어느 정도 단위로 참여했는지 | 낮은 3단계 구분 |
+| `targetLanguageComprehension` | 사용자가 AI의 학습언어 발화를 이해하고 적절히 반응했는지 | 이해 가능한 prompt 난이도 판단 |
+| `targetLanguageProduction` | 사용자가 학습언어로 만든 단어, 구, 문장, 연결 발화 단위 | 낮은 3단계 구분 |
+| `supportLanguageDependence` | 기준언어가 없으면 학습언어 대화가 끊기는지 | 기준언어 혼합 대화의 과대평가 방지 |
+| `aiScaffoldingDependence` | AI가 선택지, 힌트, 쉬운 재구성으로 얼마나 리드해야 하는지 | AI 도움으로 유지된 대화의 과대평가 방지 |
+| `conversationSustainability` | 학습언어 대화가 사용자의 학습언어 반응으로 유지됐는지, 지원이 있어야 유지됐는지 | Chat band의 기본 경계 |
+| `consistency` | 학습언어 능력 단서가 세션 전체에서 안정적인지 | 한두 turn 성공의 과대평가 방지 |
 | `responseDifficultyFit` | AI 응답 난이도가 사용자가 감당 가능한 수준이었는지 | prompt/band mismatch 감지 |
 
 ### 제외한 signal

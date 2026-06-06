@@ -22,9 +22,12 @@ class ChatConversationEvidenceResponseMapper @Inject constructor() {
         val dto = json.decodeFromString(ChatConversationEvidenceResponseDto.serializer(), rawJson)
         return ChatConversationEvidence(
             selectedLang = selectedLang,
+            targetLanguageComprehension = enumValue(dto.targetLanguageComprehension),
+            targetLanguageProduction = enumValue(dto.targetLanguageProduction),
+            supportLanguageDependence = enumValue(dto.supportLanguageDependence),
+            aiScaffoldingDependence = enumValue(dto.aiScaffoldingDependence),
             conversationSustainability = enumValue(dto.conversationSustainability),
-            supportRequiredToContinue = enumValue(dto.supportRequiredToContinue),
-            userContributionLevel = enumValue(dto.userContributionLevel),
+            consistency = enumValue(dto.consistency),
             responseDifficultyFit = enumValue(dto.responseDifficultyFit),
             confidence = enumValue(dto.confidence),
             source = ChatConversationEvidenceSource.GeminiConversationAnalysis,
@@ -57,9 +60,12 @@ class ChatConversationEvidenceResponseMapper @Inject constructor() {
 
 @Serializable
 private data class ChatConversationEvidenceResponseDto(
+    val targetLanguageComprehension: String,
+    val targetLanguageProduction: String,
+    val supportLanguageDependence: String,
+    val aiScaffoldingDependence: String,
     val conversationSustainability: String,
-    val supportRequiredToContinue: String,
-    val userContributionLevel: String,
+    val consistency: String,
     val responseDifficultyFit: String,
     val confidence: String,
     val reasonSummary: String = "",

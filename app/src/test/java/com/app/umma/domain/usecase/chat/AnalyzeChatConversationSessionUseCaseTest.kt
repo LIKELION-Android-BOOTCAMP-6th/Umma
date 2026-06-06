@@ -3,10 +3,12 @@ package com.app.umma.domain.usecase.chat
 import com.app.umma.domain.model.chat.ChatConversationAnalysisSession
 import com.app.umma.domain.model.chat.ChatConversationEvidence
 import com.app.umma.domain.model.chat.ChatConversationEvidenceSource
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
 import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
 import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
-import com.app.umma.domain.model.chat.SupportRequiredEvidence
-import com.app.umma.domain.model.chat.UserContributionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.ProfileConfidence
@@ -84,9 +86,12 @@ class AnalyzeChatConversationSessionUseCaseTest {
         var lastSession: ChatConversationAnalysisSession? = null
         val evidence = ChatConversationEvidence(
             selectedLang = LangCode.EN,
+            targetLanguageComprehension = TargetLanguageComprehensionEvidence.SimpleSentence,
+            targetLanguageProduction = TargetLanguageProductionEvidence.SimpleSentences,
+            supportLanguageDependence = LanguageDependenceEvidence.Low,
+            aiScaffoldingDependence = LanguageDependenceEvidence.Low,
             conversationSustainability = ConversationSustainabilityEvidence.SustainedSimple,
-            supportRequiredToContinue = SupportRequiredEvidence.Low,
-            userContributionLevel = UserContributionEvidence.SimpleSentences,
+            consistency = ConversationConsistencyEvidence.Mixed,
             responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
             confidence = ProfileConfidence.Medium,
             source = ChatConversationEvidenceSource.GeminiConversationAnalysis,

@@ -2,10 +2,12 @@ package com.app.umma.domain.usecase.chat
 
 import com.app.umma.domain.model.chat.ChatConversationEvidence
 import com.app.umma.domain.model.chat.ChatConversationEvidenceSource
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
 import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
 import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
-import com.app.umma.domain.model.chat.SupportRequiredEvidence
-import com.app.umma.domain.model.chat.UserContributionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
@@ -96,9 +98,12 @@ class ChatPromptIntegrationUseCaseTest {
         val evidence = ChatConversationEvidence(
             selectedLang = LangCode.EN,
             // 사용자가 연결 발화를 안정적으로 만들었다는 근거를 주면 domain policy가 ConnectedExpression으로 계산한다.
+            targetLanguageComprehension = TargetLanguageComprehensionEvidence.NaturalFlow,
+            targetLanguageProduction = TargetLanguageProductionEvidence.ConnectedTurns,
+            supportLanguageDependence = LanguageDependenceEvidence.None,
+            aiScaffoldingDependence = LanguageDependenceEvidence.Low,
             conversationSustainability = ConversationSustainabilityEvidence.SustainedNatural,
-            supportRequiredToContinue = SupportRequiredEvidence.None,
-            userContributionLevel = UserContributionEvidence.ConnectedTurns,
+            consistency = ConversationConsistencyEvidence.Stable,
             responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
             confidence = ProfileConfidence.High,
             source = ChatConversationEvidenceSource.ManualReview,

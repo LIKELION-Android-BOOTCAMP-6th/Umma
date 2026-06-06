@@ -38,7 +38,10 @@ class AnalyzeChatConversationSessionUseCase @Inject constructor(
             if (!sessionTurns.hasEnoughConversationForAnalysis()) {
                 return@runCatching ChatConversationSessionAnalysisResult.Skipped(
                     reason = "not_enough_final_turns",
-                    sessionId = sessionId
+                    sessionId = sessionId,
+                    turnCount = sessionTurns.size,
+                    userTurnCount = sessionTurns.count { it.role == TurnSpeaker.USER },
+                    aiTurnCount = sessionTurns.count { it.role == TurnSpeaker.AI }
                 )
             }
 
@@ -101,6 +104,9 @@ sealed interface ChatConversationSessionAnalysisResult {
      */
     data class Skipped(
         val reason: String,
-        val sessionId: String
+        val sessionId: String,
+        val turnCount: Int,
+        val userTurnCount: Int,
+        val aiTurnCount: Int
     ) : ChatConversationSessionAnalysisResult
 }

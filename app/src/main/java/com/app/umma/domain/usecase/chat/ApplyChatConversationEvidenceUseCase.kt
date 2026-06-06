@@ -1,10 +1,12 @@
 package com.app.umma.domain.usecase.chat
 
 import com.app.umma.domain.model.chat.ChatConversationEvidence
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
 import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
 import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
-import com.app.umma.domain.model.chat.SupportRequiredEvidence
-import com.app.umma.domain.model.chat.UserContributionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
@@ -59,31 +61,26 @@ class ApplyChatConversationEvidenceUseCase @Inject constructor() {
     }
 
     private fun chooseBand(evidence: ChatConversationEvidence): ConversationAbilityBand {
-        // 기준언어 보조 없이는 대화가 거의 이어지지 않았으면 최하위 band로 보호한다.
+        // 학습언어 이해/생산 근거가 없거나 강한 의존이 있으면 전체 대화가 자연스러워도 최하위로 보호한다.
+        if (requiresIntentOnly(evidence)) {
+            return ConversationAbilityBand.IntentOnly
+        }
+
+        // 단어 이해/생산 중심이면 자유 문장 대화로 보지 않고 PhraseEmerging에 둔다.
         if (
-            evidence.conversationSustainability == ConversationSustainabilityEvidence.RequiresSupport ||
-            evidence.supportRequiredToContinue == SupportRequiredEvidence.High ||
-            evidence.responseDifficultyFit == ResponseDifficultyFitEvidence.TooHard
+            evidence.targetLanguageComprehension == TargetLanguageComprehensionEvidence.WordLevel ||
+            evidence.targetLanguageProduction == TargetLanguageProductionEvidence.WordsOrFragments
         ) {
-            return ConversationAbilityBand.IntentOnly
-        }
-
-        // 사용자가 의미 있는 학습언어 기여를 거의 못 했다면 보조 강도와 무관하게 IntentOnly에 가깝다.
-        if (evidence.userContributionLevel == UserContributionEvidence.Minimal) {
-            return ConversationAbilityBand.IntentOnly
-        }
-
-        // 단어/조각 중심 참여는 자유 문장 근거가 아니므로 PhraseEmerging을 넘기지 않는다.
-        if (evidence.userContributionLevel == UserContributionEvidence.WordsOrFragments) {
             return ConversationAbilityBand.PhraseEmerging
         }
 
-        // 짧은 구 단계는 보조가 적고 쉬운 흐름이 유지될 때만 SimpleSentence 후보가 된다.
-        if (evidence.userContributionLevel == UserContributionEvidence.ShortPhrases) {
-            val canHandleSimpleFlow =
-                evidence.supportRequiredToContinue.ordinal >= SupportRequiredEvidence.Low.ordinal &&
-                    evidence.conversationSustainability.ordinal >= ConversationSustainabilityEvidence.SustainedSimple.ordinal &&
-                    evidence.responseDifficultyFit != ResponseDifficultyFitEvidence.SlightlyHard
+        // 짧은 구는 이해/지속/일관성 근거가 받쳐줄 때만 SimpleSentence 후보가 된다.
+        if (evidence.targetLanguageProduction == TargetLanguageProductionEvidence.ShortPhrases) {
+            val canHandleSimpleFlow = evidence.targetLanguageComprehension >= TargetLanguageComprehensionEvidence.SimpleSentence &&
+                evidence.supportLanguageDependence.atMost(LanguageDependenceEvidence.Medium) &&
+                evidence.aiScaffoldingDependence.atMost(LanguageDependenceEvidence.Medium) &&
+                evidence.conversationSustainability >= ConversationSustainabilityEvidence.SustainedSimple &&
+                evidence.consistency != ConversationConsistencyEvidence.Low
             return if (canHandleSimpleFlow) {
                 ConversationAbilityBand.SimpleSentence
             } else {
@@ -91,12 +88,14 @@ class ApplyChatConversationEvidenceUseCase @Inject constructor() {
             }
         }
 
-        // 짧은 자유 문장이 가능해도 자연 대화가 안정적이라는 근거가 없으면 SimpleSentence에 둔다.
-        if (evidence.userContributionLevel == UserContributionEvidence.SimpleSentences) {
-            val canSustainBasicConversation =
-                evidence.supportRequiredToContinue == SupportRequiredEvidence.None &&
-                    evidence.conversationSustainability == ConversationSustainabilityEvidence.SustainedNatural &&
-                    evidence.responseDifficultyFit == ResponseDifficultyFitEvidence.Fits
+        // 단순 문장은 보조/AI 리드 의존이 낮고 세션 전체가 안정적일 때만 기본 대화 band로 올린다.
+        if (evidence.targetLanguageProduction == TargetLanguageProductionEvidence.SimpleSentences) {
+            val canSustainBasicConversation = evidence.targetLanguageComprehension >= TargetLanguageComprehensionEvidence.SimpleSentence &&
+                evidence.supportLanguageDependence == LanguageDependenceEvidence.None &&
+                evidence.aiScaffoldingDependence.atMost(LanguageDependenceEvidence.Low) &&
+                evidence.conversationSustainability == ConversationSustainabilityEvidence.SustainedNatural &&
+                evidence.consistency == ConversationConsistencyEvidence.Stable &&
+                evidence.responseDifficultyFit == ResponseDifficultyFitEvidence.Fits
             return if (canSustainBasicConversation) {
                 ConversationAbilityBand.BasicConversation
             } else {
@@ -104,18 +103,39 @@ class ApplyChatConversationEvidenceUseCase @Inject constructor() {
             }
         }
 
-        // 연결 발화를 만들 수 있으면 최소 BasicConversation이며, 높은 confidence일 때만 상위 band로 올린다.
-        val hasNaturalSustainability =
-            evidence.conversationSustainability == ConversationSustainabilityEvidence.SustainedNatural
-        val hasNoSupportNeed = evidence.supportRequiredToContinue == SupportRequiredEvidence.None
-        if (hasNaturalSustainability && hasNoSupportNeed && evidence.confidence == ProfileConfidence.High) {
-            return if (evidence.responseDifficultyFit == ResponseDifficultyFitEvidence.TooEasy) {
-                ConversationAbilityBand.NuanceControl
-            } else {
-                ConversationAbilityBand.ConnectedExpression
-            }
+        // 연결 발화가 가능해도 기준언어/AI 리드 의존이나 일관성 문제가 있으면 BasicConversation 상한을 둔다.
+        val canUseConnectedBand = evidence.targetLanguageComprehension == TargetLanguageComprehensionEvidence.NaturalFlow &&
+            evidence.supportLanguageDependence == LanguageDependenceEvidence.None &&
+            evidence.aiScaffoldingDependence.atMost(LanguageDependenceEvidence.Low) &&
+            evidence.conversationSustainability == ConversationSustainabilityEvidence.SustainedNatural &&
+            evidence.consistency == ConversationConsistencyEvidence.Stable &&
+            evidence.confidence == ProfileConfidence.High
+        if (!canUseConnectedBand) {
+            return ConversationAbilityBand.BasicConversation
         }
-        return ConversationAbilityBand.BasicConversation
+
+        // NuanceControl은 "AI가 쉬웠다"만으로 올리지 않고, 의존이 전혀 없는 natural flow일 때만 허용한다.
+        if (
+            evidence.aiScaffoldingDependence == LanguageDependenceEvidence.None &&
+            evidence.responseDifficultyFit == ResponseDifficultyFitEvidence.TooEasy
+        ) {
+            return ConversationAbilityBand.NuanceControl
+        }
+        return ConversationAbilityBand.ConnectedExpression
+    }
+
+    private fun requiresIntentOnly(evidence: ChatConversationEvidence): Boolean {
+        return evidence.targetLanguageComprehension == TargetLanguageComprehensionEvidence.None ||
+            evidence.targetLanguageProduction == TargetLanguageProductionEvidence.None ||
+            evidence.supportLanguageDependence == LanguageDependenceEvidence.High ||
+            evidence.aiScaffoldingDependence == LanguageDependenceEvidence.High ||
+            evidence.conversationSustainability == ConversationSustainabilityEvidence.RequiresSupport ||
+            evidence.responseDifficultyFit == ResponseDifficultyFitEvidence.TooHard
+    }
+
+    private fun LanguageDependenceEvidence.atMost(max: LanguageDependenceEvidence): Boolean {
+        // enum 순서는 High -> Medium -> Low -> None 이므로 ordinal이 클수록 의존이 낮다.
+        return ordinal >= max.ordinal
     }
 
     private fun minimumStageForBand(band: ConversationAbilityBand): SkillStage {

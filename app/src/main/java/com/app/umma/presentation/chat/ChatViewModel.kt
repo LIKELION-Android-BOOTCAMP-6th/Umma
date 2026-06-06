@@ -890,17 +890,41 @@ class ChatViewModel @Inject constructor(
         selectedLang: LangCode?,
         finalTurnCount: Int
     ) {
-        if (sessionId.isNullOrBlank() || selectedLang == null) return
+        if (sessionId.isNullOrBlank() || selectedLang == null) {
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat conversation evidence schedule skipped " +
+                    "reason=missing_session_or_lang sessionId=$sessionId lang=${selectedLang?.code} " +
+                    "finalTurnCount=$finalTurnCount"
+            )
+            return
+        }
         val lastScheduledTurnCount = scheduledConversationAnalysisTurnCounts[sessionId] ?: 0
         if (finalTurnCount <= lastScheduledTurnCount) {
             // ON_STOP, onDispose, onCleared가 같은 turn 수로 순차 호출되면 같은 세션 중복 분석을 막는다.
             // 사용자가 background 이후 대화를 더 이어가면 turn count가 증가하므로 최종 분석을 다시 허용한다.
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat conversation evidence schedule skipped reason=duplicate_or_no_new_turns " +
+                    "sessionId=$sessionId lang=${selectedLang.code} finalTurnCount=$finalTurnCount " +
+                    "lastScheduledTurnCount=$lastScheduledTurnCount"
+            )
             return
         }
         scheduledConversationAnalysisTurnCounts[sessionId] = finalTurnCount
+        Log.i(
+            PROMPT_TRACE_TAG,
+            "chat conversation evidence scheduled sessionId=$sessionId lang=${selectedLang.code} " +
+                "finalTurnCount=$finalTurnCount"
+        )
 
         applicationScope.launch {
             awaitFinalTurnSaveBeforeConversationAnalysis()
+            Log.d(
+                PROMPT_TRACE_TAG,
+                "chat conversation evidence analysis started sessionId=$sessionId lang=${selectedLang.code} " +
+                    "scheduledFinalTurnCount=$finalTurnCount"
+            )
             analyzeChatConversationSessionUseCase(
                 selectedLang = selectedLang,
                 sessionId = sessionId
@@ -909,21 +933,26 @@ class ChatViewModel @Inject constructor(
                     when (result) {
                         is ChatConversationSessionAnalysisResult.Saved -> {
                             Log.i(
-                                TAG,
-                                "chat conversation evidence saved sessionId=$sessionId lang=${selectedLang.code}"
+                                PROMPT_TRACE_TAG,
+                                "chat conversation evidence saved sessionId=$sessionId lang=${selectedLang.code} " +
+                                    "source=${result.evidence.source} " +
+                                    "confidence=${result.evidence.confidence} " +
+                                    "debugRecommendedBand=${result.evidence.debugRecommendedBand}"
                             )
                         }
                         is ChatConversationSessionAnalysisResult.Skipped -> {
                             Log.d(
-                                TAG,
-                                "chat conversation evidence skipped sessionId=$sessionId reason=${result.reason}"
+                                PROMPT_TRACE_TAG,
+                                "chat conversation evidence skipped sessionId=$sessionId reason=${result.reason} " +
+                                    "turnCount=${result.turnCount} userTurnCount=${result.userTurnCount} " +
+                                    "aiTurnCount=${result.aiTurnCount}"
                             )
                         }
                     }
                 }
                 .onFailure { error ->
                     Log.w(
-                        TAG,
+                        PROMPT_TRACE_TAG,
                         "chat conversation evidence analysis failed: sessionId=$sessionId message=${error.message}",
                         error
                     )
@@ -1466,6 +1495,7 @@ class ChatViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "ChatViewModel"
+        const val PROMPT_TRACE_TAG = "AiChatPromptTrace"
         const val DIAG_TAG = "AiChatPlayback"
         const val REQUIRED_TOPIC_COUNT = 5
         const val CHAT_USAGE_PRICING_VERSION = "openai-realtime-2026-05"

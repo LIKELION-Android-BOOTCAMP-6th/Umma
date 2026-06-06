@@ -14,12 +14,18 @@ import com.app.umma.domain.model.learningstate.ProfileConfidence
 data class ChatConversationEvidence(
     // 이 evidence가 적용되는 학습 언어.
     val selectedLang: LangCode,
+    // 사용자가 AI의 학습언어 발화를 어느 수준까지 이해하고 반응했는지.
+    val targetLanguageComprehension: TargetLanguageComprehensionEvidence,
+    // 사용자가 학습언어로 직접 만든 의미 단위. 기준언어 발화는 이 값에 더하지 않는다.
+    val targetLanguageProduction: TargetLanguageProductionEvidence,
+    // 기준언어가 없으면 학습언어 대화가 끊기는 정도.
+    val supportLanguageDependence: LanguageDependenceEvidence,
+    // AI가 힌트, 선택지, 쉬운 재구성으로 얼마나 많이 리드해야 했는지.
+    val aiScaffoldingDependence: LanguageDependenceEvidence,
     // 사용자의 반응만으로 학습언어 대화가 유지됐는지에 대한 흐름 근거.
     val conversationSustainability: ConversationSustainabilityEvidence,
-    // 기준언어 보조나 난이도 하향이 있어야 대화가 회복됐는지.
-    val supportRequiredToContinue: SupportRequiredEvidence,
-    // 사용자가 실제로 대화에 참여한 발화 단위.
-    val userContributionLevel: UserContributionEvidence,
+    // 한두 turn이 아니라 세션 전체에서 같은 능력 단서가 유지됐는지.
+    val consistency: ConversationConsistencyEvidence,
     // AI 응답 난이도가 사용자가 감당 가능한 수준이었는지.
     val responseDifficultyFit: ResponseDifficultyFitEvidence,
     // 이 evidence를 band 계산에 반영할 수 있는 신뢰도.
@@ -50,6 +56,53 @@ data class ChatConversationEvidence(
 }
 
 /**
+ * 사용자가 AI의 학습언어 발화를 이해하고 적절히 반응한 수준.
+ */
+@Suppress("unused")
+enum class TargetLanguageComprehensionEvidence {
+    // 학습언어 이해 근거가 거의 없다.
+    None,
+    // 단어 또는 아주 짧은 표현에는 반응했다.
+    WordLevel,
+    // 쉬운 한 문장 수준은 이해하고 반응했다.
+    SimpleSentence,
+    // 자연스러운 학습언어 흐름을 이해하고 이어 갔다.
+    NaturalFlow
+}
+
+/**
+ * 사용자가 학습언어로 직접 생산한 의미 단위.
+ */
+@Suppress("unused")
+enum class TargetLanguageProductionEvidence {
+    // 의미 있는 학습언어 생산이 거의 없다.
+    None,
+    // 단어, 짧은 소리, 조각 표현 중심이다.
+    WordsOrFragments,
+    // 짧은 구나 고정 표현 중심이다.
+    ShortPhrases,
+    // 짧고 단순한 자유 문장을 만들었다.
+    SimpleSentences,
+    // 이유, 감정, 상황을 연결한 여러 turn을 학습언어로 만들었다.
+    ConnectedTurns
+}
+
+/**
+ * 기준언어 또는 AI scaffold에 대한 의존도.
+ */
+@Suppress("unused")
+enum class LanguageDependenceEvidence {
+    // 없으면 대화가 거의 이어지지 않는다.
+    High,
+    // 몇 차례 필요했고 없으면 흐름이 불안정하다.
+    Medium,
+    // 가끔 짧은 도움만 필요했다.
+    Low,
+    // 별도 의존 없이 이어졌다.
+    None
+}
+
+/**
  * 대화가 사용자의 반응으로 유지됐는지에 대한 근거.
  */
 @Suppress("unused")
@@ -57,7 +110,7 @@ enum class ConversationSustainabilityEvidence {
     // 기준언어 보조나 난이도 하향 없이는 대화가 거의 이어지지 않았다.
     RequiresSupport,
     // 보조가 있으면 짧게 이어졌지만, 학습언어-only 흐름은 불안정했다.
-    SupportedWithHints,
+    SupportedShort,
     // 쉬운 학습언어 흐름에서는 짧은 왕복 대화가 유지됐다.
     SustainedSimple,
     // 자연스러운 학습언어 흐름에서도 대화가 안정적으로 유지됐다.
@@ -65,34 +118,16 @@ enum class ConversationSustainabilityEvidence {
 }
 
 /**
- * 대화를 계속하기 위해 필요했던 보조 강도.
+ * 세션 전체에서 능력 단서가 얼마나 일관됐는지.
  */
 @Suppress("unused")
-enum class SupportRequiredEvidence {
-    // 기준언어/난이도 하향이 반복적으로 필요했다.
-    High,
-    // 몇 차례 보조가 필요했지만 회복 가능했다.
-    Moderate,
-    // 가끔 짧은 힌트만 필요했다.
+enum class ConversationConsistencyEvidence {
+    // 학습언어 근거가 너무 적거나 한두 turn에만 있다.
     Low,
-    // 별도 보조 없이 이어졌다.
-    None
-}
-
-/**
- * 사용자가 실제 대화에 기여한 발화 단위.
- */
-enum class UserContributionEvidence {
-    // 의미 있는 학습언어 반응이 거의 없거나 기준언어 반응 위주였다.
-    Minimal,
-    // 단어, 짧은 소리, 조각 표현 중심이었다.
-    WordsOrFragments,
-    // 짧은 구나 고정 표현으로 반응했다.
-    ShortPhrases,
-    // 짧고 단순한 자유 문장으로 반응했다.
-    SimpleSentences,
-    // 이유, 감정, 상황을 연결한 여러 turn을 만들었다.
-    ConnectedTurns
+    // 일부 turn은 가능했지만 세션 전체에서는 흔들렸다.
+    Mixed,
+    // 세션 전반에서 비슷한 수준이 안정적으로 반복됐다.
+    Stable
 }
 
 /**
