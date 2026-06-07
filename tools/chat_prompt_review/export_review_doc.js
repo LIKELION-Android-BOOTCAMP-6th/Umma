@@ -58,23 +58,27 @@ async function main() {
   }
 
   const uid = required(args.uid, "--uid is required");
-  const sessionId = args.session || await findLatestSessionId({
+  const requestedSessionId = args.session || null;
+  const reviewId = args.review || await resolveReviewDocumentId({
     client,
     project,
     database,
     uid,
+    reportId: args.report || null,
+    sessionId: requestedSessionId,
   });
-  if (!sessionId) {
-    throw new Error(`No chat_prompt_reviews session found for uid=${uid}`);
+  if (!reviewId) {
+    throw new Error(`No chat_prompt_reviews document found for uid=${uid}`);
   }
 
   const session = await getDocument({
     client,
     project,
     database,
-    documentPath: `users/${uid}/chat_prompt_reviews/${sessionId}`,
+    documentPath: `users/${uid}/chat_prompt_reviews/${reviewId}`,
   });
   const decodedSession = decodeDocument(session);
+  const sessionId = decodedSession.sessionId || requestedSessionId || reviewId;
   const embeddedEvents = Array.isArray(decodedSession.events) ? decodedSession.events : [];
   const events = embeddedEvents.length > 0
     ? embeddedEvents
@@ -82,19 +86,20 @@ async function main() {
       client,
       project,
       database,
-      collectionPath: `users/${uid}/chat_prompt_reviews/${sessionId}/events`,
+      collectionPath: `users/${uid}/chat_prompt_reviews/${reviewId}/events`,
       pageSize: 500,
     })).map(decodeDocument);
 
   const markdown = renderMarkdown({
     project,
     uid,
+    reviewId,
     sessionId,
     session: decodedSession,
     events: events.sort(compareEvents),
   });
 
-  const resolvedOutPath = outPath || defaultOutputPath(sessionId);
+  const resolvedOutPath = outPath || defaultOutputPath(reviewId);
   fs.mkdirSync(path.dirname(resolvedOutPath), { recursive: true });
   fs.writeFileSync(resolvedOutPath, markdown, "utf8");
   console.log(`Wrote ${resolvedOutPath}`);
@@ -140,7 +145,20 @@ function loadFirebaseTools() {
   };
 }
 
-async function findLatestSessionId({ client, project, database, uid }) {
+async function resolveReviewDocumentId({ client, project, database, uid, reportId, sessionId }) {
+  if (reportId) {
+    // reportId는 전역 신고 index의 ID다. 과거 데이터는 실제 review 문서가 sessionId라서 index를 먼저 해석한다.
+    return await findReviewDocumentIdByReportId({ client, project, database, reportId }) || reportId;
+  }
+  if (sessionId) {
+    // 새 구조에서는 sessionId와 review document ID가 다르므로 report index에서 실제 reviewId를 역조회한다.
+    // 기존 sessionId 기반 문서는 report index가 없어도 열 수 있게 sessionId fallback을 유지한다.
+    return await findReviewDocumentIdBySessionId({ client, project, database, uid, sessionId }) || sessionId;
+  }
+  return findLatestReviewDocumentId({ client, project, database, uid });
+}
+
+async function findLatestReviewDocumentId({ client, project, database, uid }) {
   const docs = await listDocuments({
     client,
     project,
@@ -151,7 +169,32 @@ async function findLatestSessionId({ client, project, database, uid }) {
   const sessions = docs.map(decodeDocument).sort((a, b) => {
     return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
   });
-  return sessions[0]?.sessionId || sessions[0]?.id || null;
+  return sessions[0]?.id || sessions[0]?.reviewId || sessions[0]?.sessionId || null;
+}
+
+async function findReviewDocumentIdByReportId({ client, project, database, reportId }) {
+  const report = await getDocument({
+    client,
+    project,
+    database,
+    documentPath: `chat_prompt_review_reports/${reportId}`,
+  });
+  return reviewIdFromReport(decodeDocument(report));
+}
+
+async function findReviewDocumentIdBySessionId({ client, project, database, uid, sessionId }) {
+  const reports = await listReports({
+    client,
+    project,
+    database,
+    limit: 100,
+  });
+  const matchingReport = reports
+    .filter((report) => report.uid === uid && report.sessionId === sessionId)
+    .sort((a, b) => {
+      return (b.updatedAt || b.reportedAt || 0) - (a.updatedAt || a.reportedAt || 0);
+    })[0];
+  return reviewIdFromReport(matchingReport);
 }
 
 async function listReports({ client, project, database, limit }) {
@@ -228,12 +271,14 @@ function eventPriority(type) {
   switch (type) {
     case "FinalTurn":
       return 1;
+    case "TurnHint":
+      return 2;
     default:
       return 9;
   }
 }
 
-function renderMarkdown({ project, uid, sessionId, session, events }) {
+function renderMarkdown({ project, uid, reviewId, sessionId, session, events }) {
   const lines = [];
   const summary = buildSessionSummary({
     language: session.language || "unknown",
@@ -244,9 +289,11 @@ function renderMarkdown({ project, uid, sessionId, session, events }) {
   lines.push("## Source");
   lines.push(`- project: ${project}`);
   lines.push(`- uid: ${uid}`);
+  lines.push(`- reviewId: ${reviewId}`);
   lines.push(`- sessionId: ${sessionId}`);
   lines.push(`- language: ${session.language || "unknown"}`);
   lines.push(`- promptVersion: ${session.promptVersion || "unknown"}`);
+  lines.push(`- promptRevision: ${session.promptRevision || "unknown"}`);
   lines.push(`- promptBand: ${session.promptBand || "unknown"}`);
   if (session.reportNote) {
     lines.push(`- reportNote: ${session.reportNote}`);
@@ -285,24 +332,34 @@ function renderReportsMarkdown({ project, reports }) {
   lines.push("");
   lines.push("## Reports");
   lines.push("");
-  lines.push("| reportId | reportedAt | status | promptVersion | promptBand | uid | sessionId | language | reportNote | eventCount | reviewPath |");
-  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
+  lines.push("| reportId | reportedAt | status | promptVersion | promptRevision | promptBand | uid | reviewId | sessionId | language | reportNote | eventCount | reviewPath |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
   reports.forEach((report) => {
+    const reviewId = reviewIdFromReport(report);
     lines.push(
       `| ${code(report.reportId || report.id || "")} | ${formatTime(report.reportedAt || report.updatedAt)} | ${report.status || ""} | ` +
-        `${report.promptVersion || "unknown"} | ${report.promptBand || "unknown"} | ${code(report.uid || "")} | ${code(report.sessionId || "")} | ` +
+        `${report.promptVersion || "unknown"} | ${report.promptRevision || "unknown"} | ${report.promptBand || "unknown"} | ${code(report.uid || "")} | ${code(reviewId || "")} | ${code(report.sessionId || "")} | ` +
         `${report.language || ""} | ${escapeTableCell(report.reportNote || "")} | ` +
         `${report.eventCount || 0} | ${code(report.reviewPath || "")} |`
     );
   });
   lines.push("");
-  lines.push("Use `uid` and `sessionId` to export a specific reported session.");
+  lines.push("Use `uid` with `--report REPORT_ID` for the exact review document, or `--session SESSION_ID` for compatibility.");
   lines.push("");
   return `${lines.join("\n")}\n`;
 }
 
+function reviewIdFromReport(report) {
+  if (!report) return null;
+  if (report.reviewId) return report.reviewId;
+  if (report.reviewPath) return String(report.reviewPath).split("/").filter(Boolean).pop();
+  return report.reportId || report.id || null;
+}
+
 function buildSessionSummary({ language, events }) {
   const finalTurns = events.filter((event) => event.type === "FinalTurn");
+  const turnHints = events.filter((event) => event.type === "TurnHint");
+  const appliedTurnHints = turnHints.filter((event) => /(^|\s)status=applied(\s|$)/.test(event.metadata || ""));
   const userFinalTurns = finalTurns.filter((event) => event.role === "USER");
   const aiFinalTurns = finalTurns.filter((event) => event.role === "AI");
   const possiblePrimaryLanguageInAiFinals = aiFinalTurns
@@ -318,6 +375,8 @@ function buildSessionSummary({ language, events }) {
   return {
     userFinalTurns: userFinalTurns.length,
     aiFinalTurns: aiFinalTurns.length,
+    turnHints: turnHints.length,
+    appliedTurnHints: appliedTurnHints.length,
     possiblePrimaryLanguageInAiFinals,
   };
 }
@@ -326,6 +385,8 @@ function renderSessionSummary(lines, summary) {
   lines.push("## Session Summary");
   lines.push(`- userFinalTurns: ${summary.userFinalTurns}`);
   lines.push(`- aiFinalTurns: ${summary.aiFinalTurns}`);
+  lines.push(`- turnHints: ${summary.turnHints}`);
+  lines.push(`- appliedTurnHints: ${summary.appliedTurnHints}`);
   lines.push(`- possiblePrimaryLanguageInAiFinals: ${summary.possiblePrimaryLanguageInAiFinals.length}`);
   if (summary.possiblePrimaryLanguageInAiFinals.length > 0) {
     summary.possiblePrimaryLanguageInAiFinals.forEach((item) => {
@@ -336,9 +397,7 @@ function renderSessionSummary(lines, summary) {
 }
 
 function renderEvent(lines, event, index) {
-  const title = event.type === "FinalTurn"
-    ? `${event.role || "TURN"} Final`
-    : event.type || "Event";
+  const title = eventTitle(event);
   lines.push(`### ${index}. ${title}`);
   lines.push(`- createdAt: ${formatTime(event.createdAt)}`);
   lines.push(`- eventId: ${event.eventId || event.id || "unknown"}`);
@@ -353,6 +412,12 @@ function renderEvent(lines, event, index) {
     lines.push("```");
   }
   lines.push("");
+}
+
+function eventTitle(event) {
+  if (event.type === "FinalTurn") return `${event.role || "TURN"} Final`;
+  if (event.type === "TurnHint") return "Turn Hint";
+  return event.type || "Event";
 }
 
 function formatTime(value) {

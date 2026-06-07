@@ -53,4 +53,33 @@ class ChatConversationEvidenceResponseMapperTest {
         assertEquals("session-1", evidence.sourceSessionId)
         assertEquals(ConversationAbilityBand.NuanceControl, evidence.debugRecommendedBand)
     }
+
+    @Test
+    fun `normalizes unescaped quotes inside reason summary`() {
+        val rawJson = """
+            {
+              "targetLanguageComprehension": "WordLevel",
+              "targetLanguageProduction": "WordsOrFragments",
+              "supportLanguageDependence": "High",
+              "aiScaffoldingDependence": "High",
+              "conversationSustainability": "RequiresSupport",
+              "consistency": "Mixed",
+              "responseDifficultyFit": "TooHard",
+              "confidence": "Low",
+              "reasonSummary": "학습자는 AI가 제공한 일본어 단어("ただいま", "いい")를 주로 반복했습니다.",
+              "debugRecommendedBand": "IntentOnly"
+            }
+        """.trimIndent()
+
+        val evidence = mapper.map(
+            rawJson = rawJson,
+            selectedLang = LangCode.JA,
+            sourceSessionId = "session-with-bad-summary"
+        )
+
+        // reasonSummary는 debug/review용 설명이므로 따옴표 때문에 전체 분석 저장이 실패하면 안 된다.
+        assertEquals(ProfileConfidence.Low, evidence.confidence)
+        assertEquals(ConversationAbilityBand.IntentOnly, evidence.debugRecommendedBand)
+        assertEquals("학습자는 AI가 제공한 일본어 단어(ただいま, いい)를 주로 반복했습니다.", evidence.reasonSummary)
+    }
 }

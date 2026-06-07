@@ -27,6 +27,7 @@ interface ChatRepository {
      *
      * @param langCode 현재 대화에 사용할 학습 언어
      * @param systemInstruction 세션 시작 시 모델에 주입할 system prompt
+     * @param transcriptionPrompt 사용자 음성을 받아 적는 input transcription 전용 prompt
      * @param outputAudioSpeed 학습자 수준에 맞춘 AI 음성 출력 속도. `1.0`이 기본 속도입니다.
      * @param systemInstructionDebugTrace 세션 prompt에 반영된 정책 추적 정보. prompt 본문은 포함하지 않습니다.
      * @return 성공 시 활성 세션 ID를 담은 [Result], 실패 시 예외를 담은 [Result]
@@ -34,6 +35,7 @@ interface ChatRepository {
     suspend fun startSession(
         langCode: LangCode,
         systemInstruction: String,
+        transcriptionPrompt: String? = null,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String? = null
     ): Result<String>
@@ -45,12 +47,14 @@ interface ChatRepository {
      * 호출자는 최신 context를 반영한 [systemInstruction]을 전달해야 합니다.
      *
      * @param systemInstruction 새 realtime session에 주입할 최신 system prompt
+     * @param transcriptionPrompt 새 realtime session에 주입할 input transcription 전용 prompt
      * @param outputAudioSpeed 최신 학습자 profile 기준으로 다시 계산한 AI 음성 출력 속도
      * @param systemInstructionDebugTrace 재연결 prompt에 반영된 정책 추적 정보. prompt 본문은 포함하지 않습니다.
      * @return 성공 시 유지된 활성 세션 ID를 담은 [Result], 실패 시 예외를 담은 [Result]
      */
     suspend fun reconnectSession(
         systemInstruction: String,
+        transcriptionPrompt: String? = null,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String? = null
     ): Result<String>
@@ -86,6 +90,23 @@ interface ChatRepository {
      * @param durationMs 현재 user turn 의 발화 길이. final USER transcript metadata 로 사용합니다.
      */
     fun endUserTurn(durationMs: Long?)
+
+    /**
+     * 다음 USER final transcript 뒤에 1회성 turn hint가 올 수 있음을 transport에 알립니다.
+     *
+     * Phone Chat 화면처럼 turn hint를 만들 수 있는 호출자만 이 메서드를 사용합니다.
+     * 호출하지 않은 경로는 기존처럼 USER final 직후 바로 AI response를 생성해야 합니다.
+     */
+    fun prepareNextResponseInstructions()
+
+    /**
+     * USER final transcript 확정 후 다음 AI 응답 생성을 요청합니다.
+     *
+     * [instructions]는 세션 prompt를 대체하지 않는 1회성 turn hint입니다.
+     * Realtime 구현은 session instructions를 override하지 않도록 response.create.instructions가 아니라
+     * 대화 중간의 짧은 system message로 전달해야 합니다.
+     */
+    fun createResponse(instructions: String? = null)
 
     /**
      * 아직 commit 되지 않은 user turn metadata 와 commit 대기 상태를 취소합니다.

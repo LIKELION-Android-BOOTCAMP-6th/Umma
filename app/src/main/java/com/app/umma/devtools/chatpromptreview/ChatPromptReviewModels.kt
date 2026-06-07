@@ -35,5 +35,7 @@ data class ChatPromptReviewEvent(
  */
 enum class ChatPromptReviewEventType {
     // SessionMemory에 저장되는 것과 같은 USER/AI final transcript mirror입니다.
-    FinalTurn
+    FinalTurn,
+    // Realtime response.create에 1회성으로 붙인 turn hint 추적 이벤트입니다.
+    TurnHint
 }

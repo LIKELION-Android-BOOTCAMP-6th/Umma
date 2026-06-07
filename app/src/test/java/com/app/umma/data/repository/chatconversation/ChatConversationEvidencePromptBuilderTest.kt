@@ -89,6 +89,24 @@ class ChatConversationEvidencePromptBuilderTest {
     }
 
     @Test
+    fun `prompt keeps reason summary safe for json decoding`() {
+        val prompt = builder.build(
+            ChatConversationAnalysisSession(
+                sessionId = "session-1",
+                selectedLang = LangCode.JA,
+                turns = listOf(
+                    // reasonSummary에 원문 예시를 따옴표로 넣으면 Gemini JSON이 깨질 수 있어 prompt에서 금지한다.
+                    turn(TurnSpeaker.USER, "ただいま"),
+                    turn(TurnSpeaker.AI, "おかえり. 기분 어때?")
+                )
+            )
+        )
+
+        assertTrue(prompt.contains("reasonSummary must be plain Korean text without quotation marks"))
+        assertTrue(prompt.contains("no quotes or raw examples"))
+    }
+
+    @Test
     fun `prompt keeps final band as app policy responsibility`() {
         val prompt = builder.build(
             ChatConversationAnalysisSession(
