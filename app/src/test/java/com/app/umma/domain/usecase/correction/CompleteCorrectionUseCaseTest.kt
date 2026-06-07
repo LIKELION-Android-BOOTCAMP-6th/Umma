@@ -664,7 +664,11 @@ class CompleteCorrectionUseCaseTest {
                 Result.success(
                     TopicSummarySaveResult(
                         applied = result.applied,
-                        displayTitle = result.displayTitle
+                        displayTitle = result.displayTitle,
+                        // COR-TUNE-010: nextTopicSummaryResult 가 AI 매핑(recentTopics/summaries)을 주입하면
+                        // 그대로 흘려보내 BuildSessionCompressionPayloadUseCase 의 SSOT 우선 분기를 검증할 수 있게 한다.
+                        recentTopics = result.recentTopics,
+                        summaries = result.summaries
                     )
                 )
             }
@@ -814,6 +818,55 @@ class CompleteCorrectionUseCaseTest {
         assertEquals(
             listOf("save", "update-flashcard-summary", "summarize-topics", "update", "record-history", "compress"),
             events
+        )
+    }
+
+    @Test
+    fun `compression command uses AI-mapped topics as SSOT when topic summary AI succeeds`() = kotlinx.coroutines.runBlocking {
+        // COR-TUNE-010: 2단계(summarize-topics) AI 매핑 결과가 그대로 5단계 압축 SSOT 로 흘러야 한다.
+        // 코드 기반 단어빈도("hello")/before->after 요약이 AI 결과를 덮어쓰면 이중 쓰기가 재발한다.
+        sessionMemoryRepository.nextTopicSummaryResult = TopicSummarySaveResult(
+            applied = true,
+            displayTitle = "여행 계획",
+            recentTopics = listOf("여행 계획", "박물관 나들이"),
+            summaries = listOf("학습자가 과거형으로 여행 이야기를 연습했다.")
+        )
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val command = sessionMemoryRepository.lastCompressionCommand
+        assertNotNull(command)
+        assertEquals(listOf("여행 계획", "박물관 나들이"), command!!.recentTopics)
+        assertEquals(listOf("학습자가 과거형으로 여행 이야기를 연습했다."), command.topicSummaries)
+    }
+
+    @Test
+    fun `compression falls back to code-based extraction when topic summary AI fails`() = kotlinx.coroutines.runBlocking {
+        // AI 매핑이 실패해도(topicSummariesPending=true) 압축 흐름은 막히지 않고
+        // 기존 코드 기반 단어빈도/before->after 요약 폴백으로 진행해야 한다(pending 정책 유지).
+        sessionMemoryRepository.failSummarize = true
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val command = sessionMemoryRepository.lastCompressionCommand
+        assertNotNull(command)
+        // baseUpdateInput 의 recentUserTurns 텍스트("hello")에서 추출한 코드 기반 키워드가 폴백으로 들어가야 한다.
+        assertEquals("hello", command!!.recentTopics.firstOrNull())
+        assertTrue(
+            "코드 기반 before->after 요약 폴백이 동작하지 않음",
+            command.topicSummaries.first().contains("i go school")
         )
     }
 

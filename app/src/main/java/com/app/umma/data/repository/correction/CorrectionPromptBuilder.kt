@@ -1,5 +1,6 @@
 package com.app.umma.data.repository.correction
 
+import com.app.umma.domain.model.correction.CorrectionSessionContext
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.CorrectionExplanationPolicy
 import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
@@ -85,6 +86,12 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("Example of the expected correction style for this learner (illustrative only; always correct in ${selectedLang.code} and do not copy this example):")
             appendLine("- ${bandFewShotExample(policy.band, selectedLang)}")
             appendLine()
+            // COR-TUNE-010: Candidates 보다 위에서 "의도 파악" 을 먼저 지시한다.
+            // 이전 세션 기억 + 현재 세션 흐름을 candidate 1문장 + assistantContext 한마디보다 넓게 보여줘
+            // AI 가 "통째로 번역" 하지 않고 학습자가 하려던 말의 의도를 먼저 추론한 뒤 교정하게 한다.
+            // 세션 맥락이 전부 비어 있으면(SessionMemory 조회 실패 등) 블록 자체를 생략해 토큰을 아끼고
+            // 기존 candidate 기반 교정 흐름을 그대로 유지한다(폴백).
+            appendIntentContextBlock(input.sessionContext)
             appendLine("Candidates:")
             input.candidates.forEach { candidate ->
                 appendLine("- candidateId: ${candidate.id}")
@@ -125,6 +132,50 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("- confidence: a number in 0.0..1.0, or omit it if unsure.")
             appendLine("- If unsure about a signal, use an empty array or low confidence rather than guessing.")
         }
+    }
+
+    /**
+     * COR-TUNE-010: Candidates 위에 "이전 세션 기억 + 현재 세션 흐름 → 의도 파악" 블록을 덧붙인다.
+     *
+     * 목적: 교정이 candidate 1문장 + assistantContext 한마디만 보고 "통째로 번역" 하지 않도록,
+     * AI 가 후보를 고치기 전에 학습자의 의도를 먼저 추론하게 한다. 의도 파악 결과는 출력 schema 에
+     * 드러나지 않는 내부 추론 단계일 뿐이며, 핵심 4필드/learningSignal 규칙은 그대로다.
+     *
+     * 토큰 비대 방지(주입 상한):
+     *  - [MAX_CONTEXT_TOPIC_SUMMARIES]/[MAX_CONTEXT_KEY_SENTENCES]: SessionMemory 가 이미 압축해 둔
+     *    리스트라 최근 항목일수록 앞쪽에 있다 — `take()` 로 최신 우선만 자른다.
+     *  - [MAX_CONTEXT_CURRENT_TURNS]: 현재 세션은 길어질 수 있어 `takeLast()` 로 최신 turn 만 남긴다.
+     *  - 세 묶음(주제/요약/문장/현재 turn)이 전부 비어 있으면 블록 자체를 생략한다 — 단발 Gemini 호출의
+     *    프롬프트가 의미 없이 길어지는 것을 막고, SessionMemory 조회 실패 시 기존 동작을 그대로 보존한다.
+     *  - 내부 band 이름·점수·레벨·raw metric 은 여기서도 노출하지 않는다(빌더 전체 원칙과 동일).
+     */
+    private fun StringBuilder.appendIntentContextBlock(context: CorrectionSessionContext) {
+        val recentTopics = context.recentTopics.take(MAX_CONTEXT_TOPIC_SUMMARIES)
+        val topicSummaries = context.topicSummaries.take(MAX_CONTEXT_TOPIC_SUMMARIES)
+        val topicKeySentences = context.topicKeySentences.take(MAX_CONTEXT_KEY_SENTENCES)
+        val currentTurns = context.currentSessionTurns.takeLast(MAX_CONTEXT_CURRENT_TURNS)
+
+        if (recentTopics.isEmpty() && topicSummaries.isEmpty() && topicKeySentences.isEmpty() && currentTurns.isEmpty()) {
+            return
+        }
+
+        appendLine("Conversation context / intent (read this FIRST: infer what the learner is actually trying to say, then correct each candidate to match that intent — do not translate it wholesale):")
+        if (recentTopics.isNotEmpty()) {
+            appendLine("- Topics this learner has talked about before: ${recentTopics.joinToString(", ")}")
+        }
+        if (topicSummaries.isNotEmpty()) {
+            appendLine("- What was corrected for this learner before:")
+            topicSummaries.forEach { summary -> appendLine("  - ${summary.replace("\n", " ")}") }
+        }
+        if (topicKeySentences.isNotEmpty()) {
+            appendLine("- Sentences this learner has practiced before:")
+            topicKeySentences.forEach { sentence -> appendLine("  - ${sentence.replace("\n", " ")}") }
+        }
+        if (currentTurns.isNotEmpty()) {
+            appendLine("- Current conversation flow (oldest to newest):")
+            currentTurns.forEach { turn -> appendLine("  - ${turn.speaker}: ${turn.text.replace("\n", " ")}") }
+        }
+        appendLine()
     }
 
     /** 사용자 문장을 어느 범위까지 바꿀지. 의미 보존과 연결된 과변경 방어가 핵심이다. */
@@ -297,5 +348,16 @@ class CorrectionPromptBuilder @Inject constructor() {
         LangCode.KO -> "Korean"
         LangCode.DE -> "German"
         LangCode.UNKNOWN -> "Korean"
+    }
+
+    private companion object {
+        // COR-TUNE-010: 의도 파악 맥락 블록의 주입 상한(token budget SSOT).
+        // 단발 Gemini 2.5-flash 호출(1-pass)에 Correction policy + few-shot + Candidates + 응답 schema 가
+        // 이미 함께 실리므로, 맥락 블록은 "넓지만 무한하지 않게" 둔다 — 최신/고빈도 우선으로 자른다(.take/.takeLast).
+        // 요약 5개 · 핵심문장 5개 · 현재 세션 turn 20개로 candidate 1문장 + assistantContext 한마디보다는
+        // 충분히 넓되, SessionMemory 누적이 늘어도 프롬프트 길이가 선형으로 폭주하지 않게 막는다.
+        const val MAX_CONTEXT_TOPIC_SUMMARIES = 5
+        const val MAX_CONTEXT_KEY_SENTENCES = 5
+        const val MAX_CONTEXT_CURRENT_TURNS = 20
     }
 }

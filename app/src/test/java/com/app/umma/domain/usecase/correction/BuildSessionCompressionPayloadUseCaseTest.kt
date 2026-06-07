@@ -80,6 +80,64 @@ class BuildSessionCompressionPayloadUseCaseTest {
         assertEquals(1, command.topicKeySentences.size)
     }
 
+    @Test
+    fun `prefers AI-mapped recentTopics and topicSummaries over code-based extraction (SSOT)`() {
+        // COR-TUNE-010: topicSummaries/recentTopics 의 SSOT 는 SummarizeRecentTopicsUseCase 의 AI 매핑 결과다.
+        // AI 값이 있으면 코드 기반 단어빈도/before->after 요약은 전혀 쓰이지 않아야 한다.
+        val result = useCase(
+            language = LangCode.EN,
+            selectedSuggestions = listOf(baseSuggestion()),
+            recentUserTurns = listOf(
+                ConversationTurn(
+                    speaker = TurnSpeaker.USER,
+                    text = "I want to talk about travel and museum plans."
+                )
+            ),
+            compressedAt = 2_000L,
+            aiRecentTopics = listOf("museum visit", "daily routine"),
+            aiTopicSummaries = listOf("Learner practiced past-tense museum stories.")
+        )
+
+        val command = result.getOrThrow()
+
+        assertNotNull(command)
+        assertEquals(listOf("museum visit", "daily routine"), command!!.recentTopics)
+        assertEquals(listOf("Learner practiced past-tense museum stories."), command.topicSummaries)
+        // 코드 기반 폴백 산출물(단어빈도 "travel"/before->after 텍스트)이 섞여 들어오지 않아야 한다.
+        assertTrue("코드 기반 recentTopics 가 AI 결과를 덮어씀", "travel" !in command.recentTopics)
+        assertTrue(
+            "코드 기반 topicSummaries 가 AI 결과를 덮어씀",
+            command.topicSummaries.none { it.contains("I go to museum yesterday.") }
+        )
+    }
+
+    @Test
+    fun `falls back to code-based extraction when AI mapping is empty`() {
+        // AI 매핑이 비어 있으면(실패·미적용) 기존 코드 기반 폴백으로 압축 흐름을 계속 진행해야 한다(pending only).
+        val result = useCase(
+            language = LangCode.EN,
+            selectedSuggestions = listOf(baseSuggestion()),
+            recentUserTurns = listOf(
+                ConversationTurn(
+                    speaker = TurnSpeaker.USER,
+                    text = "I want to talk about travel and museum plans."
+                )
+            ),
+            compressedAt = 2_000L,
+            aiRecentTopics = emptyList(),
+            aiTopicSummaries = emptyList()
+        )
+
+        val command = result.getOrThrow()
+
+        assertNotNull(command)
+        assertTrue("AI 가 비었는데 코드 기반 recentTopics 폴백이 동작하지 않음", command!!.recentTopics.contains("travel"))
+        assertTrue(
+            "AI 가 비었는데 코드 기반 topicSummaries 폴백이 동작하지 않음",
+            command.topicSummaries.first().contains("I go to museum yesterday.")
+        )
+    }
+
     private fun baseSuggestion(): CorrectionSuggestion {
         return CorrectionSuggestion(
             id = "s-1",

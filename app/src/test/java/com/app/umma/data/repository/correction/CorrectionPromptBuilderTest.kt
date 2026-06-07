@@ -1,6 +1,8 @@
 package com.app.umma.data.repository.correction
 
 import com.app.umma.domain.model.correction.CorrectionCandidate
+import com.app.umma.domain.model.correction.CorrectionContextTurn
+import com.app.umma.domain.model.correction.CorrectionSessionContext
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.ChatAdaptationPolicy
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
@@ -460,6 +462,94 @@ class CorrectionPromptBuilderTest {
         assertFalse("저신뢰 focus 가 노출됨", builder.build(lowConfidence).contains("focus:"))
     }
 
+    @Test
+    fun `intent context block appears above Candidates when sessionContext is not empty`() {
+        // COR-TUNE-010: AI 가 후보를 보기 전에 의도 맥락을 먼저 읽어야 하므로 블록은 Candidates 보다 위에 있어야 한다.
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            sessionContext = CorrectionSessionContext(
+                recentTopics = listOf("school routine"),
+                topicSummaries = listOf("i go school -> I go to school (article)"),
+                topicKeySentences = listOf("I go to school every day."),
+                currentSessionTurns = listOf(
+                    CorrectionContextTurn(speaker = "user", text = "I go school yesterday"),
+                    CorrectionContextTurn(speaker = "assistant", text = "Oh, where do you study?")
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        val contextIndex = prompt.indexOf("Conversation context / intent")
+        val candidatesIndex = prompt.indexOf("Candidates:")
+        assertTrue("의도 맥락 블록 누락", contextIndex >= 0)
+        assertTrue("Candidates 블록 누락", candidatesIndex >= 0)
+        assertTrue("의도 맥락 블록이 Candidates 보다 아래에 있음", contextIndex < candidatesIndex)
+        assertTrue("recentTopics 누락", prompt.contains("school routine"))
+        assertTrue("topicSummaries 누락", prompt.contains("i go school -> I go to school (article)"))
+        assertTrue("topicKeySentences 누락", prompt.contains("I go to school every day."))
+        assertTrue("현재 세션 turn 누락", prompt.contains("user: I go school yesterday"))
+        assertTrue("현재 세션 turn 누락", prompt.contains("assistant: Oh, where do you study?"))
+    }
+
+    @Test
+    fun `intent context block omitted when sessionContext is empty`() {
+        // 세션 기억 조회 실패 등으로 맥락이 전부 비면 블록 자체를 생략해 토큰을 아끼고 기존 동작을 보존한다(폴백).
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            sessionContext = CorrectionSessionContext()
+        )
+
+        val prompt = builder.build(input)
+
+        assertFalse("빈 세션 맥락인데 의도 맥락 블록이 노출됨", prompt.contains("Conversation context / intent"))
+    }
+
+    @Test
+    fun `intent context block enforces injection caps`() {
+        // COR-TUNE-010: 토큰 비대 방지를 위해 요약/핵심문장은 최대 5개, 현재 세션 turn 은 최신 20개만 남는다.
+        val recentTopics = (1..6).map { "topic-$it" }
+        val topicSummaries = (1..6).map { "summary-$it" }
+        val topicKeySentences = (1..6).map { "sentence-$it" }
+        // 두 자리로 zero-pad 해 "turn-01"이 "turn-010"/"turn-11" 같은 다른 항목의 substring 이 되지 않게 한다.
+        val currentSessionTurns = (1..21).map { index ->
+            CorrectionContextTurn(speaker = "user", text = "turn-${index.toString().padStart(2, '0')}")
+        }
+
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            sessionContext = CorrectionSessionContext(
+                recentTopics = recentTopics,
+                topicSummaries = topicSummaries,
+                topicKeySentences = topicKeySentences,
+                currentSessionTurns = currentSessionTurns
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        // recentTopics/topicSummaries: 앞에서부터 5개만 노출(최신/고빈도 우선 순서를 SessionMemory 가 이미 보장).
+        (1..5).forEach { index -> assertTrue("topic-$index 누락", prompt.contains("topic-$index")) }
+        assertFalse("주입 상한(5)을 넘는 topic-6 이 노출됨", prompt.contains("topic-6"))
+        (1..5).forEach { index -> assertTrue("summary-$index 누락", prompt.contains("summary-$index")) }
+        assertFalse("주입 상한(5)을 넘는 summary-6 이 노출됨", prompt.contains("summary-6"))
+        (1..5).forEach { index -> assertTrue("sentence-$index 누락", prompt.contains("sentence-$index")) }
+        assertFalse("주입 상한(5)을 넘는 sentence-6 이 노출됨", prompt.contains("sentence-6"))
+
+        // currentSessionTurns: 최신 20개만 남아야 하므로 가장 오래된 turn-01 은 잘려나가야 한다.
+        assertFalse("주입 상한(20)을 넘는 가장 오래된 turn-01 이 노출됨", prompt.contains("turn-01"))
+        (2..21).forEach { index ->
+            val text = "turn-${index.toString().padStart(2, '0')}"
+            assertTrue("$text 누락", prompt.contains(text))
+        }
+    }
+
     // --- helpers ---
 
     /**
@@ -469,12 +559,14 @@ class CorrectionPromptBuilderTest {
         candidates: List<CorrectionCandidate>,
         lang: LangCode = LangCode.EN,
         primaryLang: LangCode = LangCode.KO,
-        profile: LearnerAdaptationProfile = profileUseCase(LangState.initial(lang))
+        profile: LearnerAdaptationProfile = profileUseCase(LangState.initial(lang)),
+        sessionContext: CorrectionSessionContext = CorrectionSessionContext()
     ): GenerateSuggestionsInput = GenerateSuggestionsInput(
         candidates = candidates,
         langState = LangState.initial(lang),
         primaryLang = primaryLang,
-        profile = profile
+        profile = profile,
+        sessionContext = sessionContext
     )
 
     /** MeaningFirst 기본 정책. focusLine 게이트 테스트 등 "policy 무관" 케이스에서 사용한다. */

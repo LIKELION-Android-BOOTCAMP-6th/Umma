@@ -79,15 +79,6 @@ class CompleteCorrectionUseCase @Inject constructor(
         // 품질 필터로 제외된 suggestion 은 저장 가치가 없으므로 학습 근거에도 섞지 않는다.
         val correctionResult = buildCorrectionResult(saveableSuggestions)
 
-        // 0) compression payload 를 단계 진입 직후 한 번만 계산해 캐시한다.
-        // 이 payload 의 recentTopics 는 Session Memory 압축용 키워드로만 사용한다.
-        // Dashboard 주제 칩(recentTopic)은 단어 키워드가 아니라 AI 세션 요약 title 로만 갱신한다. (#173)
-        val compressionCommandResult = buildCompressionCommand(
-            input = input,
-            selectedSuggestions = saveableSuggestions
-        )
-        val cachedCompressionCommand = compressionCommandResult.getOrNull()
-
         var saveResult: CorrectionSaveResult? = null
 
         return try {
@@ -105,6 +96,18 @@ class CompleteCorrectionUseCase @Inject constructor(
             // Dashboard 표시용 짧은 topic title 을 얻는다.
             // 실패/빈 title 은 recentTopic=null 로 내려 기존 Dashboard topic 을 보존한다. (#173)
             val topicSummaryResult = summarizeRecentTopicsIfPossible(input)
+
+            // 2.5) compression payload 는 2단계 AI 매핑 결과(topicSummaryResult.recentTopics/summaries)가
+            // 확정된 뒤에 계산해야 topicSummaries SSOT 가 5단계 압축과 일관된다 (COR-TUNE-010).
+            // 예전엔 0단계에서 코드 단어빈도/before→after 로 먼저 계산해 캐시했지만, 이제는 AI 결과를
+            // 주입해야 하므로 이 시점으로 옮긴다. buildSessionCompressionPayloadUseCase 는 Result 로
+            // 감싸 throw 하지 않으므로(runCatching 내부) try 블록 안에서 호출해도 catch/rollback 으로
+            // 번지지 않고, compressSessionMemoryIfPossible 의 pending 폴백이 그대로 동작한다.
+            val compressionCommandResult = buildCompressionCommand(
+                input = input,
+                selectedSuggestions = saveableSuggestions,
+                topicSummaryResult = topicSummaryResult
+            )
 
             // 3) 저장 성공 후에는 같은 완료 흐름 안에서 Session/Dashboard 요약도 닫는다.
             // correctionAvailable 을 false 로 내려야 Dashboard 와 Correction 진입 판단이 같은 상태를 본다.
@@ -128,10 +131,10 @@ class CompleteCorrectionUseCase @Inject constructor(
 
             // 5) 앞의 네 단계가 성공한 뒤에만 Session Memory 압축을 시도한다.
             // 압축은 RT-003 소유 저장소에 대한 후속 정리라 실패해도 저장 완료를 rollback 하지 않는다.
-            // step 0 에서 만든 동일 payload 를 그대로 재사용한다.
+            // 2.5 단계에서 AI 매핑 결과를 주입해 만든 동일 payload 를 그대로 재사용한다(SSOT 일관성).
             val compressionResult = compressSessionMemoryIfPossible(
                 buildResult = compressionCommandResult,
-                command = cachedCompressionCommand
+                command = compressionCommandResult.getOrNull()
             )
 
             Result.success(
@@ -232,15 +235,21 @@ class CompleteCorrectionUseCase @Inject constructor(
 
     private fun buildCompressionCommand(
         input: CompleteCorrectionInput,
-        selectedSuggestions: List<CorrectionSuggestion>
+        selectedSuggestions: List<CorrectionSuggestion>,
+        topicSummaryResult: TopicSummaryStepResult
     ): Result<CompressSessionMemoryCommand?> {
         // CompressionPayload 는 Correction 이 알고 있는 교정 결과와 분석 turn 으로 만들지만,
         // 실제 Session Memory 저장/초기화 실행은 RT-003 UseCase 가 담당한다.
+        // COR-TUNE-010: topicSummaries/recentTopics 의 SSOT 는 2단계에서 이미 호출된 AI 매핑 결과다.
+        // 같은 값을 그대로 넘겨야 2·5단계 이중 쓰기가 같은 데이터로 reconcile 된다(AI 실패 시 코드 폴백은
+        // BuildSessionCompressionPayloadUseCase 내부에서 처리).
         return buildSessionCompressionPayloadUseCase(
             language = input.langStateUpdateInput.lang,
             selectedSuggestions = selectedSuggestions,
             recentUserTurns = input.langStateUpdateInput.recentUserTurns,
-            compressedAt = input.requestedAt
+            compressedAt = input.requestedAt,
+            aiRecentTopics = topicSummaryResult.recentTopics,
+            aiTopicSummaries = topicSummaryResult.summaries
         )
     }
 
@@ -356,7 +365,9 @@ class CompleteCorrectionUseCase @Inject constructor(
         return TopicSummaryStepResult(
             applied = result.applied,
             pending = result.pending,
-            displayTitle = result.displayTitle
+            displayTitle = result.displayTitle,
+            recentTopics = result.recentTopics,
+            summaries = result.summaries
         )
     }
 
@@ -414,7 +425,11 @@ class CompleteCorrectionUseCase @Inject constructor(
     private data class TopicSummaryStepResult(
         val applied: Boolean,
         val pending: Boolean,
-        val displayTitle: String?
+        val displayTitle: String?,
+        // COR-TUNE-010: AI 매핑 결과(SSOT). buildCompressionCommand 가 이 값을
+        // BuildSessionCompressionPayloadUseCase 의 aiRecentTopics/aiTopicSummaries 로 그대로 전달한다.
+        val recentTopics: List<String> = emptyList(),
+        val summaries: List<String> = emptyList()
     )
 
     private data class SessionCompressionResult(
