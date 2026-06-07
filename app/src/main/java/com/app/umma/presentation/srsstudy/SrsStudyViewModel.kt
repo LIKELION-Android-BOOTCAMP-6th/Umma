@@ -105,33 +105,28 @@ class SrsStudyViewModel @Inject constructor(
             observeReviewDeck(userUid, language).collect { deckState ->
                 when (deckState) {
                     // 카드 있음 -> 첫 번째 카드부터 시작
-                    is ReviewDeckState.Content -> _uiState.update { it ->
-                        if (it.cards.isNotEmpty() && !it.isDone) {
-                            it.copy(isLoading = false, hasInitError = false)
-                                .also { newState ->
-                                    newState.currentCard?.let { card ->
-                                        updateRatingLabels(
-                                            card
-                                        )
-                                    }
-                                }
-                        } else {
-                            it.copy(
-                                isLoading = false,
-                                hasInitError = false,
-                                cards = deckState.cards,
-                                currentCardIndex = 0,
-                                isCardFlipped = false,
-                                isDone = false,
-                                // 덱 최초 로드 시점의 카드 수 고정
-                                // again 평가로 늘어난 카드 영향 X
-                                studiedCardCount = deckState.cards.size
-                            ).also { newState ->
-                                newState.currentCard?.let { card ->
-                                    updateRatingLabels(card)
-                                }
+                    is ReviewDeckState.Content -> {
+                        _uiState.update { it ->
+                            if (it.cards.isNotEmpty() && !it.isDone) {
+                                // 이미 진행 중인 덱이 있으면 덱을 갈아엎지 않고 로딩만 해제
+                                it.copy(isLoading = false, hasInitError = false)
+                            } else {
+                                // 최초 로드: 새 덱으로 초기화
+                                it.copy(
+                                    isLoading = false,
+                                    hasInitError = false,
+                                    cards = deckState.cards,
+                                    currentCardIndex = 0,
+                                    isCardFlipped = false,
+                                    isDone = false,
+                                    // 덱 최초 로드 시점의 카드 수 고정
+                                    // again 평가로 늘어난 카드 영향 X
+                                    studiedCardCount = deckState.cards.size
+                                )
                             }
                         }
+                        // 레이블 갱신
+                        _uiState.value.currentCard?.let { updateRatingLabels(it) }
                     }
 
                     is ReviewDeckState.Empty -> _uiState.update {
@@ -192,10 +187,30 @@ class SrsStudyViewModel @Inject constructor(
             // 평가 결과로 다음 복습 간격을 계산하고, 기기 DB와 대시보드 요약에 반영
             applyReviewDecision(userId, card, decision).onSuccess {
                 ttsController.stop()
+                // Again 카드는 "방금 계산된 schedule"을 반영해 넣음
                 _uiState.update { state ->
                     // Again 선택 시 현재 카드를 덱 끝에 추가해 당일 재노출
-                    val updatedCards = if (rating == ReviewRating.AGAIN) {
-                        state.cards + card
+                    val rescheduledCard: Flashcard? = if (rating == ReviewRating.AGAIN) {
+                        val next = schedulePolicy.calculateNextSchedule(
+                            card.schedule,
+                            rating,
+                            decision.reviewedAt
+                        )
+                        card.copy(
+                            schedule = card.schedule.copy(
+                                interval = next.interval,
+                                easeFactor = next.easeFactor,
+                                nextReviewAt = next.nextReviewAt
+                            ),
+                            lastReviewRating = rating,
+                            lastReviewedAt = decision.reviewedAt
+                        )
+                    } else {
+                        null
+                    }
+
+                    val updatedCards = if (rescheduledCard != null) {
+                        state.cards + rescheduledCard
                     } else {
                         state.cards
                     }
@@ -209,11 +224,10 @@ class SrsStudyViewModel @Inject constructor(
                         isDone = isDone,
                         isSaving = false,
                         isSpeaking = false
-                    ).also { newState ->
-                        // 다음 카드 기준으로 버튼 간격 라벨 갱신
-                        newState.currentCard?.let { card -> updateRatingLabels(card) }
-                    }
+                    )
                 }
+                // 다음 카드 기준으로 버튼 라벨 갱신 (update 밖에서 호출 = 중첩 update 방지)
+                _uiState.value.currentCard?.let { updateRatingLabels(it) }
             }.onFailure { e ->
                 Log.d("ummaDev", "SrsStudyViewModel onRatingSelected - $e")
                 _uiState.update {
