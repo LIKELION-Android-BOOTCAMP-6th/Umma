@@ -5,6 +5,7 @@ const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
+const { handleDeleteAccount } = require("./deleteAccount");
 
 admin.initializeApp();
 
@@ -37,8 +38,10 @@ const MARKETING_NOTIFICATION_CHANNEL_ID = "marketing_notifications";
 const MARKETING_NOTIFICATION_TITLE = "Umma";
 const MARKETING_SLOT_MORNING = "morning";
 const MARKETING_SLOT_NOON = "noon";
+const MARKETING_SLOT_AFTER_NOON = "after_noon";
 const MARKETING_SLOT_MORNING_HOUR = 7;
 const MARKETING_SLOT_NOON_HOUR = 12;
+const MARKETING_SLOT_AFTER_NOON_HOUR = 17;
 const DEFAULT_NOTIFICATION_TIMEZONE = "Asia/Seoul";
 const DEFAULT_NOTIFICATION_TIME_MINUTES = 18 * 60;
 const MINUTES_PER_HOUR = 60;
@@ -736,14 +739,24 @@ function buildMarketingNotificationMessage(slotName) {
   if (slotName === MARKETING_SLOT_MORNING) {
     return {
       title: MARKETING_NOTIFICATION_TITLE,
-      body: "AI와 대화를 하며 하루를 시작해보세요!",
+      body: "AI와 대화를 하며 하루를 시작해보세요!\n*알림끄기: 마이페이지 > 마케팅 알림",
+    };
+  }
+
+  if (slotName == MARKETING_SLOT_NOON) {
+    return {
+       title: MARKETING_NOTIFICATION_TITLE,
+       body: "Umma에서는 다양한 언어를 학습할 수 있어요!\n지금 접속해서 언어 능력을 향상 시켜보세요!\n*알림끄기: 마이페이지 > 마케팅 알림",
     };
   }
 
   return {
-    title: MARKETING_NOTIFICATION_TITLE,
-    body: "Umma에서는 다양한 언어를 학습할 수 있어요! 지금 접속해서 언어 능력을 향상 시켜보세요!",
-  };
+      title: MARKETING_NOTIFICATION_TITLE,
+      body: "플래시 카드를 통해 문장을 학습해보세요!\n플래시 카드는 대화 후 교정을 통해 추가할 수 있어요!\n*알림끄기: 마이페이지 > 마케팅 알림"
+  }
+
+
+
 }
 
 function resolveMarketingCampaignSlot(referenceMillis, timezone) {
@@ -762,6 +775,15 @@ function resolveMarketingCampaignSlot(referenceMillis, timezone) {
       localDate: `${zonedNow.year}${padNumber(zonedNow.month)}${padNumber(zonedNow.day)}`,
     };
   }
+
+  if (zonedNow.hour === MARKETING_SLOT_AFTER_NOON_HOUR) {
+      return {
+        name: MARKETING_SLOT_AFTER_NOON,
+        localDate: `${zonedNow.year}${padNumber(zonedNow.month)}${padNumber(zonedNow.day)}`,
+      };
+    }
+
+
 
   return null;
 }
@@ -942,6 +964,19 @@ function computeNextMarketingNotificationBucketAt(timezone, now) {
   );
   if (noonTarget > now) {
     return noonTarget;
+  }
+
+  const afterNoonTarget = zonedDateTimeToEpochMillis(
+     zonedNow.year,
+     zonedNow.month,
+     zonedNow.day,
+     MARKETING_SLOT_AFTER_NOON_HOUR,
+     0,
+     0,
+     timezone,
+  );
+  if (afterNoonTarget > now) {
+      return afterNoonTarget;
   }
 
   const tomorrow = addCivilDays(zonedNow.year, zonedNow.month, zonedNow.day, 1);
@@ -1264,3 +1299,18 @@ function throwInvalidArgument(message) {
   error.code = "invalid-argument";
   throw error;
 }
+
+// 회원탈퇴 Cloud Functions API
+exports.deleteAccount = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    return handleDeleteAccount({
+      auth: admin.auth(),
+      db: getFirestore(admin.app(), "default"),
+      loggerImpl: logger,
+      request,
+    });
+  },
+);
