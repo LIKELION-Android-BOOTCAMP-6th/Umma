@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -205,7 +204,6 @@ private fun SrsStudyContent(
         // 앞면: 버튼 탭 -> 뒤집기 / 뒷면: 버튼 탭 -> 즉시 저장 + 다음 카드
         SrsRatingButtons(
             isFlipped = uiState.isCardFlipped,
-            selectedRating = uiState.selectedRating,
             onRatingSelected = onRatingSelected,
             onFlip = onCardFlip,
             againLabel = uiState.againLabel,
@@ -399,7 +397,6 @@ private fun SrsCardBack(
 @Composable
 private fun SrsRatingButtons(
     isFlipped: Boolean,
-    selectedRating: ReviewRating?,
     onRatingSelected: (ReviewRating) -> Unit,
     onFlip: () -> Unit,
     againLabel: String,
@@ -417,7 +414,6 @@ private fun SrsRatingButtons(
                 "Again",
                 againLabel,
                 RatingAgain,
-                isSelected = selectedRating == ReviewRating.AGAIN,
                 icon = Icons.Default.Refresh,
                 isFlipped = isFlipped,
                 onClick = {
@@ -429,7 +425,6 @@ private fun SrsRatingButtons(
                 "Hard",
                 hardLabel,
                 RatingHard,
-                isSelected = selectedRating == ReviewRating.HARD,
                 icon = Icons.Default.SentimentNeutral,
                 isFlipped = isFlipped,
                 onClick = {
@@ -448,7 +443,6 @@ private fun SrsRatingButtons(
                 "Good",
                 goodLabel,
                 ThemePrimary,
-                isSelected = selectedRating == ReviewRating.GOOD,
                 icon = Icons.Default.SentimentSatisfiedAlt,
                 isFlipped = isFlipped,
                 onClick = {
@@ -463,7 +457,6 @@ private fun SrsRatingButtons(
                 "Easy",
                 easyLabel,
                 RatingEasy,
-                isSelected = selectedRating == ReviewRating.EASY,
                 icon = Icons.Default.SentimentVerySatisfied,
                 isFlipped = isFlipped,
                 onClick = {
@@ -482,7 +475,6 @@ private fun SrsRatingButton(
     time: String,
     iconColor: Color,
     icon: ImageVector,
-    isSelected: Boolean,
     isFlipped: Boolean,
     onClick: () -> Unit,
 ) {
@@ -495,7 +487,6 @@ private fun SrsRatingButton(
         elevation = CardDefaults.cardElevation(
             defaultElevation = CardElevation,
         ),
-        border = if (isSelected) BorderStroke(2.dp, iconColor) else null,
         colors =
             CardDefaults.cardColors(containerColor = if (isFlipped) Color.White else BackgroundDeactivated)
     ) {
