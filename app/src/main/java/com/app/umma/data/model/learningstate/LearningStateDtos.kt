@@ -1,5 +1,12 @@
 package com.app.umma.data.model.learningstate
 
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.ExternalMetrics
@@ -13,6 +20,7 @@ import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.MetricEvidence
+import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -90,6 +98,22 @@ data class LearningFocusDto(
 )
 
 @Serializable
+data class ChatEvidenceSummaryDto(
+    // Chat band 계산에 필요한 원본 의미 값을 enum name으로 보존한다.
+    val targetLanguageComprehension: String,
+    val targetLanguageProduction: String,
+    val supportLanguageDependence: String,
+    val aiScaffoldingDependence: String,
+    val conversationSustainability: String,
+    val consistency: String,
+    val responseDifficultyFit: String,
+    val confidence: String,
+    // 본문은 최신 유효 evidence로 교체하지만, 반영 횟수는 누적해 신뢰도 판단에 쓸 수 있게 한다.
+    val observedCount: Int,
+    val lastObservedAt: Long? = null
+)
+
+@Serializable
 data class LangStateAnalysisMetaDto(
     // key는 LearningMetricKey.name이다. unknown key는 복원 시 제거한다.
     val metricEvidence: Map<String, MetricEvidenceDto> = emptyMap(),
@@ -98,7 +122,9 @@ data class LangStateAnalysisMetaDto(
     // 마지막 correction/user/review signal 관측 시각.
     val lastSignalAt: Long? = null,
     // Chat source만의 중복 반영 방어 id. 기존 correction event id와 충돌하지 않게 meta에 둔다.
-    val lastChatAnalysisEventId: String? = null
+    val lastChatAnalysisEventId: String? = null,
+    // Chat band 계산용 공식 evidence summary. 기존 데이터에는 없을 수 있어 null을 허용한다.
+    val chatEvidenceSummary: ChatEvidenceSummaryDto? = null
 )
 
 @Serializable
@@ -303,6 +329,50 @@ fun LearningFocusDto.toDomainOrNull(): LearningFocus? {
     )
 }
 
+fun ChatEvidenceSummary.toDto(): ChatEvidenceSummaryDto {
+    return ChatEvidenceSummaryDto(
+        targetLanguageComprehension = targetLanguageComprehension.name,
+        targetLanguageProduction = targetLanguageProduction.name,
+        supportLanguageDependence = supportLanguageDependence.name,
+        aiScaffoldingDependence = aiScaffoldingDependence.name,
+        conversationSustainability = conversationSustainability.name,
+        consistency = consistency.name,
+        responseDifficultyFit = responseDifficultyFit.name,
+        confidence = confidence.name,
+        observedCount = observedCount,
+        lastObservedAt = lastObservedAt
+    )
+}
+
+fun ChatEvidenceSummaryDto.toDomainOrNull(): ChatEvidenceSummary? {
+    // unknown enum 문자열 하나가 들어오면 잘못된 band source가 되므로 summary 전체를 사용하지 않는다.
+    return ChatEvidenceSummary(
+        targetLanguageComprehension = enumValueOrNull<TargetLanguageComprehensionEvidence>(
+            targetLanguageComprehension
+        ) ?: return null,
+        targetLanguageProduction = enumValueOrNull<TargetLanguageProductionEvidence>(
+            targetLanguageProduction
+        ) ?: return null,
+        supportLanguageDependence = enumValueOrNull<LanguageDependenceEvidence>(
+            supportLanguageDependence
+        ) ?: return null,
+        aiScaffoldingDependence = enumValueOrNull<LanguageDependenceEvidence>(
+            aiScaffoldingDependence
+        ) ?: return null,
+        conversationSustainability = enumValueOrNull<ConversationSustainabilityEvidence>(
+            conversationSustainability
+        ) ?: return null,
+        consistency = enumValueOrNull<ConversationConsistencyEvidence>(consistency) ?: return null,
+        responseDifficultyFit = enumValueOrNull<ResponseDifficultyFitEvidence>(
+            responseDifficultyFit
+        ) ?: return null,
+        confidence = enumValueOrNull<ProfileConfidence>(confidence) ?: return null,
+        // observedCount는 누적 횟수라 음수 저장값을 0으로 방어한다.
+        observedCount = observedCount.coerceAtLeast(0),
+        lastObservedAt = lastObservedAt
+    )
+}
+
 fun LangStateAnalysisMeta.toDto(): LangStateAnalysisMetaDto {
     // map key를 enum 그대로 저장하지 않고 name 문자열로 저장해 Firestore 필드 구조를 단순하게 유지한다.
     return LangStateAnalysisMetaDto(
@@ -310,7 +380,8 @@ fun LangStateAnalysisMeta.toDto(): LangStateAnalysisMetaDto {
             .mapValues { (_, value) -> value.toDto() },
         activeFocus = activeFocus.map { it.toDto() },
         lastSignalAt = lastSignalAt,
-        lastChatAnalysisEventId = lastChatAnalysisEventId
+        lastChatAnalysisEventId = lastChatAnalysisEventId,
+        chatEvidenceSummary = chatEvidenceSummary?.toDto()
     )
 }
 
@@ -332,7 +403,8 @@ fun LangStateAnalysisMetaDto.toDomain(): LangStateAnalysisMeta {
         metricEvidence = restoredEvidence,
         activeFocus = restoredFocus,
         lastSignalAt = lastSignalAt,
-        lastChatAnalysisEventId = lastChatAnalysisEventId
+        lastChatAnalysisEventId = lastChatAnalysisEventId,
+        chatEvidenceSummary = chatEvidenceSummary?.toDomainOrNull()
     )
 }
 

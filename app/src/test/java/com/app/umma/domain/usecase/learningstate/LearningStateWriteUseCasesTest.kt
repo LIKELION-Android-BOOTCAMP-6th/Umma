@@ -8,6 +8,7 @@ import com.app.umma.domain.model.chat.LanguageDependenceEvidence
 import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
 import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
 import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.ChatSignalUpdateInput
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.ConversationTurn
@@ -178,6 +179,11 @@ class LearningStateWriteUseCasesTest {
         assertEquals(repo.initialExternal, result.savedState.external)
         assertEquals("chat-session:session-1", result.savedState.analysisMeta.lastChatAnalysisEventId)
         assertEquals(repo.initialState.lastAnalysisEventId, result.savedState.lastAnalysisEventId)
+        assertEquals(
+            TargetLanguageProductionEvidence.SimpleSentences,
+            result.savedState.analysisMeta.chatEvidenceSummary?.targetLanguageProduction
+        )
+        assertEquals(1, result.savedState.analysisMeta.chatEvidenceSummary?.observedCount)
         assertTrue(result.savedState.analysisMeta.metricEvidence.values.any { evidence ->
             evidence.sourceTypes.contains(LearningSignalSource.ChatSession)
         })
@@ -203,8 +209,9 @@ class LearningStateWriteUseCasesTest {
     }
 
     @Test
-    fun `chat signal with low confidence stores idempotency id without metric evidence`() = runBlocking {
-        // Low confidence는 재분석 중복만 막고 공식 metric evidence에는 반영하지 않는다.
+    fun `chat signal with low confidence stores first summary without metric evidence`() = runBlocking {
+        // 첫 세션 Low confidence를 버리면 초저숙련 사용자의 공식 Chat 상태가 계속 비어 있을 수 있다.
+        // metric evidence는 여전히 제외하지만, summary는 낮은 신뢰도의 대화 단서로 저장한다.
         val repo = RecordingLearningStateRepo()
         val useCase = ApplyChatSignalUpdateUseCase(repo)
 
@@ -214,7 +221,73 @@ class LearningStateWriteUseCasesTest {
 
         assertTrue(result.applied)
         assertTrue(result.savedState.analysisMeta.metricEvidence.isEmpty())
+        assertEquals(ProfileConfidence.Low, result.savedState.analysisMeta.chatEvidenceSummary?.confidence)
+        assertEquals(1, result.savedState.analysisMeta.chatEvidenceSummary?.observedCount)
         assertEquals("chat-session:session-1", result.savedState.analysisMeta.lastChatAnalysisEventId)
+    }
+
+    @Test
+    fun `chat signal with low confidence updates previous low summary`() = runBlocking {
+        // 기존 summary도 Low라면 새 Low를 버리지 않는다. 초저숙련자의 최근 상태는 계속 추적되어야 한다.
+        val previousSummary = chatSummary(
+            confidence = ProfileConfidence.Low,
+            production = TargetLanguageProductionEvidence.WordsOrFragments,
+            observedCount = 1
+        )
+        val repo = RecordingLearningStateRepo(
+            initialState = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+                analysisMeta = LangState.initial(LangCode.EN).analysisMeta.copy(
+                    chatEvidenceSummary = previousSummary
+                )
+            )
+        )
+        val useCase = ApplyChatSignalUpdateUseCase(repo)
+
+        val result = useCase(
+            chatInput(
+                evidence = chatEvidence(
+                    confidence = ProfileConfidence.Low,
+                    production = TargetLanguageProductionEvidence.ShortPhrases
+                )
+            )
+        ).getOrThrow()
+
+        assertEquals(
+            TargetLanguageProductionEvidence.ShortPhrases,
+            result.savedState.analysisMeta.chatEvidenceSummary?.targetLanguageProduction
+        )
+        assertEquals(2, result.savedState.analysisMeta.chatEvidenceSummary?.observedCount)
+        assertEquals(10_000L, result.savedState.analysisMeta.chatEvidenceSummary?.lastObservedAt)
+    }
+
+    @Test
+    fun `chat signal with low confidence does not overwrite medium summary`() = runBlocking {
+        // 신뢰 가능한 기존 summary가 있으면 짧거나 애매한 Low 세션 하나로 다음 세션 band를 흔들지 않는다.
+        val previousSummary = chatSummary(
+            confidence = ProfileConfidence.Medium,
+            production = TargetLanguageProductionEvidence.SimpleSentences,
+            observedCount = 3
+        )
+        val repo = RecordingLearningStateRepo(
+            initialState = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+                analysisMeta = LangState.initial(LangCode.EN).analysisMeta.copy(
+                    chatEvidenceSummary = previousSummary
+                )
+            )
+        )
+        val useCase = ApplyChatSignalUpdateUseCase(repo)
+
+        val result = useCase(
+            chatInput(
+                evidence = chatEvidence(
+                    confidence = ProfileConfidence.Low,
+                    production = TargetLanguageProductionEvidence.WordsOrFragments
+                )
+            )
+        ).getOrThrow()
+
+        assertEquals(previousSummary, result.savedState.analysisMeta.chatEvidenceSummary)
+        assertTrue(result.savedState.analysisMeta.metricEvidence.isEmpty())
     }
 
     @Test
@@ -896,6 +969,27 @@ class LearningStateWriteUseCasesTest {
             source = ChatConversationEvidenceSource.GeminiConversationAnalysis,
             sourceSessionId = "session-1",
             updatedAt = 10_000L
+        )
+    }
+
+    private fun chatSummary(
+        confidence: ProfileConfidence,
+        production: TargetLanguageProductionEvidence,
+        observedCount: Int
+    ): ChatEvidenceSummary {
+        // 이전 LangState에 이미 저장된 Chat 상태를 재현한다.
+        // 갱신 정책 테스트에서는 confidence와 production만 바꾸고 나머지 단서는 안정적인 기본값으로 둔다.
+        return ChatEvidenceSummary(
+            targetLanguageComprehension = TargetLanguageComprehensionEvidence.SimpleSentence,
+            targetLanguageProduction = production,
+            supportLanguageDependence = LanguageDependenceEvidence.Low,
+            aiScaffoldingDependence = LanguageDependenceEvidence.Low,
+            conversationSustainability = ConversationSustainabilityEvidence.SustainedSimple,
+            consistency = ConversationConsistencyEvidence.Mixed,
+            responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
+            confidence = confidence,
+            observedCount = observedCount,
+            lastObservedAt = 5_000L
         )
     }
 

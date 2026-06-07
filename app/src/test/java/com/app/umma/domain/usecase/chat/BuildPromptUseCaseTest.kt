@@ -104,14 +104,16 @@ class BuildPromptUseCaseTest {
         )
 
         // prompt는 금지어 목록이 아니라 상위 행동 원칙으로만 모델을 유도해야 한다.
-        assertTrue(prompt.contains("음식, 잠, 날씨, 몸 상태, 기분처럼 바로 느낄 수 있는 생활 소재를 하나 골라"))
+        assertTrue(prompt.contains("사용자의 마지막 말에서 가까운 음식, 잠, 날씨, 몸 상태, 기분 같은 작은 생활 소재로 한두 턴씩 가볍게 잇는다."))
         assertTrue(prompt.contains("사용자가 고를 수 있는 아주 쉬운 반응 길을 함께 준다."))
+        assertTrue(prompt.contains("사용자가 실제로 말한 흐름을 우선하고, AI가 만든 흐름을 오래 밀고 가지 않는다."))
         assertTrue(prompt.contains("사용자의 짧은 반응은 대화 반응으로 받아들이고"))
         assertTrue(prompt.contains("뜻을 물으면 한 번만 짧게 받쳐 주고"))
         assertTrue(prompt.contains("영어 만으로는 거의 대화를 이어가기 어렵다."))
-        assertTrue(prompt.contains("AI가 생활 소재를 하나씩 꺼내 대화를 거의 전부 리드하고"))
+        assertTrue(prompt.contains("AI는 사용자의 마지막 말에서 가까운 작은 생활 말로 한두 턴씩 붙어 가며 대화를 거의 전부 리드하고"))
         assertTrue(prompt.contains("한국어의 아주 짧은 친구 말 옆에 영어 말 한 조각만 붙여 준다."))
         assertTrue(prompt.contains("사용자가 응/아니/좋아/밥처럼 아주 작게 고를 수 있게 한다."))
+        assertTrue(prompt.contains("사용자가 실제로 말한 흐름을 우선하고 AI가 만든 흐름을 오래 밀지 않는다."))
         assertTrue(prompt.contains("같은 표현에 머물지 않고 다음 작은 생활 말로 이어 간다."))
         assertTrue(prompt.contains("나는 커피 좋아. Coffee. 너는 밥? Rice?"))
         assertFalse(prompt.contains("Sleep well?"))
@@ -141,9 +143,10 @@ class BuildPromptUseCaseTest {
             selectedLang = LangCode.JA
         )
 
-        // 신고된 회귀는 IntentOnly가 "천천히/괜찮아" 안심 루틴으로 굳는 문제였으므로 생활 소재 예시로 유도한다.
-        assertTrue(prompt.contains("생활 소재를 하나씩 꺼내 대화를 거의 전부 리드하고"))
+        // 신고된 회귀는 IntentOnly가 안심 루틴이나 AI 주도 상황극으로 굳는 문제였으므로 사용자 마지막 말에 붙어 작게 이동하게 한다.
+        assertTrue(prompt.contains("사용자의 마지막 말에서 가까운 작은 생활 말로 한두 턴씩 붙어 가며 대화를 거의 전부 리드하고"))
         assertTrue(prompt.contains("사용자가 고를 수 있는 아주 쉬운 반응 길을 함께 준다."))
+        assertTrue(prompt.contains("사용자가 실제로 말한 흐름을 우선하고 AI가 만든 흐름을 오래 밀지 않는다."))
         assertTrue(prompt.contains("사용자의 짧은 반응은 대화 반응으로 받아들이고"))
         assertTrue(prompt.contains("같은 표현을 다시 시키지 말고 다음 작은 생활 말로 돌아간다."))
         assertTrue(prompt.contains("나는 커피 좋아. コーヒー. 너는 밥? ごはん?"))

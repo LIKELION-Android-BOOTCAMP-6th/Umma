@@ -1,5 +1,6 @@
 package com.app.umma.domain.usecase.chat
 
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
@@ -19,6 +20,12 @@ class BuildChatSpeechSpeedUseCase @Inject constructor() {
         // 신뢰도가 낮으면 실제 실력을 단정할 수 없지만, 첫 응답이 빠르면 초저숙련 사용자는 바로 이탈한다.
         // 그래서 첫 selectedLang 세션 fallback 은 "혹시 fluent일 수도 있음"보다 "못 알아들어도 대화가 끊기지 않음"을 우선한다.
         if (profile.core.levelConfidence == ProfileConfidence.Low) {
+            // CHAT-TUNE-007부터 Chat band는 chatEvidenceSummary로도 산출될 수 있다.
+            // 이 경우 correction/core metric은 아직 비어 있어도 Chat 대화 근거는 존재하므로,
+            // IntentOnly가 아닌 band에서는 Chat policy 속도를 우선해 prompt 난이도와 실제 음성 속도를 맞춘다.
+            if (profile.chatPolicy.conversationBand != ConversationAbilityBand.IntentOnly) {
+                return speedForPolicy(profile.chatPolicy.speechSpeed)
+            }
             // 현재 구조에서는 USER transcript를 앱이 해석해 turn별 speed를 바꾸지 않는다.
             // 근거 부족 상태의 첫 세션은 안전 속도로 시작하고, 이후 적응은 모델의 대화 내용에 맡긴다.
             return FIRST_SESSION_SAFE_SPEED

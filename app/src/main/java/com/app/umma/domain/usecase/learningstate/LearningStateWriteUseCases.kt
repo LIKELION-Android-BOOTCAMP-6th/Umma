@@ -10,6 +10,7 @@ import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
 import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
 import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
 import com.app.umma.domain.model.learningstate.ChatSignalUpdateInput
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
@@ -205,11 +206,20 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
                 observedAt = input.analyzedAt
             ))
         }
+        val nextChatEvidenceSummary = input.evidence.toUpdatedChatEvidenceSummary(
+            previous = currentState.analysisMeta.chatEvidenceSummary,
+            observedAt = input.analyzedAt
+        )
         val nextMeta = currentState.analysisMeta.copy(
             metricEvidence = nextEvidence,
-            // 유효 metric이 생겼을 때만 lastSignalAt을 옮겨 low/불충분 evidence가 signal처럼 보이지 않게 한다.
-            lastSignalAt = if (metricUpdates.isNotEmpty()) input.analyzedAt else currentState.analysisMeta.lastSignalAt,
-            lastChatAnalysisEventId = analysisEventId
+            // summary나 metric이 실제로 반영된 경우에만 signal 시각을 옮겨 Low confidence 분석을 과대 해석하지 않는다.
+            lastSignalAt = if (metricUpdates.isNotEmpty() || nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary) {
+                input.analyzedAt
+            } else {
+                currentState.analysisMeta.lastSignalAt
+            },
+            lastChatAnalysisEventId = analysisEventId,
+            chatEvidenceSummary = nextChatEvidenceSummary
         )
         val preparedState = currentState.copy(
             internal = currentState.internal,
@@ -224,7 +234,9 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
 
         ChatPromptTraceLog.d(
             "chat_ability langstate_prepared lang=${input.lang.code} " +
-                "session=${input.sourceSessionId} metrics=${metricUpdates.size} confidence=${input.evidence.confidence}"
+                "session=${input.sourceSessionId} metrics=${metricUpdates.size} " +
+                "summary=${nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary} " +
+                "confidence=${input.evidence.confidence}"
         )
 
         val updateResult = repo.updateLanguageState(
@@ -250,7 +262,9 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
             .onSuccess { result ->
                 ChatPromptTraceLog.i(
                     "chat_ability langstate_saved lang=${input.lang.code} " +
-                        "session=${input.sourceSessionId} applied=${result.applied} metrics=${metricUpdates.size}"
+                        "session=${input.sourceSessionId} applied=${result.applied} " +
+                        "metrics=${metricUpdates.size} " +
+                        "summary=${nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary}"
                 )
             }
             .onFailure { error ->
@@ -335,6 +349,33 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
                     direction = mergeDirectionsWithinChatEvidence(updates.map { update -> update.direction })
                 )
             }
+    }
+
+    private fun ChatConversationEvidence.toUpdatedChatEvidenceSummary(
+        previous: ChatEvidenceSummary?,
+        observedAt: Long
+    ): ChatEvidenceSummary {
+        // Low confidence는 "능력이 낮다"가 아니라 "이번 분석을 강하게 믿기 어렵다"는 뜻이다.
+        // 하지만 첫 세션이나 기존 Low 상태에서는 이 단서를 버리면 초저숙련 사용자의 공식 Chat 상태가 계속 비게 된다.
+        if (confidence == ProfileConfidence.Low && previous?.confidence != null && previous.confidence != ProfileConfidence.Low) {
+            // 이미 Medium/High summary가 있으면 짧거나 애매한 Low 세션 하나로 기존 근거를 덮지 않는다.
+            return previous
+        }
+
+        // summary 본문은 최신 유효 세션으로 교체한다.
+        // 여러 세션을 평균내면 초저숙련/중급 테스트 전환 시 원인을 추적하기 어려워지므로 count만 누적한다.
+        return ChatEvidenceSummary(
+            targetLanguageComprehension = targetLanguageComprehension,
+            targetLanguageProduction = targetLanguageProduction,
+            supportLanguageDependence = supportLanguageDependence,
+            aiScaffoldingDependence = aiScaffoldingDependence,
+            conversationSustainability = conversationSustainability,
+            consistency = consistency,
+            responseDifficultyFit = responseDifficultyFit,
+            confidence = confidence,
+            observedCount = (previous?.observedCount ?: 0) + 1,
+            lastObservedAt = observedAt
+        )
     }
 
     private fun ChatConversationEvidence.isEligibleForLangStateEvidence(): Boolean {

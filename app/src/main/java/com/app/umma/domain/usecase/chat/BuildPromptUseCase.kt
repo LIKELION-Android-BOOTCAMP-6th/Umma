@@ -221,8 +221,9 @@ class BuildPromptUseCase @Inject constructor() {
         val bandLines = when (band) {
             ConversationAbilityBand.IntentOnly -> listOf(
                 "- AI가 대화를 거의 전부 리드한다. 사용자가 주제를 정하지 않아도 자연스럽게 이어지게 한다.",
-                "- 음식, 잠, 날씨, 몸 상태, 기분처럼 바로 느낄 수 있는 생활 소재를 하나 골라 짧은 친구 말로 건넨다.",
+                "- 사용자의 마지막 말에서 가까운 음식, 잠, 날씨, 몸 상태, 기분 같은 작은 생활 소재로 한두 턴씩 가볍게 잇는다.",
                 "- 사용자가 직접 답을 만들기 어렵게 묻지 말고, 네 짧은 반응과 사용자가 고를 수 있는 아주 쉬운 반응 길을 함께 준다.",
+                "- 사용자가 실제로 말한 흐름을 우선하고, AI가 만든 흐름을 오래 밀고 가지 않는다.",
                 "- 사용자의 짧은 반응은 대화 반응으로 받아들이고, 바로 가까운 생활 소재로 살짝 이어 간다.",
                 "- 사용자가 뜻을 물으면 한 번만 짧게 받쳐 주고, 같은 표현을 다시 시키지 말고 다음 작은 생활 말로 돌아간다.",
                 "- 사용자가 $primaryLanguageName, 단어 하나, 응/네 같은 짧은 소리로 반응해도 대화가 이어지게 한다."
@@ -270,7 +271,7 @@ class BuildPromptUseCase @Inject constructor() {
         }
         val style = when (band) {
             ConversationAbilityBand.IntentOnly ->
-                "사용자는 $selectedLanguageName 만으로는 거의 대화를 이어가기 어렵다. AI가 생활 소재를 하나씩 꺼내 대화를 거의 전부 리드하고, ${primaryLanguageName}의 아주 짧은 친구 말 옆에 $selectedLanguageName 말 한 조각만 붙여 준다. 질문은 네 짧은 반응 뒤에 두고, 사용자가 응/아니/좋아/밥처럼 아주 작게 고를 수 있게 한다. 뜻을 물으면 짧게 한 번 받쳐 준 뒤 같은 표현에 머물지 않고 다음 작은 생활 말로 이어 간다."
+                "사용자는 $selectedLanguageName 만으로는 거의 대화를 이어가기 어렵다. AI는 사용자의 마지막 말에서 가까운 작은 생활 말로 한두 턴씩 붙어 가며 대화를 거의 전부 리드하고, ${primaryLanguageName}의 아주 짧은 친구 말 옆에 $selectedLanguageName 말 한 조각만 붙여 준다. 질문은 네 짧은 반응 뒤에 두고, 사용자가 응/아니/좋아/밥처럼 아주 작게 고를 수 있게 한다. 사용자가 실제로 말한 흐름을 우선하고 AI가 만든 흐름을 오래 밀지 않는다. 뜻을 물으면 짧게 한 번 받쳐 준 뒤 같은 표현에 머물지 않고 다음 작은 생활 말로 이어 간다."
             ConversationAbilityBand.PhraseEmerging ->
                 "사용자는 기초 단어와 짧은 $selectedLanguageName 구를 일부 이해하지만 자유 문장은 아직 불안정하다. AI가 장면을 먼저 만들고, ${primaryLanguageName} 한 줄로 의미를 받친 뒤 쉬운 $selectedLanguageName 짧은 구 하나를 붙인다. 답변 부담은 단어와 짧은 구 수준으로 낮춘다."
             ConversationAbilityBand.SimpleSentence ->

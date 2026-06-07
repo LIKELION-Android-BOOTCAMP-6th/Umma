@@ -17,6 +17,7 @@ import com.app.umma.domain.model.learningstate.MetricEvidence
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.VocabLevel
+import com.app.umma.domain.usecase.chat.ChatEvidenceBandPolicy
 import javax.inject.Inject
 
 /**
@@ -79,12 +80,7 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         return LearnerAdaptationProfile(
             core = core,
             chatPolicy = buildChatPolicy(
-                langState = langState,
-                confidence = confidence,
-                grammarStage = grammarStage,
-                vocabularyStage = vocabularyStage,
-                fluencyStage = fluencyStage,
-                naturalnessStage = naturalnessStage
+                langState = langState
             ),
             correctionPolicy = buildCorrectionPolicy(
                 confidence = confidence,
@@ -118,12 +114,7 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         return LearnerAdaptationProfile(
             core = core,
             chatPolicy = buildChatPolicy(
-                langState = null,
-                confidence = ProfileConfidence.Low,
-                grammarStage = SkillStage.Foundation,
-                vocabularyStage = SkillStage.Foundation,
-                fluencyStage = SkillStage.Foundation,
-                naturalnessStage = SkillStage.Foundation
+                langState = null
             ),
             // 근거 없음 = 실력 낮음이 아니라 과한 교정 방지. MeaningFirst가 가장 보수적인 기본값이다.
             correctionPolicy = CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst)
@@ -132,7 +123,7 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
 
     private fun estimateProfileConfidence(langState: LangState): ProfileConfidence {
         // evidence는 장기 지표의 반복 관측 근거이고, confidence는 그 근거를 얼마나 믿을지 정한다.
-        // CHAT-TUNE-006 1차에서는 ChatSession-only evidence를 저장만 하고 profile 계산에는 아직 쓰지 않는다.
+        // CHAT-TUNE-007에서는 ChatSession-only metric evidence를 저장하되 core/Correction confidence에는 반영하지 않는다.
         val evidence = langState.analysisMeta.metricEvidence.values.excludeChatOnlyEvidence()
         // evidence가 없고 분석 시각도 없으면 초기 snapshot이므로 low confidence로 둔다.
         if (evidence.isEmpty() && langState.lastAnalyzedAt == null) return ProfileConfidence.Low
@@ -217,137 +208,15 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
         )
     }
 
-    private fun buildChatPolicy(
-        langState: LangState?,
-        confidence: ProfileConfidence,
-        grammarStage: SkillStage,
-        vocabularyStage: SkillStage,
-        fluencyStage: SkillStage,
-        naturalnessStage: SkillStage
-    ): ChatAdaptationPolicy {
-        // Chat은 Correction의 4단계 challenge보다 대화 지속 가능성을 더 세밀하게 봐야 한다.
-        val band = chooseConversationBand(
-            langState = langState,
-            confidence = confidence,
-            grammarStage = grammarStage,
-            vocabularyStage = vocabularyStage,
-            fluencyStage = fluencyStage,
-            naturalnessStage = naturalnessStage
-        )
+    private fun buildChatPolicy(langState: LangState?): ChatAdaptationPolicy {
+        // CHAT-TUNE-007: Chat band는 실시간 대화 지속 능력 summary만 공식 source로 사용한다.
+        // internal/external metric fallback을 쓰면 Correction 기반 수치가 Chat prompt 난이도를 다시 흔들 수 있다.
+        val band = langState?.analysisMeta?.chatEvidenceSummary
+            ?.let(ChatEvidenceBandPolicy::chooseBand)
+            ?: ConversationAbilityBand.IntentOnly
 
-        // band별 정책은 한 곳에서 관리해 LangState 기반 계산과 conversation evidence 기반 계산이 같은 결과를 쓰게 한다.
+        // band별 정책은 한 곳에서 관리해 prompt, speed, style이 같은 conversation band를 보게 한다.
         return ChatAdaptationPolicy.defaultsForBand(band)
-    }
-
-    private fun chooseConversationBand(
-        langState: LangState?,
-        confidence: ProfileConfidence,
-        grammarStage: SkillStage,
-        vocabularyStage: SkillStage,
-        fluencyStage: SkillStage,
-        naturalnessStage: SkillStage
-    ): ConversationAbilityBand {
-        // meaningful LangState가 없으면 "초급 확정"이 아니라 첫 selectedLang fallback으로 둔다.
-        // 실제 첫 발화가 fluent하면 prompt가 현재 발화를 우선 보고 더 자연스럽게 따라가도록 별도 지시한다.
-        if (langState == null || !hasMeaningfulLangState(langState)) {
-            return ConversationAbilityBand.IntentOnly
-        }
-
-        // confidence가 낮고 핵심 대화 지표가 대부분 Foundation이면 의도 복원 우선 단계로 둔다.
-        val foundationCount = listOf(grammarStage, vocabularyStage, fluencyStage)
-            .count { it == SkillStage.Foundation }
-        if (confidence == ProfileConfidence.Low && foundationCount >= 2) {
-            return ConversationAbilityBand.IntentOnly
-        }
-
-        // 발화 길이와 pause는 "대화를 계속할 수 있는가"에 직접 영향을 주므로 낮은 단계로 보수 조정한다.
-        val pauseStage = stageFromScore(1.0 - (langState.internal.pauseFrequency.coerceIn(0.0, 1.0)))
-        val utteranceStage = stageFromScore(langState.internal.avgUtteranceLength)
-        val structureStage = stageFromScore(langState.internal.sentenceComplexity)
-        val weakestCoreStage = listOf(grammarStage, vocabularyStage, fluencyStage).minByOrNull { it.ordinal }
-            ?: SkillStage.Foundation
-
-        // 단어/표현 폭 하나가 보여도 문장 뼈대와 대화 지속 근거가 함께 없으면 아직 "구 반응 가능"으로 올리지 않는다.
-        // IntentOnly는 사용자가 학습언어만으로 대화를 이어갈 수 없는 상태를 보호하는 band다.
-        if (shouldStayIntentOnlyForChat(
-                grammarStage = grammarStage,
-                vocabularyStage = vocabularyStage,
-                fluencyStage = fluencyStage,
-                pauseStage = pauseStage,
-                utteranceStage = utteranceStage,
-                structureStage = structureStage
-            )
-        ) {
-            return ConversationAbilityBand.IntentOnly
-        }
-
-        // 단어/구는 보이지만 문장 유지 근거가 부족하면 PhraseEmerging으로 둔다.
-        if (
-            weakestCoreStage.ordinal <= SkillStage.Foundation.ordinal ||
-            pauseStage == SkillStage.Foundation ||
-            utteranceStage == SkillStage.Foundation
-        ) {
-            return ConversationAbilityBand.PhraseEmerging
-        }
-
-        // 짧은 문장 근거는 있으나 structure나 grammar가 아직 낮으면 SimpleSentence가 더 안전하다.
-        if (
-            grammarStage == SkillStage.Developing ||
-            structureStage.ordinal <= SkillStage.Developing.ordinal
-        ) {
-            return ConversationAbilityBand.SimpleSentence
-        }
-
-        // 안정적인 왕복 대화는 grammar/vocabulary/fluency 중 최소 두 영역이 Stable 이상이어야 한다.
-        val stableConversationCount = listOf(grammarStage, vocabularyStage, fluencyStage)
-            .count { it.ordinal >= SkillStage.Stable.ordinal }
-        if (stableConversationCount >= 2) {
-            // 표현 연결 단계는 vocabulary/structure/naturalness가 함께 올라온 경우에만 허용한다.
-            val connectedCount = listOf(vocabularyStage, structureStage, naturalnessStage)
-                .count { it.ordinal >= SkillStage.Expanding.ordinal }
-            if (connectedCount >= 2) {
-                // NuanceControl은 높은 confidence와 자연스러움/어휘 고점이 같이 있어야 과잉 평가를 막을 수 있다.
-                if (
-                    confidence == ProfileConfidence.High &&
-                    naturalnessStage == SkillStage.Refined &&
-                    vocabularyStage.ordinal >= SkillStage.Expanding.ordinal &&
-                    fluencyStage.ordinal >= SkillStage.Stable.ordinal
-                ) {
-                    return ConversationAbilityBand.NuanceControl
-                }
-                return ConversationAbilityBand.ConnectedExpression
-            }
-            return ConversationAbilityBand.BasicConversation
-        }
-
-        return ConversationAbilityBand.SimpleSentence
-    }
-
-    private fun shouldStayIntentOnlyForChat(
-        grammarStage: SkillStage,
-        vocabularyStage: SkillStage,
-        fluencyStage: SkillStage,
-        pauseStage: SkillStage,
-        utteranceStage: SkillStage,
-        structureStage: SkillStage
-    ): Boolean {
-        // 낮은 band의 핵심은 "무엇을 아는가"보다 "학습언어만으로 대화가 이어지는가"다.
-        val coreFoundationCount = listOf(grammarStage, vocabularyStage, fluencyStage)
-            .count { it == SkillStage.Foundation }
-        // 문장 구조와 이어 말하기가 모두 Foundation이면 단어/고정 표현 근거만으로 대화 가능 단계로 올릴 수 없다.
-        val cannotBuildShortFreeSentence =
-            structureStage == SkillStage.Foundation && utteranceStage == SkillStage.Foundation
-        // grammar 자체가 Foundation인 상태에서 pause까지 높으면 사용자가 target-only 응답을 받기 어렵다.
-        val conversationFlowBlocked =
-            pauseStage == SkillStage.Foundation &&
-                grammarStage == SkillStage.Foundation
-        // vocabulary만 상대적으로 높아 보이는 상태는 "알고 있는 단어"일 수 있으므로 독립 대화 근거가 되지 않는다.
-        val onlyVocabularyEvidence =
-            vocabularyStage.ordinal > SkillStage.Foundation.ordinal &&
-                grammarStage == SkillStage.Foundation &&
-                fluencyStage == SkillStage.Foundation
-
-        return coreFoundationCount >= 2 || cannotBuildShortFreeSentence || conversationFlowBlocked || onlyVocabularyEvidence
     }
 
     /**
@@ -614,15 +483,6 @@ class BuildLearnerAdaptationProfileUseCase @Inject constructor() {
             // 아주 작은 흔들림은 분석 근거로 보지 않고, 실제 관측된 metric만 confidence에 반영한다.
             value.coerceIn(0.0, 1.0) >= MEANINGFUL_METRIC_MIN
         }
-    }
-
-    private fun hasMeaningfulLangState(langState: LangState): Boolean {
-        // selectedLang LangState가 있더라도 분석 시각이 없으면 아직 실제 대화 능력 근거로 보기 어렵다.
-        if (langState.lastAnalyzedAt == null) return false
-        // metricEvidence는 분석이 단순 초기값 저장이 아니라 실제 관측에서 왔는지 보여주는 핵심 근거다.
-        if (langState.analysisMeta.metricEvidence.isEmpty()) return false
-        // 주요 internal metric이 전부 초기값이면 evidence가 있어도 첫 대화 fallback으로 유지한다.
-        return hasMeaningfulMetric(langState)
     }
 
     private fun stageSpread(stages: List<SkillStage>): Int {

@@ -1,14 +1,12 @@
 package com.app.umma.domain.usecase.chat
 
-import com.app.umma.domain.model.chat.ChatConversationEvidence
-import com.app.umma.domain.model.chat.ChatConversationEvidenceSource
 import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
 import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
 import com.app.umma.domain.model.chat.LanguageDependenceEvidence
 import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
 import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
 import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
-import com.app.umma.domain.model.learningstate.ConversationAbilityBand
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.DashSummary
@@ -32,7 +30,6 @@ import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.model.realtime.TopicSummarySaveResult
 import com.app.umma.domain.repository.ChatRepository
-import com.app.umma.domain.repository.ChatConversationEvidenceRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.SessionMemoryRepository
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
@@ -60,9 +57,7 @@ class ChatPromptIntegrationUseCaseTest {
                 langState = LangState.initial(LangCode.EN)
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
-            chatConversationEvidenceRepository = RecordingChatConversationEvidenceRepository(),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
-            applyChatConversationEvidenceUseCase = ApplyChatConversationEvidenceUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = BuildPromptUseCase()
         )
@@ -93,10 +88,9 @@ class ChatPromptIntegrationUseCaseTest {
     }
 
     @Test
-    fun `start session calculates chat band from conversation evidence instead of debug band`() = runBlocking {
+    fun `start session calculates chat band from LangState chat evidence summary`() = runBlocking {
         val chatRepository = RecordingChatRepository()
-        val evidence = ChatConversationEvidence(
-            selectedLang = LangCode.EN,
+        val summary = ChatEvidenceSummary(
             // 사용자가 연결 발화를 안정적으로 만들었다는 근거를 주면 domain policy가 ConnectedExpression으로 계산한다.
             targetLanguageComprehension = TargetLanguageComprehensionEvidence.NaturalFlow,
             targetLanguageProduction = TargetLanguageProductionEvidence.ConnectedTurns,
@@ -106,9 +100,8 @@ class ChatPromptIntegrationUseCaseTest {
             consistency = ConversationConsistencyEvidence.Stable,
             responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
             confidence = ProfileConfidence.High,
-            source = ChatConversationEvidenceSource.ManualReview,
-            // debugRecommendedBand는 일부러 낮게 둔다. 앱이 이 값을 그대로 적용하면 아래 검증이 실패해야 한다.
-            debugRecommendedBand = ConversationAbilityBand.IntentOnly
+            observedCount = 2,
+            lastObservedAt = 10_000L
         )
 
         val result = StartSessionUseCase(
@@ -118,19 +111,21 @@ class ChatPromptIntegrationUseCaseTest {
                     primaryLang = LangCode.KO,
                     selectedLang = LangCode.EN
                 ),
-                langState = LangState.initial(LangCode.EN)
+                langState = LangState.initial(LangCode.EN).copy(
+                    analysisMeta = LangState.initial(LangCode.EN).analysisMeta.copy(
+                        chatEvidenceSummary = summary
+                    )
+                )
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
-            chatConversationEvidenceRepository = RecordingChatConversationEvidenceRepository(evidence),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
-            applyChatConversationEvidenceUseCase = ApplyChatConversationEvidenceUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = BuildPromptUseCase()
         )()
 
-        // evidence가 적용되면 debugRecommendedBand가 아니라 domain 계산 band가 trace와 속도에 반영된다.
+        // 공식 Chat band source는 Firestore snapshot이 아니라 LangState의 chatEvidenceSummary다.
         assertTrue(result.isSuccess)
-        assertTrue(chatRepository.startedPromptTrace!!.contains("conversationEvidence={applied=true,band=ConnectedExpression,source=ManualReview}"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("conversationEvidence={applied=true,band=ConnectedExpression,source=LangStateSummary}"))
         assertTrue(chatRepository.startedInstruction.contains("생각, 이유, 상황을 어느 정도 이어 말할 수 있다."))
         assertTrue(chatRepository.startedInstruction.contains("자연스러운 영어 대화 흐름을 유지하고"))
         assertEquals(1.05, chatRepository.startedOutputAudioSpeed!!, 0.0)
@@ -156,9 +151,7 @@ class ChatPromptIntegrationUseCaseTest {
             repository = startRepository,
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
-            chatConversationEvidenceRepository = RecordingChatConversationEvidenceRepository(),
             buildLearnerAdaptationProfileUseCase = profileUseCase,
-            applyChatConversationEvidenceUseCase = ApplyChatConversationEvidenceUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
             buildPromptUseCase = promptUseCase
         )()
@@ -179,20 +172,6 @@ class ChatPromptIntegrationUseCaseTest {
         assertEquals(startRepository.startedOutputAudioSpeed!!, retryRepository.reconnectedOutputAudioSpeed!!, 0.0)
         assertTrue(startRepository.startedPromptTrace!!.contains("conversationEvidence="))
         assertFalse(retryRepository.reconnectedPromptTrace!!.contains("conversationEvidence="))
-    }
-
-    private class RecordingChatConversationEvidenceRepository(
-        private val evidence: ChatConversationEvidence? = null
-    ) : ChatConversationEvidenceRepository {
-        override suspend fun getEvidence(selectedLang: LangCode): Result<ChatConversationEvidence?> {
-            // selectedLang과 다른 evidence는 실제 repository처럼 적용하지 않는다.
-            return Result.success(evidence?.takeIf { it.selectedLang == selectedLang })
-        }
-
-        override suspend fun saveEvidence(evidence: ChatConversationEvidence): Result<Unit> {
-            // 이 통합 테스트는 세션 시작 read 경로만 검증하므로 저장은 사용하지 않는다.
-            return Result.success(Unit)
-        }
     }
 
     @Test

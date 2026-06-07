@@ -13,6 +13,13 @@ import com.app.umma.data.model.learningstate.toDto
 import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.ConversationTurn
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.EvidenceDirection
@@ -28,6 +35,7 @@ import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.MetricEvidence
+import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
@@ -144,7 +152,20 @@ class LearningStateRepoImplTest {
                 ),
                 lastSignalAt = 2_000L,
                 // Chat source 중복 반영 방어 id도 analysisMeta 안에서 함께 보존한다.
-                lastChatAnalysisEventId = "chat-session:session-1"
+                lastChatAnalysisEventId = "chat-session:session-1",
+                // Chat band 공식 source인 summary도 LangState DTO round-trip에서 손실되면 안 된다.
+                chatEvidenceSummary = ChatEvidenceSummary(
+                    targetLanguageComprehension = TargetLanguageComprehensionEvidence.SimpleSentence,
+                    targetLanguageProduction = TargetLanguageProductionEvidence.SimpleSentences,
+                    supportLanguageDependence = LanguageDependenceEvidence.Low,
+                    aiScaffoldingDependence = LanguageDependenceEvidence.Low,
+                    conversationSustainability = ConversationSustainabilityEvidence.SustainedSimple,
+                    consistency = ConversationConsistencyEvidence.Mixed,
+                    responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
+                    confidence = ProfileConfidence.Medium,
+                    observedCount = 2,
+                    lastObservedAt = 2_000L
+                )
             )
         )
 

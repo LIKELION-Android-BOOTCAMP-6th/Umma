@@ -1,5 +1,12 @@
 package com.app.umma.domain.usecase.learningstate
 
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
 import com.app.umma.domain.model.learningstate.EvidenceDirection
@@ -96,7 +103,7 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(ProfileConfidence.Low, profile.core.levelConfidence)
         assertEquals(SkillStage.Refined, profile.core.grammarStage)
         assertEquals(SkillStage.Foundation, profile.core.fluencyStage)
-        assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
         // low confidence이지만 grammarStage=Refined, vocabularyStage=Refined → PatternFix(낮은 band 보수 조정, 단일 고점 미상승).
         assertEquals(CorrectionGrowthBand.PatternFix, profile.correctionPolicy.band)
     }
@@ -172,7 +179,7 @@ class BuildLearnerAdaptationProfileUseCaseTest {
         assertEquals(SkillStage.Stable, profile.core.vocabularyStage)
         assertEquals(SkillStage.Expanding, profile.core.fluencyStage)
         assertEquals(SkillStage.Expanding, profile.core.naturalnessStage)
-        assertEquals(ConversationAbilityBand.SimpleSentence, profile.chatPolicy.conversationBand)
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
     }
 
     @Test
@@ -269,12 +276,68 @@ class BuildLearnerAdaptationProfileUseCaseTest {
 
         val profile = useCase(state)
 
-        // Chat과 Correction은 같은 core 판단을 공유하되, Chat은 ConversationAbilityBand, Correction은 CorrectionGrowthBand를 쓴다.
+        // Chat은 summary가 없으면 first selectedLang fallback을 쓰고, Correction은 기존 metric/evidence로 band를 계산한다.
         assertEquals(ProfileConfidence.High, profile.core.levelConfidence)
-        assertEquals(ConversationAbilityBand.ConnectedExpression, profile.chatPolicy.conversationBand)
+        assertEquals(ConversationAbilityBand.IntentOnly, profile.chatPolicy.conversationBand)
         // grammar=Stable, vocabulary=Expanding, fluency=Expanding, naturalness=Expanding → ConnectedExpression band.
         assertEquals(CorrectionGrowthBand.ConnectedExpression, profile.correctionPolicy.band)
-        assertEquals(ResponseLengthPolicy.NaturalBrief, profile.chatPolicy.responseLength)
+        assertEquals(ResponseLengthPolicy.OneShortSentence, profile.chatPolicy.responseLength)
+    }
+
+    @Test
+    fun `chat policy uses chat evidence summary as official band source`() {
+        val state = analyzedState(
+            internal = refinedInternalMetrics(),
+            external = refinedExternalMetrics(),
+            evidence = highConfidenceEvidence(),
+            chatEvidenceSummary = ChatEvidenceSummary(
+                targetLanguageComprehension = TargetLanguageComprehensionEvidence.NaturalFlow,
+                targetLanguageProduction = TargetLanguageProductionEvidence.ConnectedTurns,
+                supportLanguageDependence = LanguageDependenceEvidence.None,
+                aiScaffoldingDependence = LanguageDependenceEvidence.Low,
+                conversationSustainability = ConversationSustainabilityEvidence.SustainedNatural,
+                consistency = ConversationConsistencyEvidence.Stable,
+                responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
+                confidence = ProfileConfidence.High,
+                observedCount = 2,
+                lastObservedAt = 3_000L
+            )
+        )
+
+        val profile = useCase(state)
+
+        // Chat band는 internal/external metric이 아니라 Chat evidence summary의 대화 지속 능력 근거로 산출한다.
+        assertEquals(ConversationAbilityBand.ConnectedExpression, profile.chatPolicy.conversationBand)
+        assertEquals(CorrectionGrowthBand.NuanceRefine, profile.correctionPolicy.band)
+    }
+
+    @Test
+    fun `low confidence chat summary is capped to low conversation band`() {
+        val state = analyzedState(
+            internal = refinedInternalMetrics(),
+            external = refinedExternalMetrics(),
+            evidence = highConfidenceEvidence(),
+            chatEvidenceSummary = ChatEvidenceSummary(
+                // evidence body만 보면 높은 band 후보지만, Low confidence는 분석 신뢰도가 낮다는 뜻이다.
+                targetLanguageComprehension = TargetLanguageComprehensionEvidence.NaturalFlow,
+                targetLanguageProduction = TargetLanguageProductionEvidence.ConnectedTurns,
+                supportLanguageDependence = LanguageDependenceEvidence.None,
+                aiScaffoldingDependence = LanguageDependenceEvidence.Low,
+                conversationSustainability = ConversationSustainabilityEvidence.SustainedNatural,
+                consistency = ConversationConsistencyEvidence.Stable,
+                responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
+                confidence = ProfileConfidence.Low,
+                observedCount = 1,
+                lastObservedAt = 3_000L
+            )
+        )
+
+        val profile = useCase(state)
+
+        // Low summary는 저장/추적은 하되, 다음 세션 난이도를 높은 band로 올리지는 못하게 제한한다.
+        assertEquals(ConversationAbilityBand.PhraseEmerging, profile.chatPolicy.conversationBand)
+        // Correction은 Chat summary를 읽지 않으므로 기존 metric/evidence 기반 판단을 유지한다.
+        assertEquals(CorrectionGrowthBand.NuanceRefine, profile.correctionPolicy.band)
     }
 
     @Test
@@ -509,7 +572,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
             naturalnessScore = 0.58
         ),
         evidence: Map<LearningMetricKey, MetricEvidence> = mediumConfidenceEvidence(),
-        activeFocus: List<LearningFocus> = emptyList()
+        activeFocus: List<LearningFocus> = emptyList(),
+        chatEvidenceSummary: ChatEvidenceSummary? = null
     ): LangState {
         // profile 테스트는 저장소를 거치지 않고 LangState snapshot 해석만 검증한다.
         // createdAt/updatedAt은 profile 계산에 직접 쓰이지 않지만, fixture가 실제 snapshot처럼 보이도록 유지한다.
@@ -519,7 +583,8 @@ class BuildLearnerAdaptationProfileUseCaseTest {
             analysisMeta = LangStateAnalysisMeta(
                 metricEvidence = evidence,
                 activeFocus = activeFocus,
-                lastSignalAt = 2_000L
+                lastSignalAt = 2_000L,
+                chatEvidenceSummary = chatEvidenceSummary
             ),
             lastAnalyzedAt = 2_000L
         )
