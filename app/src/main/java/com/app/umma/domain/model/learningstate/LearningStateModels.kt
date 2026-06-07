@@ -1,5 +1,12 @@
 package com.app.umma.domain.model.learningstate
 
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+
 /**
  * 언어별 내부 학습 지표 묶음.
  */
@@ -91,7 +98,10 @@ enum class VocabLevel {
  *
  * raw correction 문장이나 prompt text를 저장하지 않고, 어떤 장기 지표에 대한 근거인지만
  * compact하게 남기기 위해 `InternalMetrics` 필드와 1:1에 가깝게 맞춘다.
+ * 일부 key는 현재 MVP 계산에서 아직 직접 갱신하지 않지만, Firestore에 저장된 evidence key를
+ * 안정적으로 복원하고 후속 source를 같은 schema로 연결하기 위해 계약에 남긴다.
  */
+@Suppress("unused")
 enum class LearningMetricKey {
     // 문법 오류가 줄어드는지 보는 장기 정확도 지표.
     GrammarAccuracy,
@@ -139,7 +149,9 @@ enum class EvidenceDirection {
  * metric evidence가 어디에서 온 신호인지 나타낸다.
  *
  * source를 남겨야 이후 policy가 AI signal과 코드 계산값의 weight를 다르게 줄 수 있다.
+ * 아직 연결되지 않은 source도 저장 schema 호환성과 후속 pipeline 경계를 위해 enum 계약에 둔다.
  */
+@Suppress("unused")
 enum class LearningSignalSource {
     // 사용자 발화 길이, token, pause처럼 앱이 직접 계산한 turn 기반 신호.
     UserTurn,
@@ -223,6 +235,35 @@ data class LearningFocus(
 )
 
 /**
+ * Chat 세션에서 관찰한 실시간 대화 지속 능력 요약.
+ *
+ * 일반 metric으로 압축하면 기준언어 의존도나 대화 지속성 같은 band 판단 근거가 사라지므로,
+ * Chat band 계산은 이 summary를 공식 source로 사용한다.
+ */
+data class ChatEvidenceSummary(
+    // 사용자가 학습언어 입력을 어느 수준까지 이해하고 반응했는지.
+    val targetLanguageComprehension: TargetLanguageComprehensionEvidence,
+    // 사용자가 학습언어로 직접 만든 의미 단위.
+    val targetLanguageProduction: TargetLanguageProductionEvidence,
+    // 기준언어가 없으면 대화가 끊기는 정도.
+    val supportLanguageDependence: LanguageDependenceEvidence,
+    // AI가 힌트/선택지/쉬운 재구성으로 얼마나 리드해야 했는지.
+    val aiScaffoldingDependence: LanguageDependenceEvidence,
+    // 사용자의 학습언어 반응으로 대화가 유지되는 정도.
+    val conversationSustainability: ConversationSustainabilityEvidence,
+    // 세션 전체에서 같은 능력 단서가 안정적으로 반복됐는지.
+    val consistency: ConversationConsistencyEvidence,
+    // AI 응답 난이도가 사용자가 감당 가능한 수준이었는지.
+    val responseDifficultyFit: ResponseDifficultyFitEvidence,
+    // summary 자체를 Chat band 계산에 얼마나 믿을지.
+    val confidence: ProfileConfidence,
+    // 유효 Chat 분석이 몇 번 반영됐는지. 본문은 최신 유효 evidence로 교체하되 count는 누적한다.
+    val observedCount: Int,
+    // 마지막 유효 Chat 분석 반영 시각.
+    val lastObservedAt: Long?
+)
+
+/**
  * LangState schema v2에서 추가되는 분석 메타데이터.
  *
  * 점수 자체와 별개로 "왜 이 점수를 움직일 수 있는지"에 대한 최소 근거만 저장한다.
@@ -236,7 +277,9 @@ data class LangStateAnalysisMeta(
     // 마지막 learning signal 관측 시각.
     val lastSignalAt: Long? = null,
     // Chat 세션 분석은 correction 분석 사이에 끼어들 수 있어 source별 중복 방어 id를 별도로 둔다.
-    val lastChatAnalysisEventId: String? = null
+    val lastChatAnalysisEventId: String? = null,
+    // Chat prompt/speed/style의 conversation band를 계산하는 공식 대화 능력 source.
+    val chatEvidenceSummary: ChatEvidenceSummary? = null
 ) {
     companion object {
         fun initial(): LangStateAnalysisMeta {
@@ -245,7 +288,8 @@ data class LangStateAnalysisMeta(
                 metricEvidence = emptyMap(),
                 activeFocus = emptyList(),
                 lastSignalAt = null,
-                lastChatAnalysisEventId = null
+                lastChatAnalysisEventId = null,
+                chatEvidenceSummary = null
             )
         }
     }

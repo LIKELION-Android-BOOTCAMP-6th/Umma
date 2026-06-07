@@ -1,6 +1,7 @@
 package com.app.umma.data.source.remote
 
 import com.app.umma.data.model.learningstate.DashSummaryDto
+import com.app.umma.data.model.learningstate.ChatEvidenceSummaryDto
 import com.app.umma.data.model.learningstate.ExternalMetricsDto
 import com.app.umma.data.model.learningstate.FlashcardSummaryDto
 import com.app.umma.data.model.learningstate.InternalMetricsDto
@@ -168,7 +169,26 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
                 (rawFocus as? Map<*, *>)?.toStringAnyMap()?.toLearningFocusDto()
             },
             lastSignalAt = long("lastSignalAt"),
-            lastChatAnalysisEventId = string("lastChatAnalysisEventId")
+            lastChatAnalysisEventId = string("lastChatAnalysisEventId"),
+            // chatEvidenceSummary는 CHAT-TUNE-007부터 추가된다. 없거나 깨진 값이면 DTO mapper가 null로 복원한다.
+            chatEvidenceSummary = map("chatEvidenceSummary")?.toChatEvidenceSummaryDto()
+        )
+    }
+
+    private fun Map<String, Any?>.toChatEvidenceSummaryDto(): ChatEvidenceSummaryDto? {
+        // Chat band source라 enum 필드가 하나라도 없으면 summary 전체를 쓰지 않는다.
+        // 앱은 이 경우 first selectedLang fallback으로 안전하게 시작한다.
+        return ChatEvidenceSummaryDto(
+            targetLanguageComprehension = string("targetLanguageComprehension") ?: return null,
+            targetLanguageProduction = string("targetLanguageProduction") ?: return null,
+            supportLanguageDependence = string("supportLanguageDependence") ?: return null,
+            aiScaffoldingDependence = string("aiScaffoldingDependence") ?: return null,
+            conversationSustainability = string("conversationSustainability") ?: return null,
+            consistency = string("consistency") ?: return null,
+            responseDifficultyFit = string("responseDifficultyFit") ?: return null,
+            confidence = string("confidence") ?: return null,
+            observedCount = int("observedCount") ?: 0,
+            lastObservedAt = long("lastObservedAt")
         )
     }
 

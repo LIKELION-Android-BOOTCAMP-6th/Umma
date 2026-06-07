@@ -7,9 +7,9 @@ import com.app.umma.domain.model.learningstate.ProfileConfidence
 /**
  * Chat 세션에서 관찰한 "대화 지속 능력" 근거.
  *
- * Gemini나 개발자가 band를 직접 저장하지 않고, 이 근거를 domain policy가 해석해
- * [ConversationAbilityBand]를 계산한다. 1차에서는 Chat 시작 prompt/profile에만 사용하고,
- * LangState/Correction/Statistics에는 전달하지 않는다.
+ * Gemini나 개발자가 추천 band를 직접 적용하지 않고, 이 근거를 LangState의
+ * chatEvidenceSummary로 저장한 뒤 domain policy가 [ConversationAbilityBand]를 계산한다.
+ * Firestore snapshot은 debug/review용 보조 자료로 유지한다.
  */
 data class ChatConversationEvidence(
     // 이 evidence가 적용되는 학습 언어.
@@ -40,20 +40,9 @@ data class ChatConversationEvidence(
     val debugRecommendedBand: ConversationAbilityBand? = null,
     // 마지막 갱신 시각.
     val updatedAt: Long? = null,
-    // 오래된 evidence를 무조건 신뢰하지 않기 위한 만료 시각.
+    // 오래된 snapshot을 review 도구에서 구분하기 위한 만료 시각. 공식 Chat band source에는 직접 쓰지 않는다.
     val expiresAt: Long? = null
-) {
-    /**
-     * 세션 시작에 반영 가능한 evidence인지 확인한다.
-     *
-     * Low confidence는 테스트/debug 근거로는 남길 수 있지만, 실제 prompt band를 바꾸기에는
-     * 흔들림이 크므로 1차 적용에서 제외한다.
-     */
-    fun isUsable(nowMillis: Long = System.currentTimeMillis()): Boolean {
-        val isExpired = expiresAt?.let { it <= nowMillis } == true
-        return !isExpired && confidence != ProfileConfidence.Low
-    }
-}
+)
 
 /**
  * 사용자가 AI의 학습언어 발화를 이해하고 적절히 반응한 수준.

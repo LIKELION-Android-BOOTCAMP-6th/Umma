@@ -6,14 +6,14 @@ import com.app.umma.domain.model.learningstate.LangCode
 /**
  * Chat conversation evidence를 읽는 저장소 계약.
  *
- * Chat 시작 시 읽기와 신고 세션 Gemini 분석 결과 저장을 제공한다.
- * 저장값은 band가 아니라 evidence이며, band 계산은 domain policy가 담당한다.
+ * 007 이후 앱의 Chat band 계산은 LangState.analysisMeta.chatEvidenceSummary를 공식 source로 사용한다.
+ * 이 repository는 Firestore debug/review snapshot을 저장하거나 사람이 확인할 때 읽기 위한 보조 계약이다.
  */
 interface ChatConversationEvidenceRepository {
     /**
      * 사용자/학습언어별 conversation evidence snapshot을 조회한다.
      *
-     * 조회 실패는 Chat 시작을 막을 오류가 아니므로 caller가 fallback을 결정한다.
+     * snapshot은 공식 세션 시작 입력이 아니므로 조회 실패가 사용자 대화 흐름으로 전파되면 안 된다.
      */
     suspend fun getEvidence(selectedLang: LangCode): Result<ChatConversationEvidence?>
 

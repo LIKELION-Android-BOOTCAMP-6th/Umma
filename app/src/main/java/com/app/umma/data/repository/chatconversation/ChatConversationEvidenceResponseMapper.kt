@@ -10,8 +10,8 @@ import kotlinx.serialization.json.Json
 /**
  * Gemini JSON 응답을 Chat conversation evidence domain 모델로 변환합니다.
  *
- * Gemini가 추천한 band는 [ChatConversationEvidence.debugRecommendedBand]에만 보관하고,
- * 실제 band 계산은 [com.app.umma.domain.usecase.chat.ApplyChatConversationEvidenceUseCase]가 담당합니다.
+ * Gemini가 추천한 band는 [ChatConversationEvidence.debugRecommendedBand]에만 보관한다.
+ * 실제 Chat band는 LangState에 저장된 summary를 domain policy가 다시 해석해 계산한다.
  */
 class ChatConversationEvidenceResponseMapper @Inject constructor() {
     fun map(

@@ -24,10 +24,10 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Firestore의 Chat conversation evidence snapshot을 읽는 구현체.
+ * Firestore의 Chat conversation evidence snapshot을 저장/조회하는 구현체.
  *
  * 저장 경로는 `users/{uid}/chat_conversation_evidence/{selectedLang}`이다.
- * 이 repository는 band를 계산하지 않고, Firestore 문자열 값을 domain evidence 모델로만 변환한다.
+ * 이 snapshot은 debug/review용이며, Chat band 공식 source는 LangState의 chatEvidenceSummary다.
  */
 @Singleton
 class ChatConversationEvidenceRepositoryImpl @Inject constructor(
@@ -43,8 +43,8 @@ class ChatConversationEvidenceRepositoryImpl @Inject constructor(
                 return@runCatching null
             }
 
-            // evidence는 세션 시작을 막으면 안 되는 보조 입력이다.
-            // 서버 조회가 지연되면 null로 빠져 기존 LangState/fallback 경로를 유지한다.
+            // snapshot 조회는 debug/review 보조 작업이다.
+            // 서버 조회가 지연되면 null로 빠져 caller의 흐름을 막지 않는다.
             val data = withTimeoutOrNull(OPTIONAL_READ_TIMEOUT_MS) {
                 firestore.collection("users")
                     .document(uid)
