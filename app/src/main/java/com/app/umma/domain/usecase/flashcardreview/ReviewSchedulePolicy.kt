@@ -25,9 +25,9 @@ class ReviewSchedulePolicy @Inject constructor() {
         // 등급별로 간격과 easeFactor를 함께 갱신해 다음 복습 시점을 계산한다.
         val (nextInterval, nextEF) = when (rating) {
             ReviewRating.AGAIN -> {
-                // 다시(Again): 복습 카드는 10분 뒤 + EF 깎기, 학습 카드는 1분 뒤
-                if (graduated) 10 to max(1.3, currentEF - 0.20)
-                else 1 to currentEF
+                // 다시(Again): 복습 카드 즉시 + EF 깎기, 학습 카드는 즉시
+                if (graduated) 0 to max(1.3, currentEF - 0.20)
+                else 0 to currentEF
             }
 
             ReviewRating.HARD -> {

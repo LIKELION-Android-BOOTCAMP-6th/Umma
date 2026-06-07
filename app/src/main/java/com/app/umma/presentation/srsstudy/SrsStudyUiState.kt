@@ -1,7 +1,6 @@
 package com.app.umma.presentation.srsstudy
 
 import com.app.umma.domain.model.flashcard.Flashcard
-import com.app.umma.domain.model.flashcard.ReviewRating
 import com.app.umma.domain.model.learningstate.LangCode
 
 data class SrsStudyUiState(
@@ -19,8 +18,6 @@ data class SrsStudyUiState(
     val isCardFlipped: Boolean = false,
     // 모든 카드 끝냈을 시 true -> 완료 화면
     val isDone: Boolean = false,
-    // 현재 선택된 평가 버튼(Again, Hard, Again, Easy, null = 아직 선택 안함)
-    val selectedRating: ReviewRating? = null,
     // Room 저장 요청을 보낸 후 응답 오기 전 까지 true
     // true -> 평가 버튼 비활성화, 중복 시도 방지
     val isSaving: Boolean = false,
@@ -32,7 +29,7 @@ data class SrsStudyUiState(
     // 덱이 처음 로드된 시점의 카드 수로 고정, Again 은 포함하지 않음
     val studiedCardCount: Int = 0,
     // 평가 버튼에 표시할 다음 복습 간격 문자열
-    // 카드가 바뀔 때마ㅏㄷ ViewModel이 실제 스케줄 계산 결과로 표기
+    // 카드가 바뀔 때마다 ViewModel이 실제 스케줄 계산 결과로 표기
     // Again 은 세션 내 재등장이므로 "다시" 고정 나머지는 동적 계산값
     val againLabel: String = "다시",
     val hardLabel: String = "1일",
