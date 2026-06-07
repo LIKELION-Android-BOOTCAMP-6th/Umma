@@ -1264,3 +1264,52 @@ function throwInvalidArgument(message) {
   error.code = "invalid-argument";
   throw error;
 }
+
+// 회원탈퇴 Cloud Functions API
+exports.deleteAccount = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "로그인이 필요한 기능입니다.");
+    }
+
+    const db = getFirestore(admin.app(), "default");
+    const userRef = db.collection("users").doc(uid);
+
+    try {
+      await userRef.get();
+      await db.recursiveDelete(userRef);
+    } catch (error) {
+      logger.error("Firestore account delete failed", {
+        uid,
+        documentPath: userRef.path,
+        message: error?.message ?? "unknown error",
+        code: error?.code ?? "unknown",
+        stack: error?.stack ?? "",
+      });
+      throw new HttpsError("internal", "사용자 데이터 삭제에 실패했습니다.");
+    }
+
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
+      if (error?.code !== "auth/user-not-found") {
+        logger.error("Auth user delete failed", {
+          uid,
+          message: error?.message ?? "unknown error",
+          code: error?.code ?? "unknown",
+          stack: error?.stack ?? "",
+        });
+        throw new HttpsError("internal", "인증 계정 삭제에 실패했습니다.");
+      }
+    }
+
+    logger.info("Account deleted", { uid });
+
+    return { success: true };
+  },
+);
