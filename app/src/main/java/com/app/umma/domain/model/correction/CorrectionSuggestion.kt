@@ -28,5 +28,9 @@ data class CorrectionSuggestion(
     val explanation: String,
     // 교정 과정에서 관찰된 학습 신호(COR-TUNE-02). LearningState 갱신 입력으로 흐른다.
     // 신호 파싱 실패/누락은 suggestion 생성을 막지 않으므로 nullable 기본값으로 둔다.
-    val learningSignal: CorrectionLearningSignal? = null
+    val learningSignal: CorrectionLearningSignal? = null,
+    // COR-TUNE-011: 발화 원문 언어(candidate.sourceLang 을 그대로 옮긴 운반용 필드).
+    // 이 모델 자체는 판정을 내리지 않는다 — CompleteCorrectionUseCase.buildCorrectionResult 의
+    // 단일 평가 게이트가 이 값과 selectedLang 을 비교해 learningSignal 의 평가 반영 여부만 결정한다.
+    val sourceLang: LangCode? = null
 )

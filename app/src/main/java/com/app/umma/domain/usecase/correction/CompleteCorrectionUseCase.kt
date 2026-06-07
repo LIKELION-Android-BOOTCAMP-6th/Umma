@@ -8,6 +8,7 @@ import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionResult
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.realtime.CompressSessionMemoryCommand
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.repository.CorrectionRepository
@@ -77,7 +78,10 @@ class CompleteCorrectionUseCase @Inject constructor(
 
         // 교정 결과는 LangState 업데이트용 최소 모델만 넘긴다.
         // 품질 필터로 제외된 suggestion 은 저장 가치가 없으므로 학습 근거에도 섞지 않는다.
-        val correctionResult = buildCorrectionResult(saveableSuggestions)
+        val correctionResult = buildCorrectionResult(
+            selectedSuggestions = saveableSuggestions,
+            selectedLang = input.langStateUpdateInput.lang
+        )
 
         var saveResult: CorrectionSaveResult? = null
 
@@ -329,7 +333,8 @@ class CompleteCorrectionUseCase @Inject constructor(
     }
 
     private fun buildCorrectionResult(
-        selectedSuggestions: List<CorrectionSuggestion>
+        selectedSuggestions: List<CorrectionSuggestion>,
+        selectedLang: LangCode
     ): CorrectionResult {
         // 이전 구현은 selectedSuggestions.first().afterText 만 correctedText 로 흘려보냈다.
         // N개 카드를 선택했을 때 첫 번째 카드만 반영되는 문제를 수정한다. (#162-B)
@@ -342,9 +347,16 @@ class CompleteCorrectionUseCase @Inject constructor(
             notes = selectedSuggestions.joinToString(separator = "\n") { suggestion ->
                 suggestion.explanation
             },
-            // COR-TUNE-02: 선택된 suggestion 의 관찰 학습 신호만 집계해 completion pipeline 으로 넘긴다.
-            // 신호가 없는(=null) suggestion 은 mapNotNull 로 자연스럽게 빠진다. 신호 소비는 LearningState 책임.
-            learningSignals = selectedSuggestions.mapNotNull { it.learningSignal }
+            // COR-TUNE-011 단일 평가 게이트: 발화 원문 언어(sourceLang)가 학습 대상 언어(selectedLang)와
+            // "다른 것이 확정된" suggestion 만 능력 근거(metricEvidence/activeFocus) 집계에서 제외한다.
+            // sourceLang == null(불명/미도입 구간) 또는 selectedLang 과 일치하면 종전대로 평가에 반영한다
+            // (no-op 폴백 — detectedLang 캡처가 머지되기 전까지 모든 후보가 이 분기로 들어가 회귀가 없다).
+            // 제3언어 입력도 별도 거름망 없이 동일 규칙을 적용한다(교정 자체는 항상 통과·카드도 정상 생성됨 —
+            // 카드 저장(saveFlashcards)은 이 필터 이전 단계에서 이미 끝났으므로 영향받지 않는다).
+            // 이 판정은 오직 이 지점에서만 내린다 — mapper/정책 등 다른 곳에서 분산 판정하지 않는다(단일 지점 원칙).
+            learningSignals = selectedSuggestions
+                .filter { it.sourceLang == null || it.sourceLang == selectedLang }
+                .mapNotNull { it.learningSignal }
         )
     }
 
