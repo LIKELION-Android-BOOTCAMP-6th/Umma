@@ -21,6 +21,7 @@ googleServices = "4.4.4"
 kotlinxSerializationJson = "1.11.0"
 googleCredentials = "1.6.0"
 googleId = "1.2.0"
+playServicesAuth = "21.4.0"
 materialIconsExtended = "1.7.8"
 material = "1.11.1"
 ui = "1.11.1"
@@ -67,6 +68,7 @@ firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "googleCredentials" }
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "googleCredentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleId" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 
 # Hilt
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }

@@ -1,11 +1,13 @@
 package com.app.umma.presentation.dashboard
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -55,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,9 +88,12 @@ import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
+import com.app.umma.core.util.DeleteAccountAuthorizationResult
+import com.app.umma.core.util.GoogleAuthorizationHelper
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AuthViewModel
 import java.util.TimeZone
+import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -112,6 +118,8 @@ fun MyPageScreen(
     val authUiState by authViewModel.uiState.collectAsState()
     val notificationUiState by myPageViewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val googleAuthorizationHelper = remember(context) { GoogleAuthorizationHelper(context) }
+    val coroutineScope = rememberCoroutineScope()
     val timezone = remember { TimeZone.getDefault().id }
 
     fun hasNotificationPermission(): Boolean {
@@ -129,6 +137,43 @@ fun MyPageScreen(
             myPageViewModel.onNotificationPermissionGranted(timezone = timezone)
         } else {
             myPageViewModel.onNotificationPermissionDenied(timezone = timezone)
+        }
+    }
+
+    val deleteAccountReauthLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            authViewModel.cancelDeleteAccountReauthentication(
+                message = "Google 계정 재확인이 취소되었습니다."
+            )
+            return@rememberLauncherForActivityResult
+        }
+
+        runCatching {
+            val currentEmail = authViewModel.getCurrentUserEmail()
+                ?: error("Current Google account email is missing.")
+            googleAuthorizationHelper.consumeAuthorizationResolutionResult(
+                data = result.data,
+                email = currentEmail,
+            )
+        }.onSuccess { account ->
+            authViewModel.beginDeleteAccountReauthentication()
+            coroutineScope.launch {
+                runCatching {
+                    googleAuthorizationHelper.revokeDeleteAccountAccess(account)
+                }.onSuccess {
+                    authViewModel.deleteAccount()
+                }.onFailure {
+                    authViewModel.cancelDeleteAccountReauthentication(
+                        message = "Google 권한 해제에 실패했습니다. 다시 시도해주세요."
+                    )
+                }
+            }
+        }.onFailure {
+            authViewModel.cancelDeleteAccountReauthentication(
+                message = "Google 계정 재확인에 실패했습니다. 다시 시도해주세요."
+            )
         }
     }
 
@@ -316,7 +361,48 @@ fun MyPageScreen(
                         confirmButtonColor = TextLogout,
                         onConfirm = {
                             showDeleteAccountDialog = false
-                            authViewModel.deleteAccount()
+                            authViewModel.beginDeleteAccountReauthentication()
+                            val currentEmail = authViewModel.getCurrentUserEmail()
+                            if (currentEmail.isNullOrBlank()) {
+                                authViewModel.cancelDeleteAccountReauthentication(
+                                    message = "현재 로그인한 Google 계정을 확인할 수 없습니다."
+                                )
+                                return@UmmaDialog
+                            }
+
+                            coroutineScope.launch {
+                                runCatching {
+                                    googleAuthorizationHelper.authorizeForDeleteAccount(currentEmail)
+                                }.onSuccess { authorizationResult ->
+                                    when (authorizationResult) {
+                                        is DeleteAccountAuthorizationResult.Authorized -> {
+                                            runCatching {
+                                                googleAuthorizationHelper.revokeDeleteAccountAccess(
+                                                    authorizationResult.account
+                                                )
+                                            }.onSuccess {
+                                                authViewModel.deleteAccount()
+                                            }.onFailure {
+                                                authViewModel.cancelDeleteAccountReauthentication(
+                                                    message = "Google 권한 해제에 실패했습니다. 다시 시도해주세요."
+                                                )
+                                            }
+                                        }
+
+                                        is DeleteAccountAuthorizationResult.ResolutionRequired -> {
+                                            deleteAccountReauthLauncher.launch(
+                                                IntentSenderRequest.Builder(
+                                                    authorizationResult.intentSender
+                                                ).build()
+                                            )
+                                        }
+                                    }
+                                }.onFailure {
+                                    authViewModel.cancelDeleteAccountReauthentication(
+                                        message = "Google 계정 확인에 실패했습니다. 다시 시도해주세요."
+                                    )
+                                }
+                            }
                         },
                         onCancel = { showDeleteAccountDialog = false },
                     ) {

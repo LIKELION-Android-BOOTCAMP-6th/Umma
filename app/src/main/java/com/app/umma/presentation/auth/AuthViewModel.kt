@@ -269,7 +269,7 @@ class AuthViewModel @Inject constructor(
             // 로그인 O -> 재확인: Firebase 서버에서 세션 유효성
             val result = authRepository.hasValidSession()
             result.onSuccess { isValid ->
-                val mGoogleState =
+                val googleState =
                     if (isValid) {
                         GoogleAuthState.SUCCESS
                     } else {
@@ -278,7 +278,7 @@ class AuthViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isSessionChecking = false,
-                        googleState = mGoogleState
+                        googleState = googleState
                     )
                 }
             }.onFailure { e ->
@@ -335,8 +335,36 @@ class AuthViewModel @Inject constructor(
     }
 
     /**
+     * 회원탈퇴용 Google 재인증을 시작하기 전 로딩을 켠다.
+     */
+    fun beginDeleteAccountReauthentication() {
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                errorMessage = null
+            )
+        }
+    }
+
+    /**
+     * 회원탈퇴용 Google 재인증이 실패하거나 취소된 경우를 처리한다.
+     */
+    fun cancelDeleteAccountReauthentication(message: String) {
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                errorMessage = message
+            )
+        }
+    }
+
+    /**
      * 회원탈퇴를 수행한다.
      */
+    fun getCurrentUserEmail(): String? {
+        return authRepository.getCurrentUserEmail()
+    }
+
     fun deleteAccount() {
         viewModelScope.launch {
             _uiState.update {
