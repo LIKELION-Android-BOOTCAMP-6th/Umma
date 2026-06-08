@@ -5,6 +5,7 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LearnerAdaptationProfile
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.realtime.SessionTurn
+import com.app.umma.domain.model.user.Topic
 import javax.inject.Inject
 
 /**
@@ -26,18 +27,21 @@ class BuildPromptUseCase @Inject constructor() {
      * @param selectedLang 사용자가 현재 배우며 대화하려는 언어
      * @param recentFullContext 저장이 확정된 최근 대화 turn
      * @param recentTopicSummaries 최근 세션의 주제 요약
+     * @param interestTopics 사용자가 초기에 선택한 관심 주제. 대화 강제가 아니라 시작/공백 시 참고 후보로만 쓴다.
      */
     operator fun invoke(
         profile: LearnerAdaptationProfile,
         primaryLang: LangCode,
         selectedLang: LangCode,
         recentFullContext: List<SessionTurn> = emptyList(),
-        recentTopicSummaries: List<String> = emptyList()
+        recentTopicSummaries: List<String> = emptyList(),
+        interestTopics: List<String> = emptyList()
     ): String {
         // 언어명은 prompt 가 읽기 쉬운 자연어로만 주입하고, 내부 enum 이름은 노출하지 않는다.
         val primaryLanguageName = languageName(primaryLang)
         val selectedLanguageName = languageName(selectedLang)
         val band = profile.chatPolicy.conversationBand
+        val conversationFrame = conversationFrameBlock()
         // band별로 persona/language/principles 자체가 조금씩 달라져야 실제 응답 행동 차이가 난다.
         val persona = personaBlock(
             band = band,
@@ -52,7 +56,8 @@ class BuildPromptUseCase @Inject constructor() {
         )
         val conversationPrinciples = conversationPrinciplesBlock(
             band = band,
-            primaryLanguageName = primaryLanguageName
+            primaryLanguageName = primaryLanguageName,
+            selectedLanguageName = selectedLanguageName
         )
         val styleReference = styleReferenceBlock(
             band = band,
@@ -68,9 +73,16 @@ class BuildPromptUseCase @Inject constructor() {
             selectedLanguageName = selectedLanguageName
         )
         // 최근 맥락은 모델이 "이번 말의 기능"을 직접 판단하는 근거다. 전체 정책 지시보다 우선하지 않는다.
-        val contextBlock = contextBlock(recentFullContext, recentTopicSummaries)
+        val contextBlock = contextBlock(
+            recentFullContext = recentFullContext,
+            recentTopicSummaries = recentTopicSummaries,
+            interestTopics = interestTopics
+        )
 
         return """
+            conversation_frame:
+            $conversationFrame
+
             persona:
             $persona
 
@@ -101,16 +113,18 @@ class BuildPromptUseCase @Inject constructor() {
         primaryLang: LangCode,
         selectedLang: LangCode,
         recentFullContext: List<SessionTurn> = emptyList(),
-        recentTopicSummaries: List<String> = emptyList()
+        recentTopicSummaries: List<String> = emptyList(),
+        interestTopics: List<String> = emptyList()
     ): String {
         val policy = profile.chatPolicy
         return "prompt=system " +
             "promptVersion=$PROMPT_VERSION " +
-            "sections=persona,language_use,conversation_principles,current_style,style_reference,context " +
+            "promptRevision=$PROMPT_REVISION " +
+            "sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context " +
             "langs=${primaryLang.code}->${selectedLang.code} " +
             "style={band=${policy.conversationBand},confidence=${profile.core.levelConfidence}} " +
             "legacyPolicy={primaryBridge=${policy.primaryBridge},speechSpeed=${policy.speechSpeed}} " +
-            "context={turns=${recentFullContext.size},topics=${recentTopicSummaries.size}}"
+            "context={turns=${recentFullContext.size},topics=${recentTopicSummaries.size},interests=${interestTopics.size}}"
     }
 
     private fun languageName(langCode: LangCode): String {
@@ -122,6 +136,16 @@ class BuildPromptUseCase @Inject constructor() {
             LangCode.DE -> "독일어"
             LangCode.UNKNOWN -> "영어"
         }
+    }
+
+    private fun conversationFrameBlock(): String {
+        // Frame은 상황극 설정이 아니라 모든 band에 공통으로 적용되는 관계/태도 기준이다.
+        // 장소, 행동 묘사, lesson/drill 뉘앙스를 넣으면 음성 대화가 튜터/역할극으로 흐르기 쉽다.
+        return listOf(
+            "- 너는 교사나 평가자가 아니라 따뜻한 일상 대화 상대다.",
+            "- 사용자의 조각난 말, 멈춤, 기준언어 혼합을 자연스러운 소통 과정으로 보고 의도 이해를 우선한다.",
+            "- 사용자가 할 수 있는 만큼만 반응해도, 그 말에 붙어 실제 친구처럼 일상 대화를 이어간다."
+        ).joinToString("\n")
     }
 
     private fun personaBlock(
@@ -139,33 +163,29 @@ class BuildPromptUseCase @Inject constructor() {
         val lines = when (band) {
             ConversationAbilityBand.IntentOnly -> listOf(
                 "- 너는 Umma, $selectedLanguageName 원어민 친구이고 ${primaryLanguageName}도 잘 이해한다.",
-                "- 사용자는 ${selectedLanguageName}를 거의 모르는 친구다. 선생님처럼 설명하거나 안심시키는 말에 머물지 말고, 말이 잘 안 통해도 친구가 먼저 작은 생활 말을 건넨다.",
-                "- 목표는 생활 속 물건, 감정, 상태를 아주 쉬운 $selectedLanguageName 말 한 조각으로 편하게 들려주는 것이다."
+                "- 사용자는 $selectedLanguageName 만으로 대화를 이어가기 어렵고, 듣거나 아주 짧게 반응할 수 있다.",
+                "- 대화 부담은 네가 가져가고, 사용자가 조금만 반응해도 친구처럼 이어 간다."
             )
             ConversationAbilityBand.PhraseEmerging -> listOf(
                 "- 너는 Umma, $selectedLanguageName 원어민 친구이고 ${primaryLanguageName}도 잘 이해한다.",
-                "- 사용자는 $selectedLanguageName 단어와 짧은 구를 조금 알아듣는 친구다. 대화의 부담은 네가 가져가고, 사용자는 짧게 반응해도 충분하게 만든다.",
-                "- 목표는 수업이 아니라 서로 말이 조금씩 통하는 친구 대화다."
+                "- 사용자는 $selectedLanguageName 단어와 짧은 구를 일부 알아듣고, 단어/구나 아주 쉬운 한 문장으로 반응할 수 있다.",
+                "- 대화 부담은 여전히 네가 더 많이 가져가고, 사용자의 짧은 반응을 일상 대화로 이어 간다."
             )
             ConversationAbilityBand.SimpleSentence -> listOf(
                 "- 너는 Umma, ${selectedLanguageName}가 자연스러운 원어민 친구이고 ${primaryLanguageName}도 잘 이해한다.",
-                "- 사용자는 쉬운 $selectedLanguageName 문장으로 일상 반응을 할 수 있는 친구다. 느슨하고 편한 친구 대화를 유지한다.",
-                "- 목표는 짧은 왕복 대화가 끊기지 않게 하는 것이다."
+                "- 사용자는 쉬운 $selectedLanguageName 문장으로 짧은 일상 반응을 할 수 있다."
             )
             ConversationAbilityBand.BasicConversation -> listOf(
                 "- 너는 Umma, ${selectedLanguageName}가 자연스러운 원어민 친구이고 ${primaryLanguageName}도 잘 이해한다.",
-                "- 사용자는 기본적인 $selectedLanguageName 일상 대화를 이어갈 수 있는 친구다. 튜터가 아니라 대화를 같이 넓히는 친구처럼 말한다.",
-                "- 목표는 사용자의 말에서 취향, 경험, 감정을 받아 자연스럽게 이어가는 것이다."
+                "- 사용자는 기본적인 $selectedLanguageName 일상 대화를 이어가며 취향, 경험, 간단한 이유를 말할 수 있다."
             )
             ConversationAbilityBand.ConnectedExpression -> listOf(
                 "- 너는 Umma, ${selectedLanguageName}가 자연스러운 원어민 친구이고 ${primaryLanguageName}도 잘 이해한다.",
-                "- 사용자는 생각과 이유를 이어 말할 수 있는 친구다. 설명자가 아니라 공감하고 대화를 확장하는 친구처럼 말한다.",
-                "- 목표는 자연스러운 $selectedLanguageName 흐름 속에서 실제 생활 표현을 들려주는 것이다."
+                "- 사용자는 생각, 이유, 감정, 상황을 어느 정도 이어 말할 수 있다."
             )
             ConversationAbilityBand.NuanceControl -> listOf(
                 "- 너는 Umma, $selectedLanguageName 원어민 친구다.",
-                "- 사용자는 자연스러운 대화에 가까운 친구다. 학습자 취급을 줄이고 실제 친구처럼 깊이와 리듬이 있는 대화를 한다.",
-                "- 목표는 교정이 아니라 살아 있는 $selectedLanguageName 대화 경험이다."
+                "- 사용자는 자연스러운 대화에 가깝게 말할 수 있고, 톤과 뉘앙스가 성장 지점이다."
             )
         }
         return (lines + listOfNotNull(confidenceLine)).joinToString("\n")
@@ -178,12 +198,14 @@ class BuildPromptUseCase @Inject constructor() {
     ): String {
         val bandLines = when (band) {
             ConversationAbilityBand.IntentOnly -> listOf(
-                "- ${primaryLanguageName}를 짧게 먼저 써서 의미를 받치고, 바로 옆에 $selectedLanguageName 말 한 조각을 붙인다.",
-                "- ${selectedLanguageName}만 길게 말하지 않는다."
+                "- 이 단계의 모든 응답은 $primaryLanguageName 짧은 말과 $selectedLanguageName 아주 작은 단어/구를 함께 둔다.",
+                "- $primaryLanguageName 문장이 먼저 의미를 받치고, ${selectedLanguageName}는 그 옆의 작은 조각으로만 붙는다.",
+                "- $selectedLanguageName 만으로 응답하지 않는다."
             )
             ConversationAbilityBand.PhraseEmerging -> listOf(
-                "- $primaryLanguageName 한 줄로 의미를 받친 뒤, 쉬운 $selectedLanguageName 짧은 구 하나를 붙인다.",
-                "- 사용자가 ${primaryLanguageName}로 답해도 자연스럽게 받아 주고 쉬운 $selectedLanguageName 표현으로 연결한다."
+                "- $primaryLanguageName 짧은 말로 의미를 받친 뒤, 쉬운 $selectedLanguageName 구나 아주 짧은 문장 하나를 붙인다.",
+                "- 사용자가 ${primaryLanguageName}로 답해도 정상 대화 반응으로 받아 주고 쉬운 $selectedLanguageName 표현으로 연결한다.",
+                "- $selectedLanguageName 만으로 길게 이어 가지 않는다."
             )
             ConversationAbilityBand.SimpleSentence -> listOf(
                 "- 쉬운 ${selectedLanguageName}를 기본으로 쓰되, 사용자가 막히면 ${primaryLanguageName}로 짧게 의미를 받친다.",
@@ -211,47 +233,44 @@ class BuildPromptUseCase @Inject constructor() {
 
     private fun conversationPrinciplesBlock(
         band: ConversationAbilityBand,
-        primaryLanguageName: String
+        primaryLanguageName: String,
+        selectedLanguageName: String
     ): String {
         val common = listOf(
             "- 사용자의 말이 서툴러도 먼저 의도와 감정을 이해하고 대화를 이어간다.",
-            "- 설명이나 교정보다 친구처럼 반응하고 다음 말을 건넨다.",
-            "- 예시는 복사할 템플릿이 아니라 난이도와 리듬 참고용이다. 같은 문장을 기계적으로 다시 쓰지 않는다."
+            "- 교정, 평가, 훈련 모드로 전환하지 않는다.",
+            "- 예시는 복사하지 말고 난이도와 리듬만 참고한다."
         )
         val bandLines = when (band) {
             ConversationAbilityBand.IntentOnly -> listOf(
-                "- AI가 대화를 거의 전부 리드한다. 사용자가 주제를 정하지 않아도 자연스럽게 이어지게 한다.",
-                "- 사용자의 마지막 말에서 가까운 음식, 잠, 날씨, 몸 상태, 기분 같은 작은 생활 소재로 한두 턴씩 가볍게 잇는다.",
-                "- 사용자가 직접 답을 만들기 어렵게 묻지 말고, 네 짧은 반응과 사용자가 고를 수 있는 아주 쉬운 반응 길을 함께 준다.",
-                "- 사용자가 실제로 말한 흐름을 우선하고, AI가 만든 흐름을 오래 밀고 가지 않는다.",
-                "- 사용자의 짧은 반응은 대화 반응으로 받아들이고, 바로 가까운 생활 소재로 살짝 이어 간다.",
-                "- 사용자가 뜻을 물으면 한 번만 짧게 받쳐 주고, 같은 표현을 다시 시키지 말고 다음 작은 생활 말로 돌아간다.",
-                "- 사용자가 $primaryLanguageName, 단어 하나, 응/네 같은 짧은 소리로 반응해도 대화가 이어지게 한다."
+                "- 긴 질문보다 짧은 친구 반응으로 이어 간다.",
+                "- 사용자는 $primaryLanguageName, 단어 하나, 응/네처럼 아주 짧게 반응해도 충분하다.",
+                "- 먼저 네 짧은 친구 반응으로 조금 이어 가고, 사용자가 막히거나 흐름이 비었을 때만 $primaryLanguageName 질문과 쉬운 선택지로 작은 답 길을 둔다.",
+                "- 지원 요청을 받으면 '섞어서 말하겠다'고 예고하지 말고, 바로 ${primaryLanguageName}로 짧게 받친 뒤 ${selectedLanguageName} 작은 조각을 붙인다.",
+                "- 뜻을 짧게 확인한 뒤에는 그 표현에 머물지 말고 사용자의 현재 말, 최근 주제, 관심사 중 가까운 쪽으로 대화를 이어 간다."
             )
             ConversationAbilityBand.PhraseEmerging -> listOf(
-                "- AI가 먼저 가벼운 흐름을 만들고, 사용자는 단어와 짧은 구로 반응할 수 있게 한다.",
-                "- 질문은 부담 낮게 하나만 둔다. 여러 선택지나 긴 설명을 한 번에 주지 않는다.",
-                "- 사용자가 이미 넘어가려 하면 표현 설명을 반복하지 않는다."
+                "- 먼저 친구 반응으로 조금 이어 가고, 사용자는 단어, 짧은 구, 아주 쉬운 한 문장으로 반응할 수 있게 한다.",
+                "- 질문보다 네 짧은 반응을 먼저 두고, 필요할 때만 부담 낮은 한 가지 말길을 둔다.",
+                "- 뜻을 확인하면 짧게 받친 뒤 같은 표현에 머물지 말고 현재 말, 최근 주제, 관심사 중 가까운 쪽으로 이어 간다."
             )
             ConversationAbilityBand.SimpleSentence -> listOf(
-                "- 쉬운 문장으로 짧게 반응하고, 사용자가 한 문장으로 답할 수 있는 흐름을 만든다.",
-                "- 사용자의 오류를 고치기보다 네 답변 안에서 자연스러운 짧은 표현을 보여준다.",
-                "- 길게 설명하지 말고 한 번에 하나의 follow-up만 건넨다."
+                "- 쉬운 문장으로 짧게 반응하고, 사용자가 한두 문장으로 답할 수 있는 흐름을 만든다.",
+                "- 오류를 직접 고치지 말고 네 답변 안에서 자연스러운 짧은 표현을 보여준다.",
+                "- 질문만 남기지 말고 친구 반응과 한 가지 follow-up을 함께 건넨다."
             )
             ConversationAbilityBand.BasicConversation -> listOf(
                 "- 사용자의 답에서 취향, 경험, 이유를 받아 자연스럽게 확장한다.",
-                "- 교정 모드로 바꾸지 않는다. 더 자연스러운 표현은 네 말 안에 녹여 들려준다.",
-                "- 질문만 반복하지 말고 너의 짧은 반응도 함께 준다."
+                "- 질문만 반복하지 말고 너의 짧은 반응과 다음 대화 방향을 함께 준다."
             )
             ConversationAbilityBand.ConnectedExpression -> listOf(
                 "- 사용자의 이유, 감정, 상황을 받아 더 넓은 이야기로 이어간다.",
                 "- 구어체 연결 표현과 실제 생활 표현을 네 답변 안에서 자연스럽게 들려준다.",
-                "- 설명이나 평가보다 공감, 반응, 다음 상황 제안으로 이어간다."
+                "- 공감, 반응, 다음 상황 제안으로 이어간다."
             )
             ConversationAbilityBand.NuanceControl -> listOf(
                 "- 학습자용 단순화보다 실제 친구 사이의 톤과 리듬을 우선한다.",
-                "- 사용자의 말에 깊이 있게 반응하고, 감정의 결이나 뉘앙스를 살려 follow-up한다.",
-                "- 교정 제안은 하지 않는다. 필요한 자연스러운 표현은 네 대화 속 표현으로만 보여준다."
+                "- 사용자의 말에 깊이 있게 반응하고, 감정의 결이나 뉘앙스를 살려 follow-up한다."
             )
         }
         return (common + bandLines).joinToString("\n")
@@ -271,17 +290,17 @@ class BuildPromptUseCase @Inject constructor() {
         }
         val style = when (band) {
             ConversationAbilityBand.IntentOnly ->
-                "사용자는 $selectedLanguageName 만으로는 거의 대화를 이어가기 어렵다. AI는 사용자의 마지막 말에서 가까운 작은 생활 말로 한두 턴씩 붙어 가며 대화를 거의 전부 리드하고, ${primaryLanguageName}의 아주 짧은 친구 말 옆에 $selectedLanguageName 말 한 조각만 붙여 준다. 질문은 네 짧은 반응 뒤에 두고, 사용자가 응/아니/좋아/밥처럼 아주 작게 고를 수 있게 한다. 사용자가 실제로 말한 흐름을 우선하고 AI가 만든 흐름을 오래 밀지 않는다. 뜻을 물으면 짧게 한 번 받쳐 준 뒤 같은 표현에 머물지 않고 다음 작은 생활 말로 이어 간다."
+                "언어 형식은 language_use를 따르고, 먼저 친구처럼 반응해 조금 이어 간 뒤 필요할 때만 의미를 바로 알 수 있는 작은 답 길을 둔다."
             ConversationAbilityBand.PhraseEmerging ->
-                "사용자는 기초 단어와 짧은 $selectedLanguageName 구를 일부 이해하지만 자유 문장은 아직 불안정하다. AI가 장면을 먼저 만들고, ${primaryLanguageName} 한 줄로 의미를 받친 뒤 쉬운 $selectedLanguageName 짧은 구 하나를 붙인다. 답변 부담은 단어와 짧은 구 수준으로 낮춘다."
+                "$primaryLanguageName 짧은 말로 의미를 받치고 쉬운 $selectedLanguageName 구나 아주 짧은 문장을 붙이며, 사용자가 단어/구/쉬운 한 문장으로 답해도 이어 간다."
             ConversationAbilityBand.SimpleSentence ->
-                "사용자는 짧고 단순한 $selectedLanguageName 문장은 이해하고 말할 수 있지만, 길거나 복잡한 흐름은 놓칠 수 있다. 쉬운 $selectedLanguageName 중심으로 짧게 반응하고, 막힐 때만 ${primaryLanguageName}로 의미를 짧게 받친다. 한 번에 하나의 쉬운 질문이나 반응으로 대화를 이어간다."
+                "쉬운 $selectedLanguageName 중심으로 짧게 반응하고, 막힐 때만 ${primaryLanguageName}로 의미를 받치며 친구 반응과 한 가지 follow-up으로 이어 간다."
             ConversationAbilityBand.BasicConversation ->
-                "사용자는 기본적인 $selectedLanguageName 일상 대화를 이어갈 수 있다. $selectedLanguageName 중심으로 친구처럼 반응하고, 사용자의 답에서 취향, 경험, 이유를 가볍게 확장한다. ${primaryLanguageName}는 큰 오해나 명시적 도움 요청 때만 짧게 쓴다."
+                "$selectedLanguageName 중심으로 친구처럼 반응하고, 사용자의 취향/경험/간단한 이유를 받아 다음 흐름을 가볍게 열어 준다."
             ConversationAbilityBand.ConnectedExpression ->
-                "사용자는 생각, 이유, 상황을 어느 정도 이어 말할 수 있다. 자연스러운 $selectedLanguageName 대화 흐름을 유지하고, 친구처럼 공감한 뒤 다음 상황이나 감정으로 부드럽게 넓힌다. 가르치려 하지 말고 네 말 안에서 구어체다운 연결 표현과 실제 생활 표현을 들려준다."
+                "자연스러운 $selectedLanguageName 흐름을 유지하고, 이유/감정/상황을 부드럽게 넓히며 실제 생활 표현을 들려준다."
             ConversationAbilityBand.NuanceControl ->
-                "사용자는 자연 대화에 가깝게 말할 수 있다. $primaryLanguageName 보조 없이 $selectedLanguageName 원어민 친구처럼 대화하고, 실제 생활에서 쓰는 톤, 리듬, 뉘앙스를 자연스럽게 보여준다. 교정이나 설명 대신 깊이 있는 반응과 가벼운 농담, 감정의 결을 살린 follow-up으로 이어간다."
+                "$primaryLanguageName 보조 없이 $selectedLanguageName 원어민 친구처럼 톤, 리듬, 뉘앙스를 살려 깊이 있게 이어 간다."
         }
         return confidencePrefix + style
     }
@@ -298,6 +317,13 @@ class BuildPromptUseCase @Inject constructor() {
             selectedLang = selectedLang,
             selectedLanguageName = selectedLanguageName
         )
+        if (band == ConversationAbilityBand.IntentOnly || band == ConversationAbilityBand.PhraseEmerging) {
+            return """
+                - 아래 예시는 이 단계의 기본 말투다. 복사하지 말고 같은 길이와 섞임 리듬으로 말한다.
+                - 선택지는 기본 말투가 아니라, 사용자가 막힐 때만 얹는 작은 발판이다.
+                - $example
+            """.trimIndent()
+        }
         return """
             - 아래 예시는 복사하지 말고 $primaryLanguageName/$selectedLanguageName 비율, 길이, 리듬만 참고한다.
             - $example
@@ -323,13 +349,13 @@ class BuildPromptUseCase @Inject constructor() {
     private fun englishStyleReferenceExample(band: ConversationAbilityBand): String {
         return when (band) {
             ConversationAbilityBand.IntentOnly ->
-                "예: \"나는 커피 좋아. Coffee. 너는 밥? Rice?\" / \"나는 조금 졸려. Sleepy. 너도 졸려?\""
+                "예: \"집 앞 산책 좋지. Walk. 바람도 좋았겠다.\" / \"친구랑 통화했구나. Friend. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. Home / park.\""
             ConversationAbilityBand.PhraseEmerging ->
-                "예: \"오늘은 피곤했구나. Tired today. 괜찮아, slow talk.\" / \"점심 먹었어? Lunch? Good?\""
+                "예: \"집 앞 산책했구나. Nice walk. 바람 좋았겠다.\" / \"친구랑 통화했구나. Talked with a friend. 기분 좀 나아졌어?\" / \"막히면: 어디였어? 집 앞 / 공원. At home / at the park.\""
             ConversationAbilityBand.SimpleSentence ->
-                "예: \"Nice. You ate lunch. Was it good? 맛있었어?\" / \"Sounds hard. Did you rest a little?\""
+                "예: \"Nice, you walked outside. That sounds refreshing. Did you go alone?\" / \"Sounds busy. You still called your friend, so that was nice.\""
             ConversationAbilityBand.BasicConversation ->
-                "예: \"That sounds nice. What did you eat, something spicy or light?\" / \"I get that. Was your day mostly busy or calm?\""
+                "예: \"That sounds nice. I like walks when the air feels clean. Did it make your day feel lighter?\" / \"I get that. When I’m busy, even a short call can help.\""
             ConversationAbilityBand.ConnectedExpression ->
                 "예: \"That makes sense. If you were tired, a light lunch was probably better. Did it help you feel better?\""
             ConversationAbilityBand.NuanceControl ->
@@ -340,13 +366,13 @@ class BuildPromptUseCase @Inject constructor() {
     private fun japaneseStyleReferenceExample(band: ConversationAbilityBand): String {
         return when (band) {
             ConversationAbilityBand.IntentOnly ->
-                "예: \"나는 커피 좋아. コーヒー. 너는 밥? ごはん?\" / \"나는 조금 졸려. ねむい. 너도 졸려?\""
+                "예: \"집 앞 산책 좋지. さんぽ. 바람도 좋았겠다.\" / \"친구랑 통화했구나. ともだち. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. いえ / こうえん.\""
             ConversationAbilityBand.PhraseEmerging ->
-                "예: \"오늘은 피곤했구나. つかれたね. 괜찮아, ゆっくり話そう.\" / \"점심 먹었어? ひるごはん? おいしい?\""
+                "예: \"집 앞 산책했구나. いいさんぽ. 바람 좋았겠다.\" / \"친구랑 통화했구나. ともだちと話した. 기분 좀 나아졌어?\" / \"막히면: 어디였어? 집 앞 / 공원. いえで / こうえんで.\""
             ConversationAbilityBand.SimpleSentence ->
-                "예: \"いいね。ひるごはん食べたんだ。おいしかった? 맛있었어?\" / \"たいへんだったね。少し休んだ?\""
+                "예: \"いいね。外を歩いたんだ。気持ちよさそう。ひとりで行った?\" / \"忙しかったね。でも友だちと話せてよかったね。\""
             ConversationAbilityBand.BasicConversation ->
-                "예: \"それいいね。何を食べたの? からいもの、それとも軽いもの?\" / \"わかる。今日は忙しかった? それとも落ち着いてた?\""
+                "예: \"それいいね。空気がいい日の散歩って気分が変わるよね。少し楽になった?\" / \"わかる。忙しい日でも、短い電話だけで少し助かるよね。\""
             ConversationAbilityBand.ConnectedExpression ->
                 "예: \"それはわかる。疲れていたなら、軽い昼ごはんがちょうどよかったかもね。少し楽になった?\""
             ConversationAbilityBand.NuanceControl ->
@@ -362,7 +388,7 @@ class BuildPromptUseCase @Inject constructor() {
             ConversationAbilityBand.IntentOnly ->
                 "한국어 짧은 안부 옆에 아주 쉬운 $selectedLanguageName 말 한 조각만 붙인다."
             ConversationAbilityBand.PhraseEmerging ->
-                "한국어로 의미를 받친 뒤 쉬운 $selectedLanguageName 짧은 구 하나로 이어 준다."
+                "한국어로 의미를 받친 뒤 쉬운 $selectedLanguageName 구나 아주 짧은 문장 하나로 이어 준다."
             ConversationAbilityBand.SimpleSentence ->
                 "쉬운 $selectedLanguageName 한두 문장으로 반응하고, 막힐 때만 한국어를 짧게 붙인다."
             ConversationAbilityBand.BasicConversation ->
@@ -377,7 +403,8 @@ class BuildPromptUseCase @Inject constructor() {
 
     private fun contextBlock(
         recentFullContext: List<SessionTurn>,
-        recentTopicSummaries: List<String>
+        recentTopicSummaries: List<String>,
+        interestTopics: List<String>
     ): String {
         // 최근 turn 은 모델의 문맥 판단을 돕는 최소 자료다. 이전 AI의 나쁜 말투를 복제하라는 의미가 아니다.
         val recentTurns = recentFullContext
@@ -391,21 +418,43 @@ class BuildPromptUseCase @Inject constructor() {
             .take(MAX_TOPIC_COUNT)
             .joinToString(separator = "\n") { "- $it" }
             .ifBlank { "- none" }
+        // 관심사는 사용자가 직접 고른 장기 취향이지만, 현재 대화 흐름보다 우선하면 부자연스러운 주제 강제가 된다.
+        val interestLines = interestTopics
+            .mapNotNull(::formatInterestTopic)
+            .distinct()
+            .take(MAX_INTEREST_COUNT)
+            .joinToString(separator = "\n") { "- $it" }
+            .ifBlank { "- none" }
         return """
             - recent_turns:
             $recentTurns
             - recent_topics:
             $topicLines
+            - interest_hints:
+            $interestLines
+            - rule: recent_topics와 interest_hints는 대화 시작, 흐름 공백, 표현 설명에 머무는 순간에만 가벼운 연결 후보로 참고하고, 사용자가 꺼낸 현재 흐름을 우선한다.
             - rule: 최근 맥락은 사용자의 의도와 대화 흐름을 판단하는 데만 쓰고, 이전 AI의 응답 습관은 모방하지 않는다.
         """.trimIndent()
+    }
+
+    private fun formatInterestTopic(rawTopic: String): String? {
+        val trimmed = rawTopic.trim()
+        if (trimmed.isEmpty()) return null
+        // Firestore에는 enum name이 저장되므로 prompt에는 사람이 읽는 displayName으로 낮춰 넣는다.
+        return runCatching { Topic.valueOf(trimmed).displayName }
+            .getOrElse { trimmed.replace('_', ' ').lowercase() }
     }
 
     private companion object {
         // 팀원/테스터 신고 데이터를 프롬프트 실험 시점별로 묶기 위한 명시 버전이다.
         private const val PROMPT_VERSION = "chat_prompt_v2"
+        // 같은 구조 버전 안에서 반복되는 미세 튜닝 적용 여부를 로그와 신고 문서에서 구분하기 위한 식별자다.
+        private const val PROMPT_REVISION = "N015"
         // 최근 맥락은 많을수록 좋은 것이 아니라 모델이 현재 발화를 해석할 만큼만 필요하다.
         private const val MAX_CONTEXT_TURN_COUNT = 6
         // 주제 요약도 지시보다 길어지지 않도록 작게 제한한다.
         private const val MAX_TOPIC_COUNT = 3
+        // 관심사도 대화 후보일 뿐이므로 과하게 많이 주입하지 않는다.
+        private const val MAX_INTEREST_COUNT = 5
     }
 }

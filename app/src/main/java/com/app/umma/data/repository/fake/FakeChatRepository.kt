@@ -44,6 +44,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptRevie
     override suspend fun startSession(
         langCode: LangCode,
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String?
     ): Result<String> {
@@ -81,6 +82,7 @@ class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptRevie
 
     override suspend fun reconnectSession(
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String?
     ): Result<String> {
@@ -152,6 +154,17 @@ class FakeChatRepository @Inject constructor() : ChatRepository, ChatPromptRevie
         // Fake 구현은 실제 transport commit 이 없으므로 production 과 같은 duration metadata 만 보관한다.
         // 시나리오별 final event 발생은 preset 로직이 따로 담당한다.
         updatePendingUserTurnDuration(durationMs)
+    }
+
+    override fun prepareNextResponseInstructions() {
+        // mockDebug fake는 실제 USER final 이후 response.create 지연이 없으므로 opt-in만 무시한다.
+        logPreset("prepareNextResponseInstructions ignored")
+    }
+
+    override fun createResponse(instructions: String?) {
+        // mockDebug fake는 실제 provider system item/response.create가 없으므로 hint를 해석하지 않는다.
+        // 계약 검증을 위해 적용 여부만 로그로 남기고 시나리오 이벤트는 preset 로직이 계속 담당한다.
+        logPreset("createResponse hasTurnHint=${!instructions.isNullOrBlank()}")
     }
 
     private suspend fun emitHandoffTurnIfNeeded() {

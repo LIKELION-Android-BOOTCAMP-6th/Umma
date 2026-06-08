@@ -62,6 +62,7 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                     reportId = existing?.reportId,
                     reportNote = existing?.reportNote,
                     promptVersion = extractPromptVersion(sessionPromptTrace) ?: existing?.promptVersion,
+                    promptRevision = extractPromptRevision(sessionPromptTrace) ?: existing?.promptRevision,
                     promptBand = extractPromptBand(sessionPromptTrace) ?: existing?.promptBand,
                     sessionPromptTrace = sessionPromptTrace,
                     metadata = metadata,
@@ -95,6 +96,7 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                     sessionPromptTrace = null,
                     reportId = null,
                     promptVersion = null,
+                    promptRevision = null,
                     promptBand = null,
                     reportNote = null,
                     metadata = null,
@@ -177,7 +179,6 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 existing.toSnapshot()
             } ?: return@runCatching
 
-            val sessionRef = reviewSessionDocument(userId, sessionId)
             val sortedEvents = snapshot.events
                 .sortedWith(compareBy<ChatPromptReviewEvent> { it.createdAt }.thenBy { it.eventId })
             val reportId = snapshot.reportId ?: reportDocumentId(
@@ -185,10 +186,14 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 language = snapshot.language,
                 sessionId = sessionId
             )
+            // review 본문도 report index와 같은 시간 기반 ID를 사용한다.
+            // Firestore 콘솔에서 users/{uid}/chat_prompt_reviews를 열었을 때 신고 목록과 같은 순서/이름으로 찾기 위함이다.
+            val sessionRef = reviewSessionDocument(userId, reportId)
             val reportRef = reviewReportDocument(reportId)
-            val reviewPath = "users/$userId/$CHAT_PROMPT_REVIEWS_COLLECTION/$sessionId"
+            val reviewPath = "users/$userId/$CHAT_PROMPT_REVIEWS_COLLECTION/$reportId"
             val status = if (finalFlush) "ready" else "reported"
             val sessionMap = mapOf(
+                "reviewId" to reportId,
                 "sessionId" to snapshot.sessionId,
                 "language" to snapshot.language.code,
                 "enabled" to true,
@@ -196,6 +201,7 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 "updatedAt" to snapshot.updatedAt,
                 "reportedAt" to snapshot.reportedAt,
                 "promptVersion" to snapshot.promptVersion,
+                "promptRevision" to snapshot.promptRevision,
                 "promptBand" to snapshot.promptBand,
                 "reportNote" to snapshot.reportNote,
                 "sessionPromptTrace" to snapshot.sessionPromptTrace,
@@ -209,11 +215,13 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 "reportId" to reportId,
                 "uid" to userId,
                 "sessionId" to sessionId,
+                "reviewId" to reportId,
                 "reviewPath" to reviewPath,
                 "language" to snapshot.language.code,
                 "status" to status,
                 "reportedAt" to snapshot.reportedAt,
                 "promptVersion" to snapshot.promptVersion,
+                "promptRevision" to snapshot.promptRevision,
                 "promptBand" to snapshot.promptBand,
                 "reportNote" to snapshot.reportNote,
                 "updatedAt" to snapshot.updatedAt,
@@ -232,16 +240,24 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
                 LOG_TAG,
                 "sessionFlushed uid=$userId sessionId=$sessionId eventCount=${sortedEvents.size} " +
                     "status=$status promptBand=${snapshot.promptBand ?: "unknown"} " +
+                    "promptRevision=${snapshot.promptRevision ?: "unknown"} " +
                     "firestorePath=$reviewPath reportPath=$CHAT_PROMPT_REVIEW_REPORTS_COLLECTION/$reportId"
+            )
+            // Prompt 분석 시 AiChatPromptTrace 하나만 필터링해도 신고 세션 식별자가 보이도록 같은 핵심 정보를 짧게 남긴다.
+            Log.i(
+                PROMPT_TRACE_LOG_TAG,
+                "review_saved lang=${snapshot.language.code} session=$sessionId " +
+                    "status=$status band=${snapshot.promptBand ?: "unknown"} revision=${snapshot.promptRevision ?: "unknown"} " +
+                    "events=${sortedEvents.size} reportId=$reportId"
             )
         }
     }
 
-    private fun reviewSessionDocument(userId: String, sessionId: String) = firestore
+    private fun reviewSessionDocument(userId: String, reviewId: String) = firestore
         .collection(USERS_COLLECTION)
         .document(userId)
         .collection(CHAT_PROMPT_REVIEWS_COLLECTION)
-        .document(sessionId)
+        .document(reviewId)
 
     private fun reviewReportDocument(reportId: String) = firestore
         .collection(CHAT_PROMPT_REVIEW_REPORTS_COLLECTION)
@@ -249,6 +265,7 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
 
     private companion object {
         private const val LOG_TAG = "AiChatPromptReview"
+        private const val PROMPT_TRACE_LOG_TAG = "AiChatPromptTrace"
         private const val USERS_COLLECTION = "users"
         private const val CHAT_PROMPT_REVIEWS_COLLECTION = "chat_prompt_reviews"
         private const val CHAT_PROMPT_REVIEW_REPORTS_COLLECTION = "chat_prompt_review_reports"
@@ -264,6 +281,7 @@ private data class ChatPromptReviewSessionBuffer(
     val reportedAt: Long? = null,
     val reportId: String?,
     val promptVersion: String?,
+    val promptRevision: String?,
     val promptBand: String?,
     val reportNote: String?,
     val sessionPromptTrace: String?,
@@ -279,6 +297,7 @@ private data class ChatPromptReviewSessionSnapshot(
     val reportedAt: Long?,
     val reportId: String?,
     val promptVersion: String?,
+    val promptRevision: String?,
     val promptBand: String?,
     val reportNote: String?,
     val sessionPromptTrace: String?,
@@ -295,6 +314,7 @@ private fun ChatPromptReviewSessionBuffer.toSnapshot(): ChatPromptReviewSessionS
         reportedAt = reportedAt,
         reportId = reportId,
         promptVersion = promptVersion,
+        promptRevision = promptRevision,
         promptBand = promptBand,
         reportNote = reportNote,
         sessionPromptTrace = sessionPromptTrace,
@@ -327,6 +347,16 @@ private fun extractPromptVersion(sessionPromptTrace: String?): String? {
     // trace 전체를 별도 파싱 모델로 만들지 않고, index에 필요한 promptVersion 값만 안전하게 추출한다.
     if (sessionPromptTrace.isNullOrBlank()) return null
     return Regex("""\bpromptVersion=([^\s]+)""")
+        .find(sessionPromptTrace)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf { it.isNotBlank() }
+}
+
+private fun extractPromptRevision(sessionPromptTrace: String?): String? {
+    // promptVersion은 큰 구조 버전이고, revision은 같은 구조 안의 반복 튜닝 식별자다.
+    if (sessionPromptTrace.isNullOrBlank()) return null
+    return Regex("""\bpromptRevision=([^\s]+)""")
         .find(sessionPromptTrace)
         ?.groupValues
         ?.getOrNull(1)

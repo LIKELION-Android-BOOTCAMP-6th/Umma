@@ -69,6 +69,7 @@ class ChatConversationEvidencePromptBuilder @Inject constructor() {
             - responseDifficultyFit: whether the AI's target-language difficulty matched the learner's demonstrated target-language ability.
             - confidence: whether there is enough target-language evidence to trust this analysis.
             - reasonSummary: explain the target-language evidence in Korean; mention support-language use only as context, not as ability.
+            - reasonSummary must be plain Korean text without quotation marks, raw transcript examples, markdown, or line breaks.
 
             Output schema:
             {
@@ -80,7 +81,7 @@ class ChatConversationEvidencePromptBuilder @Inject constructor() {
               "consistency": "Low|Mixed|Stable",
               "responseDifficultyFit": "TooHard|SlightlyHard|Fits|TooEasy|Unknown",
               "confidence": "Low|Medium|High",
-              "reasonSummary": "short Korean summary, max 240 chars",
+              "reasonSummary": "short Korean summary, max 240 chars, no quotes or raw examples",
               "debugRecommendedBand": "IntentOnly|PhraseEmerging|SimpleSentence|BasicConversation|ConnectedExpression|NuanceControl"
             }
 

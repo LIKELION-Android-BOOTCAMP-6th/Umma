@@ -29,10 +29,15 @@ import com.app.umma.domain.model.realtime.SessionMemory
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.model.realtime.TopicSummarySaveResult
+import com.app.umma.domain.model.user.UserProfile
+import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.ChatRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.SessionMemoryRepository
+import com.app.umma.domain.repository.UserProfileRepository
+import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
+import com.app.umma.domain.usecase.user.GetUserProfileUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -57,9 +62,12 @@ class ChatPromptIntegrationUseCaseTest {
                 langState = LangState.initial(LangCode.EN)
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
+            getCurrentUserUidUseCase = currentUidUseCase(),
+            getUserProfileUseCase = userProfileUseCase(),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
-            buildPromptUseCase = BuildPromptUseCase()
+            buildPromptUseCase = BuildPromptUseCase(),
+            buildChatTranscriptionPromptUseCase = BuildChatTranscriptionPromptUseCase()
         )
 
         val result = useCase()
@@ -78,13 +86,22 @@ class ChatPromptIntegrationUseCaseTest {
         assertTrue(chatRepository.startedInstruction.contains("learning_language: 영어"))
         assertTrue(chatRepository.startedInstruction.contains("support_language: 한국어"))
         assertTrue(chatRepository.startedInstruction.contains("- USER: hello"))
+        assertTrue(chatRepository.startedInstruction.contains("- 여행 계획에 대해 말하는 연습"))
+        assertTrue(chatRepository.startedInstruction.contains("- 여행"))
+        assertTrue(chatRepository.startedInstruction.contains("- 음식"))
+        assertTrue(chatRepository.startedInstruction.contains("대화 시작, 흐름 공백, 표현 설명에 머무는 순간에만 가벼운 연결 후보로 참고"))
         assertFalse(chatRepository.startedInstruction.contains("branches:"))
         assertFalse(chatRepository.startedInstruction.contains("current_turn_override:"))
 
         // trace는 prompt 전문 없이 현재 버전과 섹션만 남겨 Logcat/리뷰 도구에서 구조를 확인하게 한다.
         assertTrue(chatRepository.startedPromptTrace!!.contains("promptVersion=chat_prompt_v2"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("sections=persona,language_use,conversation_principles,current_style,style_reference,context"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N015"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("transcription={revision=stt_prompt_v1,languages=ko+en}"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("context={turns=1,topics=1,interests=2}"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("conversationEvidence={applied=false,band=IntentOnly,source=none}"))
+        assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("The user may mix Korean, English within the same sentence."))
+        assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("Do not translate between languages."))
     }
 
     @Test
@@ -118,16 +135,19 @@ class ChatPromptIntegrationUseCaseTest {
                 )
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
+            getCurrentUserUidUseCase = currentUidUseCase(),
+            getUserProfileUseCase = userProfileUseCase(),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
-            buildPromptUseCase = BuildPromptUseCase()
+            buildPromptUseCase = BuildPromptUseCase(),
+            buildChatTranscriptionPromptUseCase = BuildChatTranscriptionPromptUseCase()
         )()
 
         // 공식 Chat band source는 Firestore snapshot이 아니라 LangState의 chatEvidenceSummary다.
         assertTrue(result.isSuccess)
         assertTrue(chatRepository.startedPromptTrace!!.contains("conversationEvidence={applied=true,band=ConnectedExpression,source=LangStateSummary}"))
-        assertTrue(chatRepository.startedInstruction.contains("생각, 이유, 상황을 어느 정도 이어 말할 수 있다."))
-        assertTrue(chatRepository.startedInstruction.contains("자연스러운 영어 대화 흐름을 유지하고"))
+        assertTrue(chatRepository.startedInstruction.contains("생각, 이유, 감정, 상황을 어느 정도 이어 말할 수 있다."))
+        assertTrue(chatRepository.startedInstruction.contains("자연스러운 영어 흐름을 유지하고"))
         assertEquals(1.05, chatRepository.startedOutputAudioSpeed!!, 0.0)
     }
 
@@ -141,6 +161,7 @@ class ChatPromptIntegrationUseCaseTest {
         val sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory())
         val profileUseCase = BuildLearnerAdaptationProfileUseCase()
         val promptUseCase = BuildPromptUseCase()
+        val transcriptionPromptUseCase = BuildChatTranscriptionPromptUseCase()
         val startRepository = RecordingChatRepository()
         val retryRepository = RecordingChatRepository(
             activeSessionId = "session-1",
@@ -151,27 +172,35 @@ class ChatPromptIntegrationUseCaseTest {
             repository = startRepository,
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
+            getCurrentUserUidUseCase = currentUidUseCase(),
+            getUserProfileUseCase = userProfileUseCase(),
             buildLearnerAdaptationProfileUseCase = profileUseCase,
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
-            buildPromptUseCase = promptUseCase
+            buildPromptUseCase = promptUseCase,
+            buildChatTranscriptionPromptUseCase = transcriptionPromptUseCase
         )()
 
         val retryResult = RetryConnectionUseCase(
             repository = retryRepository,
             learningStateRepo = RecordingLearningStateRepo(userPref = userPref, langState = langState),
             sessionMemoryRepository = sessionMemoryRepository,
+            getCurrentUserUidUseCase = currentUidUseCase(),
+            getUserProfileUseCase = userProfileUseCase(),
             buildLearnerAdaptationProfileUseCase = profileUseCase,
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
-            buildPromptUseCase = promptUseCase
+            buildPromptUseCase = promptUseCase,
+            buildChatTranscriptionPromptUseCase = transcriptionPromptUseCase
         )()
 
         // 같은 입력이면 start와 retry가 같은 prompt/속도 경로를 타야 재연결 후 대화 스타일이 갑자기 바뀌지 않는다.
         // 단, conversation evidence trace는 1차에서 StartSessionUseCase에만 붙고 retry에는 적용하지 않는다.
         assertTrue(retryResult is RetryConnectionResult.Reconnected)
         assertEquals(startRepository.startedInstruction, retryRepository.reconnectedInstruction)
+        assertEquals(startRepository.startedTranscriptionPrompt, retryRepository.reconnectedTranscriptionPrompt)
         assertEquals(startRepository.startedOutputAudioSpeed!!, retryRepository.reconnectedOutputAudioSpeed!!, 0.0)
         assertTrue(startRepository.startedPromptTrace!!.contains("conversationEvidence="))
         assertFalse(retryRepository.reconnectedPromptTrace!!.contains("conversationEvidence="))
+        assertTrue(retryRepository.reconnectedPromptTrace!!.contains("transcription={revision=stt_prompt_v1"))
     }
 
     @Test
@@ -191,9 +220,12 @@ class ChatPromptIntegrationUseCaseTest {
                 langState = LangState.initial(LangCode.EN)
             ),
             sessionMemoryRepository = RecordingSessionMemoryRepository(memory = memory()),
+            getCurrentUserUidUseCase = currentUidUseCase(),
+            getUserProfileUseCase = userProfileUseCase(),
             buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase(),
             buildChatSpeechSpeedUseCase = BuildChatSpeechSpeedUseCase(),
-            buildPromptUseCase = BuildPromptUseCase()
+            buildPromptUseCase = BuildPromptUseCase(),
+            buildChatTranscriptionPromptUseCase = BuildChatTranscriptionPromptUseCase()
         )()
 
         // 세션 언어가 바뀐 경우에는 prompt를 새로 보내 재연결하지 않고 새 세션 요구를 유지한다.
@@ -212,6 +244,8 @@ class ChatPromptIntegrationUseCaseTest {
     ) : ChatRepository {
         lateinit var startedInstruction: String
         lateinit var reconnectedInstruction: String
+        var startedTranscriptionPrompt: String? = null
+        var reconnectedTranscriptionPrompt: String? = null
         var startedLang: LangCode? = null
         var startedOutputAudioSpeed: Double? = null
         var reconnectedOutputAudioSpeed: Double? = null
@@ -221,6 +255,7 @@ class ChatPromptIntegrationUseCaseTest {
         override suspend fun startSession(
             langCode: LangCode,
             systemInstruction: String,
+            transcriptionPrompt: String?,
             outputAudioSpeed: Double,
             systemInstructionDebugTrace: String?
         ): Result<String> {
@@ -229,6 +264,7 @@ class ChatPromptIntegrationUseCaseTest {
             currentLang = langCode
             startedLang = langCode
             startedInstruction = systemInstruction
+            startedTranscriptionPrompt = transcriptionPrompt
             startedOutputAudioSpeed = outputAudioSpeed
             startedPromptTrace = systemInstructionDebugTrace
             return Result.success(activeSessionId!!)
@@ -236,11 +272,13 @@ class ChatPromptIntegrationUseCaseTest {
 
         override suspend fun reconnectSession(
             systemInstruction: String,
+            transcriptionPrompt: String?,
             outputAudioSpeed: Double,
             systemInstructionDebugTrace: String?
         ): Result<String> {
             // retry 경로에서도 같은 prompt/속도 생성 결과가 들어오는지 비교하기 위해 값을 보관한다.
             reconnectedInstruction = systemInstruction
+            reconnectedTranscriptionPrompt = transcriptionPrompt
             reconnectedOutputAudioSpeed = outputAudioSpeed
             reconnectedPromptTrace = systemInstructionDebugTrace
             return Result.success(activeSessionId ?: "session-1")
@@ -253,6 +291,10 @@ class ChatPromptIntegrationUseCaseTest {
         override suspend fun sendAudioData(audio: ByteArray) = Unit
 
         override fun endUserTurn(durationMs: Long?) = Unit
+
+        override fun prepareNextResponseInstructions() = Unit
+
+        override fun createResponse(instructions: String?) = Unit
 
         override fun cancelPendingUserTurn() = Unit
 
@@ -316,6 +358,56 @@ class ChatPromptIntegrationUseCaseTest {
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
     }
 
+    private class RecordingAuthRepository(
+        private val uid: String? = "user-1",
+        private val email: String? = "user@example.com"
+    ) : AuthRepository {
+        override val currentUserUid: Flow<String?> = flowOf(uid)
+
+        override suspend fun signInWithGoogle(idToken: String): Result<String> {
+            return Result.failure(UnsupportedOperationException("not used in chat prompt integration tests"))
+        }
+
+        override fun getCurrentUserUid(): String? = uid
+
+        override fun getCurrentUserEmail(): String? = email
+
+        override suspend fun signOut(): Result<Unit> = Result.success(Unit)
+
+        override suspend fun deleteAccount(): Result<Unit> = Result.success(Unit)
+
+        override suspend fun hasValidSession(): Result<Boolean> = Result.success(uid != null)
+    }
+
+    private class RecordingUserProfileRepository(
+        private val profile: UserProfile? = UserProfile(
+            uid = "user-1",
+            nickname = "tester",
+            email = "user@example.com",
+            // 실제 저장값은 enum name이므로 prompt builder가 displayName으로 낮추는지 검증한다.
+            interestTopics = listOf("TRAVEL", "FOOD"),
+            isSetupCompleted = true
+        )
+    ) : UserProfileRepository {
+        override suspend fun isNewUser(uid: String): Boolean = false
+
+        override suspend fun saveInitialSetup(
+            profile: UserProfile,
+            langPref: UserLangPref,
+            initialLangState: LangState,
+            dashSummary: DashSummary,
+            sessionSummary: SessionSummary,
+            flashcardSummary: FlashcardSummary
+        ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun getUserProfile(uid: String): UserProfile? {
+            // Start/Retry는 profile 조회 실패 시에도 세션을 막지 않아야 하므로 테스트 fake는 uid 일치 때만 반환한다.
+            return profile?.takeIf { it.uid == uid }
+        }
+
+        override suspend fun saveInterestTopics(uid: String, topics: List<String>): Result<Unit> = Result.success(Unit)
+    }
+
     private class RecordingSessionMemoryRepository(
         private val memory: SessionMemory
     ) : SessionMemoryRepository {
@@ -363,7 +455,27 @@ class ChatPromptIntegrationUseCaseTest {
             userId = "user-1",
             language = language,
             recentFullContext = recentFullContext,
+            // 세션 시작 prompt가 최근 주제 요약을 가벼운 topic hint로 쓰는지 검증하기 위한 대표 데이터다.
+            topicSummaries = listOf("여행 계획에 대해 말하는 연습"),
             updatedAt = 1_000L
+        )
+    }
+
+    private fun currentUidUseCase(uid: String? = "user-1"): GetCurrentUserUidUseCase {
+        return GetCurrentUserUidUseCase(RecordingAuthRepository(uid = uid))
+    }
+
+    private fun userProfileUseCase(profile: UserProfile? = defaultUserProfile()): GetUserProfileUseCase {
+        return GetUserProfileUseCase(RecordingUserProfileRepository(profile = profile))
+    }
+
+    private fun defaultUserProfile(): UserProfile {
+        return UserProfile(
+            uid = "user-1",
+            nickname = "tester",
+            email = "user@example.com",
+            interestTopics = listOf("TRAVEL", "FOOD"),
+            isSetupCompleted = true
         )
     }
 

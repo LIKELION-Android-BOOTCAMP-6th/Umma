@@ -11,6 +11,7 @@ import com.app.umma.devtools.chatpromptreview.ReportPromptReviewSessionUseCase
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.audio.AudioInputFrame
+import com.app.umma.domain.model.chat.ChatConversationSnapshot
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.SyncStatus
@@ -25,8 +26,11 @@ import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.CleanupChatUsageUseCase
 import com.app.umma.domain.usecase.chat.AnalyzeChatConversationSessionUseCase
+import com.app.umma.domain.usecase.chat.BuildChatConversationSnapshotUseCase
+import com.app.umma.domain.usecase.chat.BuildChatTurnHintUseCase
 import com.app.umma.domain.usecase.chat.ChatConversationSessionAnalysisResult
 import com.app.umma.domain.usecase.chat.CompleteChatConversationAnalysisJobUseCase
+import com.app.umma.domain.usecase.chat.CreateChatResponseUseCase
 import com.app.umma.domain.usecase.chat.EnqueueChatConversationAnalysisJobUseCase
 import com.app.umma.domain.usecase.chat.RecordChatUsageUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
@@ -67,6 +71,9 @@ class ChatViewModel @Inject constructor(
     private val appendTurnUseCase: AppendTurnUseCase,
     private val applyCorrectionSignalUpdateUseCase: ApplyCorrectionSignalUpdateUseCase,
     private val analyzeChatConversationSessionUseCase: AnalyzeChatConversationSessionUseCase,
+    private val buildChatConversationSnapshotUseCase: BuildChatConversationSnapshotUseCase,
+    private val buildChatTurnHintUseCase: BuildChatTurnHintUseCase,
+    private val createChatResponseUseCase: CreateChatResponseUseCase,
     private val enqueueChatConversationAnalysisJobUseCase: EnqueueChatConversationAnalysisJobUseCase,
     private val completeChatConversationAnalysisJobUseCase: CompleteChatConversationAnalysisJobUseCase,
     private val syncPendingChatConversationAnalysisJobsUseCase: SyncPendingChatConversationAnalysisJobsUseCase,
@@ -119,6 +126,8 @@ class ChatViewModel @Inject constructor(
     private var currentUserTurnStartedAtMs: Long? = null
     private var currentUserTurnEndedAtMs: Long? = null
     private val scheduledConversationAnalysisTurnCounts = mutableMapOf<String, Int>()
+    // Tune008의 대화 위치 보조 상태입니다. 장기 능력이나 저장 모델이 아니라 현재 Chat 세션 안에서만 유지합니다.
+    private var conversationSnapshot: ChatConversationSnapshot = ChatConversationSnapshot()
 
     init {
         observeSessionOwner()
@@ -318,6 +327,11 @@ class ChatViewModel @Inject constructor(
             // 현재 녹음/발화 확정 대기/AI 응답 상태를 보존해야 하단 안내 문구가 사라지지 않는다.
             val isSameSession = it.activeSessionId == sessionId
             val shouldKeepTransientState = isSameSession && it.hasTransientMicStatus
+            if (!isSameSession) {
+                // Snapshot은 세션 안의 현재 대화 위치만 보조하므로 새 app session에서는 비운다.
+                // 최근 주제/관심사는 system prompt context가 담당하고, 여기서 장기 기억을 만들지 않는다.
+                conversationSnapshot = ChatConversationSnapshot()
+            }
             it.copy(
                 entryStage = ChatEntryStage.READY,
                 blockedReason = null,
@@ -584,6 +598,7 @@ class ChatViewModel @Inject constructor(
         )
 
         pendingTurnSaveCount = 0
+        conversationSnapshot = ChatConversationSnapshot()
         if (resetUiState) {
             _uiState.value = initialChatUiState()
         }
@@ -730,6 +745,37 @@ class ChatViewModel @Inject constructor(
         }
 
         persistFinalTurn(event)
+        updateConversationSnapshotAndMaybeCreateResponse(event)
+    }
+
+    private fun updateConversationSnapshotAndMaybeCreateResponse(event: AIEvent.FinalTranscription) {
+        val turn = SessionTurn(
+            turnId = event.turnId,
+            sessionId = event.sessionId,
+            text = event.text,
+            role = event.role,
+            createdAt = event.createdAt,
+            durationMs = event.durationMs,
+            tokenCount = event.tokenCount,
+            confidence = event.confidence
+        )
+
+        // Snapshot 갱신은 final transcript 기준으로만 수행한다.
+        // partial 자막은 흔들릴 수 있어 turn hint의 현재 위치 근거로 쓰지 않는다.
+        conversationSnapshot = buildChatConversationSnapshotUseCase(
+            previous = conversationSnapshot,
+            turn = turn
+        )
+
+        if (event.role != TurnSpeaker.USER) return
+        if (phoneChatSessionController.currentSnapshot().owner != SessionOwner.PHONE) {
+            // Watch가 소유한 세션의 final event를 Phone 화면이 관찰할 수 있다.
+            // Tune008 turn hint는 Phone Chat 화면의 prompt 개선 범위이므로 Watch 흐름에는 개입하지 않는다.
+            return
+        }
+
+        val turnHint = buildChatTurnHintUseCase(conversationSnapshot)
+        createChatResponseUseCase(instructions = turnHint)
     }
 
     /**
@@ -1481,6 +1527,9 @@ class ChatViewModel @Inject constructor(
         }
         val endedAt = currentUserTurnEndedAtMs ?: return
         val durationMs = (endedAt - startedAt).coerceAtLeast(0L)
+        // Phone Chat 화면은 USER final이 도착한 뒤 Snapshot/Turn Hint를 만들 수 있다.
+        // 이 opt-in이 있어야 repository가 잠깐 hint를 기다리며, Watch 등 다른 surface에는 영향을 주지 않는다.
+        createChatResponseUseCase.prepareNextResponseInstructions()
         // 사용자가 정지 버튼으로 turn 을 끝낸 시점은 단순 duration 저장보다 의미가 크다.
         // OpenAI Realtime 은 이 호출을 기준으로 input audio commit 을 수행하고,
         // USER transcript 확정 이후 AI response 를 시작한다.

@@ -99,6 +99,7 @@ class ChatRepositoryImpl @Inject constructor(
     private var currentLang: LangCode? = null
     private var currentSystemInstruction: String? = null
     private var currentSystemInstructionDebugTrace: String? = null
+    private var currentTranscriptionPrompt: String? = null
     // 자동/수동 재연결 때도 학습자 수준에 맞춘 음성 속도를 동일하게 복원하기 위해 함께 캐시한다.
     private var currentOutputAudioSpeed: Double? = null
     // 실제 이탈/명시적 reconnect 로 닫은 socket 을 인스턴스 단위로 추적해 불필요한 자동 재연결을 막는다.
@@ -126,6 +127,12 @@ class ChatRepositoryImpl @Inject constructor(
     private var commitInFlight: Boolean = false
     // 사용자 자막 선표시를 검증하기 위해 response.create 를 user transcription completed 이후로 지연한다.
     private var responsePendingUntilUserTranscript: Boolean = false
+    // Phone 화면처럼 turn hint를 만들 수 있는 호출자가 명시적으로 켜는 1회성 대기 플래그다.
+    // 이 플래그가 없으면 USER final 직후 기존처럼 바로 response.create를 보낸다.
+    private var shouldWaitForNextResponseInstructions: Boolean = false
+    // hint 대기 플래그가 켜진 경우에만 사용하는 fallback job이다.
+    // hint가 오지 않아도 자동 응답을 보내 사용자 대화 흐름이 멈추지 않게 한다.
+    private var responseCreateFallbackJob: Job? = null
 
     // AI transcript 는 delta 로 들어오므로 done 이벤트 전까지 누적해 final transcript 로 내보낸다.
     private var aiTranscriptBuffer: String = ""
@@ -146,6 +153,7 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun startSession(
         langCode: LangCode,
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String?
     ): Result<String> = sessionMutex.withLock {
@@ -156,6 +164,7 @@ class ChatRepositoryImpl @Inject constructor(
             activeSessionId != null &&
             currentLang == langCode &&
             currentSystemInstruction == systemInstruction &&
+            currentTranscriptionPrompt == transcriptionPrompt &&
             currentOutputAudioSpeed == outputAudioSpeed
         ) {
             return Result.success(activeSessionId!!)
@@ -172,6 +181,7 @@ class ChatRepositoryImpl @Inject constructor(
             connectRealtimeTransport(
                 langCode = langCode,
                 systemInstruction = systemInstruction,
+                transcriptionPrompt = transcriptionPrompt,
                 outputAudioSpeed = outputAudioSpeed,
                 systemInstructionDebugTrace = systemInstructionDebugTrace,
                 sessionId = newSessionId,
@@ -190,6 +200,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun reconnectSession(
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String?
     ): Result<String> = sessionMutex.withLock {
@@ -212,6 +223,7 @@ class ChatRepositoryImpl @Inject constructor(
             connectRealtimeTransport(
                 langCode = langCode,
                 systemInstruction = systemInstruction,
+                transcriptionPrompt = transcriptionPrompt,
                 outputAudioSpeed = outputAudioSpeed,
                 systemInstructionDebugTrace = systemInstructionDebugTrace,
                 sessionId = sessionId,
@@ -261,6 +273,9 @@ class ChatRepositoryImpl @Inject constructor(
             // stop/cleanup 경로에서 null 이 들어오면 현재 turn commit 대기도 함께 취소한다.
             commitInFlight = false
             responsePendingUntilUserTranscript = false
+            shouldWaitForNextResponseInstructions = false
+            responseCreateFallbackJob?.cancel()
+            responseCreateFallbackJob = null
             return
         }
     }
@@ -271,6 +286,31 @@ class ChatRepositoryImpl @Inject constructor(
         webSocket?.send(buildInputAudioClearEvent())
         updatePendingUserTurnDuration(null)
         resetTurnTransportState()
+    }
+
+    override fun prepareNextResponseInstructions() {
+        // Phone Chat 화면에서만 다음 USER final 이후 turn hint를 만들 수 있다.
+        // Watch/기타 경로는 이 메서드를 호출하지 않으므로 기존 즉시 response.create 흐름을 유지한다.
+        shouldWaitForNextResponseInstructions = true
+    }
+
+    override fun createResponse(instructions: String?) {
+        if (!responsePendingUntilUserTranscript) {
+            // 늦게 도착한 hint가 다음 turn으로 섞이면 더 위험하므로 pending 응답이 없으면 폐기한다.
+            logTurnHintTrace(status = "ignored", reason = "no_pending_response")
+            recordPromptReviewTurnHint(
+                instructions = instructions,
+                status = "ignored",
+                reason = "no_pending_response"
+            )
+            return
+        }
+        responseCreateFallbackJob?.cancel()
+        responseCreateFallbackJob = null
+        createResponseInternal(
+            instructions = instructions,
+            turnHintStatus = if (instructions.isNullOrBlank()) "none" else "applied"
+        )
     }
 
     override fun endUserTurn(durationMs: Long?) {
@@ -311,7 +351,7 @@ class ChatRepositoryImpl @Inject constructor(
                 )
             }.toString()
         )
-        createResponse()
+        createResponseInternal(instructions = null, turnHintStatus = "not_requested")
     }
 
     override fun observeAIEvent(): Flow<AIEvent> = events.asSharedFlow()
@@ -355,6 +395,7 @@ class ChatRepositoryImpl @Inject constructor(
     private fun buildWebSocketListener(
         sessionId: String,
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double,
         eventChannel: Channel<ServerRealtimeEvent>
     ): WebSocketListener {
@@ -363,7 +404,13 @@ class ChatRepositoryImpl @Inject constructor(
                 Log.i(TAG, "OpenAI Realtime WebSocket opened code=${response.code}")
                 // Cloud Function 이 만든 session 은 기본 VAD 설정일 수 있으므로
                 // 앱이 원하는 수동 turn 제어 설정을 WebSocket 연결 직후 다시 적용한다.
-                webSocket.send(buildSessionUpdateEvent(systemInstruction, outputAudioSpeed))
+                webSocket.send(
+                    buildSessionUpdateEvent(
+                        systemInstruction = systemInstruction,
+                        transcriptionPrompt = transcriptionPrompt,
+                        outputAudioSpeed = outputAudioSpeed
+                    )
+                )
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -414,6 +461,7 @@ class ChatRepositoryImpl @Inject constructor(
     private suspend fun connectRealtimeTransport(
         langCode: LangCode,
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double,
         systemInstructionDebugTrace: String?,
         sessionId: String,
@@ -433,6 +481,7 @@ class ChatRepositoryImpl @Inject constructor(
         currentLang = langCode
         currentSystemInstruction = systemInstruction
         currentSystemInstructionDebugTrace = systemInstructionDebugTrace
+        currentTranscriptionPrompt = transcriptionPrompt
         currentOutputAudioSpeed = outputAudioSpeed
         if (resetTurnSequence) {
             turnSequence = 0L
@@ -458,6 +507,7 @@ class ChatRepositoryImpl @Inject constructor(
             buildWebSocketListener(
                 sessionId = sessionId,
                 systemInstruction = systemInstruction,
+                transcriptionPrompt = transcriptionPrompt,
                 outputAudioSpeed = outputAudioSpeed,
                 eventChannel = eventChannel
             )
@@ -519,7 +569,7 @@ class ChatRepositoryImpl @Inject constructor(
                     usageEventId = payload.string("event_id")
                 )
                 Log.i(TAG, "OpenAI Realtime user transcription usage=${payload["usage"]}")
-                createResponseAfterUserTranscriptIfNeeded()
+                scheduleResponseAfterUserTranscriptIfNeeded()
             }
             "response.output_audio.delta",
             "response.audio.delta" -> {
@@ -603,19 +653,37 @@ class ChatRepositoryImpl @Inject constructor(
         events.emit(AIEvent.StateChanged(AIState.THINKING))
     }
 
-    private fun createResponseAfterUserTranscriptIfNeeded() {
+    private fun scheduleResponseAfterUserTranscriptIfNeeded() {
         if (!responsePendingUntilUserTranscript) return
 
         // CHAT-ENGINE-001의 핵심 확인값은 "사용자 발화 종료 후 사용자 자막을 먼저 보여준 뒤
         // AI 응답을 시작할 수 있는가"이다. 따라서 commit 직후가 아니라 user transcription
-        // completed 이벤트를 받은 다음 response.create를 보낸다. transcript 내용은 정책 판단에 사용하지 않는다.
-        responsePendingUntilUserTranscript = false
-        // 앱은 USER transcript를 조건/단어 규칙으로 해석해 response override를 만들지 않는다.
-        // 세션 prompt와 모델의 문맥 판단만으로 이번 응답을 생성한다.
-        createResponse()
+        // completed 이벤트를 받은 다음 response.create를 보낸다.
+        if (!shouldWaitForNextResponseInstructions) {
+            createResponseInternal(instructions = null, turnHintStatus = "not_requested")
+            return
+        }
+
+        // Tune008에서는 ViewModel이 USER final event를 받아 세션용 snapshot을 갱신하고
+        // 짧은 turn hint를 넘길 수 있도록 작은 fallback window를 둔다.
+        // hint가 오지 않아도 자동 응답을 보내 사용자 대화 흐름이 멈추지 않게 한다.
+        responseCreateFallbackJob?.cancel()
+        responseCreateFallbackJob = repositoryScope.launch {
+            delay(RESPONSE_HINT_FALLBACK_DELAY_MS)
+            if (!responsePendingUntilUserTranscript) return@launch
+            createResponseInternal(instructions = null, turnHintStatus = "fallback", turnHintReason = "timeout")
+        }
     }
 
-    private fun createResponse() {
+    private fun createResponseInternal(
+        instructions: String?,
+        turnHintStatus: String,
+        turnHintReason: String? = null
+    ) {
+        responsePendingUntilUserTranscript = false
+        shouldWaitForNextResponseInstructions = false
+        responseCreateFallbackJob?.cancel()
+        responseCreateFallbackJob = null
         // response.create 를 보낸 시각이 first audio/transcript delta latency 의 기준점이다.
         responseCreatedAtMs = System.currentTimeMillis()
         firstAudioReceivedAtMs = null
@@ -624,6 +692,17 @@ class ChatRepositoryImpl @Inject constructor(
         // 아직 provider response id 를 모르는 구간이므로 첫 delta/done 에서 id 를 확정한다.
         activeResponseId = null
         responseDoneUntilNextCreate = false
+        logTurnHintTrace(status = turnHintStatus, reason = turnHintReason)
+        recordPromptReviewTurnHint(
+            instructions = instructions,
+            status = turnHintStatus,
+            reason = turnHintReason
+        )
+        if (!instructions.isNullOrBlank()) {
+            // OpenAI Realtime의 response.create.instructions는 해당 response의 session 설정을 override할 수 있다.
+            // turn hint는 작은 맥락 업데이트이므로 conversation system item으로 넣고 session prompt는 유지한다.
+            webSocket?.send(buildTurnHintSystemMessageEvent(instructions))
+        }
         webSocket?.send(buildResponseCreateEvent())
         repositoryScope.launch {
             events.emit(AIEvent.StateChanged(AIState.THINKING))
@@ -648,6 +727,25 @@ class ChatRepositoryImpl @Inject constructor(
             return
         }
         Log.d(PROMPT_TRACE_TAG, "$label metadata=[$metadata] $safeTrace")
+    }
+
+    private fun logTurnHintTrace(
+        status: String,
+        reason: String? = null
+    ) {
+        if (!BuildConfig.DEBUG) return
+
+        // turn hint 원문에는 현재 대화 위치와 사용자 의도가 들어갈 수 있어 로그에 남기지 않는다.
+        // 수동 분석에는 어떤 세션/언어에서 snapshot hint가 적용됐는지만 있으면 충분하다.
+        val lang = currentLang?.code ?: "none"
+        val session = activeSessionId ?: "none"
+        val source = when (status) {
+            "applied",
+            "ignored" -> "snapshot"
+            else -> "none"
+        }
+        val reasonPart = reason?.let { " reason=$it" }.orEmpty()
+        Log.d(PROMPT_TRACE_TAG, "turn_hint status=$status lang=$lang session=$session source=$source$reasonPart")
     }
 
     private suspend fun emitFinalTranscript(
@@ -720,6 +818,7 @@ class ChatRepositoryImpl @Inject constructor(
                 userId = userId,
                 event = ChatPromptReviewEvent(
                     eventId = promptReviewEventId(
+                        type = ChatPromptReviewEventType.FinalTurn,
                         createdAt = event.createdAt,
                         suffix = event.turnId
                     ),
@@ -738,13 +837,75 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
+    private fun recordPromptReviewTurnHint(
+        instructions: String?,
+        status: String,
+        reason: String?
+    ) {
+        if (!chatPromptReviewRepository.isEnabled()) return
+        val userId = firebaseAuth.currentUser?.uid ?: return
+        val sessionId = activeSessionId ?: return
+        val language = currentLang ?: return
+        val createdAt = System.currentTimeMillis()
+        val source = turnHintSource(status)
+
+        // TurnHint는 prompt review 문서에서 final turn 사이에 끼워 보는 추적용 event다.
+        // 실제로 provider에 실린 문장은 applied 상태일 때만 저장해 "생성됐지만 미적용" hint와 구분한다.
+        repositoryScope.launch {
+            chatPromptReviewRepository.recordEvent(
+                userId = userId,
+                event = ChatPromptReviewEvent(
+                    eventId = promptReviewEventId(
+                        type = ChatPromptReviewEventType.TurnHint,
+                        createdAt = createdAt,
+                        suffix = "$sessionId-$status"
+                    ),
+                    sessionId = sessionId,
+                    type = ChatPromptReviewEventType.TurnHint,
+                    language = language,
+                    createdAt = createdAt,
+                    role = null,
+                    turnId = null,
+                    text = instructions.takeIf { status == "applied" && !it.isNullOrBlank() },
+                    metadata = buildTurnHintMetadata(
+                        status = status,
+                        source = source,
+                        reason = reason
+                    )
+                )
+            ).onFailure { error ->
+                Log.w(TAG, "chat prompt review turn hint record skipped: ${error.message}", error)
+            }
+        }
+    }
+
+    private fun buildTurnHintMetadata(
+        status: String,
+        source: String,
+        reason: String?
+    ): String {
+        // 사람이 Firestore/Markdown에서 바로 읽을 수 있게 key=value 형태만 유지한다.
+        // 원문 hint는 text 필드가 담당하므로 metadata에는 상태와 출처만 둔다.
+        val reasonPart = reason?.let { " reason=$it" }.orEmpty()
+        return "status=$status source=$source$reasonPart"
+    }
+
+    private fun turnHintSource(status: String): String {
+        return when (status) {
+            "applied",
+            "ignored" -> "snapshot"
+            else -> "none"
+        }
+    }
+
     private fun promptReviewEventId(
+        type: ChatPromptReviewEventType,
         createdAt: Long,
         suffix: String
     ): String {
         // Firestore document id로 안전하게 쓰기 위해 사람이 읽을 수 있는 순서 prefix와 sanitized suffix를 함께 둔다.
         val safeSuffix = suffix.replace(Regex("[^A-Za-z0-9_-]"), "_")
-        return "$createdAt-${ChatPromptReviewEventType.FinalTurn.name}-$safeSuffix-${UUID.randomUUID()}"
+        return "$createdAt-${type.name}-$safeSuffix-${UUID.randomUUID()}"
     }
 
     private suspend fun emitUsageReport(
@@ -824,6 +985,7 @@ class ChatRepositoryImpl @Inject constructor(
         val sessionId = activeSessionId
         val langCode = currentLang
         val systemInstruction = currentSystemInstruction
+        val transcriptionPrompt = currentTranscriptionPrompt
         val outputAudioSpeed = currentOutputAudioSpeed
 
         if (sessionId == null || langCode == null || systemInstruction == null || outputAudioSpeed == null) {
@@ -872,6 +1034,7 @@ class ChatRepositoryImpl @Inject constructor(
                         connectRealtimeTransport(
                             langCode = langCode,
                             systemInstruction = systemInstruction,
+                            transcriptionPrompt = transcriptionPrompt,
                             outputAudioSpeed = outputAudioSpeed,
                             systemInstructionDebugTrace = currentSystemInstructionDebugTrace,
                             sessionId = sessionId,
@@ -1002,6 +1165,9 @@ class ChatRepositoryImpl @Inject constructor(
         hasClearedInputForTurn = false
         commitInFlight = false
         responsePendingUntilUserTranscript = false
+        shouldWaitForNextResponseInstructions = false
+        responseCreateFallbackJob?.cancel()
+        responseCreateFallbackJob = null
         responseCreatedAtMs = null
         firstAudioReceivedAtMs = null
         userTurnCommittedAtMs = null
@@ -1076,6 +1242,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     private fun buildSessionUpdateEvent(
         systemInstruction: String,
+        transcriptionPrompt: String?,
         outputAudioSpeed: Double
     ): String {
         return buildJsonObject {
@@ -1111,6 +1278,11 @@ class ChatRepositoryImpl @Inject constructor(
                                         buildJsonObject {
                                             // 사용자 발화 종료 후 final transcript 를 받기 위한 input transcription 모델이다.
                                             put("model", INPUT_TRANSCRIPTION_MODEL)
+                                            // STT prompt는 AI 응답 정책이 아니라 자막 전사 힌트다.
+                                            // 사용자가 기준언어/학습언어/영어를 한 문장에 섞는 상황을 모델이 자연스럽게 받아 적도록 돕는다.
+                                            if (!transcriptionPrompt.isNullOrBlank()) {
+                                                put("prompt", transcriptionPrompt)
+                                            }
                                         }
                                     )
                                     // 핵심 설정: 서버 VAD 가 아니라 앱의 두 번째 마이크 버튼이 turn 종료 기준이다.
@@ -1157,6 +1329,30 @@ class ChatRepositoryImpl @Inject constructor(
     private fun buildInputAudioCommitEvent(): String {
         return buildJsonObject {
             put("type", "input_audio_buffer.commit")
+        }.toString()
+    }
+
+    private fun buildTurnHintSystemMessageEvent(instructions: String): String {
+        return buildJsonObject {
+            put("type", "conversation.item.create")
+            put(
+                "item",
+                buildJsonObject {
+                    put("type", "message")
+                    put("role", "system")
+                    put(
+                        "content",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("type", "input_text")
+                                    put("text", instructions)
+                                }
+                            )
+                        }
+                    )
+                }
+            )
         }.toString()
     }
 
@@ -1286,6 +1482,7 @@ class ChatRepositoryImpl @Inject constructor(
         currentLang = null
         currentSystemInstruction = null
         currentSystemInstructionDebugTrace = null
+        currentTranscriptionPrompt = null
         currentOutputAudioSpeed = null
         turnSequence = 0L
     }
@@ -1394,6 +1591,7 @@ class ChatRepositoryImpl @Inject constructor(
         const val COMPLETED_RESPONSE_ID_LIMIT = 24
         const val SESSION_READY_TIMEOUT_MS = 10_000L
         const val COMMIT_GRACE_DELAY_MS = 150L
+        const val RESPONSE_HINT_FALLBACK_DELAY_MS = 180L
         const val WEBSOCKET_NORMAL_CLOSE = 1000
         const val APP_PCM_SAMPLE_RATE = 16_000
         const val OPENAI_PCM_SAMPLE_RATE = 24_000
