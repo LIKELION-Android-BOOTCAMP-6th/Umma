@@ -37,15 +37,14 @@ class ExtractSessionCandidatesUseCase @Inject constructor(
         )
 
         return candidates.map { candidate ->
-            // ExtractCandidatesUseCase 는 ConversationTurn 만 알기 때문에 turnId/언어 정보를 직접 보존할 수 없다.
-            // RT-003 원본 index 를 이용해 sourceTurnId 와 sourceLang 을 다시 붙인다.
-            // sourceLang 은 turn.detectedLang 을 그대로 옮긴 값이다(COR-TUNE-011) — 캡처가 아직 머지되지
-            // 않은 구간에서는 detectedLang 이 항상 null 이므로 sourceLang 도 null 로 전달되어 평가 게이트가
-            // no-op 로 동작한다(점진 도입 안전).
+            // ExtractCandidatesUseCase 는 ConversationTurn 만 알기 때문에 turnId 를 직접 보존할 수 없다.
+            // RT-003 원본 index 를 이용해 sourceTurnId 만 다시 붙인다.
+            // COR-TUNE-011 Method B: 발화 원문 언어(sourceLang)는 RT-003 STT 가 아니라 AI 교정 응답이
+            // 보고하는 값으로 채운다(detectedLang seam 폐기 — `COR-TUNE-011-FIX_AI_Sourced_Utterance_Language_Gating.md`).
+            // 따라서 candidate 단계에서는 sourceLang 을 운반하지 않는다.
             val sourceTurn = sessionTurns.getOrNull(candidate.sourceTurnIndex)
             candidate.copy(
-                sourceTurnId = sourceTurn?.turnId,
-                sourceLang = sourceTurn?.detectedLang
+                sourceTurnId = sourceTurn?.turnId
             )
         }
     }

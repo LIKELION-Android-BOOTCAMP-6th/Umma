@@ -103,9 +103,13 @@ class CorrectionPromptBuilder @Inject constructor() {
             }
             appendLine()
             appendLine("Response: Return ONLY one valid JSON object, no markdown fences, no commentary. Schema:")
-            // 핵심 4필드(candidateId/nativeText/afterText/explanation)는 그대로 유지하고, 그 위에
-            // suggestion 당 learningSignal 중첩을 더한다. 키 구성은 CHAT-TUNE-001 핸드오버 JSON 예시와 일치한다.
-            appendLine("""{"suggestions":[{"candidateId":"...","nativeText":"...","afterText":"...","explanation":"...","learningSignal":{"candidateId":"...","sourceTurnId":"... or null","sourceTurnIndex":0,"sourceText":"...","correctedText":"...","issueCategories":["..."],"languageFeatures":[{"lang":"...","featureKey":"..."}],"improvementTypes":["..."],"editSpans":[{"sourceFragment":"...","correctedFragment":"...","issueCategory":"...","languageFeatureKey":"...","improvementType":"..."}],"register":"...","severity":"...","meaningPreserved":true,"confidence":0.0}}]}""")
+            // 핵심 4필드(candidateId/nativeText/afterText/explanation)는 그대로 유지하고, 그 옆에
+            // sourceLang(원문 언어 보고)과 suggestion 당 learningSignal 중첩을 더한다.
+            // sourceLang 은 learningSignal 안이 아니라 suggestion 최상위에 둔다 — 신호가 정규화 단계에서
+            // drop 되어도 평가 게이트(COR-TUNE-011)가 읽을 수 있어야 하고, 원문 언어는 "신호"가 아니라
+            // 발화 자체의 속성이기 때문이다(COR-TUNE-011-FIX_AI_Sourced_Utterance_Language_Gating).
+            // 키 구성은 CHAT-TUNE-001 핸드오버 JSON 예시와 일치한다.
+            appendLine("""{"suggestions":[{"candidateId":"...","nativeText":"...","afterText":"...","explanation":"...","sourceLang":"...","learningSignal":{"candidateId":"...","sourceTurnId":"... or null","sourceTurnIndex":0,"sourceText":"...","correctedText":"...","issueCategories":["..."],"languageFeatures":[{"lang":"...","featureKey":"..."}],"improvementTypes":["..."],"editSpans":[{"sourceFragment":"...","correctedFragment":"...","issueCategory":"...","languageFeatureKey":"...","improvementType":"..."}],"register":"...","severity":"...","meaningPreserved":true,"confidence":0.0}}]}""")
             appendLine("Rules:")
             appendLine("- candidateId: COPY EXACTLY from the candidates above. Do not invent new ids.")
             appendLine("- nativeText: the front-face sentence in $primaryLangName (${primaryLang.code}).")
@@ -114,6 +118,10 @@ class CorrectionPromptBuilder @Inject constructor() {
             // explanationLine()이 band별로 언어를 결정하므로(고급 band: target language, 초급: primaryLang)
             // 여기서 언어를 다시 고정하면 두 지시가 충돌한다. 형식 제약(60자)만 남기고 언어는 위 정책을 따른다.
             appendLine("- explanation: a short correction tip (under 60 chars), in the language set by the Explanation policy above.")
+            // COR-TUNE-011-FIX (Method B): detectedLang seam 이 폐기되어, 발화 원문 언어는 이제 AI 가 직접 보고한다.
+            // afterText(=항상 selectedLang)와 혼동하지 않도록 "원문(sourceText) 기준"임을 명시하고,
+            // 확신이 없을 때 "unknown"을 쓰게 해 mapper 가 보수적으로 null(=평가 통과)로 떨어뜨릴 escape hatch 를 둔다.
+            appendLine("- sourceLang: the ISO code (e.g. \"ko\", \"en\", \"ja\", \"de\") of the language the learner ACTUALLY used in sourceText (not the corrected afterText). If you are not sure, use \"unknown\".")
             appendLine("- Emit one suggestion per candidate. Skip a candidate only if no correction is needed.")
             // COR-TUNE-02: learningSignal 은 능력 점수가 아니라 "이번 교정에서 관찰한 것"만 담는다.
             // 규칙은 enum 을 1:1 장황하게 나열하지 않고 실행 가능한 짧은 지시로 압축한다.

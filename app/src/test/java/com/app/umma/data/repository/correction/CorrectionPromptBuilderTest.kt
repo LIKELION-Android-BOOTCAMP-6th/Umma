@@ -93,6 +93,30 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `prompt asks AI to report sourceLang at suggestion top level with unknown escape hatch`() {
+        // COR-TUNE-011-FIX (Method B): detectedLang seam 폐기로 발화 원문 언어의 유일한 출처가
+        // AI 교정 응답이 되었다. schema 의 sourceLang 키와 "원문 기준/확신 없으면 unknown" Rule 이
+        // 둘 다 노출돼야 mapper 의 DTO·보수적 정규화 계약과 어긋나지 않는다.
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "i go school"
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("schema 에 sourceLang 키 누락", prompt.contains("\"sourceLang\""))
+        assertTrue("sourceLang 이 원문(sourceText) 기준임을 알리는 Rule 누락", prompt.contains("sourceText"))
+        assertTrue("sourceLang 이 afterText 기준이 아님을 알리는 Rule 누락", prompt.contains("not the corrected afterText"))
+        assertTrue("확신 없으면 unknown 을 쓰라는 escape hatch 지시 누락", prompt.contains("\"unknown\""))
+    }
+
+    @Test
     fun `prompt declares learningSignal schema keys and allowed enums`() {
         // COR-TUNE-02: 응답 schema 에 suggestion 당 learningSignal 중첩과 허용 enum/규칙이 노출되어야
         // mapper 가 받는 DTO/정규화 계약과 어긋나지 않는다.
