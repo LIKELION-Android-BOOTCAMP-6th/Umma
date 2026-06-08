@@ -23,10 +23,15 @@ class BuildChatTranscriptionPromptUseCase @Inject constructor() {
             The user's primary language is $primaryLanguageName.
             The target learning language is $selectedLanguageName.
             English words may also appear naturally in casual speech.
-            The user may mix $languageList within the same sentence.
-            Transcribe each language as spoken. Do not translate between languages.
+            A single utterance may contain $languageList.
+            Do not force the whole utterance into one language.
+            Keep each segment in the language it was spoken or clearly intended.
+            Do not translate between languages.
+            Do not normalize the whole sentence into one language.
             The target language may appear as short words, fragments, or imperfect pronunciation.
-            If a target-language word is clearly spoken with primary-language-influenced pronunciation, transcribe the intended target-language word.
+            If a target-language word is clearly intended, transcribe the intended target-language word.
+            Common English app, product, and technical words should remain in English when clearly intended, even if pronounced with a $primaryLanguageName accent.
+            Keep $primaryLanguageName fillers as $primaryLanguageName fillers unless another language is clearly spoken.
             If uncertain, keep the closest likely transcript and do not invent unrelated words.
         """.trimIndent()
     }
@@ -66,6 +71,6 @@ class BuildChatTranscriptionPromptUseCase @Inject constructor() {
 
     private companion object {
         // STT prompt만의 실험 식별자다. Chat system prompt revision과 독립적으로 추적한다.
-        private const val PROMPT_REVISION = "stt_prompt_v1"
+        private const val PROMPT_REVISION = "stt_prompt_v2"
     }
 }
