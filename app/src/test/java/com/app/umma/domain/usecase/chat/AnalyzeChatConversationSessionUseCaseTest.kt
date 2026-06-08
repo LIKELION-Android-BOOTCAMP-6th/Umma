@@ -201,6 +201,8 @@ class AnalyzeChatConversationSessionUseCaseTest {
 
         override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> = Result.success(Unit)
 
+        override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> = Result.success(Unit)
+
         override suspend fun updateLanguageState(
             input: LangStateUpdateInput
         ): Result<LearningStateUpdateResult> {

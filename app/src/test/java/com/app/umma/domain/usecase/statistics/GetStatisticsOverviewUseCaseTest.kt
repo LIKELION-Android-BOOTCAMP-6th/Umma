@@ -132,6 +132,8 @@ class GetStatisticsOverviewUseCaseTest {
 
         override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> = Result.success(Unit)
 
+        override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> = Result.success(Unit)
+
         override suspend fun updateLanguageState(
             input: com.app.umma.domain.model.learningstate.LangStateUpdateInput
         ): Result<LearningStateUpdateResult> = Result.failure(UnsupportedOperationException())
