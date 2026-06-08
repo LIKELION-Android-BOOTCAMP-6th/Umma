@@ -11,6 +11,9 @@ import com.app.umma.devtools.chatpromptreview.ReportPromptReviewSessionUseCase
 import com.app.umma.domain.audio.AudioInput
 import com.app.umma.domain.audio.AudioOutput
 import com.app.umma.domain.model.audio.AudioInputFrame
+import com.app.umma.domain.model.chat.AiContentReport
+import com.app.umma.domain.model.chat.AiContentReportContextTurn
+import com.app.umma.domain.model.chat.AiContentReportReasonCategory
 import com.app.umma.domain.model.chat.ChatConversationSnapshot
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.LangCode
@@ -22,18 +25,21 @@ import com.app.umma.domain.model.realtime.AppendTurnCommand
 import com.app.umma.domain.model.realtime.ChatUsageRecord
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
+import com.app.umma.domain.usecase.learningstate.GetUserLanguagePreferenceUseCase
 import com.app.umma.domain.model.user.Topic
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.chat.CleanupChatUsageUseCase
 import com.app.umma.domain.usecase.chat.AnalyzeChatConversationSessionUseCase
 import com.app.umma.domain.usecase.chat.BuildChatConversationSnapshotUseCase
 import com.app.umma.domain.usecase.chat.BuildChatTurnHintUseCase
+import com.app.umma.domain.usecase.chat.BuildPromptUseCase
 import com.app.umma.domain.usecase.chat.ChatConversationSessionAnalysisResult
 import com.app.umma.domain.usecase.chat.CompleteChatConversationAnalysisJobUseCase
 import com.app.umma.domain.usecase.chat.CreateChatResponseUseCase
 import com.app.umma.domain.usecase.chat.EnqueueChatConversationAnalysisJobUseCase
 import com.app.umma.domain.usecase.chat.RecordChatUsageUseCase
 import com.app.umma.domain.usecase.chat.NewSessionReason
+import com.app.umma.domain.usecase.chat.ReportAiContentUseCase
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
 import com.app.umma.domain.usecase.chat.SyncPendingChatConversationAnalysisJobsUseCase
 import com.app.umma.domain.usecase.chat.SyncChatSessionUsageUseCase
@@ -81,9 +87,11 @@ class ChatViewModel @Inject constructor(
     private val syncPendingChatConversationAnalysisJobsUseCase: SyncPendingChatConversationAnalysisJobsUseCase,
     private val recordChatUsageUseCase: RecordChatUsageUseCase,
     private val reportPromptReviewSessionUseCase: ReportPromptReviewSessionUseCase,
+    private val reportAiContentUseCase: ReportAiContentUseCase,
     private val syncChatSessionUsageUseCase: SyncChatSessionUsageUseCase,
     private val syncPendingChatUsageUseCase: SyncPendingChatUsageUseCase,
     private val cleanupChatUsageUseCase: CleanupChatUsageUseCase,
+    private val getUserLanguagePreferenceUseCase: GetUserLanguagePreferenceUseCase,
     private val networkConnectivityMonitor: NetworkConnectivityMonitor,
     @param:ApplicationScope private val applicationScope: CoroutineScope,
     private val audioRecorder: AudioInput,
@@ -209,6 +217,14 @@ class ChatViewModel @Inject constructor(
                     // 새 진입 flow는 화면 표시용 자막의 시작점도 새로 잡는다.
                     // 회전 재진입은 이 분기에 오지 않으므로 기존 자막 보존 요구와 충돌하지 않는다.
                     subtitleItems = emptyList(),
+                    // 운영 신고는 "현재 화면 세션의 가장 최근 AI final 응답"만 대상으로 삼는다.
+                    // 새 세션 진입에서는 이전 세션의 신고 대상과 context snapshot을 반드시 비운다.
+                    reportContextTurns = emptyList(),
+                    reportableAiTurnId = null,
+                    reportableAiSessionId = null,
+                    isAiContentReporting = false,
+                    reportedAiContentTurnIds = emptySet(),
+                    aiContentReportErrorMessage = null,
                     lastFinalUserTranscript = "",
                     lastFinalAITranscript = "",
                     lastHandledFinalTurnId = null,
@@ -578,6 +594,94 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * 가장 최근 AI final 응답을 운영용 AI 콘텐츠 신고로 접수합니다.
+     *
+     * Google Play 대응용 신고는 release에서도 동작해야 하므로 dev prompt review와 별도 경로로 저장한다.
+     * 실패해도 Chat transport, 마이크 상태, SessionMemory 저장 흐름에는 영향을 주지 않는다.
+     */
+    fun reportLatestAiContent(
+        reasonCategory: AiContentReportReasonCategory,
+        detailNote: String? = null
+    ) {
+        val current = _uiState.value
+        val reportableTurnId = current.reportableAiTurnId ?: return
+        val reportableSessionId = current.reportableAiSessionId ?: current.activeSessionId ?: return
+        if (!current.canReportAiContent) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isAiContentReporting = true,
+                    aiContentReportErrorMessage = null
+                )
+            }
+
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+            val userPref = getUserLanguagePreferenceUseCase()
+            val selectedLang = phoneChatSessionController.getCurrentSessionLang() ?: userPref?.selectedLang
+            val reportedAiText = current.lastFinalAITranscript
+            if (uid.isNullOrBlank() || selectedLang == null || reportedAiText.isBlank()) {
+                // 신고 대상이 재현 불가능하면 운영 저장소에 불완전한 문서를 남기지 않는다.
+                // 대화 자체의 오류가 아니므로 Chat errorMessage에는 쓰지 않는다.
+                _uiState.update {
+                    it.copy(
+                        isAiContentReporting = false,
+                        aiContentReportErrorMessage = "신고할 수 있는 AI 응답을 찾지 못했어요."
+                    )
+                }
+                return@launch
+            }
+
+            val report = AiContentReport(
+                reportId = buildAiContentReportId(
+                    userId = uid,
+                    reportedTurnId = reportableTurnId
+                ),
+                userId = uid,
+                sessionId = reportableSessionId,
+                reportedTurnId = reportableTurnId,
+                reportedAiText = reportedAiText,
+                previousUserText = current.lastFinalUserTranscript.ifBlank { null },
+                // 전체 세션 대신 final-only 최근 snapshot만 저장해 운영 검토 맥락과 개인정보 최소화를 맞춘다.
+                contextTurns = current.reportContextTurns.takeLast(REPORT_CONTEXT_TURN_LIMIT),
+                primaryLang = userPref?.primaryLang ?: LangCode.UNKNOWN,
+                selectedLang = selectedLang,
+                reasonCategory = reasonCategory,
+                detailNote = detailNote
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.take(AI_CONTENT_REPORT_NOTE_MAX_LENGTH),
+                reportedAt = System.currentTimeMillis(),
+                appVersion = BuildConfig.VERSION_NAME,
+                modelVersion = BuildConfig.OPENAI_REALTIME_MODEL,
+                promptVersion = BuildPromptUseCase.PROMPT_VERSION,
+                promptRevision = BuildPromptUseCase.PROMPT_REVISION
+            )
+
+            reportAiContentUseCase(report)
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            isAiContentReporting = false,
+                            reportedAiContentTurnIds = it.reportedAiContentTurnIds + reportableTurnId,
+                            aiContentReportErrorMessage = null
+                        )
+                    }
+                    Log.i(TAG, "ai_content_report_submitted reportId=${report.reportId} turnId=$reportableTurnId")
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isAiContentReporting = false,
+                            aiContentReportErrorMessage = "신고 접수에 실패했어요. 잠시 후 다시 시도해 주세요."
+                        )
+                    }
+                    Log.w(TAG, "ai content report failed: ${error.message}", error)
+                }
+        }
+    }
+
+    /**
      * Chat destination 이 back stack 에 저장된 채 화면에서만 내려가는 경우에도 usage sync 를 시도합니다.
      *
      * Bottom navigation 의 saveState/restoreState 경로에서는 Composable 이 즉시 dispose 되지 않을 수 있습니다.
@@ -743,6 +847,10 @@ class ChatViewModel @Inject constructor(
             // final transcript는 저장 트리거이면서 화면 표시용 말풍선의 source event다.
             // partial/delta는 이 리스트에 넣지 않아 Sprint3 D 범위의 final-only 정책을 지킨다.
             val subtitleItems = it.subtitleItems.replaceLatestRoleSubtitle(event.toSubtitleItem())
+            // 운영 신고에는 전체 세션이 아니라 신고 시점 주변 final transcript만 필요하다.
+            // 화면 자막과 별도 리스트로 관리해야 역할별 최신 말풍선 교체 정책과 충돌하지 않는다.
+            val reportContextTurns = (it.reportContextTurns + event.toReportContextTurn())
+                .takeLast(REPORT_CONTEXT_TURN_LIMIT)
             // 화면 말풍선은 역할별 최신 1개만 남기지만, 중복 저장/표시 방어는 세션 동안 처리한
             // turnId 전체를 기준으로 해야 이전 final 이벤트가 늦게 재전달되어도 다시 반영되지 않는다.
             val handledFinalTurnIds = it.handledFinalTurnIds + event.turnId
@@ -756,6 +864,7 @@ class ChatViewModel @Inject constructor(
                     isAwaitingUserTranscript = false,
                     lastHandledFinalTurnId = event.turnId,
                     handledFinalTurnIds = handledFinalTurnIds,
+                    reportContextTurns = reportContextTurns,
                     subtitleItems = subtitleItems
                 )
 
@@ -764,6 +873,11 @@ class ChatViewModel @Inject constructor(
                     lastFinalAITranscript = event.text,
                     lastHandledFinalTurnId = event.turnId,
                     handledFinalTurnIds = handledFinalTurnIds,
+                    reportContextTurns = reportContextTurns,
+                    // Google Play 운영 신고 대상은 "가장 최근 AI final 응답"으로 고정한다.
+                    reportableAiTurnId = event.turnId,
+                    reportableAiSessionId = event.sessionId,
+                    aiContentReportErrorMessage = null,
                     subtitleItems = subtitleItems
                 )
             }
@@ -1724,6 +1838,8 @@ class ChatViewModel @Inject constructor(
         const val CONVERSATION_ANALYSIS_SAVE_SETTLE_DELAY_MS = 250L
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_ATTEMPTS = 6
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS = 180L
+        const val REPORT_CONTEXT_TURN_LIMIT = 6
+        const val AI_CONTENT_REPORT_NOTE_MAX_LENGTH = 300
 
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
@@ -1763,6 +1879,26 @@ private fun AIEvent.FinalTranscription.toSubtitleItem(): ChatSubtitleItem {
         role = role,
         text = text
     )
+}
+
+private fun AIEvent.FinalTranscription.toReportContextTurn(): AiContentReportContextTurn {
+    // 운영 신고 맥락도 화면 자막과 같은 final transcript만 사용한다.
+    // partial transcript는 인식 중 흔들릴 수 있어 정책 신고의 증거로 저장하지 않는다.
+    return AiContentReportContextTurn(
+        turnId = turnId,
+        sessionId = sessionId,
+        role = role,
+        text = text,
+        createdAt = createdAt
+    )
+}
+
+private fun buildAiContentReportId(userId: String, reportedTurnId: String): String {
+    // Firestore document id로 안전하게 쓰기 위해 구분자와 공백을 단순 치환한다.
+    // 같은 user/turn 조합은 같은 id가 되어 UI 방어를 우회한 중복 제출도 하나의 문서로 모인다.
+    val safeUserId = userId.replace(Regex("[^A-Za-z0-9_-]"), "_")
+    val safeTurnId = reportedTurnId.replace(Regex("[^A-Za-z0-9_-]"), "_")
+    return "${safeUserId}_$safeTurnId"
 }
 
 /**

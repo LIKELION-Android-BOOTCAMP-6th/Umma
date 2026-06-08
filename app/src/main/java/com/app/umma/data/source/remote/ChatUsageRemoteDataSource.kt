@@ -29,7 +29,8 @@ interface ChatUsageRemoteDataSource {
 
 @Singleton
 class CloudFunctionChatUsageRemoteDataSource @Inject constructor(
-    private val firebaseAuth: FirebaseAuth
+    private val firebaseAuth: FirebaseAuth,
+    private val appCheckTokenProvider: FirebaseAppCheckTokenProvider
 ) : ChatUsageRemoteDataSource {
 
     // Usage sync는 세션 종료 시점의 짧은 HTTPS 요청이다.
@@ -63,18 +64,25 @@ class CloudFunctionChatUsageRemoteDataSource @Inject constructor(
                 ?.await()
                 ?.token
                 ?: error("Firebase ID token is required")
+            // Usage sync도 OkHttp로 직접 호출하는 Cloud Function이므로 SDK 자동 App Check header가 붙지 않는다.
+            // 서버가 사용자 인증뿐 아니라 앱 출처까지 검증할 수 있도록 가능한 경우 token을 함께 보낸다.
+            val appCheckToken = appCheckTokenProvider.fetchOptionalToken(USAGE_SYNC_REQUEST_NAME)
 
             val requestBody = aggregate
                 .toFunctionPayload()
                 .toString()
                 .toRequestBody(JSON_MEDIA_TYPE)
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(syncUrl)
                 // Cloud Function은 Authorization header의 Firebase ID token으로 사용자 경계를 검증한다.
                 .addHeader("Authorization", "Bearer $idToken")
                 .addHeader("Content-Type", "application/json")
                 .post(requestBody)
-                .build()
+            // App Check enforcement 전에는 token 누락을 실패로 처리하지 않고 monitoring header로만 사용한다.
+            appCheckToken?.let { token ->
+                requestBuilder.addHeader(FirebaseAppCheckTokenProvider.HEADER_NAME, token)
+            }
+            val request = requestBuilder.build()
 
             withContext(Dispatchers.IO) {
                 client.newCall(request).execute().use { response ->
@@ -143,3 +151,4 @@ private fun kotlinx.serialization.json.JsonObjectBuilder.putNullableLong(
 }
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+private const val USAGE_SYNC_REQUEST_NAME = "submitChatUsageSession"
