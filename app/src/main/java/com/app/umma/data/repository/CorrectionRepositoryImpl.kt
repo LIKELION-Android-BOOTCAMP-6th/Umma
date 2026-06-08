@@ -1,5 +1,6 @@
 package com.app.umma.data.repository
 
+import android.util.Log
 import com.app.umma.data.repository.correction.BlankExplanationException
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
@@ -51,6 +52,10 @@ open class CorrectionRepositoryImpl @Inject constructor(
 
         return runCatching {
             val prompt = promptBuilder.build(input)
+            // COR-FIX-009: AI 호출 직전 후보 목록/선택 언어/turn 정보를 남긴다.
+            // unknown candidateId 가 발생했을 때 "AI 가 hallucinate 했는지" vs "이 시점의 후보 목록 자체가
+            // prompt 에 박힌 ID와 달랐는지"를 mapper 진단 로그와 교차 확인할 수 있게 하는 조사용 로그다.
+            logGenerationRequest(input)
             // mapper 가 candidateId 매칭과 필수 필드 검증을 require 로 막아 둔다.
             // 매칭 실패 / 누락 → IllegalArgumentException → 여기 runCatching 으로 Result.failure 변환 → 화면 Error.
             val mapped = generateAndMapWithRetry(prompt, input)
@@ -94,6 +99,26 @@ open class CorrectionRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * COR-FIX-009: AI 호출 직전 조사용 진단 로그.
+     *
+     * unknown candidateId 실패 시 mapper 가 남기는 진단(받은 id + 그 시점에 알던 id 목록)과
+     * 이 로그(prompt 에 실제로 실린 후보 id/turn 정보)를 나란히 보면, "prompt 에 ID 가 있었는데
+     * mapper 시점엔 없었다"(상태 재사용 불일치) 와 "애초에 prompt 에 없었다"(AI hallucination)를
+     * Logcat 만으로 구분할 수 있다. android.util.Log 는 JVM 단위 테스트에서 throw 하므로
+     * mapper 의 logWarn 패턴과 동일하게 runCatching 으로 감싼다.
+     */
+    private fun logGenerationRequest(input: GenerateSuggestionsInput) {
+        runCatching {
+            val ids = input.candidates.map { "${it.id}(turn=${it.sourceTurnIndex})" }
+            Log.d(
+                TAG,
+                "generateSuggestions request — lang=${input.langState.lang.code}, " +
+                    "candidateCount=${input.candidates.size}, candidates=$ids"
+            )
+        }
+    }
+
     /** 1차 실패 유형에 맞춰 재시도 prompt에 덧붙일 보정 지시를 고른다. */
     private fun retryInstruction(failure: Exception): String = when (failure) {
         is BlankExplanationException ->
@@ -126,5 +151,10 @@ open class CorrectionRepositoryImpl @Inject constructor(
             // 완료 파이프라인이 중간 실패하면 같은 저장 요청으로 만든 카드만 되돌린다.
             flashcardStore.rollback(request)
         }
+    }
+
+    private companion object {
+        // logcat 필터 식별자. COR-FIX-009 조사용 로그가 이 태그로 모인다.
+        private const val TAG = "CorrectionRepositoryImpl"
     }
 }

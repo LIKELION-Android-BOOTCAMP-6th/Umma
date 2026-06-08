@@ -321,4 +321,85 @@ class ExtractCandidatesUseCaseTest {
 
         assertTrue(result.isEmpty())
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // candidateId 결정성 (COR-FIX-009)
+    //
+    // "unknown correction candidate id: ja-6-0-79967d5" 실패의 원인 후보 중 하나가
+    // buildCandidateId() 의 비결정성(같은 입력인데 매 호출마다 다른 id)이었다.
+    // 같은 입력 → 항상 같은 id 임을 일본어 포함으로 못 박아 회귀를 방지한다.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `same input produces identical candidate ids on repeated invocation`() {
+        // 같은 input 객체를 두 번 호출해도 id·순서·sourceTurnIndex 가 완전히 같아야 한다.
+        // AI 가 prompt 의 Candidates 섹션과 mapper 시점의 후보 목록을 같은 id 로 매칭하려면
+        // 이 안정성이 buildCandidateId() 단에서부터 보장되어야 한다.
+        val input = ExtractCandidatesInput(
+            selectedLang = LangCode.EN,
+            sessionLang = LangCode.EN,
+            recentFullContext = listOf(
+                ConversationTurn(TurnSpeaker.AI, "What did you do yesterday?"),
+                ConversationTurn(TurnSpeaker.USER, "I go to Paris yesterday. It was very fun.")
+            )
+        )
+
+        val first = useCase(input)
+        val second = useCase(input)
+
+        assertEquals(first.map { it.id }, second.map { it.id })
+        assertEquals(first.map { it.sourceTurnIndex }, second.map { it.sourceTurnIndex })
+        assertEquals(first.map { it.sourceText }, second.map { it.sourceText })
+    }
+
+    @Test
+    fun `japanese input produces stable ja-prefixed deterministic candidate ids`() {
+        // 일본어 후보도 영어와 동일한 lang-turnIndex-splitIndex-hash 계약을 따라야 하고,
+        // 같은 입력을 반복 호출해도 같은 id 가 나와야 한다(실제 실패 사례의 lang=ja 재현).
+        val input = ExtractCandidatesInput(
+            selectedLang = LangCode.JA,
+            sessionLang = LangCode.JA,
+            recentFullContext = listOf(
+                ConversationTurn(TurnSpeaker.USER, "わたしは昨日学校に行きました。とても楽しかったです。")
+            )
+        )
+
+        val first = useCase(input)
+        val second = useCase(input)
+
+        assertEquals(2, first.size)
+        assertTrue(first[0].id.startsWith("ja-0-0-"))
+        assertTrue(first[1].id.startsWith("ja-0-1-"))
+        assertEquals(first.map { it.id }, second.map { it.id })
+    }
+
+    @Test
+    fun `leading and trailing whitespace around a sentence does not change its candidate id hash`() {
+        // splitIntoSentences()/normalize() 가 trim 외의 변형(예: 내부 공백 정규화)을 sourceText 자체에
+        // 적용하면 hashCode 가 달라져 candidateId 가 흔들릴 수 있다. 문장 앞뒤 공백만 다른 발화도
+        // 같은 candidateId 를 내야 한다 — sourceText 는 trim 된 형태로 hash 에 들어가기 때문이다.
+        val baseline = useCase(
+            ExtractCandidatesInput(
+                selectedLang = LangCode.JA,
+                sessionLang = LangCode.JA,
+                recentFullContext = listOf(
+                    ConversationTurn(TurnSpeaker.USER, "わたしは学校に行きます。")
+                )
+            )
+        )
+        val padded = useCase(
+            ExtractCandidatesInput(
+                selectedLang = LangCode.JA,
+                sessionLang = LangCode.JA,
+                recentFullContext = listOf(
+                    ConversationTurn(TurnSpeaker.USER, "  わたしは学校に行きます。  ")
+                )
+            )
+        )
+
+        assertEquals(1, baseline.size)
+        assertEquals(1, padded.size)
+        assertEquals(baseline.first().sourceText, padded.first().sourceText)
+        assertEquals(baseline.first().id, padded.first().id)
+    }
 }

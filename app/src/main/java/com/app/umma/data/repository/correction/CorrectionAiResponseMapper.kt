@@ -95,8 +95,17 @@ class CorrectionAiResponseMapper @Inject constructor() {
         return response.suggestions.mapNotNull { item ->
             // 3) AI가 알 수 없는 후보 ID를 돌려주면 beforeText/sourceTurnIndex를 보장할 수 없다.
             // 출처가 깨진 교정 결과는 저장하면 안 되므로 파싱 실패로 다룬다.
-            val candidate = requireNotNull(candidatesById[item.candidateId]) {
-                "unknown correction candidate id: ${item.candidateId}"
+            // COR-FIX-009: strict 검증(IllegalArgumentException, 재시도 없음)은 그대로 유지하되,
+            // throw 직전에 known candidateId 일부 + count 를 Logcat 에 남겨 hallucination 인지
+            // 후보 생성/상태 재사용 불일치인지 원인 조사를 가능하게 한다. 사용자 화면(errorReason)에는
+            // 단일 id 메시지만 노출되므로 내부 ID 목록 비노출(COR-UX-002 정책) 과 충돌하지 않는다.
+            val candidate = candidatesById[item.candidateId] ?: run {
+                val diagnostic = unknownCandidateIdDiagnostic(
+                    unknownId = item.candidateId,
+                    knownIds = candidatesById.keys
+                )
+                logUnknownCandidateId(diagnostic)
+                throw IllegalArgumentException(diagnostic)
             }
 
             // 현재 선택 언어와 후보 언어가 다르면 같은 교정 세션 결과로 사용할 수 없다.
@@ -370,6 +379,28 @@ class CorrectionAiResponseMapper @Inject constructor() {
         return result
     }
 
+    /**
+     * COR-FIX-009: unknown candidateId 진단을 Logcat 에 남긴다.
+     *
+     * AI 가 hallucinate 한 것인지(known 목록에 비슷한 id가 없음) 후보 생성/상태 재사용이
+     * 깨진 것인지(known 목록에 같은 turn 의 다른 id가 있음 등)를 가리려면 "어떤 id 를 받았는가" 뿐
+     * 아니라 "그 시점에 mapper 가 알던 id 가 무엇이었는가"가 필요하다. 전체 목록은 길어질 수 있어
+     * 앞 [MAX_DIAGNOSTIC_IDS] 개 + 전체 개수만 남긴다 — 사용자 화면 errorReason 에는 단일 id 메시지만
+     * 노출되므로(COR-UX-002), 여기서 목록을 늘려도 내부 ID 비노출 정책과 충돌하지 않는다.
+     */
+    private fun unknownCandidateIdDiagnostic(
+        unknownId: String,
+        knownIds: Collection<String>
+    ): String {
+        val sample = knownIds.take(MAX_DIAGNOSTIC_IDS)
+        return "unknown correction candidate id: $unknownId, " +
+            "knownCandidateIds=$sample, count=${knownIds.size}"
+    }
+
+    private fun logUnknownCandidateId(message: String) {
+        logWarn(message)
+    }
+
     /** signal 전체 drop 을 Logcat 에 남긴다. candidateId 와 위반 값으로 원인을 추적할 수 있게 한다. */
     private fun logDroppedSignal(candidateId: String, field: String, value: String?) {
         logWarn("learningSignal dropped — candidateId=$candidateId, $field=$value")
@@ -402,6 +433,10 @@ class CorrectionAiResponseMapper @Inject constructor() {
 
         // candidate 당 issueCategories/languageFeatures/improvementTypes/editSpans 각 최대 개수.
         private const val MAX_SIGNAL_ITEMS = 3
+
+        // COR-FIX-009: unknown candidateId 진단 로그에 남길 known id 샘플 상한.
+        // 전체 후보가 많을 때 Logcat 한 줄이 과도하게 길어지지 않도록 앞쪽 일부만 남기고 count 로 전체 규모를 보존한다.
+        private const val MAX_DIAGNOSTIC_IDS = 5
 
         /**
          * 초기 languageFeature allowlist (COR-TUNE-02).

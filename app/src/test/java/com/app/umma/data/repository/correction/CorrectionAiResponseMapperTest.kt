@@ -78,6 +78,38 @@ class CorrectionAiResponseMapperTest {
     }
 
     @Test
+    fun `fails when AI response references unknown japanese candidate id`() {
+        // COR-FIX-009: 실제 실패 사례(`unknown correction candidate id: ja-6-0-79967d5`)의 재현.
+        // 일본어 후보에서도 strict 검증(IllegalArgumentException, 재시도 없음)이 그대로 유지되어야
+        // 한다 — 진단 로그를 추가했다고 해서 unknown candidateId 가 통과되거나 무시되면 안 된다.
+        val candidate = CorrectionCandidate(
+            id = "ja-6-0-79967d5",
+            lang = LangCode.JA,
+            sourceTurnIndex = 6,
+            sourceText = "わたしは学校に行きました"
+        )
+        val rawJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "ja-6-0-deadbeef",
+                  "nativeText": "나는 학교에 갔다",
+                  "afterText": "学校に行きました。",
+                  "explanation": "demo"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val error = assertThrowsIllegalArgument {
+            mapper.map(rawJson, inputOf(candidate))
+        }
+        assertTrue(error.message.orEmpty().contains("unknown correction candidate id: ja-6-0-deadbeef"))
+        assertTrue(error.message.orEmpty().contains("knownCandidateIds=[ja-6-0-79967d5]"))
+        assertTrue(error.message.orEmpty().contains("count=1"))
+    }
+
+    @Test
     fun `fails when required text field is blank`() {
         val rawJson = """
             {
@@ -590,13 +622,15 @@ class CorrectionAiResponseMapperTest {
         )
     }
 
-    private fun assertThrowsIllegalArgument(block: () -> Unit) {
+    private fun assertThrowsIllegalArgument(block: () -> Unit): IllegalArgumentException {
         try {
             block()
             fail("Expected IllegalArgumentException")
-        } catch (_: IllegalArgumentException) {
+        } catch (e: IllegalArgumentException) {
             // Expected path: invalid AI response should fail before reaching the domain layer.
+            return e
         }
+        error("unreachable")
     }
 
     /**

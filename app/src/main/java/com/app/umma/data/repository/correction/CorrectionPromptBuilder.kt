@@ -115,7 +115,13 @@ class CorrectionPromptBuilder @Inject constructor() {
             // 직접 돌려준 적이 있다 — mapper fallback으로도 방어하지만, 프롬프트로 빈도를 줄인다.
             appendLine("- The top-level JSON value MUST be an object with a \"suggestions\" array, exactly as in the schema above. Do NOT return a bare array as the top-level JSON value.")
             appendLine("- Do not put any marker, grade, label, letter, or extra character outside JSON string values. Escape quotation marks inside string values such as explanation. The response must parse with a strict JSON parser.")
-            appendLine("- candidateId: COPY EXACTLY from the candidates above. Do not invent new ids.")
+            // COR-FIX-009: candidateId hallucination(예: "ja-6-0-79967d5") 방어. 한 줄 지시로는
+            // 모델이 "비슷한 ID를 만들어도 된다"고 오해할 여지가 있어, 복사/생성금지/skip 세 규칙으로 명시한다.
+            // mapper의 unknown candidateId strict 검증(IllegalArgumentException, 재시도 없음)은 그대로 유지하고
+            // 여기서는 애초에 unknown이 발생하지 않도록 계약을 단단히 한다.
+            appendLine("- candidateId: COPY EXACTLY one of the candidateId values from the Candidates section above. Do not invent new ids.")
+            appendLine("- Never create, infer, shorten, hash, translate, or reformat a candidateId.")
+            appendLine("- If you cannot use an exact candidateId from the Candidates section, skip that candidate.")
             appendLine("- nativeText: the front-face sentence in $primaryLangName (${primaryLang.code}).")
             appendLine("- afterText: the corrected sentence in ${selectedLang.code}.")
             // COR-TUNE-003-FIX: primaryLang 고정 제거 → Explanation 정책에 위임.
