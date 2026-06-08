@@ -81,6 +81,7 @@ class ChatPromptIntegrationUseCaseTest {
         assertTrue(chatRepository.startedInstruction.contains("persona:"))
         assertTrue(chatRepository.startedInstruction.contains("language_use:"))
         assertTrue(chatRepository.startedInstruction.contains("conversation_principles:"))
+        assertTrue(chatRepository.startedInstruction.contains("safety_policy:"))
         assertTrue(chatRepository.startedInstruction.contains("current_style:"))
         assertTrue(chatRepository.startedInstruction.contains("style_reference:"))
         assertTrue(chatRepository.startedInstruction.contains("learning_language: 영어"))
@@ -95,9 +96,9 @@ class ChatPromptIntegrationUseCaseTest {
 
         // trace는 prompt 전문 없이 현재 버전과 섹션만 남겨 Logcat/리뷰 도구에서 구조를 확인하게 한다.
         assertTrue(chatRepository.startedPromptTrace!!.contains("promptVersion=chat_prompt_v2"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N026"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N027"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("transcription={revision=stt_prompt_v2,languages=ko+en}"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("sections=conversation_frame,persona,language_use,conversation_principles,safety_policy,current_style,style_reference,context"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("context={turns=1,topics=1,interests=2}"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("conversationEvidence={applied=false,band=IntentOnly,source=none}"))
         assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("A single utterance may contain Korean, English."))
