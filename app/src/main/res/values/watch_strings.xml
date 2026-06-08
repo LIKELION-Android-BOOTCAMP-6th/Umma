@@ -1,0 +1,5 @@
+<resources>
+    <string name="watch_chat_notification_channel_name">Watch Chat Runtime</string>
+    <string name="watch_chat_notification_title">Umma Watch가 실행중이에요.</string>
+    <string name="watch_chat_notification_body">대화를 계속하시려면 휴대폰 Umma를 백그라운드로 유지해주세요.</string>
+</resources>
