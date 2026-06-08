@@ -111,6 +111,19 @@ class FakeLearningStateRepo @Inject constructor(
         return Result.success(Unit)
     }
 
+    override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> {
+        val current = _state.value
+        val userPref = current.userPref ?: return Result.success(Unit)
+
+        _state.value = current.copy(
+            userPref = userPref.copy(
+                primaryLang = lang,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        return Result.success(Unit)
+    }
+
     override suspend fun updateLanguageState(
         input: LangStateUpdateInput
     ): Result<LearningStateUpdateResult> {

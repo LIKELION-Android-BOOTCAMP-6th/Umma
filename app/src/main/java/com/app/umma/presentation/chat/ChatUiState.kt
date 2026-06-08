@@ -4,7 +4,8 @@ import com.app.umma.domain.model.chat.AiContentReportContextTurn
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.user.Topic
-import com.app.umma.watchbridge.SessionOwner
+import com.app.umma.watchbridge.contract.WatchInputSurface
+import com.app.umma.watchbridge.contract.WatchOutputSurface
 
 /**
  * AI Chat 화면의 UI 상태를 정의하는 데이터 클래스입니다.
@@ -93,7 +94,9 @@ data class ChatUiState(
     val isAiContentReporting: Boolean = false,
     val reportedAiContentTurnIds: Set<String> = emptySet(),
     val aiContentReportErrorMessage: String? = null,
-    val sessionOwner: SessionOwner = SessionOwner.NONE,
+    val watchAttached: Boolean = false,
+    val activeInputSurface: WatchInputSurface = WatchInputSurface.NONE,
+    val activeOutputSurface: WatchOutputSurface = WatchOutputSurface.PHONE,
 ) {
     /**
      * 운영용 AI 콘텐츠 신고 버튼 활성 조건입니다.
@@ -132,7 +135,8 @@ data class ChatUiState(
                 && aiState != AIState.SPEAKING
                 && aiState != AIState.THINKING
                 && aiState != AIState.RECONNECTING
-                && sessionOwner != SessionOwner.WATCH
+                && !watchAttached
+                && activeInputSurface != WatchInputSurface.WATCH
 
     /**
      * 유저가 발화를 끝낼 수 있는 경우 ->

@@ -3,6 +3,7 @@ package com.app.umma.presentation.correction
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSuggestion
+import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
@@ -45,6 +46,11 @@ import com.app.umma.domain.model.learningstate.selectedLang
  *    분기를 [applyGenerationOutcome] pure helper 로 일원화한다. Error 에서는 같은 Session Memory/선택 언어 기준의
  *    Retry 액션을 [CorrectionViewModel.onRetryClicked] 로 제공한다. 터미널 phase(Empty/EmptyResult/Error) 진입 시
  *    generationLaunched 가드를 해제해, 다른 경로로 학습 언어가 바뀌면 새 Ready emit 에서 자동 재시도된다.
+ *  - (COR-UX-001) Generating 동안 노출하는 5단계 로딩 안내가 실제 파이프라인 진행과 어긋나지 않도록
+ *    [loadingStep] 을 ViewModel 이 구동해 화면은 렌더링만 한다(4단계는 실제 AI 호출 종료 시점을 반영).
+ *    동시에 비어 있는 대기 영역을 채우기 위해 현재 학습 언어의 로컬 [Flashcard] 를 오래된 순으로 읽어
+ *    경량 표시 모델 [CorrectionLoadingCard] 목록([loadingFlashcards]) 으로 보관한다 — 조회는 파이프라인과
+ *    독립적이며 실패해도 빈 리스트로 남아 화면이 안내 카드로 폴백한다.
  *
  * 비범위:
  *  - "전체 선택" 토글은 후속 UI 백로그 범위.
@@ -107,6 +113,16 @@ data class CorrectionUiState(
     // saveErrorReason 과 의미가 다르다 — saveErrorReason 은 "저장 요청 변환 단계 실패", 본 필드는
     // "완료 파이프라인 단계 실패" 사유다. 두 필드가 동시에 채워지는 일은 정상 흐름에서는 없다.
     val completionErrorReason: String? = null,
+    // COR-UX-001: Generating 동안 노출할 진행 단계 인덱스(0~4, 5단계).
+    // 화면 자체 타이머가 아니라 ViewModel 의 [CorrectionViewModel.triggerGeneration] 타임라인이
+    // 실제 파이프라인 진행에 맞춰 구동한다 — 4단계(인덱스 3)는 실제 AI 호출이 끝날 때까지 유지된다.
+    // Generating 이외의 phase 에서는 의미가 없으므로 화면이 참조하지 않는다.
+    val loadingStep: Int = 0,
+    // COR-UX-001: 로딩 동안 대기 시간을 채울 복습용 플래시카드 목록(오래된 순).
+    // 현재 학습 언어의 로컬 Flashcard 를 [com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase]
+    // 로 읽기만 해 변환한 경량 모델이다 — SRS 스케줄/평가 등 원본 책임은 건드리지 않는다.
+    // 빈 리스트면 화면이 안내 문구 카드로 폴백한다(파이프라인을 막지 않는 별도 로드라 실패 시에도 빈 리스트).
+    val loadingFlashcards: List<CorrectionLoadingCard> = emptyList(),
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.
@@ -167,6 +183,21 @@ data class CorrectionUiState(
 /** Ready 진입 여부를 한 줄로 확인할 수 있는 편의 속성. */
 val CorrectionUiState.isReady: Boolean
     get() = phase == CorrectionUiState.Phase.Ready
+
+/**
+ * COR-UX-001: 로딩 화면 복습 영역에 노출할 경량 플래시카드 표시 모델.
+ *
+ * [com.app.umma.domain.model.flashcard.Flashcard] 의 표시 전용 부분집합이다 — 화면은
+ * 앞면(primary language 문장)과 뒷면(교정된 문장)만 보여주고 SRS 스케줄/평가/발음/문법노트는
+ * 다루지 않으므로, ViewModel 이 [Flashcard.frontText] / [Flashcard.backText] 만 옮겨 담는다.
+ *
+ * @param front 카드 앞면에 노출할 primary language 문장 ([Flashcard.frontText]).
+ * @param back 카드 뒷면에 노출할 교정된 문장 ([Flashcard.backText]).
+ */
+data class CorrectionLoadingCard(
+    val front: String,
+    val back: String,
+)
 
 /**
  * COR-005-A 저장 요청 변환 시도의 분기 결과.

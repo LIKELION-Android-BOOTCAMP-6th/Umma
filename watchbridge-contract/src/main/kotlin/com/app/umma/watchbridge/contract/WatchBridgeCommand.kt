@@ -14,6 +14,10 @@ sealed interface WatchBridgeCommand {
     data object StartWatchChatSession : WatchBridgeCommand
 
     @Serializable
+    @SerialName("detach_watch_chat")
+    data object DetachWatchChat : WatchBridgeCommand
+
+    @Serializable
     @SerialName("press_ptt")
     data object PressPtt : WatchBridgeCommand
 
@@ -24,6 +28,10 @@ sealed interface WatchBridgeCommand {
     @Serializable
     @SerialName("cancel_current_turn")
     data object CancelCurrentTurn : WatchBridgeCommand
+
+    @Serializable
+    @SerialName("replay_last_ai_audio")
+    data object ReplayLastAiAudio : WatchBridgeCommand
 
     @Serializable
     @SerialName("open_on_phone")

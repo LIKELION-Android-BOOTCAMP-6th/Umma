@@ -3,18 +3,22 @@ package com.app.umma.watchbridge
 import com.app.umma.watchbridge.contract.WatchBridgeErrorCode
 import com.app.umma.watchbridge.contract.WatchBridgeEvent
 import com.app.umma.watchbridge.contract.WatchChatStatus
+import com.app.umma.watchbridge.contract.WatchInputSurface
 import javax.inject.Inject
 
 class WatchBridgeEventMapper @Inject constructor() {
     fun toSnapshot(snapshot: PhoneChatSessionSnapshot): WatchBridgeEvent.Snapshot {
         return WatchBridgeEvent.Snapshot(
             status = when {
-                snapshot.owner == SessionOwner.NONE && snapshot.activeSessionId == null ->
+                !snapshot.watchAttached && snapshot.activeSessionId == null ->
                     WatchChatStatus.UNAVAILABLE
                 else -> snapshot.status
             },
             activeSessionId = snapshot.activeSessionId,
             currentLanguageCode = snapshot.currentLang?.code,
+            watchAttached = snapshot.watchAttached,
+            activeInputSurface = snapshot.activeInputSurface,
+            activeOutputSurface = snapshot.activeOutputSurface,
             replayAvailable = snapshot.replayAvailable,
             recentTurns = snapshot.recentTurns,
             recoverable = snapshot.recoverableError,
@@ -36,11 +40,18 @@ class WatchBridgeEventMapper @Inject constructor() {
             status = snapshot.status,
             activeSessionId = snapshot.activeSessionId,
             currentLanguageCode = snapshot.currentLang?.code,
+            watchAttached = snapshot.watchAttached,
+            activeInputSurface = snapshot.activeInputSurface,
+            activeOutputSurface = snapshot.activeOutputSurface,
             replayAvailable = snapshot.replayAvailable,
             recentTurns = snapshot.recentTurns,
             recoverable = false,
             errorCode = WatchBridgeErrorCode.BUSY_BY_PHONE,
-            errorMessage = "Phone chat is already controlling this session."
+            errorMessage = if (snapshot.activeInputSurface == WatchInputSurface.PHONE) {
+                "Phone chat is currently using the microphone."
+            } else {
+                "Phone chat cannot switch watch input right now."
+            }
         )
     }
 }
