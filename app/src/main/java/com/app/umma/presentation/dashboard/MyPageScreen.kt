@@ -113,10 +113,15 @@ fun MyPageScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showNativeLanguageDialog by remember { mutableStateOf(false) }
-    var selectedNativeLanguage by remember { mutableStateOf(LangCode.KO) }
 
     val authUiState by authViewModel.uiState.collectAsState()
     val notificationUiState by myPageViewModel.uiState.collectAsState()
+    val profileUiState by myPageViewModel.profileState.collectAsState()
+    // 로그아웃/탈퇴(auth)와 주언어 저장(profile) 중 하나라도 진행 중이면 화면을 차단한다.
+    val isProcessing = authUiState.isLoading || profileUiState.isSaving
+    var selectedNativeLanguage by remember(profileUiState.primaryLang) {
+        mutableStateOf(profileUiState.primaryLang)
+    }
     val context = LocalContext.current
     val googleAuthorizationHelper = remember(context) { GoogleAuthorizationHelper(context) }
     val coroutineScope = rememberCoroutineScope()
@@ -198,6 +203,13 @@ fun MyPageScreen(
         }
     }
 
+    LaunchedEffect(profileUiState.message) {
+        profileUiState.message?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            myPageViewModel.onProfileMessageConsumed()
+        }
+    }
+
     LaunchedEffect(notificationUiState.permissionRequired) {
         if (!notificationUiState.permissionRequired) return@LaunchedEffect
         if (hasNotificationPermission()) {
@@ -213,7 +225,7 @@ fun MyPageScreen(
         }
     }
     // 뒤로가기를 무시
-    BackHandler(enabled = authUiState.isLoading) {
+    BackHandler(enabled = isProcessing) {
     }
 
     if (notificationUiState.showTimePicker) {
@@ -232,7 +244,7 @@ fun MyPageScreen(
                 UmmaAppBar(
                     title = "마이페이지",
                     isCenterTitle = true,
-                    onBackClick = if (authUiState.isLoading) null else onBackClick,
+                    onBackClick = if (isProcessing) null else onBackClick,
                 )
             },
         ) { paddingValues ->
@@ -277,15 +289,15 @@ fun MyPageScreen(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         SettingRow(
                             icon = Icons.Default.Language,
-                            label = "모국어 설정",
-                            enabled = !authUiState.isLoading,
+                            label = "주언어 설정",
+                            enabled = !isProcessing,
                             onClick = { showNativeLanguageDialog = true },
                         )
                         HorizontalDivider(color = BackgroundHighlight)
                         SettingRow(
                             icon = Icons.AutoMirrored.Filled.Logout,
                             label = "로그아웃",
-                            enabled = !authUiState.isLoading,
+                            enabled = !isProcessing,
                             onClick = { showLogoutDialog = true },
                         )
                     }
@@ -299,17 +311,20 @@ fun MyPageScreen(
                     SettingRow(
                         icon = Icons.Default.Warning,
                         label = "회원탈퇴",
-                        enabled = !authUiState.isLoading,
+                        enabled = !isProcessing,
                         onClick = { showDeleteAccountDialog = true },
                     )
                 }
 
                 if (showNativeLanguageDialog) {
                     UmmaDialog(
-                        title = "모국어 선택",
+                        title = "주언어 선택",
                         modifier = Modifier.padding(horizontal = SpacingL),
                         onCancel = { showNativeLanguageDialog = false },
-                        onConfirm = { showNativeLanguageDialog = false },
+                        onConfirm = {
+                            myPageViewModel.onPrimaryLanguageChanged(selectedNativeLanguage)
+                            showNativeLanguageDialog = false
+                        },
                         confirmText = "완료",
                     ) {
                         Column(
@@ -317,10 +332,18 @@ fun MyPageScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 24.dp),
                         ) {
+                            // 다국어 미지원이라 한국어만 선택 가능. 지원 시 안내문과 enabled 조건 제거.
+                            Text(
+                                text = "현재는 한국어만 선택 가능합니다",
+                                fontSize = 14.sp,
+                                color = TextPrimary,
+                                modifier = Modifier.padding(bottom = SpacingS),
+                            )
                             nativeLanguageOptions.forEach { (code, label) ->
                                 LanguageButton(
                                     text = label,
                                     isSelected = selectedNativeLanguage == code,
+                                    enabled = code == LangCode.KO,
                                     onClick = { selectedNativeLanguage = code },
                                 )
                             }
@@ -422,7 +445,7 @@ fun MyPageScreen(
 
         }
         // 작업 중 화면 전체 입력을 막고 진행 상태를 표시
-        if (authUiState.isLoading) {
+        if (isProcessing) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -850,11 +873,16 @@ private fun LanguageButton(
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         border = if (isSelected) BorderStroke(1.5.dp, ThemePrimary) else null,
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = BackgroundSecondary),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = BackgroundSecondary,
+            disabledContainerColor = BackgroundSecondary,
+        ),
         shape = RoundedCornerShape(30.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -864,7 +892,11 @@ private fun LanguageButton(
         Text(
             text = text,
             fontSize = 16.sp,
-            color = if (isSelected) ThemePrimary else TextPrimary,
+            color = when {
+                !enabled -> TextPrimary.copy(alpha = 0.3f)
+                isSelected -> ThemePrimary
+                else -> TextPrimary
+            },
         )
     }
 }

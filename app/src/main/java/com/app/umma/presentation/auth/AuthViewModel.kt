@@ -208,7 +208,9 @@ class AuthViewModel @Inject constructor(
                 uid = uid,
                 email = email,
                 nickname = _uiState.value.nickname,
-                primaryLang = getSystemLanguageUseCase(),
+                // 시스템 언어 필요시 아래 줄로 복구
+                // primaryLang = getSystemLanguageUseCase(),
+                primaryLang = LangCode.KO,
                 selectedLang = selectedLearningLanguage,
                 topics = emptyList()
             )
