@@ -67,7 +67,7 @@ class BuildPromptUseCaseTest {
         assertTrue(prompt.contains("일본어 만으로 길게 이어 가지 않는다."))
         assertTrue(prompt.contains("단어, 짧은 구, 아주 쉬운 한 문장으로 반응할 수 있게 한다."))
         // 일본어 세션에서는 영어 예시가 들어가면 language_use의 두 언어 제한과 충돌하므로 일본어 예시만 허용한다.
-        assertTrue(prompt.contains("ともだちと話した. 기분 좀 나아졌어?"))
+        assertTrue(prompt.contains("ともだちと話した. 기분 좀 나아졌겠다."))
         assertFalse(prompt.contains("Lunch? Good?"))
         assertFalse(prompt.contains("Tired today."))
         assertFalse(prompt.contains("초기 단계에서는 AI가 대화를 대부분 리드한다."))
@@ -180,6 +180,40 @@ class BuildPromptUseCaseTest {
         assertFalse(prompt.contains("끄덕"))
         assertFalse(prompt.contains("よく寝た?"))
         assertFalse(prompt.contains("오늘은 천천히. ゆっくり."))
+    }
+
+    @Test
+    fun `intent only examples keep the same rhythm across learning languages`() {
+        val englishPrompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.EN
+        )
+        val japanesePrompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.JA
+        )
+
+        // 언어별 예시는 다른 철학이 아니라 같은 band 리듬을 각 언어의 짧은 조각으로만 바꾼다.
+        assertTrue(englishPrompt.contains("집 앞 산책 좋지. Walk. 바람도 좋았겠다."))
+        assertTrue(japanesePrompt.contains("집 앞 산책 좋지. さんぽ. 바람도 좋았겠다."))
+        assertTrue(englishPrompt.contains("친구랑 통화했구나. Friend. 같이 걸으면 덜 심심하지."))
+        assertTrue(japanesePrompt.contains("친구랑 통화했구나. ともだち. 같이 걸으면 덜 심심하지."))
+        assertTrue(englishPrompt.contains("막히면: 어디였어? 집 앞 / 공원. Home / park."))
+        assertTrue(japanesePrompt.contains("막히면: 어디였어? 집 앞 / 공원. いえ / こうえん."))
+        assertFalse(englishPrompt.contains("What was the best part?"))
+        assertFalse(englishPrompt.contains("What’s a small thing?"))
+        assertFalse(englishPrompt.contains("Making an app"))
+        assertFalse(japanesePrompt.contains("アプリ"))
     }
 
     @Test
