@@ -22,7 +22,48 @@ data class GenerateSuggestionsInput(
     // 이미 해석이 끝난 교정 적응 정책 read model (COR-TUNE-01).
     // BuildLearnerAdaptationProfileUseCase 가 raw LangState metric 을 정책으로 변환한 결과이며,
     // CorrectionPromptBuilder 는 이 profile 의 correctionPolicy/focus 만 행동 지시로 쓰고 raw metric 은 해석하지 않는다.
-    val profile: LearnerAdaptationProfile
+    val profile: LearnerAdaptationProfile,
+    // COR-TUNE-010: 의도 파악용 세션 맥락. 후보 1문장 + assistantContext 한마디보다 넓은 범위로
+    // "이 학습자가 무엇을 말하려 했는지"를 AI가 먼저 추론하도록 돕는다.
+    // 비어 있으면(SessionMemory 조회 실패 등) CorrectionPromptBuilder 가 맥락 블록을 생략하고
+    // 기존 candidate 기반 교정으로 폴백한다 — 완료 흐름을 막지 않는다.
+    val sessionContext: CorrectionSessionContext = CorrectionSessionContext()
+)
+
+/**
+ * 교정 의도 파악을 돕는 세션 맥락 read model 입니다 (COR-TUNE-010).
+ *
+ * 출처:
+ *  - [recentTopics]/[topicSummaries]/[topicKeySentences]: 이전 세션에서 이미 압축·저장된
+ *    [com.app.umma.domain.model.realtime.SessionMemory] 필드를 `getSessionMemory(lang)` 로 그대로 읽어온다
+ *    (새 저장소 메서드 신설 금지 — AC 준수).
+ *  - [currentSessionTurns]: 같은 트리거에서 이미 확보한 RT-003 `getCorrectionContext(lang)` 결과를 재사용한다.
+ *
+ * 모든 필드는 빈 목록이 기본값이다. SessionMemory 조회가 실패하거나 비어 있으면 빈 맥락으로 폴백하고
+ * 교정은 현재 세션 turn 기반으로 계속 진행한다(예외 처리 정책).
+ */
+data class CorrectionSessionContext(
+    // 이전 세션 주제 키워드/라벨. AI 매핑 결과(B 트랙)이며, 코드 단어빈도가 아니다.
+    val recentTopics: List<String> = emptyList(),
+    // 주제별 압축 요약("무엇을 교정했는지"). AI 결과가 SSOT다.
+    val topicSummaries: List<String> = emptyList(),
+    // 이후 학습에 재사용 가능한 핵심 정답 문장.
+    val topicKeySentences: List<String> = emptyList(),
+    // 현재 세션의 대화 흐름. candidate 1문장 + assistantContext 한마디보다 넓은 범위를 제공해
+    // AI 가 의도를 먼저 파악한 뒤 band 에 맞게 교정하도록 돕는다.
+    val currentSessionTurns: List<CorrectionContextTurn> = emptyList()
+)
+
+/**
+ * 의도 파악 맥락에 실리는 한 turn 의 최소 표현입니다.
+ *
+ * @property speaker "user" 또는 "assistant" 같은 화자 라벨. 내부 enum 이름을 그대로 노출하지 않고
+ *                   프롬프트에 자연스럽게 들어갈 수 있는 문자열로만 전달한다.
+ * @property text 발화 원문.
+ */
+data class CorrectionContextTurn(
+    val speaker: String,
+    val text: String
 )
 
 /**

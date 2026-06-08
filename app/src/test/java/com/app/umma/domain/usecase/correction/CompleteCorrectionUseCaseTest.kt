@@ -199,6 +199,118 @@ class CompleteCorrectionUseCaseTest {
     }
 
     @Test
+    fun `keeps learning signal in evaluation when sourceLang matches selected language`() =
+        kotlinx.coroutines.runBlocking {
+            // COR-TUNE-011: 발화 원문 언어(sourceLang)가 학습 대상 언어(selectedLang)와 같으면
+            // 종전대로 능력 근거(metricEvidence/activeFocus) 평가에 반영되어야 한다.
+            val suggestion = baseSuggestion().copy(
+                id = "s-1",
+                sourceLang = LangCode.EN,
+                learningSignal = baseLearningSignal(candidateId = "c-1")
+            )
+
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(suggestion),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isSuccess)
+            val captured = learningStateRepo.lastUpdateInput!!.correctionResult!!
+            assertEquals(1, captured.learningSignals.size)
+            assertEquals("c-1", captured.learningSignals.single().candidateId)
+        }
+
+    @Test
+    fun `excludes learning signal from evaluation when sourceLang differs from selected language but still saves the card`() =
+        kotlinx.coroutines.runBlocking {
+            // COR-TUNE-011 핵심 시나리오: 모국어/제3언어 발화는 의도 포착·교정 카드(앞면 모국어/뒷면 학습언어)는
+            // 정상 생성되지만, 능력 평가(metricEvidence/activeFocus)에서는 제외되어야 한다(평가 오염 방지).
+            val suggestion = baseSuggestion().copy(
+                id = "s-1",
+                sourceLang = LangCode.KO,
+                learningSignal = baseLearningSignal(candidateId = "c-1")
+            )
+
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(suggestion),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isSuccess)
+            val completed = result.getOrThrow()
+            // 카드 저장 경로는 평가 게이트와 무관하게 그대로 동작한다 — 학습자는 학습 언어 표현을 그대로 얻는다.
+            assertEquals(listOf("s-1"), completed.savedFlashcardIds)
+
+            val captured = learningStateRepo.lastUpdateInput!!.correctionResult!!
+            // correctionCount/correctedText 는 카드·표시 목적 필드라 게이트 영향을 받지 않는다.
+            assertEquals(1, captured.correctionCount)
+            // learningSignal 만 평가 집계에서 제외된다.
+            assertTrue(captured.learningSignals.isEmpty())
+        }
+
+    @Test
+    fun `keeps learning signal in evaluation when sourceLang is unknown (no-op fallback)`() =
+        kotlinx.coroutines.runBlocking {
+            // COR-TUNE-011: detectedLang 캡처가 머지되지 않은 구간/감지 실패 시 sourceLang=null 로 들어온다.
+            // 게이트는 "언어 불명 → 종전처럼 통과"로 동작해 점진 도입 중에도 기존 동작을 보존해야 한다.
+            val suggestion = baseSuggestion().copy(
+                id = "s-1",
+                sourceLang = null,
+                learningSignal = baseLearningSignal(candidateId = "c-1")
+            )
+
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(suggestion),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isSuccess)
+            val captured = learningStateRepo.lastUpdateInput!!.correctionResult!!
+            assertEquals(1, captured.learningSignals.size)
+            assertEquals("c-1", captured.learningSignals.single().candidateId)
+        }
+
+    @Test
+    fun `judges sourceLang gate independently per candidate in a mixed-language session`() =
+        kotlinx.coroutines.runBlocking {
+            // COR-TUNE-011 예외 케이스: 한 세션에 여러 언어가 섞여도 후보별로 독립 판정한다(세션 전체 게이트 아님).
+            val matching = baseSuggestion().copy(
+                id = "s-1",
+                sourceLang = LangCode.EN,
+                learningSignal = baseLearningSignal(candidateId = "c-1")
+            )
+            val differing = baseSuggestion().copy(
+                id = "s-2",
+                beforeText = "나는 어제 학교 갔어",
+                nativeText = "나는 어제 학교에 갔다",
+                afterText = "I went to school yesterday.",
+                sourceLang = LangCode.KO,
+                learningSignal = baseLearningSignal(candidateId = "c-2")
+            )
+
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(matching, differing),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isSuccess)
+            val captured = learningStateRepo.lastUpdateInput!!.correctionResult!!
+            // 학습 대상 언어로 말한 후보의 신호만 반영되고, 다른 언어 발화의 신호는 빠진다.
+            assertEquals(1, captured.learningSignals.size)
+            assertEquals("c-1", captured.learningSignals.single().candidateId)
+            // 카드/카운트는 두 후보 모두 포함한다 — 교정 자체는 언어 불문 동일하게 동작한다.
+            assertEquals(2, captured.correctionCount)
+        }
+
+    @Test
     fun `completes as noop when all save request flashcards are excluded by quality filter`() =
         kotlinx.coroutines.runBlocking {
             val result = useCase(
@@ -411,6 +523,25 @@ class CompleteCorrectionUseCaseTest {
             nativeText = "나는 학교에 간다",
             afterText = "I go to school.",
             explanation = "go 뒤에는 to school 을 사용한다."
+        )
+    }
+
+    /** COR-TUNE-011 게이트 테스트용 학습 신호 fixture. candidateId 만 바꿔 후보별로 구분한다. */
+    private fun baseLearningSignal(candidateId: String): CorrectionLearningSignal {
+        return CorrectionLearningSignal(
+            candidateId = candidateId,
+            sourceTurnId = "turn-1",
+            sourceTurnIndex = 0,
+            sourceText = "i go school",
+            correctedText = "I go to school.",
+            issueCategories = emptyList(),
+            languageFeatures = emptyList(),
+            improvementTypes = emptyList(),
+            editSpans = emptyList(),
+            register = SpokenRegister.EverydaySpoken,
+            severity = CorrectionSeverity.MinorForm,
+            meaningPreserved = true,
+            confidence = 0.7
         )
     }
 
@@ -664,7 +795,11 @@ class CompleteCorrectionUseCaseTest {
                 Result.success(
                     TopicSummarySaveResult(
                         applied = result.applied,
-                        displayTitle = result.displayTitle
+                        displayTitle = result.displayTitle,
+                        // COR-TUNE-010: nextTopicSummaryResult 가 AI 매핑(recentTopics/summaries)을 주입하면
+                        // 그대로 흘려보내 BuildSessionCompressionPayloadUseCase 의 SSOT 우선 분기를 검증할 수 있게 한다.
+                        recentTopics = result.recentTopics,
+                        summaries = result.summaries
                     )
                 )
             }
@@ -814,6 +949,55 @@ class CompleteCorrectionUseCaseTest {
         assertEquals(
             listOf("save", "update-flashcard-summary", "summarize-topics", "update", "record-history", "compress"),
             events
+        )
+    }
+
+    @Test
+    fun `compression command uses AI-mapped topics as SSOT when topic summary AI succeeds`() = kotlinx.coroutines.runBlocking {
+        // COR-TUNE-010: 2단계(summarize-topics) AI 매핑 결과가 그대로 5단계 압축 SSOT 로 흘러야 한다.
+        // 코드 기반 단어빈도("hello")/before->after 요약이 AI 결과를 덮어쓰면 이중 쓰기가 재발한다.
+        sessionMemoryRepository.nextTopicSummaryResult = TopicSummarySaveResult(
+            applied = true,
+            displayTitle = "여행 계획",
+            recentTopics = listOf("여행 계획", "박물관 나들이"),
+            summaries = listOf("학습자가 과거형으로 여행 이야기를 연습했다.")
+        )
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val command = sessionMemoryRepository.lastCompressionCommand
+        assertNotNull(command)
+        assertEquals(listOf("여행 계획", "박물관 나들이"), command!!.recentTopics)
+        assertEquals(listOf("학습자가 과거형으로 여행 이야기를 연습했다."), command.topicSummaries)
+    }
+
+    @Test
+    fun `compression falls back to code-based extraction when topic summary AI fails`() = kotlinx.coroutines.runBlocking {
+        // AI 매핑이 실패해도(topicSummariesPending=true) 압축 흐름은 막히지 않고
+        // 기존 코드 기반 단어빈도/before->after 요약 폴백으로 진행해야 한다(pending 정책 유지).
+        sessionMemoryRepository.failSummarize = true
+
+        val result = useCase(
+            CompleteCorrectionInput(
+                selectedSuggestions = listOf(baseSuggestion()),
+                langStateUpdateInput = baseUpdateInput()
+            )
+        )
+
+        assertTrue(result.isSuccess)
+        val command = sessionMemoryRepository.lastCompressionCommand
+        assertNotNull(command)
+        // baseUpdateInput 의 recentUserTurns 텍스트("hello")에서 추출한 코드 기반 키워드가 폴백으로 들어가야 한다.
+        assertEquals("hello", command!!.recentTopics.firstOrNull())
+        assertTrue(
+            "코드 기반 before->after 요약 폴백이 동작하지 않음",
+            command.topicSummaries.first().contains("i go school")
         )
     }
 

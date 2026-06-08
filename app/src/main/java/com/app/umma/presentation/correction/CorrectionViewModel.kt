@@ -6,9 +6,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.model.correction.CompleteCorrectionInput
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
+import com.app.umma.domain.model.correction.CorrectionContextTurn
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
+import com.app.umma.domain.model.correction.CorrectionSessionContext
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.TurnSpeaker
+import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.app.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
@@ -20,6 +24,7 @@ import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUs
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.app.umma.domain.usecase.realtime.GetCorrectionContextUseCase
+import com.app.umma.domain.usecase.realtime.GetSessionMemoryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -98,6 +103,10 @@ class CorrectionViewModel @Inject constructor(
     private val observeLearningState: ObserveLearningStateUseCase,
     // RT-003 read model. 현재 세션의 user turn 목록을 Flow 첫 emit 으로 가져온다.
     private val getCorrectionContext: GetCorrectionContextUseCase,
+    // COR-TUNE-010: 의도 파악용 이전 세션 기억(topicSummaries/topicKeySentences/recentTopics) 1회성 조회.
+    // 새 저장소 메서드를 만들지 않고 기존 SessionMemoryRepository.getSessionMemory(lang) 를 그대로 재사용한다.
+    // 실패해도 빈 맥락으로 폴백하므로 throw 하지 않는다(완료 흐름을 막지 않음).
+    private val getSessionMemory: GetSessionMemoryUseCase,
     // 세션 turn 목록 → CorrectionCandidate 목록. 빈 결과면 generateSuggestions 가 early-return.
     private val extractSessionCandidates: ExtractSessionCandidatesUseCase,
     // 후보 + LangState → AI 호출 → CorrectionSuggestion 목록. Result 로 success/failure 가 갈린다.
@@ -278,6 +287,15 @@ class CorrectionViewModel @Inject constructor(
                     "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
                 )
 
+                // COR-TUNE-010: 의도 파악용 세션 맥락을 함께 확보한다.
+                // - 이전 세션 기억(topicSummaries/topicKeySentences/recentTopics)은 getSessionMemory(lang) 로 읽는다
+                //   (새 저장소 메서드 신설 금지 — 기존 SessionMemoryRepository.getSessionMemory 재사용).
+                // - 현재 세션 흐름은 위에서 이미 가져온 sessionTurns 를 그대로 매핑해 candidate 1문장 +
+                //   assistantContext 한마디보다 넓은 범위로 제공한다.
+                // - 조회 실패는 빈 맥락으로 폴백한다. CorrectionPromptBuilder 가 빈 맥락이면 블록을 생략하므로
+                //   기존 candidate 기반 교정 흐름이 그대로 유지되고 완료를 막지 않는다.
+                val sessionContext = buildCorrectionSessionContext(lang, sessionTurns)
+
                 // COR-TUNE-01: langState snapshot 을 교정 적응 정책으로 해석해 입력에 싣는다.
                 // 근거 부족/null 이면 UseCase 가 보수적 profile 을 돌려주므로 프롬프트도 안전한 최소 교정으로 떨어진다.
                 val profile = buildLearnerAdaptationProfile(langState)
@@ -287,6 +305,7 @@ class CorrectionViewModel @Inject constructor(
                     // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
                     primaryLang = ready.primaryLanguage ?: LangCode.KO,
                     profile = profile,
+                    sessionContext = sessionContext,
                 )
                 generateSuggestions(input).getOrThrow()
             }
@@ -311,6 +330,44 @@ class CorrectionViewModel @Inject constructor(
                 generationLaunched = false
             }
         }
+    }
+
+    /**
+     * COR-TUNE-010: 의도 파악용 [CorrectionSessionContext] 를 조립한다.
+     *
+     * - 이전 세션 기억은 [getSessionMemory] 로 1회성 조회한다(새 저장소 메서드 신설 금지 — AC 준수).
+     * - 현재 세션 흐름은 같은 트리거에서 이미 가져온 [sessionTurns] (RT-003 read model) 를 그대로 매핑한다.
+     *   별도 조회를 추가하면 같은 세션을 두 번 읽게 되므로, 이미 보유한 snapshot 을 재사용한다.
+     * - 조회 실패/예외는 빈 [CorrectionSessionContext] 로 폴백한다. [CorrectionPromptBuilder] 가 빈 맥락이면
+     *   "Conversation context / intent" 블록을 생략하므로 기존 candidate 기반 교정이 그대로 유지되고
+     *   완료 흐름을 막지 않는다(예외 처리 정책: 세션 기억 조회 실패해도 교정은 계속한다).
+     */
+    private suspend fun buildCorrectionSessionContext(
+        lang: LangCode,
+        sessionTurns: List<SessionTurn>,
+    ): CorrectionSessionContext {
+        val currentSessionTurns = sessionTurns.map { turn ->
+            CorrectionContextTurn(
+                speaker = if (turn.role == TurnSpeaker.USER) "user" else "assistant",
+                text = turn.text,
+            )
+        }
+
+        return runCatching { getSessionMemory(lang).getOrThrow() }
+            .fold(
+                onSuccess = { memory ->
+                    CorrectionSessionContext(
+                        recentTopics = memory.recentTopics,
+                        topicSummaries = memory.topicSummaries,
+                        topicKeySentences = memory.topicKeySentences,
+                        currentSessionTurns = currentSessionTurns,
+                    )
+                },
+                onFailure = { error ->
+                    Log.w(TAG, "session memory lookup failed lang=${lang.code} — falling back to empty context", error)
+                    CorrectionSessionContext(currentSessionTurns = currentSessionTurns)
+                },
+            )
     }
 
     /**

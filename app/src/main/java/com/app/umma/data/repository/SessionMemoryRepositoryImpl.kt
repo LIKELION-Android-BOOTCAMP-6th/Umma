@@ -289,7 +289,12 @@ class SessionMemoryRepositoryImpl @Inject constructor(
             Result.success(
                 TopicSummarySaveResult(
                     applied = true,
-                    displayTitle = parsed.titles.firstOrNull()
+                    displayTitle = parsed.titles.firstOrNull(),
+                    // COR-TUNE-010: 이미 만들어진 AI 응답(titles/summaries)을 그대로 노출한다.
+                    // BuildSessionCompressionPayloadUseCase 가 이 값을 recentTopics/topicSummaries SSOT 로 쓴다
+                    // (코드 단어빈도/before→after 는 이 값이 비었을 때만 폴백으로 쓰인다). 새 AI 호출은 추가하지 않는다.
+                    recentTopics = parsed.titles,
+                    summaries = parsed.summaries
                 )
             )
         } catch (e: Exception) {

@@ -30,10 +30,17 @@ data class SummarizeTopicsCommand(
  * @property applied 새 topicSummaries 가 실제로 저장되었는지 여부
  * @property displayTitle Dashboard 주제 칩에 표시할 최신 세션의 짧은 제목.
  *                        null 이면 기존 DashSummary.recentTopic 을 보존한다.
+ * @property recentTopics AI 가 매핑한 최근 주제 라벨 목록(titles). COR-TUNE-010: 코드 단어빈도
+ *                        `BuildSessionCompressionPayloadUseCase.extractRecentTopics` 의 AI 대체 출처다.
+ *                        이 호출이 이미 단발 Gemini 응답에서 만들어 둔 값을 노출만 할 뿐, 새 AI 호출을 추가하지 않는다.
+ * @property summaries AI 가 생성한 세션별 요약 목록. COR-TUNE-010: `topicSummaries` 이중 쓰기 정리의 SSOT 출처다.
+ *                     [applied] 가 true 일 때만 의미 있는 값이 채워진다.
  */
 data class TopicSummarySaveResult(
     val applied: Boolean,
-    val displayTitle: String?
+    val displayTitle: String?,
+    val recentTopics: List<String> = emptyList(),
+    val summaries: List<String> = emptyList()
 )
 
 /**

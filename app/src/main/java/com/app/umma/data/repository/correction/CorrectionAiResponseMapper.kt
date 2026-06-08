@@ -85,6 +85,9 @@ class CorrectionAiResponseMapper @Inject constructor() {
                 nativeText = item.nativeText.requireFilled("nativeText"),
                 afterText = item.afterText.requireFilled("afterText"),
                 explanation = item.explanation.requireFilled("explanation"),
+                // COR-TUNE-011: 평가 게이트가 참조할 발화 원문 언어를 candidate 에서 그대로 옮긴다.
+                // 여기서는 운반만 한다 — 제외 판정은 단일 지점(CompleteCorrectionUseCase.buildCorrectionResult)에서만 내린다.
+                sourceLang = candidate.sourceLang,
                 // COR-TUNE-02: 학습 신호는 보조 입력이다. 정규화가 실패해도 suggestion 을 죽이지 않도록
                 // runCatching 으로 감싸 실패 시 null 을 싣는다. (핵심 4필드는 위에서 이미 검증 완료)
                 learningSignal = runCatching {
