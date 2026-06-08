@@ -9,8 +9,11 @@ import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionContextTurn
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSessionContext
+import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
+import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
@@ -18,6 +21,7 @@ import com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.app.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
 import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
+import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputCommand
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
@@ -27,6 +31,7 @@ import com.app.umma.domain.usecase.realtime.GetCorrectionContextUseCase
 import com.app.umma.domain.usecase.realtime.GetSessionMemoryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -52,8 +57,9 @@ import javax.inject.Inject
  *    보장한다. 화면 레이어가 Empty 상태에서 AI Chat 이동 CTA 를 노출하는 책임은 [CorrectionScreen] 이 진다.
  *  - (COR-002-A) Ready 첫 emit 시 사용자 추가 입력 없이 generateSuggestions 를 1회 자동 트리거.
  *    RT-003 correction context → 후보 추출 → AI 호출 → CorrectionSuggestion 목록 → Content / Error.
- *    로딩 단계 안내는 화면 계층의 시간 기반 가이드가 전담하며, 5단계 안내가 모두 보이도록
- *    생성 결과 반영 전 최소 15초 로딩 시간을 보장한다.
+ *    로딩 단계 안내는 [triggerGeneration] 이 [CorrectionUiState.loadingStep] 으로 직접 구동하며(COR-UX-001),
+ *    5단계 안내가 모두 보이도록 생성 결과 반영 전 단계별 최소 [STEP_MIN_DURATION_MS](3.5초) × 5 ≈ 17.5초
+ *    로딩 시간을 보장한다(AI 호출이 길어지면 4단계가 그만큼 늘어난다).
  *
  *  - (COR-004) 카드 선택/해제 토글과 저장 버튼 클릭 진입점을 노출한다.
  *    선택 상태는 [CorrectionUiState.selectedSuggestionIds] 가 SSOT 이고,
@@ -124,6 +130,10 @@ class CorrectionViewModel @Inject constructor(
     // COR-006-A: LS-008 조립 UseCase. caller 확보 domain 값 → LangStateUpdateInput 변환 정책 고정.
     // @Inject constructor() 라 Hilt 모듈 추가 없이 자동 주입된다.
     private val buildLangStateUpdateInput: BuildLangStateUpdateInputUseCase,
+    // COR-UX-001: 로딩 화면 복습 영역에 노출할 현재 학습 언어의 로컬 Flashcard 조회 전용 재사용.
+    // SRS 카드 목록(SrsCardListViewModel)과 동일한 진입점이며, 새 저장소 메서드를 신설하지 않는다
+    // (읽기 전용 — 스케줄/평가/저장 등 SRS 책임은 일절 건드리지 않는다).
+    private val getFlashcards: GetFlashcardsUseCase,
 ) : ViewModel() {
 
     // 화면이 collect 하는 단일 진실. ViewModel 내부에서만 쓰기 가능.
@@ -249,72 +259,72 @@ class CorrectionViewModel @Inject constructor(
     /**
      * Ready 게이트 통과 직후의 자동 교정 흐름. [onRetryClicked] 도 같은 진입점을 사용한다.
      *
-     * 1) RT-003 correction context 조회 (Flow 첫 emit).
-     * 2) ExtractSessionCandidatesUseCase 로 후보 추출.
-     * 3) GenerateSuggestionsInput 구성 → GenerateSuggestionsUseCase.
-     * 4) [applyGenerationOutcome] pure helper 로 결과 적용:
+     * COR-UX-001: 5단계 로딩 안내를 실제 작업 흐름에 동기화한다 — 화면 자체 타이머가 아니라
+     * 본 함수가 [CorrectionUiState.loadingStep] 을 직접 구동하고, 화면은 렌더링만 담당한다.
+     *
+     * 1) [runPipeline] 을 `async` 로 백그라운드 시작한다 — 진입 즉시 RT-003 context 조회 →
+     *    candidate 추출 → 세션 맥락/적응 프로파일 조립 → AI 호출까지 한 번에 묶어 실행한다
+     *    ("백그라운드 선행": 4단계를 기다리지 않고 1단계 진입 시점부터 미리 시작).
+     * 2) 1~3단계(인덱스 0~2): 입력 수집 단계를 체감 안내하며 각 [STEP_MIN_DURATION_MS] 동안
+     *    순차 노출한다. 실제로는 거의 동시에 끝나는 작업들이라 시간 기반 연출이지만, 위 파이프라인과
+     *    겹쳐 돌기 때문에 전체 대기 시간이 늘어나지 않는다.
+     * 3) 4단계(인덱스 3): [runPipeline] 결과를 `await` 한다 — 시간의 대부분을 차지하는 실제 AI
+     *    호출이 끝날 때까지 유지되며(최소 [STEP_MIN_DURATION_MS] 보장), AI가 1~3단계 연출보다
+     *    먼저 끝나도 문구가 스쳐 지나가지 않게 한다.
+     * 4) 5단계(인덱스 4): 결과 매핑은 사실상 즉시 끝나지만, 마찬가지로 최소 [STEP_MIN_DURATION_MS]
+     *    노출한 뒤 다음 단계로 넘어간다.
+     * 5) [applyGenerationOutcome] pure helper 로 결과 적용:
      *    - success([])        → [CorrectionUiState.Phase.EmptyResult]
      *    - success(non-empty) → [CorrectionUiState.Phase.Content]
      *    - failure            → [CorrectionUiState.Phase.Error]
-     * 5) 터미널 phase 진입 시 [generationLaunched] 가드 해제 (COR-002-B 자동 재시도 정책).
+     * 6) 터미널 phase 진입 시 [generationLaunched] 가드 해제 (COR-002-B 자동 재시도 정책).
+     *
+     * [loadLoadingFlashcards] 가 로딩 화면 복습 영역의 카드 목록을 별도로 병렬 적재한다 —
+     * 본 파이프라인과 독립적이며 실패해도 교정 흐름을 막지 않는다.
      */
     private fun triggerGeneration(ready: CorrectionUiState) {
         val lang = ready.selectedLearningLanguage ?: return
         val langState = ready.langStateSnapshot ?: return
 
         viewModelScope.launch {
-            val loadingStartedAt = SystemClock.elapsedRealtime()
-            // Generating 전환 — 화면의 5단계 로딩 가이드는 Composable 이 시간 기반으로 표시한다.
+            // Generating 전환 + 단계 인디케이터 초기화. COR-UX-001: loadingStep 의 단일 진실은
+            // 본 함수이고, 화면(CorrectionLoading)은 이 값을 그대로 렌더링만 한다.
             _uiState.value = _uiState.value.copy(
                 phase = CorrectionUiState.Phase.Generating,
                 errorReason = null,
+                loadingStep = 0,
             )
 
-            val result = runCatching {
-                // RT-003 read model 은 Flow 라 추가 emit 이 흘러도 첫 snapshot 만 본다.
-                val sessionTurns = getCorrectionContext(lang).first()
-                Log.d(
-                    TAG,
-                    "correction context loaded lang=${lang.code}, turns=${sessionTurns.size}, turnIds=${sessionTurns.joinToString(separator = ",") { it.turnId }}"
-                )
-                val candidates = extractSessionCandidates(
-                    selectedLang = lang,
-                    sessionLang = lang,
-                    sessionTurns = sessionTurns,
-                )
-                Log.d(
-                    TAG,
-                    "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
-                )
+            // COR-UX-001: 로딩 화면 복습 카드 적재 — 본 파이프라인과 독립적으로 병렬 진행한다.
+            loadLoadingFlashcards(lang)
 
-                // COR-TUNE-010: 의도 파악용 세션 맥락을 함께 확보한다.
-                // - 이전 세션 기억(topicSummaries/topicKeySentences/recentTopics)은 getSessionMemory(lang) 로 읽는다
-                //   (새 저장소 메서드 신설 금지 — 기존 SessionMemoryRepository.getSessionMemory 재사용).
-                // - 현재 세션 흐름은 위에서 이미 가져온 sessionTurns 를 그대로 매핑해 candidate 1문장 +
-                //   assistantContext 한마디보다 넓은 범위로 제공한다.
-                // - 조회 실패는 빈 맥락으로 폴백한다. CorrectionPromptBuilder 가 빈 맥락이면 블록을 생략하므로
-                //   기존 candidate 기반 교정 흐름이 그대로 유지되고 완료를 막지 않는다.
-                val sessionContext = buildCorrectionSessionContext(lang, sessionTurns)
-
-                // COR-TUNE-01: langState snapshot 을 교정 적응 정책으로 해석해 입력에 싣는다.
-                // 근거 부족/null 이면 UseCase 가 보수적 profile 을 돌려주므로 프롬프트도 안전한 최소 교정으로 떨어진다.
-                val profile = buildLearnerAdaptationProfile(langState)
-                val input = GenerateSuggestionsInput(
-                    candidates = candidates,
-                    langState = langState,
-                    // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
-                    primaryLang = ready.primaryLanguage ?: LangCode.KO,
-                    profile = profile,
-                    sessionContext = sessionContext,
-                )
-                generateSuggestions(input).getOrThrow()
+            // COR-UX-001: 백그라운드 선행 — AI 호출을 포함한 실제 파이프라인을 진입 즉시 시작해
+            // 1~3단계 연출과 겹쳐 돌린다. AI가 빠르면 전체 체감 대기도 그만큼 짧아진다(합의 사항).
+            val pipeline = async {
+                runPipeline(lang = lang, langState = langState, primaryLanguage = ready.primaryLanguage)
             }
 
-            val elapsedMs = SystemClock.elapsedRealtime() - loadingStartedAt
-            val remainingMs = MIN_LOADING_GUIDE_DURATION_MS - elapsedMs
-            if (remainingMs > 0) {
-                delay(remainingMs)
+            // 1~3단계: 입력 수집 단계의 체감 안내. 실제로는 거의 동시에 끝나는 작업들이라
+            // 각 STEP_MIN_DURATION_MS 만큼 시간 기반으로 순차 노출한다.
+            for (step in 0..2) {
+                _uiState.update { it.copy(loadingStep = step) }
+                delay(STEP_MIN_DURATION_MS)
             }
+
+            // 4단계: 실제 AI 호출이 끝날 때까지 유지한다. pipeline 이 1~3단계 연출보다 먼저
+            // 끝났더라도 문구가 스쳐 지나가지 않도록 최소 STEP_MIN_DURATION_MS 를 보장한다.
+            _uiState.update { it.copy(loadingStep = 3) }
+            val aiStartedAt = SystemClock.elapsedRealtime()
+            val result = pipeline.await()
+            val aiElapsedMs = SystemClock.elapsedRealtime() - aiStartedAt
+            val aiRemainingMs = STEP_MIN_DURATION_MS - aiElapsedMs
+            if (aiRemainingMs > 0) {
+                delay(aiRemainingMs)
+            }
+
+            // 5단계: 결과 매핑은 사실상 즉시 끝나지만, 안내 문구가 최소한의 시간은 보이도록 한다.
+            _uiState.update { it.copy(loadingStep = 4) }
+            delay(STEP_MIN_DURATION_MS)
 
             // COR-002-B: 분기 결정(EmptyResult/Content/Error) 과 필드 정리는 pure helper 에 위임.
             _uiState.value = _uiState.value.applyGenerationOutcome(result)
@@ -329,6 +339,82 @@ class CorrectionViewModel @Inject constructor(
             if (_uiState.value.phase in terminalPhases) {
                 generationLaunched = false
             }
+        }
+    }
+
+    /**
+     * COR-UX-001: 실제 교정 파이프라인 본문을 [triggerGeneration] 의 단계 타임라인에서 분리한다.
+     *
+     * RT-003 correction context 조회 → candidate 추출 → 세션 맥락/적응 프로파일 조립 → AI 호출까지
+     * 묶어 한 [Result] 로 반환한다. [triggerGeneration] 이 본 함수를 `async` 로 백그라운드 실행해
+     * 1~3단계 로딩 연출과 겹쳐 돌리고, 4단계에서 `await` 해 실제 AI 응답 시점에 안내를 동기화한다.
+     *
+     * 내용 자체는 기존 흐름과 동일하다 — RT-003 read model 첫 snapshot 조회, candidate 추출,
+     * COR-TUNE-010 세션 맥락 조립, COR-TUNE-01 적응 프로파일 산출, AI 호출 순.
+     */
+    private suspend fun runPipeline(
+        lang: LangCode,
+        langState: LangState,
+        primaryLanguage: LangCode?,
+    ): Result<List<CorrectionSuggestion>> = runCatching {
+        // RT-003 read model 은 Flow 라 추가 emit 이 흘러도 첫 snapshot 만 본다.
+        val sessionTurns = getCorrectionContext(lang).first()
+        Log.d(
+            TAG,
+            "correction context loaded lang=${lang.code}, turns=${sessionTurns.size}, turnIds=${sessionTurns.joinToString(separator = ",") { it.turnId }}"
+        )
+        val candidates = extractSessionCandidates(
+            selectedLang = lang,
+            sessionLang = lang,
+            sessionTurns = sessionTurns,
+        )
+        Log.d(
+            TAG,
+            "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
+        )
+
+        // COR-TUNE-010: 의도 파악용 세션 맥락을 함께 확보한다.
+        // - 이전 세션 기억(topicSummaries/topicKeySentences/recentTopics)은 getSessionMemory(lang) 로 읽는다
+        //   (새 저장소 메서드 신설 금지 — 기존 SessionMemoryRepository.getSessionMemory 재사용).
+        // - 현재 세션 흐름은 위에서 이미 가져온 sessionTurns 를 그대로 매핑해 candidate 1문장 +
+        //   assistantContext 한마디보다 넓은 범위로 제공한다.
+        // - 조회 실패는 빈 맥락으로 폴백한다. CorrectionPromptBuilder 가 빈 맥락이면 블록을 생략하므로
+        //   기존 candidate 기반 교정 흐름이 그대로 유지되고 완료를 막지 않는다.
+        val sessionContext = buildCorrectionSessionContext(lang, sessionTurns)
+
+        // COR-TUNE-01: langState snapshot 을 교정 적응 정책으로 해석해 입력에 싣는다.
+        // 근거 부족/null 이면 UseCase 가 보수적 profile 을 돌려주므로 프롬프트도 안전한 최소 교정으로 떨어진다.
+        val profile = buildLearnerAdaptationProfile(langState)
+        val input = GenerateSuggestionsInput(
+            candidates = candidates,
+            langState = langState,
+            // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
+            primaryLang = primaryLanguage ?: LangCode.KO,
+            profile = profile,
+            sessionContext = sessionContext,
+        )
+        generateSuggestions(input).getOrThrow()
+    }
+
+    /**
+     * COR-UX-001: 로딩 화면 복습 영역에 노출할 플래시카드를 별도로 적재한다.
+     *
+     * 교정 파이프라인([runPipeline])과 독립적으로 동작한다 — 조회가 실패하거나 늦게 끝나도
+     * [triggerGeneration] 의 단계 타임라인을 막지 않으며, 빈 상태로 남으면 화면이 안내 카드로
+     * 폴백한다([CorrectionUiState.loadingFlashcards] 기본값이 emptyList).
+     *
+     * 오래된 카드부터 복습되도록 [Flashcard.createdAt] 오름차순으로 정렬한다 — 기존
+     * [GetFlashcardsUseCase] 의 DAO 정렬은 newest-first(SrsCardListScreen 용)라 새 쿼리/정렬을
+     * 추가하지 않고(신설 금지 원칙) 화면 책임으로 메모리에서 재정렬한다.
+     */
+    private fun loadLoadingFlashcards(lang: LangCode) {
+        viewModelScope.launch {
+            val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() } ?: return@launch
+            val cards = getFlashcards(uid, lang).getOrNull() ?: return@launch
+            val loadingCards = cards
+                .sortedBy { it.createdAt }
+                .map { CorrectionLoadingCard(front = it.frontText, back = it.backText) }
+            _uiState.update { it.copy(loadingFlashcards = loadingCards) }
         }
     }
 
@@ -699,6 +785,10 @@ class CorrectionViewModel @Inject constructor(
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
-        const val MIN_LOADING_GUIDE_DURATION_MS = 20_000L
+        // COR-UX-001: 기존 일괄 MIN_LOADING_GUIDE_DURATION_MS(20초)를 대체하는 단계별 최소 노출 시간.
+        // [triggerGeneration] 의 5단계(loadingStep 0~4) 각각이 이 시간만큼은 노출되도록 보장한다 —
+        // 0~2단계는 단순 delay, 3단계(AI 호출)는 SystemClock.elapsedRealtime 기반 잔여시간 보정,
+        // 4단계는 결과 매핑이 즉시 끝나도 문구가 스쳐 지나가지 않도록 동일하게 적용한다.
+        const val STEP_MIN_DURATION_MS = 3_500L
     }
 }

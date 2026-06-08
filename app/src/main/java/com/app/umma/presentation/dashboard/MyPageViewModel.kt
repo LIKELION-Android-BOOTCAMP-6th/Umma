@@ -2,7 +2,11 @@ package com.app.umma.presentation.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.repository.AuthRepository
+import com.app.umma.domain.repository.LearningStateRepo
+import com.app.umma.domain.usecase.learningstate.ChangePrimaryLangUseCase
+import com.app.umma.domain.usecase.learningstate.SyncLearningStateUseCase
 import com.app.umma.domain.usecase.notification.ObserveMarketingNotificationSettingsUseCase
 import com.app.umma.domain.usecase.notification.ObserveSrsNotificationSettingsUseCase
 import com.app.umma.domain.usecase.notification.RefreshNotificationTimezoneUseCase
@@ -20,7 +24,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 마이페이지 알림 설정과 기기 권한 동기화를 담당하는 ViewModel.
+ * 마이페이지의 알림 설정, 기기 권한 동기화, 주언어(primaryLang) 변경을 담당하는 ViewModel.
  */
 @HiltViewModel
 class MyPageViewModel @Inject constructor(
@@ -32,11 +36,17 @@ class MyPageViewModel @Inject constructor(
     private val setMarketingNotificationEnabledUseCase: SetMarketingNotificationEnabledUseCase,
     private val setSrsNotificationTimeUseCase: SetSrsNotificationTimeUseCase,
     private val refreshNotificationTimezoneUseCase: RefreshNotificationTimezoneUseCase,
-    private val syncCurrentNotificationDeviceUseCase: SyncCurrentNotificationDeviceUseCase
+    private val syncCurrentNotificationDeviceUseCase: SyncCurrentNotificationDeviceUseCase,
+    private val learningStateRepo: LearningStateRepo,
+    private val changePrimaryLangUseCase: ChangePrimaryLangUseCase,
+    private val syncLearningStateUseCase: SyncLearningStateUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MyPageNotificationUiState())
     val uiState: StateFlow<MyPageNotificationUiState> = _uiState.asStateFlow()
+
+    private val _profileState = MutableStateFlow(MyPageProfileUiState())
+    val profileState: StateFlow<MyPageProfileUiState> = _profileState.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -60,6 +70,13 @@ class MyPageViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            learningStateRepo.observeUserPref().collect { pref ->
+                pref?.primaryLang?.let { lang ->
+                    _profileState.update { it.copy(primaryLang = lang) }
+                }
+            }
+        }
     }
 
     /**
@@ -70,6 +87,10 @@ class MyPageViewModel @Inject constructor(
         timezone: String
     ) {
         viewModelScope.launch {
+            // 학습상태를 미리 로드해 observeUserPref가 실제 primaryLang을 emit하도록 한다.
+            // 이 호출이 없으면 다이얼로그 초기 선택값이 실제 저장값과 다르게 표시될 수 있다.
+            learningStateRepo.preload()
+
             val uid = authRepository.getCurrentUserUid()
             if (!uid.isNullOrBlank()) {
                 val nickname = getUserNicknameUseCase(uid).orEmpty()
@@ -214,5 +235,34 @@ class MyPageViewModel @Inject constructor(
      */
     fun onMessageConsumed() {
         _uiState.update { it.copy(message = null) }
+    }
+
+    /**
+     * 주언어 primaryLang 변경: 로컬에 저장한 뒤 서버에 동기화한다.
+     */
+    fun onPrimaryLanguageChanged(lang: LangCode) {
+        viewModelScope.launch {
+            _profileState.update { it.copy(isSaving = true, message = null) }
+            changePrimaryLangUseCase(lang)
+                .onSuccess {
+                    syncLearningStateUseCase()
+                    _profileState.update { it.copy(isSaving = false) }
+                }
+                .onFailure { error ->
+                    _profileState.update {
+                        it.copy(
+                            isSaving = false,
+                            message = error.message ?: "주언어 설정 저장에 실패했습니다."
+                        )
+                    }
+                }
+        }
+    }
+
+    /**
+     * 프로필 메시지(토스트)를 소비한다.
+     */
+    fun onProfileMessageConsumed() {
+        _profileState.update { it.copy(message = null) }
     }
 }

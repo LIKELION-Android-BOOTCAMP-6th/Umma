@@ -45,6 +45,7 @@ class BuildPromptUseCaseTest {
         assertTrue(prompt.contains("persona:"))
         assertTrue(prompt.contains("language_use:"))
         assertTrue(prompt.contains("conversation_principles:"))
+        assertTrue(prompt.contains("safety_policy:"))
         assertTrue(prompt.contains("current_style:"))
         assertTrue(prompt.contains("style_reference:"))
         assertTrue(prompt.contains("context:"))
@@ -53,6 +54,10 @@ class BuildPromptUseCaseTest {
         assertFalse(prompt.contains("learner_profile:"))
         assertFalse(prompt.contains("current_turn_override:"))
 
+        // 안전 정책은 모든 band에 공통인 별도 섹션 하나로만 들어가야 prompt가 금지 목록으로 비대해지지 않는다.
+        assertTrue(prompt.contains("위험한 요청은 짧게 거절하고 안전한 일상 언어학습 대화로 전환한다."))
+        assertTrue(prompt.contains("유해한 행동을 더 구체적이거나 실행 가능하게 만드는 표현도 도와주지 않는다."))
+        assertTrue(prompt.indexOf("safety_policy:") == prompt.lastIndexOf("safety_policy:"))
         // 언어쌍과 친구 대화 목표는 유지하되, 세부 policy enum은 prompt에 노출하지 않는다.
         assertTrue(prompt.contains("learning_language: 일본어"))
         assertTrue(prompt.contains("support_language: 한국어"))

@@ -45,6 +45,9 @@ interface LearningStateRepo {
     // 현재 선택 언어를 바꾼다.
     suspend fun changeSelectedLang(lang: LangCode): Result<Unit>
 
+    // 사용자 언어 변경
+    suspend fun changePrimaryLang(lang: LangCode): Result<Unit>
+
     // UseCase가 계산한 preparedState를 저장하고, 후속 기록 흐름이 사용할 완료 결과를 돌려준다.
     suspend fun updateLanguageState(input: LangStateUpdateInput): Result<LearningStateUpdateResult>
 

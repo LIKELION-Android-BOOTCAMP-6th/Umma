@@ -59,6 +59,10 @@ class BuildPromptUseCase @Inject constructor() {
             primaryLanguageName = primaryLanguageName,
             selectedLanguageName = selectedLanguageName
         )
+        // Safety는 band별 말투 정책에 섞지 않는다.
+        // 하나의 짧은 섹션으로만 넣어야 Google Play 대응 원칙은 유지하면서도 대화 프롬프트가
+        // 금지 목록 중심으로 비대해지는 회귀를 막을 수 있다.
+        val safetyPolicy = safetyPolicyBlock()
         val styleReference = styleReferenceBlock(
             band = band,
             primaryLang = primaryLang,
@@ -93,6 +97,9 @@ class BuildPromptUseCase @Inject constructor() {
             conversation_principles:
             $conversationPrinciples
 
+            safety_policy:
+            $safetyPolicy
+
             current_style:
             - $currentStyle
 
@@ -121,7 +128,7 @@ class BuildPromptUseCase @Inject constructor() {
         return "prompt=system " +
             "promptVersion=$PROMPT_VERSION " +
             "promptRevision=$PROMPT_REVISION " +
-            "sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context " +
+            "sections=conversation_frame,persona,language_use,conversation_principles,safety_policy,current_style,style_reference,context " +
             "langs=${primaryLang.code}->${selectedLang.code} " +
             "style={band=${policy.conversationBand},confidence=${profile.core.levelConfidence}} " +
             "legacyPolicy={primaryBridge=${policy.primaryBridge},speechSpeed=${policy.speechSpeed}} " +
@@ -275,6 +282,17 @@ class BuildPromptUseCase @Inject constructor() {
             )
         }
         return (common + bandLines).joinToString("\n")
+    }
+
+    private fun safetyPolicyBlock(): String {
+        // Google Play AI 생성 콘텐츠 대응은 "위험 요청 거절 후 안전한 학습 대화로 복귀"가 핵심이다.
+        // 같은 내용을 persona/band/turn hint에 반복하면 모델이 안전 문구에만 집중할 수 있어
+        // 이 블록 하나에만 압축한다.
+        return listOf(
+            "- 자해, 범죄, 아동 성착취, 혐오·괴롭힘, 사기, 성적 콘텐츠, 위험한 의료·법률·금융 조언은 생성하지 않는다.",
+            "- 위험한 요청은 짧게 거절하고 안전한 일상 언어학습 대화로 전환한다.",
+            "- 유해한 행동을 더 구체적이거나 실행 가능하게 만드는 표현도 도와주지 않는다."
+        ).joinToString("\n")
     }
 
     private fun currentStyleLine(
@@ -490,11 +508,11 @@ class BuildPromptUseCase @Inject constructor() {
             .getOrElse { trimmed.replace('_', ' ').lowercase() }
     }
 
-    private companion object {
+    companion object {
         // 팀원/테스터 신고 데이터를 프롬프트 실험 시점별로 묶기 위한 명시 버전이다.
-        private const val PROMPT_VERSION = "chat_prompt_v2"
+        const val PROMPT_VERSION = "chat_prompt_v2"
         // 같은 구조 버전 안에서 반복되는 미세 튜닝 적용 여부를 로그와 신고 문서에서 구분하기 위한 식별자다.
-        private const val PROMPT_REVISION = "N026"
+        const val PROMPT_REVISION = "N027"
         // 최근 맥락은 많을수록 좋은 것이 아니라 모델이 현재 발화를 해석할 만큼만 필요하다.
         private const val MAX_CONTEXT_TURN_COUNT = 6
         // 주제 요약도 지시보다 길어지지 않도록 작게 제한한다.

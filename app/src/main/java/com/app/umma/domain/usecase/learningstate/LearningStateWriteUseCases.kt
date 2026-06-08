@@ -1,7 +1,7 @@
 package com.app.umma.domain.usecase.learningstate
 
-import com.app.umma.core.logging.LearningSignalFlowLog
 import com.app.umma.core.logging.ChatPromptTraceLog
+import com.app.umma.core.logging.LearningSignalFlowLog
 import com.app.umma.domain.model.chat.ChatConversationEvidence
 import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
 import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
@@ -9,19 +9,19 @@ import com.app.umma.domain.model.chat.LanguageDependenceEvidence
 import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
 import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
 import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
-import com.app.umma.domain.model.learningstate.ChatSignalUpdateInput
 import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
-import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.ChatSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
+import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.EvidenceDirection
+import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
-import com.app.umma.domain.model.learningstate.LangStateUpdateInput
-import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
-import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
+import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
@@ -42,6 +42,12 @@ class ChangeSelectedLangUseCase @Inject constructor(
     suspend operator fun invoke(lang: LangCode): Result<Unit> = repo.changeSelectedLang(lang)
 }
 
+class ChangePrimaryLangUseCase @Inject constructor(
+    private val repo: LearningStateRepo
+) {
+    suspend operator fun invoke(lang: LangCode): Result<Unit> = repo.changePrimaryLang(lang)
+}
+
 class ApplyLanguageStateUpdateUseCase @Inject constructor(
     private val repo: LearningStateRepo,
     // 계산 책임은 repository가 아니라 domain policy에만 둔다.
@@ -57,7 +63,7 @@ class ApplyLanguageStateUpdateUseCase @Inject constructor(
         ) {
             LearningSignalFlowLog.d(
                 "update_skipped_duplicate lang=${input.lang.code} eventId=${input.analysisEventId} " +
-                    "signals=${input.correctionResult?.learningSignals?.size ?: 0}"
+                        "signals=${input.correctionResult?.learningSignals?.size ?: 0}"
             )
             // 중복 이벤트는 계산도 저장도 하지 않고 현재 상태를 그대로 돌려준다.
             return Result.success(
@@ -73,9 +79,9 @@ class ApplyLanguageStateUpdateUseCase @Inject constructor(
 
         LearningSignalFlowLog.d(
             "update_start lang=${input.lang.code} eventId=${input.analysisEventId ?: "none"} " +
-                "turns=${input.recentUserTurns.size} corrections=${input.correctionResult?.correctionCount ?: 0} " +
-                "signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
-                "prepared=${input.preparedState != null}"
+                    "turns=${input.recentUserTurns.size} corrections=${input.correctionResult?.correctionCount ?: 0} " +
+                    "signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
+                    "prepared=${input.preparedState != null}"
         )
         // UseCase는 중복 방어와 저장 흐름만 조율하고, 실제 LangState 계산은 policy에 위임한다.
         // caller가 preparedState를 이미 넘긴 경우에는 기존 계약대로 그 값을 그대로 저장소에 전달한다.
@@ -83,9 +89,9 @@ class ApplyLanguageStateUpdateUseCase @Inject constructor(
         val preparedState = input.preparedState ?: analysisPolicy.analyze(input)
         LearningSignalFlowLog.d(
             "update_prepared lang=${input.lang.code} eventId=${input.analysisEventId ?: "none"} " +
-                "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
-                "focus=${preparedState.analysisMeta.activeFocus.size} " +
-                "lastSignalAt=${preparedState.analysisMeta.lastSignalAt ?: "none"}"
+                    "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
+                    "focus=${preparedState.analysisMeta.activeFocus.size} " +
+                    "lastSignalAt=${preparedState.analysisMeta.lastSignalAt ?: "none"}"
         )
         // 저장소는 계산을 모르고, 받아온 preparedState를 snapshot으로만 저장한다.
         return repo.updateLanguageState(input.copy(preparedState = preparedState))
@@ -181,7 +187,7 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
         ) {
             ChatPromptTraceLog.d(
                 "chat_ability langstate_skipped lang=${input.lang.code} " +
-                    "session=${input.sourceSessionId} reason=duplicate"
+                        "session=${input.sourceSessionId} reason=duplicate"
             )
             return Result.success(
                 LearningStateUpdateResult(
@@ -197,15 +203,16 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
         // Gemini가 만든 label을 LangState가 이해하는 metric 방향으로 낮춰서 저장한다.
         // 이 단계는 "점수 반영"이 아니라 "나중에 profile 계산이 참고할 관찰 근거"를 만드는 단계다.
         val metricUpdates = input.evidence.toMetricDirectionUpdates()
-        val nextEvidence = metricUpdates.fold(currentState.analysisMeta.metricEvidence) { evidence, update ->
-            evidence + (update.key to MetricEvidenceMergePolicy.merge(
-                previous = evidence[update.key],
-                direction = update.direction,
-                confidence = input.evidence.toMetricConfidence(),
-                source = LearningSignalSource.ChatSession,
-                observedAt = input.analyzedAt
-            ))
-        }
+        val nextEvidence =
+            metricUpdates.fold(currentState.analysisMeta.metricEvidence) { evidence, update ->
+                evidence + (update.key to MetricEvidenceMergePolicy.merge(
+                    previous = evidence[update.key],
+                    direction = update.direction,
+                    confidence = input.evidence.toMetricConfidence(),
+                    source = LearningSignalSource.ChatSession,
+                    observedAt = input.analyzedAt
+                ))
+            }
         val nextChatEvidenceSummary = input.evidence.toUpdatedChatEvidenceSummary(
             previous = currentState.analysisMeta.chatEvidenceSummary,
             observedAt = input.analyzedAt
@@ -234,9 +241,9 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
 
         ChatPromptTraceLog.d(
             "chat_ability langstate_prepared lang=${input.lang.code} " +
-                "session=${input.sourceSessionId} metrics=${metricUpdates.size} " +
-                "summary=${nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary} " +
-                "confidence=${input.evidence.confidence}"
+                    "session=${input.sourceSessionId} metrics=${metricUpdates.size} " +
+                    "summary=${nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary} " +
+                    "confidence=${input.evidence.confidence}"
         )
 
         val updateResult = repo.updateLanguageState(
@@ -262,15 +269,15 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
             .onSuccess { result ->
                 ChatPromptTraceLog.i(
                     "chat_ability langstate_saved lang=${input.lang.code} " +
-                        "session=${input.sourceSessionId} applied=${result.applied} " +
-                        "metrics=${metricUpdates.size} " +
-                        "summary=${nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary}"
+                            "session=${input.sourceSessionId} applied=${result.applied} " +
+                            "metrics=${metricUpdates.size} " +
+                            "summary=${nextChatEvidenceSummary != currentState.analysisMeta.chatEvidenceSummary}"
                 )
             }
             .onFailure { error ->
                 ChatPromptTraceLog.w(
                     "chat_ability langstate_failed lang=${input.lang.code} " +
-                        "session=${input.sourceSessionId} reason=${error::class.simpleName}",
+                            "session=${input.sourceSessionId} reason=${error::class.simpleName}",
                     error
                 )
             }
@@ -287,6 +294,7 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
             input.evidence.selectedLang != input.lang -> IllegalArgumentException(
                 "chat evidence language mismatch: evidence=${input.evidence.selectedLang}, input=${input.lang}"
             )
+
             input.recentUserTurns.isEmpty() -> IllegalArgumentException("recentUserTurns must not be empty")
             else -> null
         }
@@ -301,13 +309,30 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
                 TargetLanguageProductionEvidence.ConnectedTurns,
                 TargetLanguageProductionEvidence.SimpleSentences -> {
                     // 사용자가 학습언어로 문장을 직접 만들어 이어간 경우에만 길이/복잡도 근거를 올린다.
-                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Up))
-                    add(MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Up))
+                    add(
+                        MetricDirectionUpdate(
+                            LearningMetricKey.AvgUtteranceLength,
+                            EvidenceDirection.Up
+                        )
+                    )
+                    add(
+                        MetricDirectionUpdate(
+                            LearningMetricKey.SentenceComplexity,
+                            EvidenceDirection.Up
+                        )
+                    )
                 }
+
                 TargetLanguageProductionEvidence.ShortPhrases -> {
                     // 짧은 구 단위 발화는 성장 신호라기보다 현재 수준 유지 근거에 가깝다.
-                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Stable))
+                    add(
+                        MetricDirectionUpdate(
+                            LearningMetricKey.AvgUtteranceLength,
+                            EvidenceDirection.Stable
+                        )
+                    )
                 }
+
                 TargetLanguageProductionEvidence.WordsOrFragments,
                 TargetLanguageProductionEvidence.None -> Unit
             }
@@ -316,12 +341,24 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
                 ConversationSustainabilityEvidence.SustainedNatural,
                 ConversationSustainabilityEvidence.SustainedSimple -> {
                     // 대화가 AI 보조 없이 이어진 경우는 발화 길이 metric의 긍정 근거로만 반영한다.
-                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Up))
+                    add(
+                        MetricDirectionUpdate(
+                            LearningMetricKey.AvgUtteranceLength,
+                            EvidenceDirection.Up
+                        )
+                    )
                 }
+
                 ConversationSustainabilityEvidence.SupportedShort -> {
                     // 보조가 있는 짧은 지속은 과평가를 막기 위해 stable로 제한한다.
-                    add(MetricDirectionUpdate(LearningMetricKey.AvgUtteranceLength, EvidenceDirection.Stable))
+                    add(
+                        MetricDirectionUpdate(
+                            LearningMetricKey.AvgUtteranceLength,
+                            EvidenceDirection.Stable
+                        )
+                    )
                 }
+
                 ConversationSustainabilityEvidence.RequiresSupport -> Unit
             }
 
@@ -329,14 +366,24 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
                 targetLanguageComprehension == TargetLanguageComprehensionEvidence.SimpleSentence
             ) {
                 // 이해 근거는 사용자가 직접 말한 문장보다 약한 신호라 SentenceComplexity 근거만 보조한다.
-                add(MetricDirectionUpdate(LearningMetricKey.SentenceComplexity, EvidenceDirection.Up))
+                add(
+                    MetricDirectionUpdate(
+                        LearningMetricKey.SentenceComplexity,
+                        EvidenceDirection.Up
+                    )
+                )
             }
 
             if (responseDifficultyFit == ResponseDifficultyFitEvidence.Fits &&
                 conversationSustainability != ConversationSustainabilityEvidence.SupportedShort
             ) {
                 // 난이도가 맞고 대화가 스스로 유지된 경우에만 자연스러움 근거로 인정한다.
-                add(MetricDirectionUpdate(LearningMetricKey.SpokenNaturalness, EvidenceDirection.Up))
+                add(
+                    MetricDirectionUpdate(
+                        LearningMetricKey.SpokenNaturalness,
+                        EvidenceDirection.Up
+                    )
+                )
             }
         }
 
@@ -382,12 +429,12 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
         // LangState는 누적 상태이므로 보조 의존/난이도 과다/낮은 신뢰도 세션을 보수적으로 제외한다.
         // 이런 세션은 debug snapshot에는 남지만 공식 profile 근거로는 쓰지 않는다.
         return confidence != ProfileConfidence.Low &&
-            supportLanguageDependence != LanguageDependenceEvidence.High &&
-            aiScaffoldingDependence != LanguageDependenceEvidence.High &&
-            consistency != ConversationConsistencyEvidence.Low &&
-            responseDifficultyFit != ResponseDifficultyFitEvidence.TooHard &&
-            targetLanguageProduction != TargetLanguageProductionEvidence.None &&
-            targetLanguageComprehension != TargetLanguageComprehensionEvidence.None
+                supportLanguageDependence != LanguageDependenceEvidence.High &&
+                aiScaffoldingDependence != LanguageDependenceEvidence.High &&
+                consistency != ConversationConsistencyEvidence.Low &&
+                responseDifficultyFit != ResponseDifficultyFitEvidence.TooHard &&
+                targetLanguageProduction != TargetLanguageProductionEvidence.None &&
+                targetLanguageComprehension != TargetLanguageComprehensionEvidence.None
     }
 
     private fun ChatConversationEvidence.toMetricConfidence(): Double {
@@ -403,7 +450,8 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
     private fun mergeDirectionsWithinChatEvidence(
         directions: List<EvidenceDirection>
     ): EvidenceDirection {
-        val meaningfulDirections = directions.filter { direction -> direction != EvidenceDirection.Stable }.distinct()
+        val meaningfulDirections =
+            directions.filter { direction -> direction != EvidenceDirection.Stable }.distinct()
         return when {
             meaningfulDirections.isEmpty() -> EvidenceDirection.Stable
             meaningfulDirections.size == 1 -> meaningfulDirections.first()

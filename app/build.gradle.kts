@@ -29,9 +29,6 @@ android {
         if (propertiesFile.exists()) {
             properties.load(propertiesFile.inputStream())
         }
-        val apiKey = properties.getProperty("API_KEY") ?: ""
-        buildConfigField("String", "API_KEY", "\"$apiKey\"")
-
         // Android 앱은 OpenAI API key 를 직접 갖지 않는다.
         // 이 URL 은 Firebase Cloud Function 이 발급하는 short-lived Realtime client secret endpoint 다.
         val openAiRealtimeTokenUrl = properties.getProperty("OPENAI_REALTIME_TOKEN_URL") ?: ""
@@ -161,6 +158,8 @@ dependencies {
     // Firebase & AI & Auth
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.ai)
+    debugImplementation(libs.firebase.appcheck.debug)
+    releaseImplementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
