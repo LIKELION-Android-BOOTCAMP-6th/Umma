@@ -32,6 +32,7 @@ import com.app.umma.core.theme.UmmaTheme
 import com.app.umma.data.push.UmmaFirebaseMessagingService
 import com.app.umma.domain.usecase.notification.RefreshNotificationTimezoneUseCase
 import com.app.umma.domain.usecase.notification.SyncCurrentNotificationDeviceUseCase
+import com.app.umma.watchbridge.WatchChatRuntimeCoordinator
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.TimeZone
@@ -54,6 +55,9 @@ class MainActivity : ComponentActivity() {
     // Firestore 동기화
     @Inject
     lateinit var syncCurrentNotificationDeviceUseCase: SyncCurrentNotificationDeviceUseCase
+
+    @Inject
+    lateinit var watchChatRuntimeCoordinator: WatchChatRuntimeCoordinator
 
     // 탭 화면 route Intent 발생 변수
     private var pendingNotificationTarget by mutableStateOf<NotificationNavigationTarget?>(null)
@@ -81,7 +85,8 @@ class MainActivity : ComponentActivity() {
                     pendingNotificationTarget = pendingNotificationTarget,
                     onPendingNotificationConsumed = { pendingNotificationTarget = null },
                     pendingOpenRoute = pendingOpenRoute,
-                    onPendingOpenRouteConsumed = { pendingOpenRoute = null }
+                    onPendingOpenRouteConsumed = { pendingOpenRoute = null },
+                    onChatRouteVisibilityChanged = watchChatRuntimeCoordinator::setChatRouteVisible
                 )
             }
         }
@@ -92,6 +97,25 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         pendingNotificationTarget = intent.toNotificationNavigationTarget()
         pendingOpenRoute = intent.toOpenRoute()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        watchChatRuntimeCoordinator.setAppForeground(true)
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            watchChatRuntimeCoordinator.setAppForeground(false)
+        }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (!isChangingConfigurations) {
+            watchChatRuntimeCoordinator.setChatRouteVisible(false)
+        }
+        super.onDestroy()
     }
 
     private fun hasNotificationPermission(): Boolean {
@@ -112,17 +136,25 @@ private fun UmmaApp(
     pendingNotificationTarget: NotificationNavigationTarget? = null,
     onPendingNotificationConsumed: () -> Unit = {},
     pendingOpenRoute: String? = null,
-    onPendingOpenRouteConsumed: () -> Unit = {}
+    onPendingOpenRouteConsumed: () -> Unit = {},
+    onChatRouteVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentOnConsumed by rememberUpdatedState(onPendingNotificationConsumed)
+    val isChatRouteVisible = navBackStackEntry?.destination?.hierarchy?.any {
+        it.hasRoute<Route.Chat>()
+    } == true
     val showBottomBar = navBackStackEntry?.destination?.hierarchy?.any {
         it.hasRoute<Route.Statistics>() ||
                 it.hasRoute<Route.Chat>() ||
                 it.hasRoute<Route.CorrectionList>() ||
                 it.hasRoute<Route.SrsStudy>()
     } == true
+
+    LaunchedEffect(isChatRouteVisible) {
+        onChatRouteVisibilityChanged(isChatRouteVisible)
+    }
 
     LaunchedEffect(pendingNotificationTarget, navBackStackEntry) {
         val target = pendingNotificationTarget ?: return@LaunchedEffect

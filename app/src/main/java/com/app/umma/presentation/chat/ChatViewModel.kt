@@ -40,6 +40,8 @@ import com.app.umma.domain.usecase.user.GetUserNicknameUseCase
 import com.app.umma.domain.usecase.user.SaveInterestTopicsUseCase
 import com.app.umma.watchbridge.PhoneChatSessionController
 import com.app.umma.watchbridge.SessionOwner
+import com.app.umma.watchbridge.contract.WatchInputSurface
+import com.app.umma.watchbridge.contract.WatchOutputSurface
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -121,7 +123,7 @@ class ChatViewModel @Inject constructor(
     private val scheduledConversationAnalysisTurnCounts = mutableMapOf<String, Int>()
 
     init {
-        observeSessionOwner()
+        observeWatchSessionState()
         observeAudioOutputLevel()
         observeAudioOutputPlayback()
     }
@@ -134,11 +136,25 @@ class ChatViewModel @Inject constructor(
             showPromptReviewReportButton = shouldShowPromptReviewReportButton
         )
     }
-    private fun observeSessionOwner() {
+    private fun observeWatchSessionState() {
         viewModelScope.launch {
             phoneChatSessionController.snapshot.collectLatest { snapshot ->
+                if (snapshot.activeOutputSurface == WatchOutputSurface.WATCH) {
+                    audioPlayer.stopPlaying()
+                }
+                if (snapshot.watchAttached && _uiState.value.isRecording) {
+                    recordJob?.cancel()
+                    audioRecorder.stopRecording()
+                    phoneChatSessionController.markPhoneRecording(false)
+                    phoneChatSessionController.cancelPendingUserTurn(SessionOwner.PHONE)
+                }
                 _uiState.update {
-                    it.copy(sessionOwner = snapshot.owner)
+                    it.copy(
+                        watchAttached = snapshot.watchAttached,
+                        activeInputSurface = snapshot.activeInputSurface,
+                        activeOutputSurface = snapshot.activeOutputSurface,
+                        isRecording = if (snapshot.watchAttached) false else it.isRecording
+                    )
                 }
             }
         }
@@ -210,7 +226,7 @@ class ChatViewModel @Inject constructor(
             }
 
             val currentControllerSnapshot = phoneChatSessionController.currentSnapshot()
-            if (currentControllerSnapshot.owner == SessionOwner.WATCH) {
+            if (currentControllerSnapshot.watchAttached && currentControllerSnapshot.activeSessionId != null) {
                 _uiState.update {
                     it.copy(
                         entryStage = ChatEntryStage.READY,
@@ -220,7 +236,9 @@ class ChatViewModel @Inject constructor(
                         activeSessionId = currentControllerSnapshot.activeSessionId,
                         errorMessage = null,
                         isRecoverableError = false,
-                        sessionOwner = SessionOwner.WATCH
+                        watchAttached = currentControllerSnapshot.watchAttached,
+                        activeInputSurface = currentControllerSnapshot.activeInputSurface,
+                        activeOutputSurface = currentControllerSnapshot.activeOutputSurface
                     )
                 }
                 return@launch
@@ -388,11 +406,13 @@ class ChatViewModel @Inject constructor(
     private fun beginUserTurn() {
         val currentState = _uiState.value
         if (!currentState.canStartUserTurn) return
+        if (!phoneChatSessionController.canPhoneStartUserTurn()) return
         if (recordJob?.isActive == true) return
 
         currentUserTurnStartedAtMs = System.currentTimeMillis()
         currentUserTurnEndedAtMs = null
         phoneChatSessionController.cancelPendingUserTurn(SessionOwner.PHONE)
+        phoneChatSessionController.markPhoneRecording(true)
 
         _uiState.update {
             it.copy(
@@ -416,6 +436,7 @@ class ChatViewModel @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                phoneChatSessionController.markPhoneRecording(false)
                 Log.e(
                     TAG,
                     "beginUserTurn failed: type=${error::class.java.simpleName}, message=${error.message}",
@@ -450,6 +471,7 @@ class ChatViewModel @Inject constructor(
         recordJob?.cancel()
         audioRecorder.stopRecording()
         recordJob = null
+        phoneChatSessionController.markPhoneRecording(false)
 
         _uiState.update {
             it.copy(
@@ -470,6 +492,7 @@ class ChatViewModel @Inject constructor(
         recordJob?.cancel()
         audioRecorder.stopRecording()
         recordJob = null
+        phoneChatSessionController.markPhoneRecording(false)
 
         _uiState.update {
             it.copy(
@@ -576,7 +599,9 @@ class ChatViewModel @Inject constructor(
 
         currentUserTurnStartedAtMs = null
         currentUserTurnEndedAtMs = null
+        phoneChatSessionController.markPhoneRecording(false)
         phoneChatSessionController.cancelPendingUserTurn(SessionOwner.PHONE)
+        phoneChatSessionController.detachWatch()
         audioPlayer.stopPlaying()
         phoneChatSessionController.stopSession(
             owner = SessionOwner.PHONE,
@@ -1208,7 +1233,9 @@ class ChatViewModel @Inject constructor(
                 isAwaitingUserTranscript = false
             )
         }
-        audioPlayer.playAudioChunk(event.audio)
+        if (_uiState.value.activeOutputSurface != WatchOutputSurface.WATCH) {
+            audioPlayer.playAudioChunk(event.audio)
+        }
     }
 
     /**
