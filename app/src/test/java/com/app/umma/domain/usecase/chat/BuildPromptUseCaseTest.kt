@@ -77,8 +77,8 @@ class BuildPromptUseCaseTest {
     }
 
     @Test
-    fun `prompt does not fall back to English examples for non English languages without examples`() {
-        // 아직 독일어 전용 예시를 만들지 않았더라도 영어 예시를 넣으면 제3언어가 prompt에 새는 회귀가 된다.
+    fun `german prompt uses German examples instead of English fallback`() {
+        // 독일어 세션에는 영어 예시가 섞이지 않고, 같은 IntentOnly 리듬을 독일어 조각으로만 보여준다.
         val prompt = useCase(
             profile = profile(
                 conversationBand = ConversationAbilityBand.IntentOnly,
@@ -88,11 +88,36 @@ class BuildPromptUseCaseTest {
             selectedLang = LangCode.DE
         )
 
-        // 언어별 예시가 없는 경우에는 문장 예시 대신 리듬 설명만 제공해 출력 언어를 오염시키지 않는다.
-        assertTrue(prompt.contains("아직 언어별 문장 예시가 없으므로"))
-        assertTrue(prompt.contains("독일어 말 한 조각만 붙인다."))
+        assertTrue(prompt.contains("learning_language: 독일어"))
+        assertTrue(prompt.contains("집 앞 산책 좋지. Spaziergang. 바람도 좋았겠다."))
+        assertTrue(prompt.contains("친구랑 통화했구나. Freund. 같이 걸으면 덜 심심하지."))
+        assertTrue(prompt.contains("막히면: 어디였어? 집 앞 / 공원. Zuhause / Park."))
+        assertFalse(prompt.contains("아직 언어쌍별 문장 예시가 없으므로"))
+        assertFalse(prompt.contains("Walk. 바람도 좋았겠다."))
         assertFalse(prompt.contains("Sleep well?"))
         assertFalse(prompt.contains("Hungry?"))
+    }
+
+    @Test
+    fun `korean learning prompt supports English speakers learning Korean`() {
+        // 영어권 사용자가 한국어를 배우는 경우에도 영어 예시 fallback이 아니라 한국어 학습 조각을 직접 제공한다.
+        val prompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active
+            ),
+            primaryLang = LangCode.EN,
+            selectedLang = LangCode.KO
+        )
+
+        assertTrue(prompt.contains("learning_language: 한국어"))
+        assertTrue(prompt.contains("support_language: 영어"))
+        assertTrue(prompt.contains("Walk outside 좋지. 산책. Fresh air였겠다."))
+        assertTrue(prompt.contains("Talked with a friend 했구나. 친구. 덜 심심했겠다."))
+        assertTrue(prompt.contains("막히면: where? 집 앞 / 공원. 집 / 공원."))
+        assertFalse(prompt.contains("아직 언어쌍별 문장 예시가 없으므로"))
+        assertFalse(prompt.contains("Spaziergang"))
+        assertFalse(prompt.contains("さんぽ"))
     }
 
     @Test
@@ -214,6 +239,75 @@ class BuildPromptUseCaseTest {
         assertFalse(englishPrompt.contains("What’s a small thing?"))
         assertFalse(englishPrompt.contains("Making an app"))
         assertFalse(japanesePrompt.contains("アプリ"))
+    }
+
+    @Test
+    fun `intent only examples cover supported learning languages with the same rhythm`() {
+        val germanPrompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.KO,
+            selectedLang = LangCode.DE
+        )
+        val koreanPrompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.EN,
+            selectedLang = LangCode.KO
+        )
+
+        // 영어/일본어 외 지원 언어도 같은 리듬을 유지하고, 각 학습언어 조각만 달라져야 한다.
+        assertTrue(germanPrompt.contains("집 앞 산책 좋지. Spaziergang. 바람도 좋았겠다."))
+        assertTrue(koreanPrompt.contains("Walk outside 좋지. 산책. Fresh air였겠다."))
+        assertTrue(germanPrompt.contains("친구랑 통화했구나. Freund. 같이 걸으면 덜 심심하지."))
+        assertTrue(koreanPrompt.contains("Talked with a friend 했구나. 친구. 덜 심심했겠다."))
+        assertTrue(germanPrompt.contains("막히면: 어디였어? 집 앞 / 공원. Zuhause / Park."))
+        assertTrue(koreanPrompt.contains("막히면: where? 집 앞 / 공원. 집 / 공원."))
+        assertFalse(germanPrompt.contains("아직 언어쌍별 문장 예시가 없으므로"))
+        assertFalse(koreanPrompt.contains("아직 언어쌍별 문장 예시가 없으므로"))
+    }
+
+    @Test
+    fun `style reference falls back to guidance for unsupported language pairs`() {
+        // 전용 예시는 primary/selected 언어쌍이 검증된 경우에만 넣어야 제3언어가 출력으로 새지 않는다.
+        val englishToGermanPrompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.EN,
+            selectedLang = LangCode.DE
+        )
+        val japaneseToKoreanPrompt = useCase(
+            profile = profile(
+                conversationBand = ConversationAbilityBand.IntentOnly,
+                primaryBridge = PrimaryBridgePolicy.Active,
+                confidence = ProfileConfidence.Low
+            ),
+            primaryLang = LangCode.JA,
+            selectedLang = LangCode.KO
+        )
+
+        assertTrue(englishToGermanPrompt.contains("learning_language: 독일어"))
+        assertTrue(englishToGermanPrompt.contains("support_language: 영어"))
+        assertTrue(englishToGermanPrompt.contains("아직 언어쌍별 문장 예시가 없으므로"))
+        assertTrue(englishToGermanPrompt.contains("영어 짧은 안부 옆에 아주 쉬운 독일어 말 한 조각만 붙인다."))
+        assertFalse(englishToGermanPrompt.contains("집 앞 산책 좋지. Spaziergang."))
+        assertFalse(englishToGermanPrompt.contains("さんぽ"))
+
+        assertTrue(japaneseToKoreanPrompt.contains("learning_language: 한국어"))
+        assertTrue(japaneseToKoreanPrompt.contains("support_language: 일본어"))
+        assertTrue(japaneseToKoreanPrompt.contains("아직 언어쌍별 문장 예시가 없으므로"))
+        assertTrue(japaneseToKoreanPrompt.contains("일본어 짧은 안부 옆에 아주 쉬운 한국어 말 한 조각만 붙인다."))
+        assertFalse(japaneseToKoreanPrompt.contains("Walk outside 좋지. 산책."))
+        assertFalse(japaneseToKoreanPrompt.contains("Spaziergang"))
     }
 
     @Test

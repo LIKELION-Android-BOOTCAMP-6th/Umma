@@ -95,7 +95,7 @@ class ChatPromptIntegrationUseCaseTest {
 
         // trace는 prompt 전문 없이 현재 버전과 섹션만 남겨 Logcat/리뷰 도구에서 구조를 확인하게 한다.
         assertTrue(chatRepository.startedPromptTrace!!.contains("promptVersion=chat_prompt_v2"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N024"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N026"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("transcription={revision=stt_prompt_v1,languages=ko+en}"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("context={turns=1,topics=1,interests=2}"))
