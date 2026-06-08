@@ -93,6 +93,39 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `prompt enforces candidateId exact-copy contract with copy, no-invent, and skip rules`() {
+        // COR-FIX-009: "unknown correction candidate id: ja-6-0-79967d5" 실패의 직접 원인은
+        // AI 가 candidateId 를 새로 만들어(hallucinate) 돌려준 것으로 추정된다. 한 줄짜리 지시("COPY
+        // EXACTLY ... Do not invent new ids.")만으로는 모델이 "비슷하게 변형해도 된다"고 오해할 여지가
+        // 있어, 복사 의무 / 생성·추론·축약·해시·번역·재포맷 금지 / 불가능하면 skip 세 규칙으로 못 박는다.
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "ja-6-0-79967d5",
+                    lang = LangCode.JA,
+                    sourceTurnIndex = 6,
+                    sourceText = "わたしは学校に行きました"
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue(
+            "exact-copy 지시 누락",
+            prompt.contains("COPY EXACTLY one of the candidateId values from the Candidates section above")
+        )
+        assertTrue(
+            "생성/추론/축약/해시/번역/재포맷 금지 지시 누락",
+            prompt.contains("Never create, infer, shorten, hash, translate, or reformat a candidateId")
+        )
+        assertTrue(
+            "정확한 id 를 못 쓰면 skip 하라는 지시 누락",
+            prompt.contains("If you cannot use an exact candidateId from the Candidates section, skip that candidate")
+        )
+    }
+
+    @Test
     fun `prompt asks AI to report sourceLang at suggestion top level with unknown escape hatch`() {
         // COR-TUNE-011-FIX (Method B): detectedLang seam 폐기로 발화 원문 언어의 유일한 출처가
         // AI 교정 응답이 되었다. schema 의 sourceLang 키와 "원문 기준/확신 없으면 unknown" Rule 이

@@ -9,6 +9,7 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
+import kotlinx.serialization.SerializationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -77,6 +78,38 @@ class CorrectionAiResponseMapperTest {
     }
 
     @Test
+    fun `fails when AI response references unknown japanese candidate id`() {
+        // COR-FIX-009: 실제 실패 사례(`unknown correction candidate id: ja-6-0-79967d5`)의 재현.
+        // 일본어 후보에서도 strict 검증(IllegalArgumentException, 재시도 없음)이 그대로 유지되어야
+        // 한다 — 진단 로그를 추가했다고 해서 unknown candidateId 가 통과되거나 무시되면 안 된다.
+        val candidate = CorrectionCandidate(
+            id = "ja-6-0-79967d5",
+            lang = LangCode.JA,
+            sourceTurnIndex = 6,
+            sourceText = "わたしは学校に行きました"
+        )
+        val rawJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "ja-6-0-deadbeef",
+                  "nativeText": "나는 학교에 갔다",
+                  "afterText": "学校に行きました。",
+                  "explanation": "demo"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val error = assertThrowsIllegalArgument {
+            mapper.map(rawJson, inputOf(candidate))
+        }
+        assertTrue(error.message.orEmpty().contains("unknown correction candidate id: ja-6-0-deadbeef"))
+        assertTrue(error.message.orEmpty().contains("knownCandidateIds=[ja-6-0-79967d5]"))
+        assertTrue(error.message.orEmpty().contains("count=1"))
+    }
+
+    @Test
     fun `fails when required text field is blank`() {
         val rawJson = """
             {
@@ -92,6 +125,141 @@ class CorrectionAiResponseMapperTest {
         """.trimIndent()
 
         assertThrowsIllegalArgument {
+            mapper.map(rawJson, baseInput())
+        }
+    }
+
+    // --- COR-FIX-008-A: 최상위 JSON 배열 허용 ---
+
+    @Test
+    fun `maps top-level array response into correction suggestions`() {
+        val rawJson = """
+            [
+              {
+                "candidateId": "en-0-a",
+                "nativeText": "나는 학교에 간다",
+                "afterText": "I go to school.",
+                "explanation": "Use 'go to school' instead of 'go school'."
+              }
+            ]
+        """.trimIndent()
+
+        val suggestions = mapper.map(rawJson, baseInput())
+
+        assertEquals(1, suggestions.size)
+        val suggestion = suggestions.single()
+        assertEquals("corr-en-0-a", suggestion.id)
+        assertEquals("I go to school.", suggestion.afterText)
+    }
+
+    @Test
+    fun `fails when top-level array references unknown candidate`() {
+        val rawJson = """
+            [
+              {
+                "candidateId": "missing",
+                "nativeText": "나는 학교에 간다",
+                "afterText": "I go to school.",
+                "explanation": "demo"
+              }
+            ]
+        """.trimIndent()
+
+        assertThrowsIllegalArgument {
+            mapper.map(rawJson, baseInput())
+        }
+    }
+
+    @Test
+    fun `fails when top-level array contains blank required field`() {
+        val rawJson = """
+            [
+              {
+                "candidateId": "en-0-a",
+                "nativeText": "나는 학교에 간다",
+                "afterText": "   ",
+                "explanation": "demo"
+              }
+            ]
+        """.trimIndent()
+
+        assertThrowsIllegalArgument {
+            mapper.map(rawJson, baseInput())
+        }
+    }
+
+    @Test
+    fun `fails when top-level JSON is neither object nor array`() {
+        assertThrowsIllegalArgument {
+            mapper.map("\"just a string\"", baseInput())
+        }
+    }
+
+    // --- COR-FIX-008-C/D: explanation 누락-공백 정책(재시도 후 drop), malformed JSON ---
+
+    @Test
+    fun `throws BlankExplanationException when explanation is missing in default mode`() {
+        val rawJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school."
+                }
+              ]
+            }
+        """.trimIndent()
+
+        assertThrowsType<BlankExplanationException> {
+            mapper.map(rawJson, baseInput())
+        }
+    }
+
+    @Test
+    fun `throws BlankExplanationException when explanation is blank in default mode`() {
+        val rawJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school.",
+                  "explanation": "   "
+                }
+              ]
+            }
+        """.trimIndent()
+
+        assertThrowsType<BlankExplanationException> {
+            mapper.map(rawJson, baseInput())
+        }
+    }
+
+    @Test
+    fun `drops suggestion with blank explanation when dropBlankExplanation is enabled`() {
+        val rawJson = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school."
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val suggestions = mapper.map(rawJson, baseInput(), dropBlankExplanation = true)
+
+        assertTrue(suggestions.isEmpty())
+    }
+
+    @Test
+    fun `fails with SerializationException when a token sits outside JSON string values`() {
+        val rawJson = """{ "suggestions": [ { "candidateId": "en-0-a", "nativeText": "나는 학교에 간다", "afterText": "I go to school.", "explanation": "tip" X} ] }"""
+
+        assertThrowsType<SerializationException> {
             mapper.map(rawJson, baseInput())
         }
     }
@@ -276,6 +444,46 @@ class CorrectionAiResponseMapperTest {
         assertTrue(signal.languageFeatures.isEmpty())
     }
 
+    // --- COR-FIX-008-B: languageFeatures 문자열/이상타입 정규화 (allowlist 확장 없음) ---
+
+    @Test
+    fun `normalizes string languageFeature entry within allowlist`() {
+        val suggestion = mapper.map(
+            signalJson(languageFeatures = """["EN.Tense"]"""),
+            baseInput()
+        ).single()
+        val signal = requireNotNull(suggestion.learningSignal)
+        assertEquals(listOf("EN.Tense"), signal.languageFeatures.map { it.featureKey })
+        assertEquals(LangCode.EN, signal.languageFeatures.single().lang)
+    }
+
+    @Test
+    fun `excludes string languageFeature entry outside allowlist but keeps suggestion and signal`() {
+        val suggestion = mapper.map(
+            signalJson(languageFeatures = """["EN.NounPhrase"]"""),
+            baseInput()
+        ).single()
+        // 파싱 견고성과 allowlist 멤버십은 별개다 — 문자열 배열도 throw 없이 정규화되고,
+        // allowlist 밖 feature 만 제외되며 suggestion·signal 은 그대로 유지된다.
+        assertEquals("I go to school.", suggestion.afterText)
+        val signal = requireNotNull(suggestion.learningSignal)
+        assertTrue(signal.languageFeatures.isEmpty())
+    }
+
+    @Test
+    fun `keeps only valid entries when languageFeatures mixes strings numbers and objects`() {
+        val suggestion = mapper.map(
+            signalJson(languageFeatures = """["EN.Tense", 123, {"lang":"EN","featureKey":"EN.Article"}]"""),
+            baseInput()
+        ).single()
+        assertEquals("I go to school.", suggestion.afterText)
+        val signal = requireNotNull(suggestion.learningSignal)
+        assertEquals(
+            setOf("EN.Tense", "EN.Article"),
+            signal.languageFeatures.map { it.featureKey }.toSet()
+        )
+    }
+
     @Test
     fun `keeps suggestion with null signal when learning signal is absent`() {
         // learningSignal 누락은 실패가 아니다. suggestion.learningSignal=null 로 통과한다.
@@ -414,12 +622,30 @@ class CorrectionAiResponseMapperTest {
         )
     }
 
-    private fun assertThrowsIllegalArgument(block: () -> Unit) {
+    private fun assertThrowsIllegalArgument(block: () -> Unit): IllegalArgumentException {
         try {
             block()
             fail("Expected IllegalArgumentException")
-        } catch (_: IllegalArgumentException) {
+        } catch (e: IllegalArgumentException) {
             // Expected path: invalid AI response should fail before reaching the domain layer.
+            return e
+        }
+        error("unreachable")
+    }
+
+    /**
+     * COR-FIX-008: BlankExplanationException/SerializationException 처럼 서로 다른 계층에 속한
+     * 예외를 정확한 타입으로 검증하기 위한 범용 helper. (SerializationException 은
+     * IllegalArgumentException 의 하위 타입이라 위 helper 로는 구분할 수 없다)
+     */
+    private inline fun <reified T : Throwable> assertThrowsType(block: () -> Unit) {
+        try {
+            block()
+            fail("Expected ${T::class.simpleName}")
+        } catch (e: Throwable) {
+            if (e !is T) {
+                fail("Expected ${T::class.simpleName} but was ${e::class.simpleName}: ${e.message}")
+            }
         }
     }
 

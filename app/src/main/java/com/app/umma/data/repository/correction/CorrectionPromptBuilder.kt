@@ -111,13 +111,23 @@ class CorrectionPromptBuilder @Inject constructor() {
             // 키 구성은 CHAT-TUNE-001 핸드오버 JSON 예시와 일치한다.
             appendLine("""{"suggestions":[{"candidateId":"...","nativeText":"...","afterText":"...","explanation":"...","sourceLang":"...","learningSignal":{"candidateId":"...","sourceTurnId":"... or null","sourceTurnIndex":0,"sourceText":"...","correctedText":"...","issueCategories":["..."],"languageFeatures":[{"lang":"...","featureKey":"..."}],"improvementTypes":["..."],"editSpans":[{"sourceFragment":"...","correctedFragment":"...","issueCategory":"...","languageFeatureKey":"...","improvementType":"..."}],"register":"...","severity":"...","meaningPreserved":true,"confidence":0.0}}]}""")
             appendLine("Rules:")
-            appendLine("- candidateId: COPY EXACTLY from the candidates above. Do not invent new ids.")
+            // COR-FIX-008-A/D: Gemini가 가끔 최상위 bare array나 문자열 밖 토큰으로 깨진 JSON을
+            // 직접 돌려준 적이 있다 — mapper fallback으로도 방어하지만, 프롬프트로 빈도를 줄인다.
+            appendLine("- The top-level JSON value MUST be an object with a \"suggestions\" array, exactly as in the schema above. Do NOT return a bare array as the top-level JSON value.")
+            appendLine("- Do not put any marker, grade, label, letter, or extra character outside JSON string values. Escape quotation marks inside string values such as explanation. The response must parse with a strict JSON parser.")
+            // COR-FIX-009: candidateId hallucination(예: "ja-6-0-79967d5") 방어. 한 줄 지시로는
+            // 모델이 "비슷한 ID를 만들어도 된다"고 오해할 여지가 있어, 복사/생성금지/skip 세 규칙으로 명시한다.
+            // mapper의 unknown candidateId strict 검증(IllegalArgumentException, 재시도 없음)은 그대로 유지하고
+            // 여기서는 애초에 unknown이 발생하지 않도록 계약을 단단히 한다.
+            appendLine("- candidateId: COPY EXACTLY one of the candidateId values from the Candidates section above. Do not invent new ids.")
+            appendLine("- Never create, infer, shorten, hash, translate, or reformat a candidateId.")
+            appendLine("- If you cannot use an exact candidateId from the Candidates section, skip that candidate.")
             appendLine("- nativeText: the front-face sentence in $primaryLangName (${primaryLang.code}).")
             appendLine("- afterText: the corrected sentence in ${selectedLang.code}.")
             // COR-TUNE-003-FIX: primaryLang 고정 제거 → Explanation 정책에 위임.
             // explanationLine()이 band별로 언어를 결정하므로(고급 band: target language, 초급: primaryLang)
             // 여기서 언어를 다시 고정하면 두 지시가 충돌한다. 형식 제약(60자)만 남기고 언어는 위 정책을 따른다.
-            appendLine("- explanation: a short correction tip (under 60 chars), in the language set by the Explanation policy above.")
+            appendLine("- explanation: a short correction tip (under 60 chars), in the language set by the Explanation policy above. Every suggestion MUST include a non-empty explanation — never omit it. If the reason is simple, still give a short tip.")
             // COR-TUNE-011-FIX (Method B): detectedLang seam 이 폐기되어, 발화 원문 언어는 이제 AI 가 직접 보고한다.
             // afterText(=항상 selectedLang)와 혼동하지 않도록 "원문(sourceText) 기준"임을 명시하고,
             // 확신이 없을 때 "unknown"을 쓰게 해 mapper 가 보수적으로 null(=평가 통과)로 떨어뜨릴 escape hatch 를 둔다.
@@ -131,7 +141,7 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("- improvementTypes: pick from [$improvementTypeValues], at most 3. Use ONLY these values — any value outside the list discards the whole learningSignal.")
             appendLine("- register: exactly one of [$registerValues] describing the corrected sentence.")
             appendLine("- severity: exactly one of [$severityValues].")
-            appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}.")
+            appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}. MUST be an array of objects, never strings — correct: [{\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.Tense\"}], incorrect: [\"$langNamespace.Tense\"].")
             // COR-TUNE-003-FIX: editSpans의 enum 제약·폐기 경고 추가.
             // 매퍼 normalizeEditSpan은 issueCategory/improvementType이 허용 목록 밖이면 learningSignal 전체를 drop한다(COR-TUNE-002-FIX).
             // top-level 규칙(issueCategories/improvementTypes)과 동일 어휘로 명시해 AI가 자연어 값을 넣지 않게 한다.
