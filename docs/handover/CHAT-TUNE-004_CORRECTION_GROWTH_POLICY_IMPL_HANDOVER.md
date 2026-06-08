@@ -46,13 +46,13 @@ data class CorrectionGrowthPolicy(
 
 ---
 
-## LearningState 담당자 정교화 지점
+## LearningState 담당자 정교화 반영 상태
 
 ### 위치
 
 `BuildLearnerAdaptationProfileUseCase.kt` → `chooseCorrectionGrowthBand()` 함수
 
-### 현재 인터림 로직
+### 구현 완료된 정책
 
 - `ProfileConfidence.Low` → 보수적 band(`MeaningFirst`/`PatternFix`) 반환
 - 의미차단 focus(`SentenceFragment`/`MissingContext`) → `MeaningFirst`/`PatternFix` 우선
@@ -60,17 +60,17 @@ data class CorrectionGrowthPolicy(
 - grammar/vocabulary/fluency 2개 이상 `Stable` 이상 → `EverydayNatural`+
 - naturalness=`Refined` + vocabulary ≥ `Expanding` + `High` → `NuanceRefine`
 
-### 정교화가 필요한 부분
+### 추가 정교화 반영 완료
 
 1. **`analysisMeta.metricEvidence` 기반 band 보수 조정**
-   - 현재는 `LearningFocusSummary`의 요약(primaryFocus confidence)만 본다.
-   - 실제 evidence 반복 횟수·방향(EvidenceDirection)을 보고 band 상·하향 조정이 필요하다.
-   - `CHAT-TUNE-004` FlowDB 스펙 "Band별 기준" 표 참조.
+   - `correctionGrowthEvidenceProfile()`에서 Mixed/Down 방향, 반복 약점, 상승 근거 개수를 함께 본다.
+   - `ConnectedExpression` 계열 상승은 최소 2개 이상 근거가 필요하고, `NuanceRefine` 계열 상승은 최소 3개 이상 근거가 필요하다.
+   - 이 조건은 하나의 높은 metric만으로 교정 band가 과하게 상승하지 않도록 막는 보수 장치다.
 
 2. **`sentenceComplexity` 독립 방어 조건**
-   - 현재는 `langState?.internal.sentenceComplexity`를 grammarStage 대리로 쓴다.
-   - 높은 grammarStage + 낮은 sentenceComplexity 조합에서 `SentenceShape` 방어가 필요하다.
-   - `CHAT-TUNE-004` FlowDB 스펙 "방어 원칙" 참조.
+   - grammar와 별도로 `sentenceComplexity` stage를 계산해 상위 band 진입을 제한한다.
+   - 높은 grammar/vocabulary 근거가 있어도 문장 구조 근거가 낮으면 `SentenceShape` 계열 방어가 우선된다.
+   - 이 조건은 단어·문법 일부 점수만으로 사용자에게 과한 문장 확장 교정을 주지 않기 위한 방어다.
 
 ---
 

@@ -190,8 +190,13 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val userTurns = input.recentUserTurns.count { it.speaker == TurnSpeaker.USER }
         if (userTurns <= 0) return null
 
-        // correctionCount는 실제 교정 밀도의 대용값이므로, 현재는 단순 비율로만 본다.
-        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
+        // correctionCount는 실제 교정 밀도의 대용값이지만,
+        // 점수 부적격 signal만 있는 batch는 "교정 0건"이 아니라 "점수 중립"으로 구분해야 한다.
+        val correctionImpact = input.correctionScoreImpact(validatedSignals)
+        // meaning mismatch/과확장처럼 장기 점수에 쓰면 안 되는 signal만 있으면
+        // null을 반환해 smoothMetric이 기존 grammar score를 그대로 보존하게 한다.
+        if (correctionImpact == CorrectionScoreImpact.Neutral) return null
+        val correctionCount = (correctionImpact as CorrectionScoreImpact.Count).value
         val rawScore = 1.0 - (correctionCount.toDouble() / userTurns.toDouble())
         return clamp01(rawScore)
     }
@@ -207,8 +212,12 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val userTurns = input.analyzableUserTurns()
         if (userTurns.isEmpty()) return null
 
+        // 점수 부적격 signal만 있는 batch를 correctionCount=0으로 보면 어휘 적절성이
+        // 부당하게 상승하므로, score 중립 상태는 이번 측정 자체를 건너뛴다.
+        val correctionImpact = input.correctionScoreImpact(validatedSignals)
+        if (correctionImpact == CorrectionScoreImpact.Neutral) return null
         // 교정이 많을수록 문맥 적합성이 낮았다고 보는 보수적 근사치다.
-        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
+        val correctionCount = (correctionImpact as CorrectionScoreImpact.Count).value
         val correctionPenalty = correctionCount.toDouble() / (userTurns.size.toDouble() * 2.0)
         val correctionScore = 1.0 - correctionPenalty
         return clamp01((lexicalDiversity * 0.6) + (correctionScore * 0.4))
@@ -281,8 +290,12 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val userTurns = input.recentUserTurns.count { it.speaker == TurnSpeaker.USER }
         if (userTurns <= 0) return null
 
+        // 부적격 signal만 있는 경우는 자연스러움이 좋았다는 뜻이 아니므로,
+        // correctionCount=0으로 계산하지 않고 기존 naturalness를 보존한다.
+        val correctionImpact = input.correctionScoreImpact(validatedSignals)
+        if (correctionImpact == CorrectionScoreImpact.Neutral) return null
         // correctionCount가 많을수록 자연스러움이 낮다고 보는 단순 근사치다.
-        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
+        val correctionCount = (correctionImpact as CorrectionScoreImpact.Count).value
         val rawScore = 1.0 - (correctionCount.toDouble() / (userTurns.toDouble() * 2.0))
         return clamp01(rawScore)
     }
@@ -312,16 +325,27 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val userTurns = input.analyzableUserTurns()
         if (userTurns.isEmpty() || input.correctionResult == null) return null
 
-        val correctionCount = input.effectiveCorrectionCountForLongTermScore(validatedSignals)
+        // 점수 부적격 signal은 반복 오류가 없었다는 근거도 아니므로 중립 처리한다.
+        val correctionImpact = input.correctionScoreImpact(validatedSignals)
+        if (correctionImpact == CorrectionScoreImpact.Neutral) return null
+        val correctionCount = (correctionImpact as CorrectionScoreImpact.Count).value
         return clamp01(correctionCount.toDouble() / (userTurns.size.toDouble() * 2.0))
     }
 
-    private fun LangStateUpdateInput.effectiveCorrectionCountForLongTermScore(
+    private fun LangStateUpdateInput.correctionScoreImpact(
         validatedSignals: List<CorrectionLearningSignal>
-    ): Int {
-        val result = correctionResult ?: return 0
+    ): CorrectionScoreImpact {
+        val result = correctionResult ?: return CorrectionScoreImpact.Count(0)
         val signals = result.learningSignals
-        if (signals.isEmpty()) return result.correctionCount
+        if (signals.isEmpty()) {
+            // learningSignal 이전의 correctionCount-only 경로는 기존 MVP fallback 계약이므로 유지한다.
+            return CorrectionScoreImpact.Count(result.correctionCount.coerceAtLeast(0))
+        }
+        if (validatedSignals.isEmpty()) {
+            // signal이 있었지만 schema/validation에서 모두 버려진 경우에는 score 부적격으로 확정할 근거도 없다.
+            // 기존 correctionCount fallback을 유지해 "invalid signal 하나가 감점을 없애는" 회귀를 막는다.
+            return CorrectionScoreImpact.Count(result.correctionCount.coerceAtLeast(0))
+        }
 
         // learning signal이 명시적으로 들어온 경우에는 의미 보존이 확인된 signal만
         // 장기 score 이동에 사용한다. 의미가 바뀐 rewrite나 과도한 확장을
@@ -329,7 +353,13 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val longTermEligibleCount = validatedSignals.count { signal ->
             signal.isLongTermScoreEligible(currentState)
         }
-        return longTermEligibleCount.coerceAtMost(result.correctionCount.coerceAtLeast(0))
+        if (longTermEligibleCount <= 0) {
+            // 유효 signal이 모두 meaning mismatch/low confidence/과확장으로 제외된 경우다.
+            // 이 상태를 Count(0)으로 돌리면 grammar/naturalness가 1.0 쪽으로 올라가므로
+            // 명시적인 Neutral로 남겨 각 metric이 기존 값을 유지하게 한다.
+            return CorrectionScoreImpact.Neutral
+        }
+        return CorrectionScoreImpact.Count(longTermEligibleCount.coerceAtMost(result.correctionCount.coerceAtLeast(0)))
     }
 
     private fun LangStateUpdateInput.validatedCorrectionSignalResult(): SignalValidationResult {
@@ -407,7 +437,6 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
                     previous = acc[update.key],
                     direction = update.direction,
                     confidence = signal.weightedConfidence(),
-                    source = LearningSignalSource.CorrectionSignal,
                     observedAt = observedAt
                 ))
             }
@@ -512,15 +541,16 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         previous: MetricEvidence?,
         direction: EvidenceDirection,
         confidence: Double,
-        source: LearningSignalSource,
         observedAt: Long
     ): MetricEvidence {
-        // merge 규칙은 source와 무관하게 같고, source만 caller가 명시해 오염을 막는다.
+        // 이 정책은 CorrectionLearningSignal 전용 분석기이므로 evidence 출처를 correction으로 고정한다.
+        // ChatSession evidence는 별도 분석 경로에서 들어와야 하며, 여기서 caller 파라미터로 열어두면
+        // 실제 호출은 하나뿐인데도 확장된 것처럼 보이는 경고와 책임 혼동이 생긴다.
         return MetricEvidenceMergePolicy.merge(
             previous = previous,
             direction = direction,
             confidence = confidence,
-            source = source,
+            source = LearningSignalSource.CorrectionSignal,
             observedAt = observedAt
         )
     }
@@ -776,6 +806,14 @@ class DefaultLangStateAnalysisPolicy @Inject constructor() : LangStateAnalysisPo
         val type: LearningFocusType,
         val confidence: Double
     )
+
+    private sealed interface CorrectionScoreImpact {
+        // 장기 점수에 반영할 교정 밀도입니다. correctionCount-only fallback과 score-eligible signal 경로가 이 값을 쓴다.
+        data class Count(val value: Int) : CorrectionScoreImpact
+
+        // 교정 signal은 존재하지만 meaning/low-confidence/과확장 guard 때문에 장기 점수는 보존해야 하는 상태입니다.
+        data object Neutral : CorrectionScoreImpact
+    }
 
     private data class SignalValidationResult(
         val totalCount: Int,

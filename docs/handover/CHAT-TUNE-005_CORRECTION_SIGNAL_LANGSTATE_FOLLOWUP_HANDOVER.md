@@ -19,7 +19,17 @@ CHAT-TUNE-004 IMPL 인계 이후 COR 담당자가 다음을 점검했다.
 
 ---
 
-## Finding 1 — 수정 필요: 점수 부적격 신호가 장기 점수를 *상승*시킨다
+## Finding 1 — 반영 완료: 점수 부적격 신호가 장기 점수를 *상승*시키지 않는다
+
+### 처리 상태
+
+반영 완료.
+
+- `LangStateAnalysisPolicy`는 교정 없음, correctionCount fallback, score-eligible signal, score-neutral signal을 구분한다.
+- `meaningPreserved=false`, 낮은 confidence, 과확장 guard처럼 장기 점수에 쓰면 안 되는 유효 signal만 있을 때는 교정 기반 metric 측정을 `null`로 반환한다.
+- `null` 측정값은 `smoothMetric`에서 기존 장기 점수를 유지하므로, 점수가 내려가지도 올라가지도 않는다.
+- evidence/focus는 기존처럼 남겨 이후 분석과 프롬프트 정책이 약점 근거를 잃지 않게 한다.
+- invalid signal만 있는 경우에는 score-neutral로 단정하지 않고 기존 correctionCount fallback을 유지한다.
 
 ### 현상
 
@@ -77,7 +87,15 @@ evidence/focus는 그대로 유지한다(약점 근거는 계속 기록).
 
 ---
 
-## Finding 2 — 문서 갱신 필요: CHAT-TUNE-004 IMPL 인계 문서가 stale
+## Finding 2 — 반영 완료: CHAT-TUNE-004 IMPL 인계 문서 stale 해소
+
+### 처리 상태
+
+반영 완료.
+
+- `CHAT-TUNE-004_CORRECTION_GROWTH_POLICY_IMPL_HANDOVER.md`의 LearningState 정교화 섹션을 구현 완료 상태로 갱신했다.
+- metricEvidence 기반 band 보수 조정과 sentenceComplexity 독립 방어가 이미 적용된 정책임을 명시했다.
+- 다음 작업자가 완료된 정교화 항목을 미구현으로 오해하지 않도록 stale 표현을 제거했다.
 
 ### 현상
 
@@ -102,7 +120,7 @@ evidence/focus는 그대로 유지한다(약점 근거는 계속 기록).
 
 ---
 
-## Finding 5 — 논의 필요: 단일 교정 focus의 prompt 노출 지연
+## Finding 5 — 현 정책 유지: 단일 교정 focus의 prompt 노출 지연
 
 ### 현재 동작
 
@@ -135,6 +153,15 @@ CHAT-TUNE-003은 *"단일 signal은 focus에는 **빠르게 반영**"* 이라고
 
 - "교정 1회 → 바로 다음 대화에 약점 노출"이 목표 UX인가?
 - 현재 "저장은 빠르게, 노출은 2회부터"가 사용자 체감에 문제인가?
+
+### 결정
+
+현 정책을 유지한다.
+
+- 단일 교정 focus는 `analysisMeta.activeFocus`에 빠르게 저장한다.
+- prompt 노출은 2회 이상 반복 관측과 confidence 기준을 따른다.
+- 1회성 focus를 곧바로 prompt에 노출하는 `recentHint` 구조는 이번 작업 범위에서 제외한다.
+- 이 결정은 noise 1건이 장기 약점처럼 prompt에 들어가 AI가 특정 약점에 과집중하는 회귀를 막기 위한 것이다.
 
 ### 제안 옵션 (합의 후 구현)
 

@@ -539,8 +539,9 @@ class LearningStateWriteUseCasesTest {
     }
 
     @Test
-    fun `meaning not preserved signal does not directly reduce long term score`() {
-        // 의미가 바뀐 교정은 사용자의 실력 변화 근거가 아니라 품질 방어 신호라서 score 이동에 직접 쓰면 안 된다.
+    fun `meaning not preserved signal keeps long term score neutral`() {
+        // 의미가 바뀐 교정은 사용자의 실력 변화 근거가 아니라 품질 방어 신호다.
+        // 따라서 점수를 내리지 않는 것뿐 아니라 "교정 0건"처럼 해석해 점수를 올려서도 안 된다.
         val policy = DefaultLangStateAnalysisPolicy()
         val current = LangState.initial(
             lang = LangCode.EN,
@@ -581,8 +582,9 @@ class LearningStateWriteUseCasesTest {
             )
         )
 
-        // correctionCount가 있어도 meaningPreserved=false signal만 있으면 grammar score는 correction penalty로 내려가지 않는다.
-        assertEquals(0.68, next.internal.grammarAccuracy, 0.0001)
+        // correctionCount가 있어도 meaningPreserved=false signal만 있으면 grammar score는 상향/하향 없이 보존된다.
+        assertEquals(0.6, next.internal.grammarAccuracy, 0.0001)
+        // evidence는 남겨 다음 분석/검토에서 의미 보존 실패를 추적할 수 있게 한다.
         assertNotNull(next.analysisMeta.metricEvidence[LearningMetricKey.GrammarAccuracy])
     }
 
@@ -670,8 +672,8 @@ class LearningStateWriteUseCasesTest {
             it.type == LearningFocusType.MissingContext
         }
 
-        // correctionCount가 있어도 과도한 확장으로 판단되면 장기 grammar score는 correction penalty로 내려가지 않는다.
-        assertEquals(0.68, next.internal.grammarAccuracy, 0.0001)
+        // correctionCount가 있어도 과도한 확장으로 판단되면 장기 grammar score는 상향/하향 없이 보존된다.
+        assertEquals(0.6, next.internal.grammarAccuracy, 0.0001)
         // issue-driven evidence와 focus는 남겨 다음 대화/교정이 사용자의 missing context를 도울 수 있게 한다.
         assertNotNull(sentenceEvidence)
         assertNotNull(missingContextFocus)
