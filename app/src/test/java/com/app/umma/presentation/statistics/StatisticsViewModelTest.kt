@@ -280,6 +280,7 @@ class StatisticsViewModelTest {
         override fun observeFlashcardSummary(lang: LangCode): Flow<FlashcardSummary?> = state.map { it.flashcardSummaries[lang] }
         override suspend fun preload(): Result<Unit> = Result.success(Unit)
         override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> = Result.success(Unit)
+        override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> = Result.success(Unit)
         override suspend fun updateLanguageState(
             input: com.app.umma.domain.model.learningstate.LangStateUpdateInput
         ): Result<com.app.umma.domain.model.learningstate.LearningStateUpdateResult> =

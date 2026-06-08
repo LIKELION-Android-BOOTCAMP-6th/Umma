@@ -543,6 +543,10 @@ class CorrectionRepositoryImplTest {
             return Result.success(Unit)
         }
 
+        override suspend fun fetchFlashcards(
+            language: String
+        ): Result<List<CorrectionFlashcardDto>> = Result.success(emptyList())
+
         override suspend fun syncReviewSchedule(
             flashcardId: String,
             nextReviewAt: Long,

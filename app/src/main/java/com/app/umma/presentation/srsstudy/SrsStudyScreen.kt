@@ -577,7 +577,11 @@ private fun SrsEmptyContent(
                 .padding(top = SpacingL)
                 .padding(horizontal = SpacingL, vertical = SpacingS),
         ) {
-            Text("AI 교정하러 가기")
+            Text(
+                "AI 교정하러 가기",
+                style = TextSecondaryR,
+                color = TextPrimary,
+            )
         }
     }
 }

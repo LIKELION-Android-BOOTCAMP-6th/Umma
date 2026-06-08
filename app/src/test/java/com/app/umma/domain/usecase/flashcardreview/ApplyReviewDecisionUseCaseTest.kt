@@ -270,6 +270,7 @@ class ApplyReviewDecisionUseCaseTest {
         override fun observeFlashcardSummary(lang: LangCode): Flow<FlashcardSummary?> = flowOf(null)
         override suspend fun preload(): Result<Unit> = Result.success(Unit)
         override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> = Result.success(Unit)
+        override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> = Result.success(Unit)
         override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<LearningStateUpdateResult> =
             Result.failure(UnsupportedOperationException("not used"))
 
