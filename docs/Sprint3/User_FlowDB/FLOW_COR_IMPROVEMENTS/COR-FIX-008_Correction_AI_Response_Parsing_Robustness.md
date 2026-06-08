@@ -46,7 +46,7 @@ CorrectionViewModel.triggerGeneration
 - **mapper 방어 우선, 프롬프트 강화 보조.** `responseMimeType=application/json`은 JSON 형식만 강제할 뿐 앱이 기대한 스키마까지 보장하지 않는다. 프롬프트는 누락/오류 확률을 낮출 뿐 0으로 만들지 못하므로, 파싱 경계에서 한 번 더 방어한다.
 - **핵심 4필드를 살린다.** `candidateId`/`nativeText`/`afterText`/`explanation`이 유효하면 교정 카드는 살린다. `learningSignal`·`languageFeatures` 같은 보조 신호는 부분 제외하더라도 전체 교정을 죽이지 않는다.
 - **계약 위반(틀린 응답)은 여전히 실패.** unknown candidateId, `nativeText`/`afterText` 공백, candidate 언어 mismatch 등 "JSON은 맞지만 계약이 틀린" 응답은 느슨해지지 않는다(candidateId 계약은 [COR-FIX-009](../COR-FIX-009_Unknown_Candidate_Id_Contract.md)에서 별도 강화).
-- **재시도는 malformed JSON에만, 1회만.** `SerializationException` 계열에만 1회 재호출(작업 단위 D). 계약 검증 실패(`IllegalArgumentException`)는 재시도하지 않는다(비용만 증가).
+- **재시도는 "모델 형식 출력 실패"에만, 1회만.** malformed JSON(`SerializationException`, 작업 단위 D)과 explanation 누락/공백(`BlankExplanationException`, 작업 단위 C)이 **하나의 1회 재시도 예산을 공유**한다. 계약 검증 실패(`IllegalArgumentException` — unknown candidateId·필수 텍스트 공백·언어 mismatch)는 재시도하지 않는다(같은 위반 반복 확률이 높아 비용만 증가). 재시도 pass는 explanation이 그래도 비면 drop한다.
 - **사용자 에러 메시지는 분리한다.** raw 파서 예외를 화면에 그대로 노출하지 않는 작업은 모든 실패 모드에 공통이므로, 본 문서에서 중복 구현하지 않고 [COR-UX-002](../COR-UX-002_Correction_Failure_Error_Message.md)로 위임한다. 본 문서 자식들은 내부 진단 로그(Logcat)만 남긴다.
 
 ---
@@ -96,7 +96,7 @@ CorrectionViewModel.triggerGeneration
 | 영역 | 책임 |
 | --- | --- |
 | CorrectionPromptBuilder | 각 실패 모드별 응답 규칙 명시(최상위 객체, languageFeatures 객체 배열, explanation 필수, 문자열 밖 토큰 금지). 확률 저감만 담당 |
-| CorrectionAiResponseMapper | 파싱 경계 방어. 최상위 형태 판별(A), languageFeatures 관대 정규화(B), explanation fallback/drop(C). 계약 위반은 그대로 실패 |
+| CorrectionAiResponseMapper | 파싱 경계 방어. 최상위 형태 판별(A), languageFeatures 관대 정규화(B), explanation 1회 재시도 후 drop(C, 1차엔 BlankExplanationException throw·재시도 pass엔 drop). 계약 위반은 그대로 실패 |
 | CorrectionRepositoryImpl | malformed JSON(`SerializationException`)에 한정한 1회 재시도 경계(D). 계약 실패는 재시도하지 않음 |
 | CorrectionViewModel/UiState/Screen | 실패 시 사용자 메시지 정책 — 본 문서는 다루지 않고 COR-UX-002로 위임 |
 | 교정 카드 생성/저장 | 변경 없음 — 핵심 4필드가 살면 기존대로 저장 |
@@ -109,7 +109,7 @@ CorrectionViewModel.triggerGeneration
 
 - 최상위 JSON 객체/배열 양쪽 수용 (A)
 - `languageFeatures` 객체 배열/문자열 배열 양쪽 수용 + 이상 항목 부분 제외 (B)
-- `explanation` 누락/공백 시 fallback 또는 drop 정책 고정 (C)
+- `explanation` 누락/공백 시 1회 재시도 후 drop 정책 고정 (C — fallback 문구 대체안은 채택되지 않음)
 - `SerializationException` 한정 1회 재시도 (D)
 - 각 실패 모드 프롬프트 규칙 강화
 - 각 실패 모드 회귀 테스트
@@ -136,14 +136,14 @@ CorrectionViewModel.triggerGeneration
 
 - A: 최상위 배열 응답이 suggestion list로 매핑된다. 배열에서도 unknown candidateId/blank 필드는 실패한다.
 - B: `["EN.Tense"]`가 객체로 정규화된다. allowlist 밖/이상 타입 항목은 제외하되 suggestion·learningSignal은 유지한다.
-- C: `explanation` 누락/공백이 정책(fallback 또는 drop)대로 처리된다. `nativeText`/`afterText` 누락은 여전히 실패.
+- C: `explanation` 누락/공백이 정책(1차 BlankExplanationException → 전체 1회 재시도 → 그래도 비면 해당 suggestion만 drop)대로 처리된다. `nativeText`/`afterText` 누락은 여전히 실패.
 - D: 첫 응답 malformed→두 번째 valid면 성공, 둘 다 malformed면 실패, unknown candidateId는 재시도 없이 실패. 두 번째 prompt에 retry 지시 포함.
 
 ---
 
 ## Edge Cases
 
-- candidate가 1개뿐인데 그 suggestion이 drop되어 결과가 빈 목록이 됨 (C — fallback vs EmptyResult 정책)
+- candidate가 1개뿐인데 재시도 후에도 explanation이 비어 그 suggestion이 drop되어 결과가 빈 목록이 됨 (C — `Phase.EmptyResult` 수용 정책)
 - 최상위 배열 + 내부 languageFeatures 문자열 배열이 동시에 옴 (A+B 복합)
 - malformed JSON 재시도 응답이 또 다른 실패 모드(계약 위반)로 옴 (D→재시도하지 않는 경계)
 - 빈 `{"suggestions":[]}` 정상 응답

@@ -120,6 +120,133 @@ class CorrectionRepositoryImplTest {
         assertTrue("failure expected", result.isFailure)
         val e = result.exceptionOrNull()
         assertTrue(e is IllegalArgumentException)
+        // COR-FIX-008-D: 계약 위반(unknown candidateId)은 모델을 다시 불러도 같은 위반일 확률이
+        // 높아 비용만 늘므로 재시도하지 않는다 — generateJson 은 1회만 호출돼야 한다.
+        assertEquals(1, aiClient.promptHistory.size)
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // COR-FIX-008-C/D — malformed JSON / explanation 누락 1회 재시도 경계
+    // ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `generateSuggestions retries once and succeeds when first response is malformed JSON`() = runBlocking {
+        val malformed = """{ "suggestions": [ { "candidateId": "en-0-a", "nativeText": "나는 학교에 간다", "afterText": "I go to school.", "explanation": "tip" X} ] }"""
+        val valid = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school.",
+                  "explanation": "go 뒤에는 to school 을 사용한다."
+                }
+              ]
+            }
+        """.trimIndent()
+        aiClient.enqueue(malformed, valid)
+
+        val result = repository.generateSuggestions(baseInput())
+
+        assertTrue("success expected after one retry", result.isSuccess)
+        assertEquals(1, result.getOrThrow().size)
+        assertEquals("I go to school.", result.getOrThrow().single().afterText)
+        assertEquals(2, aiClient.promptHistory.size)
+        assertTrue(
+            "두 번째 prompt에 malformed JSON 재시도 지시가 포함돼야 함",
+            aiClient.promptHistory[1].contains("valid JSON")
+        )
+    }
+
+    @Test
+    fun `generateSuggestions fails when both attempts return malformed JSON`() = runBlocking {
+        val malformed = """{ "suggestions": [ { "candidateId": "en-0-a", "nativeText": "나는 학교에 간다", "afterText": "I go to school.", "explanation": "tip" X} ] }"""
+        aiClient.enqueue(malformed, malformed)
+
+        val result = repository.generateSuggestions(baseInput())
+
+        assertTrue("failure expected after exhausting the single retry", result.isFailure)
+        assertEquals(2, aiClient.promptHistory.size)
+    }
+
+    @Test
+    fun `generateSuggestions retries once and succeeds when first response omits explanation`() = runBlocking {
+        val blankExplanation = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school."
+                }
+              ]
+            }
+        """.trimIndent()
+        val valid = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school.",
+                  "explanation": "go 뒤에는 to school 을 사용한다."
+                }
+              ]
+            }
+        """.trimIndent()
+        aiClient.enqueue(blankExplanation, valid)
+
+        val result = repository.generateSuggestions(baseInput())
+
+        assertTrue("success expected after one retry", result.isSuccess)
+        val suggestions = result.getOrThrow()
+        assertEquals(1, suggestions.size)
+        assertEquals("go 뒤에는 to school 을 사용한다.", suggestions.single().explanation)
+        assertEquals(2, aiClient.promptHistory.size)
+        assertTrue(
+            "두 번째 prompt에 explanation 보정 지시가 포함돼야 함",
+            aiClient.promptHistory[1].contains("explanation")
+        )
+    }
+
+    @Test
+    fun `generateSuggestions drops suggestion when explanation stays blank after retry`() = runBlocking {
+        val blankExplanation = """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school."
+                }
+              ]
+            }
+        """.trimIndent()
+        aiClient.enqueue(blankExplanation, blankExplanation)
+
+        val result = repository.generateSuggestions(baseInput())
+
+        // COR-FIX-008-C: 재시도 후에도 explanation 이 비어 있으면 그 suggestion 만 drop 한다 —
+        // 전체 교정 실패가 아니라 success(빈 목록)으로 끝나야 핵심 4필드 우선 정책에 맞다.
+        assertTrue("drop is success, not failure", result.isSuccess)
+        assertTrue(result.getOrThrow().isEmpty())
+        assertEquals(2, aiClient.promptHistory.size)
+    }
+
+    private fun baseInput(): GenerateSuggestionsInput {
+        return GenerateSuggestionsInput(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "i go school"
+                )
+            ),
+            langState = LangState.initial(LangCode.EN),
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(LangCode.EN))
+        )
     }
 
     @Test
@@ -372,12 +499,21 @@ class CorrectionRepositoryImplTest {
      * 이 fake 만으로 happy path / Error 분기를 모두 검증할 수 있다.
      */
     private class FakeCorrectionAiClient : CorrectionAiClient {
+        // COR-FIX-008-C/D: 재시도 경계 테스트는 "1차 호출과 2차(재시도) 호출에 서로 다른 응답"이
+        // 필요하다. 큐가 비어 있으면 기존처럼 responseJson 을 반환해 단일 응답 테스트와 호환된다.
+        private val queuedResponses = ArrayDeque<String>()
         var responseJson: String = """{"suggestions":[]}"""
         var lastPrompt: String? = null
+        val promptHistory = mutableListOf<String>()
+
+        fun enqueue(vararg responses: String) {
+            queuedResponses += responses
+        }
 
         override suspend fun generateJson(prompt: String): String {
             lastPrompt = prompt
-            return responseJson
+            promptHistory += prompt
+            return if (queuedResponses.isNotEmpty()) queuedResponses.removeFirst() else responseJson
         }
     }
 

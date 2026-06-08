@@ -1,5 +1,6 @@
 package com.app.umma.data.repository
 
+import com.app.umma.data.repository.correction.BlankExplanationException
 import com.app.umma.data.repository.correction.CorrectionAiClient
 import com.app.umma.data.repository.correction.CorrectionAiResponseMapper
 import com.app.umma.data.repository.correction.CorrectionFlashcardStore
@@ -10,6 +11,7 @@ import com.app.umma.domain.model.correction.CorrectionSaveResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.repository.CorrectionRepository
+import kotlinx.serialization.SerializationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,13 +51,57 @@ open class CorrectionRepositoryImpl @Inject constructor(
 
         return runCatching {
             val prompt = promptBuilder.build(input)
-            val rawJson = aiClient.generateJson(prompt)
             // mapper 가 candidateId 매칭과 필수 필드 검증을 require 로 막아 둔다.
             // 매칭 실패 / 누락 → IllegalArgumentException → 여기 runCatching 으로 Result.failure 변환 → 화면 Error.
-            val mapped = responseMapper.map(rawJson, input)
+            val mapped = generateAndMapWithRetry(prompt, input)
             // COR-TUNE-006: 과확장 런타임 가드. 가드 실패 시 원본 결과로 폴백해 핵심 4필드 흐름을 무손상으로 유지한다.
             runCatching { overexpansionGuard.filter(mapped, input) }.getOrDefault(mapped)
         }
+    }
+
+    /**
+     * COR-FIX-008-C/D: malformed JSON과 explanation 누락을 같은 1회 재시도 예산으로 묶어 처리하는
+     * repository 재시도 경계입니다.
+     *
+     * - [SerializationException](JSON 문법/타입 디코딩 실패)과 [BlankExplanationException]
+     *   (explanation 누락/공백)은 모델의 "형식 출력 실패"에 가까워 1회 재호출할 가치가 있다.
+     * - [IllegalArgumentException](unknown candidateId·공백 nativeText/afterText·언어 mismatch)은
+     *   계약 위반이라 재호출해도 같은 위반일 확률이 높아 비용만 늘므로 catch하지 않는다(즉시 실패).
+     *   ([SerializationException]은 [IllegalArgumentException]의 하위 타입이지만, `is` 검사 순서상
+     *   먼저 매칭되므로 재시도 대상에서 빠지지 않는다)
+     * - 재시도는 1회로 제한하고, 재시도 prompt에는 실패 유형에 맞는 보정 지시를 덧붙인다.
+     * - 재시도 pass는 `dropBlankExplanation = true`로 호출한다 — 그래도 explanation이 비어 있으면
+     *   해당 suggestion만 drop해(BlankExplanationException 재던짐 없음) 핵심 4필드 흐름을 지킨다.
+     */
+    private suspend fun generateAndMapWithRetry(
+        prompt: String,
+        input: GenerateSuggestionsInput
+    ): List<CorrectionSuggestion> {
+        val rawJson = aiClient.generateJson(prompt)
+        return try {
+            responseMapper.map(rawJson, input, dropBlankExplanation = false)
+        } catch (e: Exception) {
+            if (e !is SerializationException && e !is BlankExplanationException) {
+                throw e
+            }
+            val retryRawJson = aiClient.generateJson(prompt + retryInstruction(e))
+            try {
+                responseMapper.map(retryRawJson, input, dropBlankExplanation = true)
+            } catch (retryFailure: SerializationException) {
+                retryFailure.addSuppressed(e)
+                throw retryFailure
+            }
+        }
+    }
+
+    /** 1차 실패 유형에 맞춰 재시도 prompt에 덧붙일 보정 지시를 고른다. */
+    private fun retryInstruction(failure: Exception): String = when (failure) {
+        is BlankExplanationException ->
+            "\n\nYour previous response omitted the 'explanation' field for at least one suggestion. " +
+                "Retry once and make sure every suggestion includes a non-empty, short explanation."
+        else ->
+            "\n\nYour previous response was not valid JSON. Retry once and return ONLY a syntactically valid JSON object. " +
+                "Do not put any characters outside quoted JSON string values."
     }
 
     override suspend fun saveFlashcards(

@@ -12,9 +12,19 @@ import com.app.umma.domain.model.learningstate.CorrectionSeverity
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LanguageFeatureSignal
 import com.app.umma.domain.model.learningstate.SpokenRegister
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import javax.inject.Inject
 
 /**
@@ -43,6 +53,18 @@ import javax.inject.Inject
  * 인식되는 값만 살린다(과제외 방지). 제외 판정 자체는 이 mapper 가 아니라 단일 지점인
  * [com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase.buildCorrectionResult] 가 내린다.
  */
+/**
+ * COR-FIX-008-C: explanation 누락/공백을 알리는 전용 예외.
+ *
+ * `IllegalArgumentException`(계약 위반: unknown candidateId, 공백 nativeText/afterText, 언어
+ * mismatch)도 `SerializationException`(JSON 문법 오류)도 아니다 — "필드는 디코딩됐지만 내용이
+ * 비어 있다"는 별개의 실패 모드다. repository 재시도 경계가 malformed JSON과 함께 같은 1회
+ * 재시도 예산으로 묶어 처리할 수 있도록 식별 가능한 타입으로 둔다(재시도 트리거 ≠ 계약 위반).
+ */
+class BlankExplanationException(candidateId: String) : RuntimeException(
+    "correction AI response field 'explanation' must not be blank, candidateId=$candidateId"
+)
+
 class CorrectionAiResponseMapper @Inject constructor() {
 
     // AI 응답 JSON 디코더. 미래에 schema가 늘어나도 깨지지 않도록 ignoreUnknownKeys=true,
@@ -54,18 +76,23 @@ class CorrectionAiResponseMapper @Inject constructor() {
 
     fun map(
         rawJson: String,
-        input: GenerateSuggestionsInput
+        input: GenerateSuggestionsInput,
+        // COR-FIX-008-C: explanation 누락/공백 처리 모드.
+        //  - false(기본, 1차 시도): 핵심 4필드를 살리기 위해 즉시 실패시키지 않고
+        //    BlankExplanationException 으로 알려 repository 가 1회 재시도하게 한다.
+        //  - true(재시도 pass): 재시도해도 비어 있으면 그 suggestion 만 drop 한다(전체 실패 금지).
+        dropBlankExplanation: Boolean = false
     ): List<CorrectionSuggestion> {
         // 1) 실제 AI API는 문자열 JSON을 돌려준다. Repository는 그 원문을 이 mapper에 넘긴다.
         // 여기서만 JSON 구조를 알고, domain/usecase/presentation은 raw JSON에 의존하지 않는다.
-        val response = json.decodeFromString(CorrectionAiResponseDto.serializer(), rawJson)
+        val response = decodeResponse(rawJson)
 
         // 2) AI 응답의 candidateId가 어떤 원본 user turn에서 나온 결과인지 확인하기 위해
         // 후보 목록을 id 기준으로 다시 찾을 수 있게 만든다.
         val candidatesById = input.candidates.associateBy { it.id }
         val selectedLang = input.langState.lang
 
-        return response.suggestions.map { item ->
+        return response.suggestions.mapNotNull { item ->
             // 3) AI가 알 수 없는 후보 ID를 돌려주면 beforeText/sourceTurnIndex를 보장할 수 없다.
             // 출처가 깨진 교정 결과는 저장하면 안 되므로 파싱 실패로 다룬다.
             val candidate = requireNotNull(candidatesById[item.candidateId]) {
@@ -75,6 +102,20 @@ class CorrectionAiResponseMapper @Inject constructor() {
             // 현재 선택 언어와 후보 언어가 다르면 같은 교정 세션 결과로 사용할 수 없다.
             require(candidate.lang == selectedLang) {
                 "candidate language must match langState language"
+            }
+
+            // COR-FIX-008-C: explanation은 nativeText/afterText와 달리 "복구 가능" 필드로 낮춘다.
+            // LLM이 확률적으로 explanation을 누락/공백으로 보낼 수 있으므로, 1차 시도에서는 즉시
+            // IllegalArgumentException으로 실패시키지 않고 BlankExplanationException을 던져
+            // repository가 전체를 1회 재시도하게 한다(핵심 4필드 보존 우선). 재시도 pass
+            // (dropBlankExplanation=true)에서도 비어 있으면 그 suggestion만 drop한다.
+            val explanation = item.explanation?.trim().orEmpty()
+            if (explanation.isEmpty()) {
+                if (dropBlankExplanation) {
+                    logWarn("correction suggestion dropped — blank explanation, candidateId=${item.candidateId}")
+                    return@mapNotNull null
+                }
+                throw BlankExplanationException(item.candidateId)
             }
 
             CorrectionSuggestion(
@@ -91,7 +132,7 @@ class CorrectionAiResponseMapper @Inject constructor() {
                 // 하나라도 공백이면 화면 카드와 Flashcard 저장 모두 불완전해지므로 실패시킨다.
                 nativeText = item.nativeText.requireFilled("nativeText"),
                 afterText = item.afterText.requireFilled("afterText"),
-                explanation = item.explanation.requireFilled("explanation"),
+                explanation = explanation,
                 // COR-TUNE-011-FIX (Method B): 발화 원문 언어는 더 이상 candidate(=detectedLang seam)가
                 // 아니라 AI 응답이 직접 보고한다. 단, sourceLang 은 신뢰 데이터가 아니라 AI 분석값이므로
                 // 보수적으로 정규화한다 — "unknown"/미지원 코드/공백/누락은 모두 null(=불명, 게이트 통과)로
@@ -110,6 +151,29 @@ class CorrectionAiResponseMapper @Inject constructor() {
                     )
                 }.getOrNull()
             )
+        }
+    }
+
+    /**
+     * COR-FIX-008-A: 최상위 JSON 모양을 먼저 판별해 객체/배열 양쪽을 수용한다.
+     *
+     * Gemini는 `responseMimeType=application/json`이어도 최상위 schema(객체 vs 배열)까지는
+     * 보장하지 않는다 — 가끔 `{"suggestions":[...]}` 대신 bare array `[...]`를 직접 돌려준다.
+     * 여기서 미리 [kotlinx.serialization.json.JsonElement] 모양을 보고 분기하면, 두 모양 모두
+     * 같은 [CorrectionAiResponseDto]로 모아 이후 매핑 로직(검증 포함)을 그대로 재사용할 수 있다.
+     * 객체도 배열도 아니면 명확한 [IllegalArgumentException]으로 실패시킨다(계약 위반과 동일하게 처리).
+     */
+    private fun decodeResponse(rawJson: String): CorrectionAiResponseDto {
+        val root = json.parseToJsonElement(rawJson)
+        return when (root) {
+            is JsonObject -> json.decodeFromJsonElement(CorrectionAiResponseDto.serializer(), root)
+            is JsonArray -> CorrectionAiResponseDto(
+                suggestions = json.decodeFromJsonElement(
+                    ListSerializer(CorrectionAiSuggestionDto.serializer()),
+                    root
+                )
+            )
+            else -> throw IllegalArgumentException("correction AI response must be a JSON object or array")
         }
     }
 
@@ -182,8 +246,9 @@ class CorrectionAiResponseMapper @Inject constructor() {
         )?.take(MAX_SIGNAL_ITEMS) ?: return null
 
         // languageFeatures: namespace/lang/allowlist 를 어기는 feature 만 제외한다. signal 은 유지한다.
+        // (COR-FIX-008-B: 문자열 배열 등 이상 타입은 LanguageFeatureListSerializer 가 이미 정규화해
+        // 들어온다 — 여기서는 기존대로 lang/allowlist 게이트만 적용한다)
         val languageFeatures = dto.languageFeatures
-            .orEmpty()
             .mapNotNull { feature -> normalizeLanguageFeature(feature, selectedLang, candidateId) }
             .take(MAX_SIGNAL_ITEMS)
 
@@ -397,8 +462,11 @@ private data class CorrectionAiSuggestionDto(
     @SerialName("afterText")
     val afterText: String,
     // 60자 이내 한국어 교정 사유 설명. Flashcard explanation 필드로 그대로 들어간다.
+    // COR-FIX-008-C: LLM이 확률적으로 이 필드를 누락할 수 있어 nullable/default로 완화한다.
+    // (디코딩 단계에서부터 실패하면 핵심 4필드까지 함께 죽는다 — mapper가 누락/공백을
+    // BlankExplanationException/drop 정책으로 다루도록 판단을 옮긴다)
     @SerialName("explanation")
-    val explanation: String,
+    val explanation: String? = null,
     // COR-TUNE-011-FIX (Method B): 발화 원문 언어를 AI 가 직접 보고한 ISO 코드 문자열("ko"/"en"/"unknown" 등).
     // 평가 게이트(CompleteCorrectionUseCase.buildCorrectionResult)의 입력일 뿐 핵심 4필드가 아니므로,
     // 누락/오염돼도 suggestion 자체는 막지 않는다 — nullable 로 받아 mapper 가 보수적으로 정규화한다.
@@ -431,7 +499,8 @@ private data class CorrectionLearningSignalDto(
     @SerialName("issueCategories")
     val issueCategories: List<String>? = null,
     @SerialName("languageFeatures")
-    val languageFeatures: List<LanguageFeatureDto>? = null,
+    @Serializable(with = LanguageFeatureListSerializer::class)
+    val languageFeatures: List<LanguageFeatureDto> = emptyList(),
     @SerialName("improvementTypes")
     val improvementTypes: List<String>? = null,
     @SerialName("editSpans")
@@ -456,6 +525,63 @@ private data class LanguageFeatureDto(
     @SerialName("featureKey")
     val featureKey: String? = null
 )
+
+/**
+ * COR-FIX-008-B: `languageFeatures` 배열을 관대하게 받는 custom serializer.
+ *
+ * 앱은 객체 배열 `[{"lang":"EN","featureKey":"EN.Tense"}]`을 기대하지만, AI는 가끔 문자열 배열
+ * `["EN.Tense"]`이나 그 외 이상 타입(숫자 등)을 섞어 보낸다. 표준 `List<LanguageFeatureDto>`
+ * 디코딩은 이 시점에 [kotlinx.serialization.SerializationException]을 던져 suggestion 전체
+ * 디코딩을 깨뜨린다 — `normalizeLearningSignal`의 `runCatching` 방어선보다 앞단이라 보호되지 않는다.
+ *
+ * languageFeatures는 학습 분석 보조 신호다(COR-TUNE-02). 항목 하나의 형태가 어긋나도 suggestion·
+ * learningSignal 전체를 죽이지 않고 "그 항목만" 건너뛰는 것이 기존 부분 제외 정책과 같은 결이다.
+ *
+ * 정규화 규칙:
+ *  - `JsonObject` → 기존대로 [LanguageFeatureDto]로 디코딩(실패하면 그 항목만 제외).
+ *  - `JsonPrimitive` 문자열 `"EN.Tense"` → 점 앞 prefix가 [LangCode]로 인식되면 `lang=prefix`,
+ *    `featureKey=raw`. 점이 없거나 prefix를 인식할 수 없으면 `lang=null, featureKey=raw`
+ *    (이후 `normalizeLanguageFeature`의 lang/allowlist 게이트가 자연히 제외한다).
+ *  - 그 외 타입(숫자/불리언/null/중첩 배열 등) → 건너뛴다.
+ *  - 최상위가 배열이 아니면 빈 리스트로 처리한다(allowlist 확장과는 무관한 "타입 방어"만 담당).
+ */
+private object LanguageFeatureListSerializer : KSerializer<List<LanguageFeatureDto>> {
+    private val elementSerializer = LanguageFeatureDto.serializer()
+    private val listSerializer = ListSerializer(elementSerializer)
+
+    override val descriptor: SerialDescriptor = listSerializer.descriptor
+
+    override fun serialize(encoder: Encoder, value: List<LanguageFeatureDto>) {
+        encoder.encodeSerializableValue(listSerializer, value)
+    }
+
+    override fun deserialize(decoder: Decoder): List<LanguageFeatureDto> {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: return decoder.decodeSerializableValue(listSerializer)
+        val array = jsonDecoder.decodeJsonElement() as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element -> normalizeElement(jsonDecoder, element) }
+    }
+
+    private fun normalizeElement(jsonDecoder: JsonDecoder, element: JsonElement): LanguageFeatureDto? = when {
+        element is JsonObject ->
+            runCatching { jsonDecoder.json.decodeFromJsonElement(elementSerializer, element) }.getOrNull()
+        element is JsonPrimitive && element.isString -> normalizeStringFeature(element.content)
+        else -> null
+    }
+
+    private fun normalizeStringFeature(raw: String): LanguageFeatureDto {
+        val trimmed = raw.trim()
+        val dotIndex = trimmed.indexOf('.')
+        if (dotIndex <= 0) {
+            return LanguageFeatureDto(lang = null, featureKey = trimmed)
+        }
+        val prefix = trimmed.substring(0, dotIndex)
+        return LanguageFeatureDto(
+            lang = LangCode.fromCode(prefix)?.let { prefix },
+            featureKey = trimmed
+        )
+    }
+}
 
 /**
  * 변경 fragment 단위 edit DTO. enum 문자열은 mapper 에서 allowlist 로 관대 파싱한다.
