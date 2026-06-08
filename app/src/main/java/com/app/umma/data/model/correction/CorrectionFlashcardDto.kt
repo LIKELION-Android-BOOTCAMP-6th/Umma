@@ -2,6 +2,7 @@ package com.app.umma.data.model.correction
 
 import com.app.umma.domain.model.correction.CorrectionFlashcardSaveItem
 import com.app.umma.domain.model.learningstate.LangCode
+import com.google.firebase.firestore.DocumentSnapshot
 
 /**
  * Correction에서 최초 생성한 Flashcard를 저장 계층으로 넘기기 위한 DTO입니다.
@@ -52,6 +53,8 @@ data class CorrectionFlashcardDto(
             "lastReviewedAt" to lastReviewedAt
         )
     }
+
+
 }
 
 /**
@@ -84,3 +87,34 @@ fun CorrectionFlashcardSaveItem.toCorrectionFlashcardDto(
         lastReviewedAt = null
     )
 }
+
+/**
+ * Firestore 문서를 local 원복 복원용 DTO로 되돌린다
+ *
+ * 재설치 등으로 Room이 비었을 때 [CorrectionFlashcardDto.toFirestoreMap]으로 저장한 문서를
+ * 다시 읽어 들이는 역방향 매핑
+ * id/language가 없는 손상 문서는 null로 걸러냄
+ */
+fun DocumentSnapshot.toCorrectionFlashcardDto(): CorrectionFlashcardDto? {
+    val id = getString("id") ?: return null
+    val language = getString("language") ?: return null
+    return CorrectionFlashcardDto(
+        id = id,
+        language = language,
+        sourceSuggestionId = getString("sourceSuggestionId") ?: id,
+        frontText = getString("frontText") ?: "",
+        backText = getString("backText") ?: "",
+        explanation = getString("explanation") ?: "",
+        source = getString("source") ?: "correction",
+        createdAt = getLong("createdAt") ?: 0L,
+        updatedAt = getLong("updatedAt") ?: 0L,
+        nextReviewAt = getLong("nextReviewAt") ?: 0L,
+        interval = getLong("interval")?.toInt() ?: 0,
+        easeFactor = getDouble("easeFactor") ?: 2.5,
+        // 원격 문서는 sync 완료 상태이므로 복원된 카드는 dirty가 아니다.
+        dirty = getBoolean("dirty") ?: false,
+        lastReviewRating = getString("lastReviewRating"),
+        lastReviewedAt = getLong("lastReviewedAt")
+    )
+}
+

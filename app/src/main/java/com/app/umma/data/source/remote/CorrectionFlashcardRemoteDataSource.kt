@@ -2,6 +2,7 @@ package com.app.umma.data.source.remote
 
 import com.app.umma.core.util.safeFirestoreCall
 import com.app.umma.data.model.correction.CorrectionFlashcardDto
+import com.app.umma.data.model.correction.toCorrectionFlashcardDto
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -20,6 +21,14 @@ interface CorrectionFlashcardRemoteDataSource {
     suspend fun syncFlashcards(flashcards: List<CorrectionFlashcardDto>): Result<List<String>>
 
     suspend fun deleteFlashcards(flashcardIds: List<String>): Result<Unit>
+
+    /**
+     * 현재 언어의 Flashcard 원본을 Firestore에서 읽어온다.
+     *
+     * 재설치 등으로 Room이 비었을 때 local 원본을 복원하기 위한 읽기 통로
+     * 쓰기/삭제와 달리 사용자 완료 기준이 아니라 local-first 복원 보조 단계
+     */
+    suspend fun fetchFlashcards(language: String): Result<List<CorrectionFlashcardDto>>
 
     /**
      * 복습 평가 결과(nextReviewAt / interval / easeFactor)를 Firestore에 업데이트한다.
@@ -87,6 +96,22 @@ class FirestoreCorrectionFlashcardRemoteDataSource @Inject constructor(
             }
 
             batch.commit().await()
+        }
+    }
+
+
+    override suspend fun fetchFlashcards(language: String): Result<List<CorrectionFlashcardDto>> {
+        val uid = firebaseAuth.currentUser?.uid
+            ?: return Result.failure(IllegalStateException("signed-in user is required"))
+        return safeFirestoreCall {
+            val snapshot = firestore
+                .collection("users")
+                .document(uid)
+                .collection("flashcards")
+                .whereEqualTo("language", language)
+                .get()
+                .await()
+            snapshot.documents.mapNotNull { it.toCorrectionFlashcardDto() }
         }
     }
 
