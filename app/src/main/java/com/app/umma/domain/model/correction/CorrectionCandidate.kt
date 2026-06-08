@@ -16,10 +16,6 @@ data class CorrectionCandidate(
     val sourceTurnId: String? = null,
     // 원본 user turn의 순서.
     val sourceTurnIndex: Int,
-    // COR-TUNE-011: 발화 원문 언어(turn의 detectedLang 에서 채움). 감지 실패/미도입 구간은 null.
-    // lang(=현재 선택 언어 라벨)과는 의미가 다르다 — 평가 게이트가 "사용자가 실제로 어떤 언어로
-    // 말했는가"를 판단하는 기준이며, 단일 지점(CompleteCorrectionUseCase.buildCorrectionResult)에서만 쓰인다.
-    val sourceLang: LangCode? = null,
     // 교정 대상이 되는 원본 문장.
     val sourceText: String,
     // 의미 파악을 돕는 짧은 assistant 문맥.

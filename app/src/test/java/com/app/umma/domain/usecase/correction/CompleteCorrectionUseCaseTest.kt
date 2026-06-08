@@ -255,8 +255,9 @@ class CompleteCorrectionUseCaseTest {
     @Test
     fun `keeps learning signal in evaluation when sourceLang is unknown (no-op fallback)`() =
         kotlinx.coroutines.runBlocking {
-            // COR-TUNE-011: detectedLang 캡처가 머지되지 않은 구간/감지 실패 시 sourceLang=null 로 들어온다.
-            // 게이트는 "언어 불명 → 종전처럼 통과"로 동작해 점진 도입 중에도 기존 동작을 보존해야 한다.
+            // COR-TUNE-011 / COR-TUNE-011-FIX: AI 가 sourceLang 을 누락하거나 "unknown"/미지원 코드로
+            // 보고하면 mapper 가 보수적으로 null 을 채운다(Method B). 게이트는 "언어 불명 → 종전처럼 통과"로
+            // 동작해 과제외로 정상 학습 신호를 잃지 않아야 한다(null=통과 원칙).
             val suggestion = baseSuggestion().copy(
                 id = "s-1",
                 sourceLang = null,

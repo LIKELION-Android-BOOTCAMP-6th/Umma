@@ -35,6 +35,13 @@ import javax.inject.Inject
  *  - candidateId/sourceTurnId/sourceTurnIndex/sourceText/correctedText 는 AI 분석값이 아니라
  *    Correction 이 전달하는 신뢰 데이터다. 따라서 AI 응답이 아닌 candidate(원문/turn)와 afterText 에서 채운다.
  *    (beforeText 를 candidate.sourceText 로 신뢰하는 기존 패턴과 동일하다)
+ *
+ * COR-TUNE-011-FIX (Method B): [CorrectionSuggestion.sourceLang](발화 원문 언어, 평가 게이트 입력)도
+ * AI 분석값이다 — RT-003 STT 가 turn 단위 언어를 못 주게 되어(detectedLang seam 폐기) AI 교정 응답이
+ * 유일한 출처가 되었다. 따라서 COR-TUNE-002-FIX 의 learningSignal 정규화와 같은 결로 보수적으로 받는다:
+ * "unknown"/미지원 코드/공백/누락은 모두 null(=불명, 평가 게이트 통과)로 떨어뜨리고, ISO 코드로 명확히
+ * 인식되는 값만 살린다(과제외 방지). 제외 판정 자체는 이 mapper 가 아니라 단일 지점인
+ * [com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase.buildCorrectionResult] 가 내린다.
  */
 class CorrectionAiResponseMapper @Inject constructor() {
 
@@ -85,9 +92,13 @@ class CorrectionAiResponseMapper @Inject constructor() {
                 nativeText = item.nativeText.requireFilled("nativeText"),
                 afterText = item.afterText.requireFilled("afterText"),
                 explanation = item.explanation.requireFilled("explanation"),
-                // COR-TUNE-011: 평가 게이트가 참조할 발화 원문 언어를 candidate 에서 그대로 옮긴다.
-                // 여기서는 운반만 한다 — 제외 판정은 단일 지점(CompleteCorrectionUseCase.buildCorrectionResult)에서만 내린다.
-                sourceLang = candidate.sourceLang,
+                // COR-TUNE-011-FIX (Method B): 발화 원문 언어는 더 이상 candidate(=detectedLang seam)가
+                // 아니라 AI 응답이 직접 보고한다. 단, sourceLang 은 신뢰 데이터가 아니라 AI 분석값이므로
+                // 보수적으로 정규화한다 — "unknown"/미지원 코드/공백/누락은 모두 null(=불명, 게이트 통과)로
+                // 떨어뜨리고, ISO 코드로 명확히 인식되는 값만 살린다(과제외 방지, null=통과 원칙 유지).
+                // 다른 언어로 "확정"된 경우에만 단일 지점(CompleteCorrectionUseCase.buildCorrectionResult)
+                // 게이트가 평가에서 제외한다 — 여기서는 값을 운반/정규화만 하고 제외 판정은 내리지 않는다.
+                sourceLang = LangCode.fromCode(item.sourceLang?.trim().orEmpty())?.takeIf { it != LangCode.UNKNOWN },
                 // COR-TUNE-02: 학습 신호는 보조 입력이다. 정규화가 실패해도 suggestion 을 죽이지 않도록
                 // runCatching 으로 감싸 실패 시 null 을 싣는다. (핵심 4필드는 위에서 이미 검증 완료)
                 learningSignal = runCatching {
@@ -388,6 +399,11 @@ private data class CorrectionAiSuggestionDto(
     // 60자 이내 한국어 교정 사유 설명. Flashcard explanation 필드로 그대로 들어간다.
     @SerialName("explanation")
     val explanation: String,
+    // COR-TUNE-011-FIX (Method B): 발화 원문 언어를 AI 가 직접 보고한 ISO 코드 문자열("ko"/"en"/"unknown" 등).
+    // 평가 게이트(CompleteCorrectionUseCase.buildCorrectionResult)의 입력일 뿐 핵심 4필드가 아니므로,
+    // 누락/오염돼도 suggestion 자체는 막지 않는다 — nullable 로 받아 mapper 가 보수적으로 정규화한다.
+    @SerialName("sourceLang")
+    val sourceLang: String? = null,
     // COR-TUNE-02: 교정 과정에서 관찰한 학습 신호. 누락/오염되어도 핵심 4필드 흐름을 막지 않도록
     // nullable 로 둔다(없으면 suggestion.learningSignal=null).
     @SerialName("learningSignal")

@@ -296,6 +296,77 @@ class CorrectionAiResponseMapperTest {
         assertNull(suggestion.learningSignal)
     }
 
+    // --- COR-TUNE-011-FIX (Method B): AI 가 보고하는 발화 원문 언어(sourceLang) 보수적 파싱 ---
+    // detectedLang seam 폐기로 sourceLang 의 유일한 출처가 AI 응답이 되었다. mapper 는 신뢰 데이터가
+    // 아닌 AI 분석값으로 보고 "확실히 인식되는 ISO 코드만" 살리고 나머지는 모두 null(=불명, 게이트 통과)로
+    // 떨어뜨린다 — 과제외로 정상 학습 신호를 잃지 않는 null=통과 원칙(COR-TUNE-002-FIX 와 동일 결).
+
+    @Test
+    fun `parses AI-reported sourceLang into matching LangCode`() {
+        val suggestion = mapper.map(rawJsonWithSourceLang("ko"), baseInput()).single()
+        assertEquals(LangCode.KO, suggestion.sourceLang)
+    }
+
+    @Test
+    fun `parses another supported sourceLang code reported by AI`() {
+        val suggestion = mapper.map(rawJsonWithSourceLang("en"), baseInput()).single()
+        assertEquals(LangCode.EN, suggestion.sourceLang)
+    }
+
+    @Test
+    fun `treats missing sourceLang from AI as null (unknown, evaluation gate passes)`() {
+        val suggestion = mapper.map(rawJsonWithSourceLang(null), baseInput()).single()
+        assertNull(suggestion.sourceLang)
+    }
+
+    @Test
+    fun `treats AI-reported unknown sourceLang as null, not LangCode_UNKNOWN`() {
+        // "unknown" 은 AI 가 확신이 없을 때 쓰라고 프롬프트가 지시한 escape hatch 값이다.
+        // LangCode.UNKNOWN 을 그대로 두면 게이트가 selectedLang 과 "다름"으로 오판해 잘못 제외하므로,
+        // 반드시 null 로 정규화해 "불명 → 평가에 반영(통과)"이 유지되어야 한다.
+        val suggestion = mapper.map(rawJsonWithSourceLang("unknown"), baseInput()).single()
+        assertNull(suggestion.sourceLang)
+    }
+
+    @Test
+    fun `treats unsupported sourceLang code from AI as null (conservative)`() {
+        val suggestion = mapper.map(rawJsonWithSourceLang("xx"), baseInput()).single()
+        assertNull(suggestion.sourceLang)
+    }
+
+    @Test
+    fun `trims surrounding whitespace before parsing AI-reported sourceLang`() {
+        val suggestion = mapper.map(rawJsonWithSourceLang(" ko "), baseInput()).single()
+        assertEquals(LangCode.KO, suggestion.sourceLang)
+    }
+
+    @Test
+    fun `existing fixtures without sourceLang key still map with null sourceLang (no regression)`() {
+        // signalJson/baseInput 은 sourceLang 키를 내려보내지 않는다 — DTO 기본값(null)으로 통과해야 한다.
+        val suggestion = mapper.map(signalJson(), baseInput()).single()
+        assertNull(suggestion.sourceLang)
+    }
+
+    /**
+     * 핵심 4필드는 고정하고 sourceLang 만 바꿔 가며 AI 보고값 정규화를 검증하기 위한 JSON 빌더.
+     * sourceLang 이 null 이면 키 자체를 생략해 "AI 가 누락한" 상황을 만든다.
+     */
+    private fun rawJsonWithSourceLang(sourceLang: String?): String {
+        val sourceLangField = if (sourceLang == null) "" else ",\"sourceLang\":\"$sourceLang\""
+        return """
+            {
+              "suggestions": [
+                {
+                  "candidateId": "en-0-a",
+                  "nativeText": "나는 학교에 간다",
+                  "afterText": "I go to school."$sourceLangField,
+                  "explanation": "demo"
+                }
+              ]
+            }
+        """.trimIndent()
+    }
+
     /**
      * 핵심 4필드는 고정하고 learningSignal 의 한 부분만 바꿔 가며 정규화를 검증하기 위한 JSON 빌더.
      * meaningPreserved/confidence 는 null 이면 키 자체를 생략해 "누락" 상황을 만든다.

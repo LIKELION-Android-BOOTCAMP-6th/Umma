@@ -349,8 +349,9 @@ class CompleteCorrectionUseCase @Inject constructor(
             },
             // COR-TUNE-011 단일 평가 게이트: 발화 원문 언어(sourceLang)가 학습 대상 언어(selectedLang)와
             // "다른 것이 확정된" suggestion 만 능력 근거(metricEvidence/activeFocus) 집계에서 제외한다.
-            // sourceLang == null(불명/미도입 구간) 또는 selectedLang 과 일치하면 종전대로 평가에 반영한다
-            // (no-op 폴백 — detectedLang 캡처가 머지되기 전까지 모든 후보가 이 분기로 들어가 회귀가 없다).
+            // sourceLang == null(불명/미지원/AI 누락 등) 또는 selectedLang 과 일치하면 종전대로 평가에 반영한다
+            // (null=통과 폴백 — COR-TUNE-011-FIX: sourceLang 출처가 detectedLang(RT STT, 폐기됨)에서
+            // AI 교정 응답 보고로 바뀌었을 뿐, 게이트 판정 규칙 자체는 그대로다).
             // 제3언어 입력도 별도 거름망 없이 동일 규칙을 적용한다(교정 자체는 항상 통과·카드도 정상 생성됨 —
             // 카드 저장(saveFlashcards)은 이 필터 이전 단계에서 이미 끝났으므로 영향받지 않는다).
             // 이 판정은 오직 이 지점에서만 내린다 — mapper/정책 등 다른 곳에서 분산 판정하지 않는다(단일 지점 원칙).
