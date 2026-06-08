@@ -351,7 +351,7 @@ class BuildPromptUseCase @Inject constructor() {
             ConversationAbilityBand.IntentOnly ->
                 "예: \"집 앞 산책 좋지. Walk. 바람도 좋았겠다.\" / \"친구랑 통화했구나. Friend. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. Home / park.\""
             ConversationAbilityBand.PhraseEmerging ->
-                "예: \"집 앞 산책했구나. Nice walk. 바람 좋았겠다.\" / \"친구랑 통화했구나. Talked with a friend. 기분 좀 나아졌어?\" / \"막히면: 어디였어? 집 앞 / 공원. At home / at the park.\""
+                "예: \"집 앞 산책했구나. Nice walk. 바람 좋았겠다.\" / \"친구랑 통화했구나. Talked with a friend. 기분 좀 나아졌겠다.\" / \"막히면: 어디였어? 집 앞 / 공원. At home / at the park.\""
             ConversationAbilityBand.SimpleSentence ->
                 "예: \"Nice, you walked outside. That sounds refreshing. Did you go alone?\" / \"Sounds busy. You still called your friend, so that was nice.\""
             ConversationAbilityBand.BasicConversation ->
@@ -368,7 +368,7 @@ class BuildPromptUseCase @Inject constructor() {
             ConversationAbilityBand.IntentOnly ->
                 "예: \"집 앞 산책 좋지. さんぽ. 바람도 좋았겠다.\" / \"친구랑 통화했구나. ともだち. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. いえ / こうえん.\""
             ConversationAbilityBand.PhraseEmerging ->
-                "예: \"집 앞 산책했구나. いいさんぽ. 바람 좋았겠다.\" / \"친구랑 통화했구나. ともだちと話した. 기분 좀 나아졌어?\" / \"막히면: 어디였어? 집 앞 / 공원. いえで / こうえんで.\""
+                "예: \"집 앞 산책했구나. いいさんぽ. 바람 좋았겠다.\" / \"친구랑 통화했구나. ともだちと話した. 기분 좀 나아졌겠다.\" / \"막히면: 어디였어? 집 앞 / 공원. いえで / こうえんで.\""
             ConversationAbilityBand.SimpleSentence ->
                 "예: \"いいね。外を歩いたんだ。気持ちよさそう。ひとりで行った?\" / \"忙しかったね。でも友だちと話せてよかったね。\""
             ConversationAbilityBand.BasicConversation ->
@@ -449,7 +449,7 @@ class BuildPromptUseCase @Inject constructor() {
         // 팀원/테스터 신고 데이터를 프롬프트 실험 시점별로 묶기 위한 명시 버전이다.
         private const val PROMPT_VERSION = "chat_prompt_v2"
         // 같은 구조 버전 안에서 반복되는 미세 튜닝 적용 여부를 로그와 신고 문서에서 구분하기 위한 식별자다.
-        private const val PROMPT_REVISION = "N015"
+        private const val PROMPT_REVISION = "N024"
         // 최근 맥락은 많을수록 좋은 것이 아니라 모델이 현재 발화를 해석할 만큼만 필요하다.
         private const val MAX_CONTEXT_TURN_COUNT = 6
         // 주제 요약도 지시보다 길어지지 않도록 작게 제한한다.
