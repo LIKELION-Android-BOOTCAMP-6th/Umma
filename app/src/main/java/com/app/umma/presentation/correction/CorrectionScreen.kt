@@ -1,10 +1,13 @@
 package com.app.umma.presentation.correction
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,20 +35,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
+import com.app.umma.core.theme.CardElevation
 import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
+import com.app.umma.core.theme.TextSecondaryR
 import com.app.umma.core.theme.ThemePrimary
+import com.app.umma.core.theme.TitleScreenSB
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.presentation.correction.component.CorrectionResultList
 import com.app.umma.presentation.correction.component.CorrectionSelectAllBar
+import kotlin.math.floor
 import kotlinx.coroutines.delay
 
 /**
@@ -255,7 +268,12 @@ fun CorrectionScreen(
             CorrectionUiState.Phase.Loading,
             CorrectionUiState.Phase.Ready,
             CorrectionUiState.Phase.Generating -> {
+                // COR-UX-001: 단계 인덱스/복습 카드 목록은 ViewModel(triggerGeneration)이 구동하는
+                // 단일 진실([CorrectionUiState.loadingStep]/[CorrectionUiState.loadingFlashcards])이다.
+                // 화면은 그대로 받아 렌더링만 한다.
                 CorrectionLoading(
+                    currentStep = uiState.loadingStep,
+                    flashcards = uiState.loadingFlashcards,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues),
@@ -279,7 +297,7 @@ fun CorrectionScreen(
 }
 
 /**
- * COR-003-B: 카드 화면 Loading UI.
+ * COR-003-B / COR-UX-001: 카드 화면 Loading UI.
  *
  * 노출 조건 (세 phase 를 사용자 관점에서 단일 시각으로 통합):
  *  - [CorrectionUiState.Phase.Loading]    : preload 대기 — 첫 GlobalLangState emit 전.
@@ -290,53 +308,70 @@ fun CorrectionScreen(
  * 설계 근거: FLOW_CORRECTION.md §3 "사용자는 진입 후 Loading 을 거쳐 교정 결과 카드 목록을 확인한다."
  * 에서 카드 화면의 Loading 은 이 세 phase 를 하나의 "준비 중" 구간으로 표기한다.
  *
+ * COR-UX-001 레이아웃 변경: 5칸 바 인디케이터 + 안내 문구를 화면 중앙에서 **하단**으로 옮기고,
+ * 비게 된 상단/중앙 영역은 [CorrectionLoadingFlashcards] 복습 카드 자동 재생 영역으로 채운다 —
+ * 세로 Column 한 줄로 [카드 영역(weight 1f)] → [안내 문구] → [바 인디케이터] 순서로 쌓는다.
+ *
+ * 단계 진행([currentStep])은 더 이상 이 컴포저블이 자체 타이머로 구동하지 않는다. "표현을 다듬는 중"
+ * 문구가 실제 AI 호출과 어긋나던 문제를 없애기 위해, 맥락 조회 → 후보 추출 → 적응 반영 → AI 호출
+ * (시간의 대부분) → 결과 정리라는 실제 파이프라인 진행에 맞춰 [CorrectionViewModel.triggerGeneration]
+ * 이 [CorrectionUiState.loadingStep] 을 직접 구동한다 — 본 컴포저블은 그 값을 그대로 렌더링만 한다
+ * (SSOT: ViewModel).
+ *
  * 인디케이터 색상은 [ThemePrimary] — 다른 화면(학습 버튼 활성 토큰) 과 일관.
  * 안내 텍스트는 사용자에게 "아직 로딩 중" 임을 인지시키는 최소 안내이며, logcat 진단용
  * Ready 디버깅 정보(언어 / 최근 주제)는 이 컴포저블 표면에 노출하지 않는다.
+ *
+ * @param currentStep [CorrectionUiState.loadingStep] 그대로(0~4). ViewModel 이 실제 진행에 맞춰
+ *  구동하므로 4단계(인덱스 3)는 실제 AI 호출이 끝날 때까지 유지된다. 방어적으로 단계 수 범위에 clamp.
+ * @param flashcards [CorrectionUiState.loadingFlashcards] 그대로 — 비어 있으면
+ *  [CorrectionLoadingFlashcards] 가 안내 카드로 폴백해 같은 형식으로 반복 재생한다.
  */
 @Composable
 private fun CorrectionLoading(
+    currentStep: Int,
+    flashcards: List<CorrectionLoadingCard>,
     modifier: Modifier = Modifier,
 ) {
-    var stepIndex by remember { mutableIntStateOf(0) }
     val steps = remember { CorrectionLoadingGuideStep.entries }
+    val stepIndex = currentStep.coerceIn(0, steps.lastIndex)
+    val currentLabel = steps[stepIndex].label
 
-    LaunchedEffect(Unit) {
-        for (i in steps.indices) {
-            stepIndex = i
-            delay(LOADING_GUIDE_STEP_INTERVAL_MS)
-        }
-    }
-
-    val currentStep = steps[stepIndex]
-
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier = modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(SpacingM),
-        ) {
-            CorrectionLoadingStepIndicator(
-                currentStep = stepIndex,
-                stepCount = steps.size,
-            )
-            CorrectionLoadingGuideText(label = currentStep.label)
-        }
+        // COR-UX-001: 비어 있던 상단/중앙 대기 영역을 복습용 플래시카드 자동 재생으로 채운다 —
+        // 기다리는 시간이 곧 복습 시간이 되도록.
+        CorrectionLoadingFlashcards(
+            cards = flashcards,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        )
+        CorrectionLoadingGuideText(label = currentLabel)
+        Spacer(modifier = Modifier.height(SpacingS))
+        CorrectionLoadingStepIndicator(
+            currentStep = stepIndex,
+            stepCount = steps.size,
+        )
+        Spacer(modifier = Modifier.height(SpacingL))
     }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFFF8F2E5, name = "Loading 상태")
 @Composable
 private fun CorrectionLoadingPreview() {
-    CorrectionLoading()
+    CorrectionLoading(currentStep = 1, flashcards = emptyList())
 }
 
 /**
- * 교정 준비 흐름의 진행 위치를 5개의 가로 막대로 시각화하는 단계 인디케이터.
+ * COR-UX-001: 교정 준비 흐름의 진행 위치를 5개의 가로 막대로 시각화하는 단계 인디케이터.
+ * 화면 **하단**에 배치되며, 바로 위 [CorrectionLoadingGuideText] 안내 문구와 한 묶음으로 움직인다.
  *
- * 실제 작업 완료율과 1:1 대응시키지 않는다 — AI 응답 대기 시간이 예측 불가능하기 때문이다.
+ * [currentStep] 은 [CorrectionUiState.loadingStep] 을 그대로 받는다 — [CorrectionViewModel.triggerGeneration]
+ * 이 실제 파이프라인 진행(맥락 조회 → 후보 추출 → 적응 반영 → AI 호출 → 결과 정리)에 맞춰 구동하므로,
+ * 더 이상 "예측 불가능한 AI 대기"를 가리기 위한 순수 연출이 아니라 실제 진행 표시다.
  * 현재 단계까지는 [ThemePrimary]로 채우고, 이후 단계는 [BackgroundDeactivated]로 표시한다.
  *
  * @param currentStep 현재 진행 중인 단계 인덱스 (0-based).
@@ -367,18 +402,19 @@ private fun CorrectionLoadingStepIndicator(
 }
 
 /**
- * 긴 AI 대기 시간을 실제 진행률처럼 꾸미지 않고, 준비 흐름의 체감 단계를 안내하기 위한 화면 전용 가이드.
+ * COR-UX-001: 교정 파이프라인의 실제 작업 경계에 맞춘 5단계 안내 문구.
  *
- * 실제 작업 완료율과 1:1 대응시키지 않는 이유는 AI 응답 대기 시간이 예측 불가능하기 때문이다.
- * 화면은 4초 간격으로 각 단계(마지막 단계 포함)를 순차 노출하고, 각 문구의 말줄임표를 짧게 반복해 진행감을 만든다.
- * ViewModel 은 최소 20초 로딩 보장 뒤 결과 상태로 전환한다.
+ * [CorrectionViewModel.triggerGeneration] 이 [CorrectionUiState.loadingStep] 으로 구동하는 실제
+ * 진행과 1:1 대응한다 — 맥락 조회 → candidate 추출 → 적응 프로파일 반영 → AI 호출(시간의 대부분을
+ * 차지) → 결과 정리 순. 화면은 이 라벨을 그대로 노출하고 말줄임표만 짧게 반복해 진행감을 더할 뿐,
+ * 더 이상 시간 기반 자체 진행을 갖지 않는다(SSOT: ViewModel).
  */
 private enum class CorrectionLoadingGuideStep(val label: String) {
-    ReviewingConversation("최근 대화를 확인하고 있어요"),
-    FindingCandidates("교정할 문장을 고르고 있어요"),
-    CreatingExpression("자연스러운 표현을 만들고 있어요"),
-    WritingExplanation("학습 설명을 정리하고 있어요"),
-    PreparingCards("교정 카드를 준비하고 있어요"),
+    LoadingConversation("최근 대화를 불러오고 있어요"),
+    SelectingContent("교정할 내용을 고르고 있어요"),
+    ReflectingLearnerLevel("이용자의 학습 수준을 반영하고 있어요"),
+    RefiningExpression("자연스러운 표현으로 다듬고 있어요"),
+    FinalizingContent("교정된 내용을 정리하고 있어요"),
 }
 
 @Composable
@@ -417,12 +453,197 @@ private fun animatedEllipsis(): String {
     return ".".repeat(dotCount)
 }
 
-private const val LOADING_GUIDE_STEP_INTERVAL_MS = 4_000L
-private const val LOADING_ELLIPSIS_INTERVAL_MS = 600L
+// COR-UX-001: 자체 단계 타이머 상수(LOADING_GUIDE_STEP_INTERVAL_MS)는 제거됐다 — 단계 진행은
+// CorrectionViewModel.triggerGeneration 이 loadingStep 으로 직접 구동한다(화면은 렌더링만).
+// 말줄임표 증감 속도만 더 빠르게 조정한다(600ms → 300ms).
+private const val LOADING_ELLIPSIS_INTERVAL_MS = 300L
 private const val LOADING_ELLIPSIS_MAX_DOTS = 3
 private val LOADING_ELLIPSIS_WIDTH = 18.dp
 private val LOADING_STEP_BAR_WIDTH = 24.dp
 private val LOADING_STEP_BAR_HEIGHT = 4.dp
+
+// COR-UX-001: 로딩 복습 카드 — 한 장당 앞/뒷면 노출 시간(총 8초/장)과 뒤집기 애니메이션 길이.
+// 리파인먼트 2차 조정(사용자 에뮬레이터 확인 후 요청): 앞면은 짧게 훑고 뒷면(교정문)은 더 오래
+// 머무르도록 면별로 다른 노출 시간을 둔다 — 앞 3.5초 / 뒤 4.5초. 카드 높이는 1차 조정의 300dp 가
+// 다소 커 보인다는 피드백에 맞춰 270dp 로 살짝 줄였다(원래의 230dp 보다는 여전히 크다).
+private const val LOADING_CARD_FRONT_FACE_MS = 3_500L
+private const val LOADING_CARD_BACK_FACE_MS = 4_500L
+private const val LOADING_CARD_FLIP_DURATION_MS = 500
+private val LOADING_CARD_HEIGHT = 270.dp
+
+/**
+ * COR-UX-001: 로딩 대기 시간을 채우는 복습용 플래시카드 자동 재생 영역.
+ *
+ * [CorrectionUiState.loadingFlashcards](현재 학습 언어의 로컬 `Flashcard` 를 오래된 순으로 옮겨 담은
+ * 경량 표시 모델 목록)를 한 장씩 순환 재생한다 — 앞면(원어 문장) [LOADING_CARD_FRONT_FACE_MS](3.5초)
+ * → 뒤집기 애니메이션 → 뒷면(교정문) [LOADING_CARD_BACK_FACE_MS](4.5초) → 다음 카드(총 8초/장),
+ * 마지막 카드 다음에는 처음부터 반복한다. "기다리는 시간이 곧 복습 시간"이 되도록 하기 위함이다.
+ * 면별 노출 시간은 사용자 확인을 거쳐 두 차례 조정했다 — 1차: 둘 다 3초 → 4.5초로 동일하게 확대,
+ * 2차(현재): 앞면은 짧게 훑고 뒷면(정답)에 더 머물도록 앞 3.5초 / 뒤 4.5초로 비대칭화.
+ *
+ * SRS 학습 카드(`SrsCardFront`/`SrsCardBack`, `SrsStudyScreen.kt`)와 달리 평가 버튼·스피커 아이콘·
+ * GrammarNote·탭 힌트를 모두 제외한 표시 전용 축소판이다. SRS 카드는 단순 조건부 스왑이라 뒤집기
+ * 애니메이션이 없으므로, 본 컴포저블은 [graphicsLayer] 의 `rotationY` 로 3D 뒤집기를 새로 구현한다.
+ *
+ * ### 순환 상태 — "단조 증가 누적 각도" 1개로 표현(리파인먼트)
+ * 1차 구현은 `cardIndex`(현재 카드 번호)와 `showBack`(앞/뒷면 여부) 두 상태를 따로 두고
+ * 회전 애니메이션과 별개로 갱신했는데, `showBack` 이 `false` 로 돌아오는 순간 `cardIndex` 를
+ * 먼저 올려버려 "회전이 채 끝나기 전(여전히 90도 너머)에는 화면에 다음 카드의 뒷면이 잠깐
+ * 비치는" 글리치가 있었다 — 상태 갱신 타이밍과 회전 애니메이션 진행이 어긋난 탓이다.
+ *
+ * 리파인먼트는 이 둘을 [targetAngle] 단 하나의 단조 증가 각도로 합쳤다. [LOADING_CARD_FRONT_FACE_MS]
+ * (앞면 노출 후) 또는 [LOADING_CARD_BACK_FACE_MS](뒷면 노출 후) 만큼 번갈아 기다린 뒤 180도씩
+ * 더하기만 하고, 화면에 무엇을 그릴지는 **현재 애니메이션 각도의 순수 함수**로 파생한다(아래
+ * `faceIndex`/`isBack`/`card`) — 두 지연 시간이 서로 달라도 "각도가 곧 화면"이라는 불변식은
+ * 그대로 유지된다. 한 면이 180도를 차지하므로 면이 바뀌는 경계(각도 = 90, 270, 450 ...)는 정확히
+ * 카드가 옆모습이 되어 "보이지 않는" 모서리 지점과 일치한다 — 즉 콘텐츠 전환이 항상 카드가 안
+ * 보이는 순간에만 일어나 글리치가 구조적으로 사라진다.
+ *
+ * @param cards 노출할 카드 목록(오래된 순). 비어 있으면 [LOADING_FALLBACK_CARD] 단일 카드를 같은
+ *  형식으로 반복 재생해 "추후 학습 카드 저장 시 교정 로딩 창에 표시됩니다!" 를 안내한다 — 카드 한
+ *  장뿐인 경우도 동일한 순환 로직으로 자연스럽게 반복된다.
+ */
+@Composable
+private fun CorrectionLoadingFlashcards(
+    cards: List<CorrectionLoadingCard>,
+    modifier: Modifier = Modifier,
+) {
+    // 빈 목록(미저장/조회 실패)이면 안내 카드 한 장을 같은 형식으로 반복 재생한다 — 폴백도
+    // 별도 분기 없이 동일한 순환 로직을 타므로 "카드가 1장뿐인 경우" 처리와 자연히 통일된다.
+    val playableCards = remember(cards) { cards.ifEmpty { listOf(LOADING_FALLBACK_CARD) } }
+
+    // 단조 증가 누적 목표 각도 — 매번 반 바퀴(180도)씩만 더한다. 앞면 노출 뒤에는
+    // LOADING_CARD_FRONT_FACE_MS, 뒷면 노출 뒤에는 LOADING_CARD_BACK_FACE_MS 만큼 번갈아 기다려
+    // 면별로 다른 노출 시간을 준다(짧게 훑는 앞면 vs 더 오래 머무는 뒷면/정답).
+    // 360도 = 0도와 시각적으로 동일하므로 값이 계속 커져도 무해하다(자세한 이유는 클래스 KDoc 참고).
+    var targetAngle by remember(playableCards) { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(playableCards) {
+        targetAngle = 0f
+        while (true) {
+            // 앞면 노출 → 뒷면으로 뒤집기
+            delay(LOADING_CARD_FRONT_FACE_MS)
+            targetAngle += FLIP_ROTATION_BACK
+            // 뒷면 노출 → 다음 카드 앞면으로 뒤집기
+            delay(LOADING_CARD_BACK_FACE_MS)
+            targetAngle += FLIP_ROTATION_BACK
+        }
+    }
+
+    val angle by animateFloatAsState(
+        targetValue = targetAngle,
+        animationSpec = tween(durationMillis = LOADING_CARD_FLIP_DURATION_MS),
+        label = "correctionLoadingCardFlip",
+    )
+
+    // 표시 콘텐츠를 현재 회전각의 순수 함수로 파생한다 — 면 하나가 180도를 차지하므로
+    // (각도 + 90) / 180 의 정수부가 "몇 번째 면을 보는 중인가"(faceIndex)를 가리킨다.
+    // 짝수 번째 면 = 앞면, 홀수 번째 면 = 뒷면이고, 면 번호를 2로 나눈 몫이 카드 순번이다.
+    val faceIndex = floor((angle + FLIP_ROTATION_SWAP_THRESHOLD) / FLIP_ROTATION_BACK).toInt()
+    val isBack = faceIndex % 2 == 1
+    val card = playableCards[(faceIndex / 2) % playableCards.size]
+
+    Box(
+        modifier = modifier.padding(horizontal = SpacingL),
+        contentAlignment = Alignment.Center,
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(LOADING_CARD_HEIGHT)
+                .graphicsLayer {
+                    rotationY = angle
+                    cameraDistance = FLIP_CAMERA_DISTANCE * density
+                },
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = CardElevation),
+        ) {
+            // 뒷면은 바깥 카드가 이미 180도 가까이 돌아간 상태이므로 rotationY=180 으로 한 번 더
+            // 반전해 글자가 거꾸로 보이지 않도록 보정한다(앞면은 보정이 필요 없다).
+            CorrectionLoadingCardFace(
+                text = if (isBack) card.back else card.front,
+                emphasized = isBack,
+                modifier = if (isBack) {
+                    Modifier.graphicsLayer { rotationY = FLIP_ROTATION_BACK }
+                } else {
+                    Modifier
+                },
+            )
+        }
+    }
+}
+
+/**
+ * COR-UX-001: 로딩 복습 카드의 단일 면 — 문장 하나만 중앙 정렬해 보여준다.
+ *
+ * 앞면(원어 문장, [emphasized]=false)은 SRS 카드 앞면(`SrsCardFront`)과 같은 보조 톤
+ * ([TextSecondaryR] + 회색)으로, 뒷면(교정문, [emphasized]=true)은 SRS 카드 뒷면의 정답 문장과 같은
+ * 강조 톤([TitleScreenSB])으로 그려 "질문 → 정답"의 체감을 살린다. 라벨/아이콘/설명/평가 버튼 등
+ * SRS 의 부가 요소는 모두 생략한 표시 전용 축소판이다.
+ *
+ * ### 가독성 보정(리파인먼트)
+ * 에뮬레이터 확인 후 "문장이 어절 중간에서 줄바꿈돼 읽기 어렵다"는 피드백을 반영해 두 가지를
+ * [androidx.compose.ui.text.TextStyle.copy] 로만 보강한다(공유 토큰 [TextSecondaryR]/[TitleScreenSB]
+ * 원본은 다른 화면도 함께 쓰므로 절대 변경하지 않는다 — 로컬 `.copy()` 로 이 컴포저블 안에서만 적용):
+ * - [LineBreak.Paragraph] — 글자 단위가 아닌 어절(단어) 경계를 우선해 줄을 바꿔 "문장이 끊겨 보이는"
+ *   문제를 직접 완화한다.
+ * - `lineHeight` 확대 — 줄 간격을 넓혀 여러 줄일 때도 눈으로 따라가기 쉽게 한다.
+ * 또한 사용자 결정에 따라 앞면 글자 크기를 16 → 18sp 로 키우되(스크롤 없이 읽기 쉽도록) 앞(작고
+ * 옅은 색)·뒤(크고 굵음)의 "질문 → 정답" 대비는 그대로 유지한다 — 카드 높이([LOADING_CARD_HEIGHT])
+ * 확대와 함께 적용해 커진 글자도 스크롤 없이 한 화면에 담기게 한다.
+ */
+@Composable
+private fun CorrectionLoadingCardFace(
+    text: String,
+    emphasized: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(SpacingL),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = if (emphasized) {
+                TitleScreenSB.copy(lineHeight = LOADING_CARD_BACK_LINE_HEIGHT, lineBreak = LineBreak.Paragraph)
+            } else {
+                TextSecondaryR.copy(
+                    fontSize = LOADING_CARD_FRONT_FONT_SIZE,
+                    lineHeight = LOADING_CARD_FRONT_LINE_HEIGHT,
+                    lineBreak = LineBreak.Paragraph,
+                )
+            },
+            color = if (emphasized) Color.Unspecified else Color(0xFF777777),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// COR-UX-001: 학습 언어에 저장된 플래시카드가 0개(또는 조회 실패)일 때 반복 재생할 안내 카드.
+// 앞/뒷면에 같은 안내 문구를 담아 "곧 카드가 채워질 영역" 임을 같은 형식으로 자연스럽게 알린다.
+private val LOADING_FALLBACK_CARD = CorrectionLoadingCard(
+    front = "추후 학습 카드 저장 시 교정 로딩 창에 표시됩니다!",
+    back = "추후 학습 카드 저장 시 교정 로딩 창에 표시됩니다!",
+)
+
+// graphicsLayer.rotationY 단위(도) — 한 면이 차지하는 회전폭(180, "정면 ↔ 뒤집힌 정면")과
+// 그 절반인 90("옆모습 = 보이지 않는 모서리", 면 전환 경계이자 누적 각도 → faceIndex 변환 기준).
+private const val FLIP_ROTATION_BACK = 180f
+private const val FLIP_ROTATION_SWAP_THRESHOLD = 90f
+
+// 3D 카드 뒤집기의 원근감(Z축 거리) 보정 계수 — density 를 곱해 화면 밀도에 무관하게 일관된 깊이감을 낸다.
+private const val FLIP_CAMERA_DISTANCE = 12f
+
+// COR-UX-001 리파인먼트: 카드 면 가독성 보정값. 공유 토큰([TextSecondaryR] 16sp / [TitleScreenSB] 24sp)
+// 원본은 그대로 두고 [CorrectionLoadingCardFace] 에서 .copy() 로만 적용한다 — 앞면은 18sp 로 살짝
+// 키우고(원어 문장이 잘 읽히도록), 뒷면은 글자 크기는 유지한 채 줄 간격만 넓혀 "질문(작게) → 정답
+// (크게)" 대비를 지킨다. 두 값 모두 어절 단위 줄바꿈([LineBreak.Paragraph])과 함께 적용된다.
+private val LOADING_CARD_FRONT_FONT_SIZE = 18.sp
+private val LOADING_CARD_FRONT_LINE_HEIGHT = 26.sp
+private val LOADING_CARD_BACK_LINE_HEIGHT = 34.sp
 
 /**
  * COR-001-B: 결손 케이스 Empty UI.
