@@ -81,6 +81,8 @@ data class CorrectionUiState(
     val langStateSnapshot: LangState? = null,
     // Content 상태에서 화면이 표시할 교정 결과 목록. 그 외 phase 에서는 빈 리스트.
     val suggestions: List<CorrectionSuggestion> = emptyList(),
+    // COR-UX-004: currently speaking correction suggestion id for per-card speaker tint state.
+    val speakingSuggestionId: String? = null,
     // 사용자가 저장 대상으로 고른 CorrectionSuggestion.id 집합. 순서 무관 + 중복 자동 방어 목적으로 Set 사용.
     // Content 가 새 suggestions 로 교체될 때 stale id 잔존을 막기 위해 ViewModel 이 함께 비운다.
     val selectedSuggestionIds: Set<String> = emptySet(),
@@ -540,6 +542,7 @@ internal fun CorrectionUiState.applyGenerationOutcome(
         copy(
             phase = nextPhase,
             suggestions = suggestions,
+            speakingSuggestionId = null,
             selectedSuggestionIds = emptySet(),
             errorReason = null,
             emptyResultReason = payload.emptyReason,
@@ -553,6 +556,7 @@ internal fun CorrectionUiState.applyGenerationOutcome(
         copy(
             phase = CorrectionUiState.Phase.Error,
             suggestions = emptyList(),
+            speakingSuggestionId = null,
             selectedSuggestionIds = emptySet(),
             errorReason = reason,
             emptyResultReason = null,
@@ -569,6 +573,7 @@ internal fun CorrectionUiState.applyRestoredSuggestions(
     phase = CorrectionUiState.Phase.Content,
     primaryLanguage = primaryLanguage ?: this.primaryLanguage,
     suggestions = suggestions,
+    speakingSuggestionId = null,
     selectedSuggestionIds = emptySet(),
     errorReason = null,
     emptyResultReason = null,

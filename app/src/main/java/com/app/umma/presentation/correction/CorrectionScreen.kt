@@ -206,8 +206,10 @@ fun CorrectionScreen(
                     )
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
+                        speakingSuggestionId = uiState.speakingSuggestionId,
                         selectedIds = uiState.selectedSuggestionIds,
                         onCardClicked = viewModel::toggleSuggestionSelection,
+                        onSpeak = viewModel::onPlaySuggestionAudio,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -255,8 +257,10 @@ fun CorrectionScreen(
                     )
                     CorrectionResultList(
                         suggestions = uiState.suggestions,
+                        speakingSuggestionId = uiState.speakingSuggestionId,
                         selectedIds = uiState.selectedSuggestionIds,
                         onCardClicked = viewModel::toggleSuggestionSelection,
+                        onSpeak = viewModel::onPlaySuggestionAudio,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)

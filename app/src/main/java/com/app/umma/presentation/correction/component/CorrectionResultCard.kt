@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -77,8 +78,10 @@ import com.app.umma.domain.model.learningstate.LangCode
 @Composable
 fun CorrectionResultCard(
     suggestion: CorrectionSuggestion,
+    isSpeaking: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onSpeak: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -110,12 +113,14 @@ fun CorrectionResultCard(
                 )
                 Spacer(modifier = Modifier.width(SpacingS))
                 // 정적 아이콘 — TTS 동작은 후속 backlog 에서 연결.
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = "음성 듣기 (준비 중)",
-                    tint = TitleColor,
-                    modifier = Modifier.size(IconSizeSmall)
-                )
+                IconButton(onClick = onSpeak) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = "발음 듣기",
+                        tint = if (isSpeaking) ThemePrimary else TitleColor,
+                        modifier = Modifier.size(IconSizeSmall)
+                    )
+                }
             }
 
             // ─── Before 행: 교정 전 문장 ─────────────────────────────────────
@@ -190,8 +195,10 @@ private fun CorrectionResultCardPreview() {
     val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
     CorrectionResultCard(
         suggestion = suggestion,
+        isSpeaking = false,
         isSelected = false,
         onClick = {},
+        onSpeak = {},
         modifier = Modifier.padding(SpacingL)
     )
 }
@@ -203,8 +210,10 @@ private fun CorrectionResultCardSelectedPreview() {
     val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
     CorrectionResultCard(
         suggestion = suggestion,
+        isSpeaking = true,
         isSelected = true,
         onClick = {},
+        onSpeak = {},
         modifier = Modifier.padding(SpacingL)
     )
 }
@@ -220,8 +229,10 @@ private fun CorrectionResultCardLongExplanationPreview() {
     )
     CorrectionResultCard(
         suggestion = longExplanation,
+        isSpeaking = false,
         isSelected = false,
         onClick = {},
+        onSpeak = {},
         modifier = Modifier.padding(SpacingL)
     )
 }

@@ -1,6 +1,7 @@
 package com.app.umma.presentation.correction
 
 import android.util.Log
+import com.app.umma.core.tts.TextToSpeechController
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.devtools.correctionpromptreview.ReportCorrectionPromptReviewUseCase
 import com.app.umma.domain.model.correction.CachedCorrectionResult
@@ -71,6 +72,7 @@ class CorrectionViewModelCacheTest {
         val completeCorrection = mockk<CompleteCorrectionUseCase>()
         val buildLangStateUpdateInput = mockk<BuildLangStateUpdateInputUseCase>()
         val getFlashcards = mockk<GetFlashcardsUseCase>()
+        val ttsController = mockk<TextToSpeechController>(relaxed = true)
         val reportCorrectionPromptReviewUseCase = mockk<ReportCorrectionPromptReviewUseCase>(relaxed = true)
 
         mockkStatic(Log::class)
@@ -113,6 +115,7 @@ class CorrectionViewModelCacheTest {
             completeCorrection = completeCorrection,
             buildLangStateUpdateInput = buildLangStateUpdateInput,
             getFlashcards = getFlashcards,
+            ttsController = ttsController,
             reportCorrectionPromptReviewUseCase = reportCorrectionPromptReviewUseCase,
         )
 

@@ -307,6 +307,6 @@ class SrsStudyViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        ttsController.shutdown()
+        ttsController.stop()
     }
 }

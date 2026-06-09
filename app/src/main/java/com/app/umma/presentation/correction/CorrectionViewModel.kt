@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.BuildConfig
+import com.app.umma.core.tts.TextToSpeechController
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewContextTurn
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSnapshot
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSuggestion
@@ -148,6 +149,7 @@ class CorrectionViewModel @Inject constructor(
     // SRS 카드 목록(SrsCardListViewModel)과 동일한 진입점이며, 새 저장소 메서드를 신설하지 않는다
     // (읽기 전용 — 스케줄/평가/저장 등 SRS 책임은 일절 건드리지 않는다).
     private val getFlashcards: GetFlashcardsUseCase,
+    private val ttsController: TextToSpeechController,
     private val reportCorrectionPromptReviewUseCase: ReportCorrectionPromptReviewUseCase,
 ) : ViewModel() {
 
@@ -556,6 +558,23 @@ class CorrectionViewModel @Inject constructor(
                 current.selectedSuggestionIds + id
             }
             current.copy(selectedSuggestionIds = next)
+        }
+    }
+
+    fun onPlaySuggestionAudio(suggestion: CorrectionSuggestion) {
+        val lang = _uiState.value.selectedLearningLanguage ?: return
+        if (suggestion.afterText.isBlank()) return
+        if (!ttsController.setLanguage(lang)) return
+
+        _uiState.update { it.copy(speakingSuggestionId = suggestion.id) }
+        ttsController.speak(suggestion.afterText) {
+            _uiState.update { state ->
+                if (state.speakingSuggestionId == suggestion.id) {
+                    state.copy(speakingSuggestionId = null)
+                } else {
+                    state
+                }
+            }
         }
     }
 
@@ -1009,6 +1028,11 @@ class CorrectionViewModel @Inject constructor(
         // 0~2단계는 단순 delay, 3단계(AI 호출)는 SystemClock.elapsedRealtime 기반 잔여시간 보정,
         // 4단계는 결과 매핑이 즉시 끝나도 문구가 스쳐 지나가지 않도록 동일하게 적용한다.
         const val STEP_MIN_DURATION_MS = 3_500L
+    }
+
+    override fun onCleared() {
+        ttsController.stop()
+        super.onCleared()
     }
 }
 
