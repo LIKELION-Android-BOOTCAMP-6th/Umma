@@ -363,31 +363,32 @@ class ChatRepositoryImpl @Inject constructor(
             return Result.failure(IllegalStateException("prompt review is disabled"))
         }
 
-        val userId = firebaseAuth.currentUser?.uid
-        val sessionId = activeSessionId
-        val language = currentLang
-        if (userId.isNullOrBlank() || sessionId.isNullOrBlank()) {
-            return Result.failure(IllegalStateException("active chat session is required for prompt review report"))
-        }
-        if (language == null) {
-            return Result.failure(IllegalStateException("active chat language is required for prompt review report"))
-        }
+        return runCatching {
+            val userId = firebaseAuth.currentUser?.uid
+            val sessionId = activeSessionId
+            val language = currentLang
+            if (userId.isNullOrBlank() || sessionId.isNullOrBlank()) {
+                error("active chat session is required for prompt review report")
+            }
+            if (language == null) {
+                error("active chat language is required for prompt review report")
+            }
 
-        // 신고 버튼은 transport 상태를 바꾸지 않고, 현재까지 메모리에 모인 dev review buffer만 저장한다.
-        // 실패해도 대화 기능 자체의 실패가 아니므로 caller가 UI 메시지만 보여줄 수 있게 Result로 전달한다.
-        chatPromptReviewRepository.recordSessionStarted(
-            userId = userId,
-            sessionId = sessionId,
-            language = language,
-            sessionPromptTrace = currentSystemInstructionDebugTrace,
-            metadata = "label=manual_report speed=$currentOutputAudioSpeed"
-        ).getOrThrow()
-        chatPromptReviewRepository.reportSession(
-            userId = userId,
-            sessionId = sessionId,
-            reportNote = reportNote
-        ).getOrThrow()
-        return Result.success(Unit)
+            // 신고 버튼은 transport 상태를 바꾸지 않고, 현재까지 메모리에 모인 dev review buffer만 저장한다.
+            // Firestore rules나 네트워크 실패는 아래 runCatching 안에 가둬 대화 화면 크래시로 전파하지 않는다.
+            chatPromptReviewRepository.recordSessionStarted(
+                userId = userId,
+                sessionId = sessionId,
+                language = language,
+                sessionPromptTrace = currentSystemInstructionDebugTrace,
+                metadata = "label=manual_report speed=$currentOutputAudioSpeed"
+            ).getOrThrow()
+            chatPromptReviewRepository.reportSession(
+                userId = userId,
+                sessionId = sessionId,
+                reportNote = reportNote
+            ).getOrThrow()
+        }
     }
 
     override suspend fun stopSession(clearAppSession: Boolean) = sessionMutex.withLock {
