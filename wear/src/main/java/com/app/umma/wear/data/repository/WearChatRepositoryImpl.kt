@@ -519,7 +519,7 @@ class WearChatRepositoryImpl(
 
     private companion object {
         const val TAG = "WearChatRepository"
-        const val THINKING_TIMEOUT_MS = 15_000L
+        const val THINKING_TIMEOUT_MS = 5_000L
     }
 }
 
