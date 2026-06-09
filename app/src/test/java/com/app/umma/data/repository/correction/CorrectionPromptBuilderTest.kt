@@ -94,6 +94,25 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `prompt asks AI to keep at most 10 most impactful suggestions`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "i go school"
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("최대 10개 지시 누락", prompt.contains("Return at most 10 suggestions"))
+        assertTrue("영향도 우선 지시 누락", prompt.contains("keep the 10 most impactful"))
+    }
+
+    @Test
     fun `prompt enforces candidateId exact-copy contract with copy, no-invent, and skip rules`() {
         // COR-FIX-009: "unknown correction candidate id: ja-6-0-79967d5" 실패의 직접 원인은
         // AI 가 candidateId 를 새로 만들어(hallucinate) 돌려준 것으로 추정된다. 한 줄짜리 지시("COPY

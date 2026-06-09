@@ -79,6 +79,7 @@ class CorrectionPromptBuilder @Inject constructor() {
             focusLine(focus)?.let { appendLine("- $it") }
             appendLine()
             appendLine("Task: For each candidate sentence below, return one corrected version that preserves the speaker's meaning and is natural at the learner's level.")
+            appendLine("Return at most 10 suggestions; if more candidates need correcting, keep the 10 most impactful.")
             appendLine("Safety:")
             appendLine("- Do not correct, naturalize, translate, or make harmful content more actionable.")
             appendLine("- Skip candidates involving self-harm instructions, child sexual content, hate or harassment, crime, fraud, explicit sexual content, or dangerous professional advice.")
