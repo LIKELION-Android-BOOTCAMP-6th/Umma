@@ -4,6 +4,11 @@ import android.util.Log
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.umma.BuildConfig
+import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewContextTurn
+import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSnapshot
+import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSuggestion
+import com.app.umma.devtools.correctionpromptreview.ReportCorrectionPromptReviewUseCase
 import com.app.umma.domain.model.correction.CompleteCorrectionInput
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionContextTurn
@@ -134,10 +139,19 @@ class CorrectionViewModel @Inject constructor(
     // SRS 카드 목록(SrsCardListViewModel)과 동일한 진입점이며, 새 저장소 메서드를 신설하지 않는다
     // (읽기 전용 — 스케줄/평가/저장 등 SRS 책임은 일절 건드리지 않는다).
     private val getFlashcards: GetFlashcardsUseCase,
+    private val reportCorrectionPromptReviewUseCase: ReportCorrectionPromptReviewUseCase,
 ) : ViewModel() {
 
     // 화면이 collect 하는 단일 진실. ViewModel 내부에서만 쓰기 가능.
-    private val _uiState = MutableStateFlow(CorrectionUiState())
+    @Suppress("KotlinConstantConditions")
+    private val shouldShowCorrectionReviewReportButton =
+        BuildConfig.DEBUG &&
+            BuildConfig.FLAVOR == "dev" &&
+            BuildConfig.CORRECTION_PROMPT_REVIEW_ENABLED
+
+    private val _uiState = MutableStateFlow(
+        CorrectionUiState(showCorrectionReviewReportButton = shouldShowCorrectionReviewReportButton)
+    )
     // 외부(Composable)로 노출되는 read-only StateFlow. _uiState 를 그대로 비춘다.
     val uiState: StateFlow<CorrectionUiState> = _uiState.asStateFlow()
 
@@ -243,7 +257,7 @@ class CorrectionViewModel @Inject constructor(
                                 "langState.updatedAt=${next.langStateSnapshot?.updatedAt}"
                     )
                 }
-                _uiState.value = next
+                _uiState.value = next.withReviewButtonState()
 
                 // 가드 2 (COR-001-B): generate 트리거 분기는 pure helper 가 결정한다.
                 // helper 가 false 를 돌리는 모든 경우(Empty / 이미 launched / Generating 등) 가
@@ -539,6 +553,84 @@ class CorrectionViewModel @Inject constructor(
      *    그대로 재사용된다. 같은 사용자 선택이 보존되어 있으면 [PrepareSaveRequestUseCase] 가
      *    deterministic 하게 같은 saveRequest 를 만들어 [launchCompletion] 으로 흘려보낸다.
      */
+    /**
+     * Stores the current Correction result as a developer review report.
+     *
+     * This path is intentionally isolated from production save/completion behavior. A report
+     * failure only affects the report button state and never blocks correction learning flows.
+     */
+    fun reportCorrectionPromptReview(reportNote: String? = null) {
+        val current = _uiState.value
+        if (!current.showCorrectionReviewReportButton ||
+            current.isCorrectionReviewReporting ||
+            current.hasCorrectionReviewReported
+        ) {
+            return
+        }
+
+        _uiState.update { it.copy(isCorrectionReviewReporting = true) }
+        viewModelScope.launch {
+            val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() }
+            val lang = current.selectedLearningLanguage ?: current.suggestions.firstOrNull()?.lang
+            if (uid == null || lang == null) {
+                Log.w(TAG, "correction prompt review report skipped: uid or language unavailable")
+                _uiState.update { it.copy(isCorrectionReviewReporting = false) }
+                return@launch
+            }
+
+            val contextTurns = runCatching { getCorrectionContext(lang).first() }
+                .getOrDefault(emptyList())
+                .map {
+                    CorrectionPromptReviewContextTurn(
+                        speaker = it.role.name.lowercase(),
+                        text = it.text,
+                    )
+                }
+            val sourceKey = current.suggestions.firstOrNull()?.id
+                ?: current.errorReason
+                ?: current.phase.name
+            val snapshot = CorrectionPromptReviewSnapshot(
+                uid = uid,
+                language = lang,
+                primaryLanguage = current.primaryLanguage,
+                phase = current.phase.name,
+                reportNote = reportNote,
+                sourceKey = sourceKey,
+                suggestions = current.suggestions.map {
+                    CorrectionPromptReviewSuggestion(
+                        id = it.id,
+                        sourceCandidateIds = it.sourceCandidateIds,
+                        sourceTurnIndex = it.sourceTurnIndex,
+                        beforeText = it.beforeText,
+                        nativeText = it.nativeText,
+                        afterText = it.afterText,
+                        explanation = it.explanation,
+                        sourceLang = it.sourceLang,
+                    )
+                },
+                selectedSuggestionIds = current.selectedSuggestionIds,
+                contextTurns = contextTurns,
+                errorReason = current.errorReason,
+                saveErrorReason = current.saveErrorReason,
+                completionErrorReason = current.completionErrorReason,
+            )
+
+            reportCorrectionPromptReviewUseCase(snapshot)
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            isCorrectionReviewReporting = false,
+                            hasCorrectionReviewReported = true,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "correction prompt review report failed: ${error.message}", error)
+                    _uiState.update { it.copy(isCorrectionReviewReporting = false) }
+                }
+        }
+    }
+
     fun onSaveClicked() {
         // 가드 판단용 snapshot 은 _uiState 갱신 이전 값으로 잡는다.
         // 첫 호출은 isSavePreparing == false 인 snapshot 으로 compute 가드를 통과하고,
@@ -782,6 +874,13 @@ class CorrectionViewModel @Inject constructor(
     }
 
     // 클래스 내부 진단 로그 전용 상수 묶음. ViewModel 외부에서 참조할 일이 없어 private companion 으로 격리한다.
+    private fun CorrectionUiState.withReviewButtonState(): CorrectionUiState =
+        copy(
+            showCorrectionReviewReportButton = shouldShowCorrectionReviewReportButton,
+            isCorrectionReviewReporting = false,
+            hasCorrectionReviewReported = false,
+        )
+
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"

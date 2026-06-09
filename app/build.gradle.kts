@@ -63,6 +63,12 @@ android {
             "CHAT_PROMPT_REVIEW_ENABLED"
         ) ?: "true"
         buildConfigField("boolean", "CHAT_PROMPT_REVIEW_ENABLED", chatPromptReviewEnabled)
+        // Correction prompt review is a separate dev-only switch so COR review data does not
+        // accidentally share the Chat prompt-review lifecycle or storage policy.
+        val correctionPromptReviewEnabled = properties.getProperty(
+            "CORRECTION_PROMPT_REVIEW_ENABLED"
+        ) ?: "true"
+        buildConfigField("boolean", "CORRECTION_PROMPT_REVIEW_ENABLED", correctionPromptReviewEnabled)
     }
 
     buildTypes {

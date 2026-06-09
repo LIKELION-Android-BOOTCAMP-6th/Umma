@@ -210,6 +210,7 @@ RULES.md
 
 # Dev tool outputs
 tools/chat_prompt_review/output/*
+tools/correction_prompt_review/output/*
 
 # Android Patch
 

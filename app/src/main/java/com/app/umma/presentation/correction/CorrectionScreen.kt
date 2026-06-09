@@ -2,10 +2,12 @@ package com.app.umma.presentation.correction
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,14 +24,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +59,7 @@ import com.app.umma.core.theme.TextSecondaryR
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleScreenSB
 import com.app.umma.core.ui.component.UmmaAppBar
+import com.app.umma.core.ui.component.UmmaDialog
 import com.app.umma.presentation.correction.component.CorrectionResultList
 import com.app.umma.presentation.correction.component.CorrectionSelectAllBar
 import kotlin.math.floor
@@ -102,6 +109,8 @@ fun CorrectionScreen(
     viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val correctionReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
+    var correctionReviewReportNote by rememberSaveable { mutableStateOf("") }
 
     // 화면 진입 시 1회만 Flow 셋업. ViewModel 내부에 가드가 있어 재호출되어도 안전.
     LaunchedEffect(Unit) {
@@ -124,7 +133,44 @@ fun CorrectionScreen(
         topBar = {
             UmmaAppBar(
                 title = "교정",
-                isCenterTitle = true
+                isCenterTitle = true,
+                leadingActions = {
+                    if (uiState.showCorrectionReviewReportButton) {
+                        Button(
+                            onClick = { correctionReviewReportConfirmDialogState.value = true },
+                            enabled = !uiState.isCorrectionReviewReporting &&
+                                !uiState.hasCorrectionReviewReported,
+                            modifier = Modifier
+                                .padding(start = 10.dp)
+                                .height(32.dp),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (uiState.hasCorrectionReviewReported) {
+                                    ThemePrimary.copy(alpha = 0.36f)
+                                } else {
+                                    ThemePrimary
+                                }
+                            ),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (uiState.hasCorrectionReviewReported) {
+                                    ThemePrimary.copy(alpha = 0.16f)
+                                } else {
+                                    ThemePrimary
+                                },
+                                contentColor = Color.White,
+                                disabledContainerColor = ThemePrimary.copy(alpha = 0.14f),
+                                disabledContentColor = ThemePrimary.copy(alpha = 0.72f),
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                        ) {
+                            Text(
+                                text = if (uiState.hasCorrectionReviewReported) "접수됨" else "신고",
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -291,6 +337,68 @@ fun CorrectionScreen(
                 ) {
                     CircularProgressIndicator(color = ThemePrimary)
                 }
+            }
+        }
+    }
+
+    if (correctionReviewReportConfirmDialogState.value) {
+        UmmaDialog(
+            title = "교정 신고",
+            titleColor = ThemePrimary,
+            modifier = Modifier.padding(horizontal = SpacingL),
+            onCancel = { correctionReviewReportConfirmDialogState.value = false },
+            onConfirm = {
+                correctionReviewReportConfirmDialogState.value = false
+                viewModel.reportCorrectionPromptReview(reportNote = correctionReviewReportNote)
+            },
+            confirmText = "신고",
+            dismissText = "취소",
+            showCancelButton = false,
+            confirmButtonColor = ThemePrimary,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SpacingL),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "이 교정 결과를 리뷰용으로 남길까요?\n교정 카드와 입력 맥락이 저장됩니다.",
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = correctionReviewReportNote,
+                    onValueChange = { value ->
+                        correctionReviewReportNote =
+                            value.take(CORRECTION_REVIEW_REPORT_NOTE_MAX_LENGTH)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = SpacingL),
+                    minLines = 3,
+                    maxLines = 5,
+                    label = {
+                        Text(text = "이상했던 점")
+                    },
+                    placeholder = {
+                        Text(text = "예: 뜻이 바뀌었거나 설명이 너무 어려웠어요.")
+                    },
+                    supportingText = {
+                        Text(
+                            text = "${correctionReviewReportNote.length}/$CORRECTION_REVIEW_REPORT_NOTE_MAX_LENGTH"
+                        )
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedIndicatorColor = ThemePrimary,
+                        unfocusedIndicatorColor = Color.Black.copy(alpha = 0.18f),
+                        focusedLabelColor = ThemePrimary,
+                    )
+                )
             }
         }
     }
@@ -633,6 +741,7 @@ private val LOADING_FALLBACK_CARD = CorrectionLoadingCard(
 // 그 절반인 90("옆모습 = 보이지 않는 모서리", 면 전환 경계이자 누적 각도 → faceIndex 변환 기준).
 private const val FLIP_ROTATION_BACK = 180f
 private const val FLIP_ROTATION_SWAP_THRESHOLD = 90f
+private const val CORRECTION_REVIEW_REPORT_NOTE_MAX_LENGTH = 500
 
 // 3D 카드 뒤집기의 원근감(Z축 거리) 보정 계수 — density 를 곱해 화면 밀도에 무관하게 일관된 깊이감을 낸다.
 private const val FLIP_CAMERA_DISTANCE = 12f

@@ -123,6 +123,12 @@ data class CorrectionUiState(
     // 로 읽기만 해 변환한 경량 모델이다 — SRS 스케줄/평가 등 원본 책임은 건드리지 않는다.
     // 빈 리스트면 화면이 안내 문구 카드로 폴백한다(파이프라인을 막지 않는 별도 로드라 실패 시에도 빈 리스트).
     val loadingFlashcards: List<CorrectionLoadingCard> = emptyList(),
+    // Development-only Correction review report button visibility.
+    val showCorrectionReviewReportButton: Boolean = false,
+    // Prevents duplicate report writes while Firestore is in flight.
+    val isCorrectionReviewReporting: Boolean = false,
+    // Marks the current Correction screen snapshot as already reported.
+    val hasCorrectionReviewReported: Boolean = false,
 ) {
     /**
      * Correction 화면이 가질 수 있는 진행 단계.

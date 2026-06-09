@@ -237,6 +237,32 @@ class CorrectionUiStateTest {
     }
 
     @Test
+    fun `correction review report state is disabled by default`() {
+        val state = CorrectionUiState()
+
+        assertFalse(state.showCorrectionReviewReportButton)
+        assertFalse(state.isCorrectionReviewReporting)
+        assertFalse(state.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `correction review report state can mark in flight and completed`() {
+        val state = CorrectionUiState(showCorrectionReviewReportButton = true)
+
+        val reporting = state.copy(isCorrectionReviewReporting = true)
+        val completed = reporting.copy(
+            isCorrectionReviewReporting = false,
+            hasCorrectionReviewReported = true,
+        )
+
+        assertTrue(reporting.showCorrectionReviewReportButton)
+        assertTrue(reporting.isCorrectionReviewReporting)
+        assertFalse(reporting.hasCorrectionReviewReported)
+        assertFalse(completed.isCorrectionReviewReporting)
+        assertTrue(completed.hasCorrectionReviewReported)
+    }
+
+    @Test
     fun `computeCompletionLaunch returns AlreadyInFlight when isCompleting`() {
         // 첫 호출이 isCompleting=true 를 emit 한 직후 들어온 두 번째 트리거를 막는 가드.
         val state = CorrectionUiState(

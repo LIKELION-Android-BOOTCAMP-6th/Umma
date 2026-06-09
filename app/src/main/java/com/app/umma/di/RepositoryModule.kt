@@ -21,6 +21,8 @@ import com.app.umma.data.source.remote.LearningStateRemoteDataSourceImpl
 import com.app.umma.data.source.remote.StatisticsHistoryRemoteDataSource
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepository
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepositoryImpl
+import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewRepository
+import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewRepositoryImpl
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.ChatConversationAnalysisRepository
 import com.app.umma.domain.repository.ChatConversationAnalysisJobRepository
@@ -120,6 +122,12 @@ abstract class RepositoryModule {
     abstract fun bindChatPromptReviewRepository(
         impl: ChatPromptReviewRepositoryImpl
     ): ChatPromptReviewRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCorrectionPromptReviewRepository(
+        impl: CorrectionPromptReviewRepositoryImpl
+    ): CorrectionPromptReviewRepository
 
     @Binds
     @Singleton
