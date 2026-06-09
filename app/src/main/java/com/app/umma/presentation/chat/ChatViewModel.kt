@@ -137,6 +137,9 @@ class ChatViewModel @Inject constructor(
     private val scheduledConversationAnalysisTurnCounts = mutableMapOf<String, Int>()
     // Tune008의 대화 위치 보조 상태입니다. 장기 능력이나 저장 모델이 아니라 현재 Chat 세션 안에서만 유지합니다.
     private var conversationSnapshot: ChatConversationSnapshot = ChatConversationSnapshot()
+    // Chat 화면이 실제로 보이는 동안에만 폰 로컬 오디오를 재생한다.
+    // 백그라운드/숨김 상태에서는 늦게 도착한 AI chunk가 다시 재생되지 않게 막는다.
+    private var isChatRouteVisible: Boolean = false
 
     init {
         observeWatchSessionState()
@@ -152,6 +155,21 @@ class ChatViewModel @Inject constructor(
             showPromptReviewReportButton = shouldShowPromptReviewReportButton
         )
     }
+
+    /**
+     * Chat 화면 가시성을 반영합니다.
+     *
+     * 폰 화면이 보이지 않으면 로컬 오디오 출력은 즉시 멈추고, 늦게 도착한 AI chunk도
+     * 다시 태우지 않는다. Watch relay는 별도 경로이므로 이 플래그의 영향을 받지 않는다.
+     */
+    fun setChatRouteVisible(isVisible: Boolean) {
+        isChatRouteVisible = isVisible
+        if (!isVisible) {
+            audioPlayer.stopPlaying()
+        }
+        Log.d(TAG, "setChatRouteVisible isVisible=$isVisible")
+    }
+
     private fun observeWatchSessionState() {
         viewModelScope.launch {
             phoneChatSessionController.snapshot.collectLatest { snapshot ->
@@ -1437,8 +1455,13 @@ class ChatViewModel @Inject constructor(
                 isAwaitingUserTranscript = false
             )
         }
-        if (_uiState.value.activeOutputSurface != WatchOutputSurface.WATCH) {
+        if (isChatRouteVisible && _uiState.value.activeOutputSurface != WatchOutputSurface.WATCH) {
             audioPlayer.playAudioChunk(event.audio)
+        } else {
+            Log.d(
+                TAG,
+                "phone audio chunk skipped visible=$isChatRouteVisible output=${_uiState.value.activeOutputSurface}"
+            )
         }
     }
 

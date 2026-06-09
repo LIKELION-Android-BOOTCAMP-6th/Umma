@@ -186,6 +186,7 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         viewModel.checkInterestTopics()
+        viewModel.setChatRouteVisible(true)
         viewModel.enterChat()
     }
 
@@ -197,11 +198,13 @@ fun ChatScreen(
                 Lifecycle.Event.ON_START -> {
                     // hidden 상태에서 돌아올 때는 저장된 UI를 재사용하지 말고 새 세션 경계를 다시 연다.
                     routeHiddenHandled.value = false
+                    viewModel.setChatRouteVisible(true)
                     viewModel.enterChat()
                 }
 
                 Lifecycle.Event.ON_STOP -> {
                     // 탭 전환이나 앱 백그라운드 진입 시점에 transport 를 먼저 닫아 stale session 재사용을 막는다.
+                    viewModel.setChatRouteVisible(false)
                     if (!routeHiddenHandled.value) {
                         routeHiddenHandled.value = true
                         viewModel.onChatRouteHidden()
@@ -218,6 +221,7 @@ fun ChatScreen(
             // 일부 navigation 경로에서는 onStop 전에 onDispose 가 먼저 들어올 수 있다.
             // routeHiddenHandled 로 한 번만 정리되도록 보장하고, 여기서는 누락 방지용 마지막 정리만 남긴다.
             if (activity?.isChangingConfigurations != true && !routeHiddenHandled.value) {
+                viewModel.setChatRouteVisible(false)
                 routeHiddenHandled.value = true
                 viewModel.onChatRouteHidden()
             }
