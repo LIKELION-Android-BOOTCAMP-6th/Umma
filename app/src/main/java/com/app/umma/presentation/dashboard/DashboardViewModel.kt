@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.app.umma.R
 import com.app.umma.core.ui.UiText
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.isEffectivelyEmpty
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
@@ -16,9 +17,11 @@ import com.app.umma.domain.usecase.learningstate.SyncLearningStateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -152,28 +155,87 @@ class DashboardViewModel @Inject constructor(
             //   AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.
             //   TTL(Time To Live) 체크 없이 _state 의 값 그대로 흘려보냄. 최신화는 triggerSync() 담당.
             //   sync 가 _state 를 갱신하면 여기 collect 가 새 emit 을 한 번 더 받는다.
-            observeLearningState().collect { global ->
-                // 이번 emit 의 사용자 학습 설정 스냅샷. 신규 사용자 / preload 직후엔 null.
-                val userPref = global.userPref
-                // 학습 중인 언어 목록. userPref null 이면 빈 리스트로 안전 처리.
-                val learningLangs = userPref?.learningLangs.orEmpty()
-
-                // [DASH-001 후속] Setup 완료 추적 + 첫 확인 시 sync 트리거.
-                // userPref non-null = createInitial() 이 실행된 이후 → Setup 완료 기준.
-                // triggerSync() 는 자체 dedup(fetchJob?.isActive) 을 갖고 있어 중복 호출 안전.
-                val isConfirmedNow = userPref != null
-                val wasConfirmed = setupConfirmed
-                setupConfirmed = isConfirmedNow
-                if (isConfirmedNow && wasConfirmed != true) {
-                    // 기존 사용자 첫 진입 또는 신규→완료 전환 시 한 번만 트리거.
-                    triggerSync()
+            observeLearningState()
+                .map { global ->
+                    // Dashboard가 실제로 보는 값만 모은 스냅샷.
+                    // GlobalLangState 전체를 비교하면 화면과 무관한 내부 변경까지 중복 로그로 흘러들 수 있다.
+                    global.toDashboardRenderSnapshot()
                 }
+                .distinctUntilChanged()
+                .collect { snapshot ->
+                    val userPrefPresent = snapshot.userPrefPresent
+                    val selectedLang = snapshot.selectedLang
+                    val learningLangs = snapshot.learningLangs
 
-                // AC 10: userPref 가 채워졌는데 learningLangs 가 비어있으면 Fatal.
-                //   userPref==null 은 preload 직후/신규 사용자 — Empty 분기에서 처리하므로 여기선 패스.
-                // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
-                if (userPref != null && learningLangs.isEmpty()) {
-                    Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
+                    // [DASH-001 후속] Setup 완료 추적 + 첫 확인 시 sync 트리거.
+                    // userPref non-null = createInitial() 이 실행된 이후 → Setup 완료 기준.
+                    // triggerSync() 는 자체 dedup(fetchJob?.isActive) 을 갖고 있어 중복 호출 안전.
+                    val isConfirmedNow = userPrefPresent
+                    val wasConfirmed = setupConfirmed
+                    setupConfirmed = isConfirmedNow
+                    if (isConfirmedNow && wasConfirmed != true) {
+                        // 기존 사용자 첫 진입 또는 신규→완료 전환 시 한 번만 트리거.
+                        triggerSync()
+                    }
+
+                    // AC 10: userPref 가 채워졌는데 learningLangs 가 비어있으면 Fatal.
+                    //   userPref==null 은 preload 직후/신규 사용자 — Empty 분기에서 처리하므로 여기선 패스.
+                    // (AC 10: learningLanguages가 비어 있거나 로드 실패 시 Error 또는 Empty 상태가 표시된다.)
+                    if (userPrefPresent && learningLangs.isEmpty()) {
+                        Log.w(TAG, "DASH-006 AC 10 fatal — userPref present but learningLangs empty")
+                        if (!skeletonGateApplied) {
+                            skeletonGateApplied = true
+                            val remaining =
+                                SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
+                            if (remaining > 0) delay(remaining)
+                        }
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                hasFatalError = true,
+                                isEmpty = false,
+                                summary = null
+                            )
+                        }
+                        return@collect
+                    }
+
+                    // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → 학습 언어 목록 내부 fallback.
+                    //   primaryLang은 학습 기준 언어이지 현재 학습 데이터 key가 아니므로 fallback 후보에서 제외한다.
+
+                    // UI 가 실제로 쓸 lang. selectedLang 을 그대로 쓰지 않고 정합성 가드 한 번 거친 값.
+                    //  - null : userPref 자체 없음 (신규/preload 직후)
+                    //  - selectedLang : 정상 케이스
+                    //  - learningLangs.first() : selectedLang ∉ learningLangs 인 오염 케이스 (AC 9 fallback)
+                    val effectiveLang: LangCode? = when {
+                        !userPrefPresent -> null
+                        selectedLang in learningLangs -> selectedLang
+                        else -> {
+                            val fallbackLang = learningLangs.first()
+                            Log.w(
+                                TAG,
+                                "AC 9 fallback — selectedLang=$selectedLang " +
+                                        "not in learningLangs=$learningLangs, using fallback=$fallbackLang"
+                            )
+                            // 복구 저장. 실패해도 다음 emit 까진 effectiveLang 으로 계속 동작.
+                            launch { changeSelectedLang(fallbackLang) }
+                            fallbackLang
+                        }
+                    }
+
+                    // effectiveLang 기준 카드 데이터. null 가능 (effectiveLang null 또는 해당 lang summary 없음).
+                    val summary = effectiveLang?.let { snapshot.dashSummaries[it] }
+                    // "보여줄 게 없는" 상태 — Empty 분기 판정용.
+                    val empty = summary == null || summary.isEffectivelyEmpty
+
+                    // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false.
+                    //   selector 다이얼로그의 "이전에 학습 중이던 언어" 체크 아이콘 기준으로 쓰인다.
+                    //   userPref.learningLangs 는 selector 단순 선택만으로도 자동 확장되지만,
+                    //   여기는 실제 대화/카드/통계 데이터가 쌓인 언어만 포함 → 시각적 구분.
+                    val activeLangs = snapshot.dashSummaries
+                        .filterValues { !it.isEffectivelyEmpty }
+                        .keys
+
                     if (!skeletonGateApplied) {
                         skeletonGateApplied = true
                         val remaining =
@@ -183,79 +245,26 @@ class DashboardViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            hasFatalError = true,
-                            isEmpty = false,
-                            summary = null
+                            selectedLearningLanguage = effectiveLang,
+                            summary = summary,
+                            isEmpty = empty,
+                            learningLanguages = learningLangs,
+                            activeLearningLanguages = activeLangs,
+                            hasFatalError = false
                         )
                     }
-                    return@collect
-                }
-
-                // AC 9: selectedLang ∉ learningLangs 인 데이터 오염 케이스 → 학습 언어 목록 내부 fallback.
-                //   primaryLang은 학습 기준 언어이지 현재 학습 데이터 key가 아니므로 fallback 후보에서 제외한다.
-
-                // UI 가 실제로 쓸 lang. selectedLang 을 그대로 쓰지 않고 정합성 가드 한 번 거친 값.
-                //  - null : userPref 자체 없음 (신규/preload 직후)
-                //  - selectedLang : 정상 케이스
-                //  - learningLangs.first() : selectedLang ∉ learningLangs 인 오염 케이스 (AC 9 fallback)
-                val effectiveLang: LangCode? = when {
-                    userPref == null -> null
-                    userPref.selectedLang in learningLangs -> userPref.selectedLang
-                    else -> {
-                        val fallbackLang = learningLangs.first()
-                        Log.w(
-                            TAG,
-                            "AC 9 fallback — selectedLang=${userPref.selectedLang} " +
-                                    "not in learningLangs=$learningLangs, using fallback=$fallbackLang"
-                        )
-                        // 복구 저장. 실패해도 다음 emit 까진 effectiveLang 으로 계속 동작.
-                        launch { changeSelectedLang(fallbackLang) }
-                        fallbackLang
-                    }
-                }
-
-                // effectiveLang 기준 카드 데이터. null 가능 (effectiveLang null 또는 해당 lang summary 없음).
-                val summary = effectiveLang?.let { global.dashSummaries[it] }
-                // "보여줄 게 없는" 상태 — Empty 분기 판정용.
-                val empty = summary == null || summary.isEffectivelyEmpty
-
-                // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false.
-                //   selector 다이얼로그의 "이전에 학습 중이던 언어" 체크 아이콘 기준으로 쓰인다.
-                //   userPref.learningLangs 는 selector 단순 선택만으로도 자동 확장되지만,
-                //   여기는 실제 대화/카드/통계 데이터가 쌓인 언어만 포함 → 시각적 구분.
-                val activeLangs = global.dashSummaries
-                    .filterValues { !it.isEffectivelyEmpty }
-                    .keys
-
-                if (!skeletonGateApplied) {
-                    skeletonGateApplied = true
-                    val remaining =
-                        SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
-                    if (remaining > 0) delay(remaining)
-                }
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        selectedLearningLanguage = effectiveLang,
-                        summary = summary,
-                        isEmpty = empty,
-                        learningLanguages = learningLangs,
-                        activeLearningLanguages = activeLangs,
-                        hasFatalError = false
+                    Log.d(
+                        TAG,
+                        "state emit: lang=$effectiveLang, " +
+                                "learningLangs=$learningLangs, " +
+                                "summary=[recentTopic=${summary?.recentTopic}, " +
+                                "recentMinutes=${summary?.recentMinutes}, " +
+                                "dueFlashcards=${summary?.dueFlashcards}, " +
+                                "savedFlashcards=${summary?.savedFlashcards}, " +
+                                "updatedAt=${summary?.updatedAt}], " +
+                                "isEmpty=$empty"
                     )
                 }
-                Log.d(
-                    TAG,
-                    "state emit: lang=$effectiveLang, " +
-                            "learningLangs=$learningLangs, " +
-                            "summary=[recentTopic=${summary?.recentTopic}, " +
-                            "recentMinutes=${summary?.recentMinutes}, " +
-                            "dueFlashcards=${summary?.dueFlashcards}, " +
-                            "savedFlashcards=${summary?.savedFlashcards}, " +
-                            "updatedAt=${summary?.updatedAt}], " +
-                            "isEmpty=$empty"
-                )
-            }
         }
     }
 
@@ -401,5 +410,31 @@ class DashboardViewModel @Inject constructor(
          * "의도된 skeleton 최소 표시 지연".
          */
         const val SKELETON_MIN_DISPLAY_MS = 600L
+    }
+
+    /**
+     * Dashboard가 실제로 다시 그릴 때 필요한 값만 묶은 비교용 스냅샷.
+     *
+     * GlobalLangState 전체를 기준으로 distinct 처리하면 내부적으로 무관한 변화까지
+     * 같은 화면 로그로 반복될 수 있다. 이 스냅샷은 UI와 로그가 쓰는 필드만 비교한다.
+     */
+    private data class DashboardRenderSnapshot(
+        val userPrefPresent: Boolean,
+        val selectedLang: LangCode?,
+        val learningLangs: List<LangCode>,
+        val dashSummaries: Map<LangCode, DashSummary>,
+    )
+
+    /**
+     * Dashboard 화면이 실제로 보는 값만 추려낸다.
+     */
+    private fun com.app.umma.domain.model.learningstate.GlobalLangState.toDashboardRenderSnapshot(): DashboardRenderSnapshot {
+        val userPref = userPref
+        return DashboardRenderSnapshot(
+            userPrefPresent = userPref != null,
+            selectedLang = userPref?.selectedLang,
+            learningLangs = userPref?.learningLangs.orEmpty(),
+            dashSummaries = dashSummaries,
+        )
     }
 }
