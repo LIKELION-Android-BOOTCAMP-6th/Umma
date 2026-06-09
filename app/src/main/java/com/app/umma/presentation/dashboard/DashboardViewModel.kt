@@ -10,8 +10,8 @@ import com.app.umma.domain.model.learningstate.isEffectivelyEmpty
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
+import com.app.umma.domain.usecase.learningstate.EnsureLearningStateLoadedUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
-import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.SyncLearningStateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -29,7 +29,7 @@ import javax.inject.Inject
  * SSOT: DASH-001_Dashboard_Entry.md
  *
  * 책임 (전체):
- *  - DASH-001: 진입 시 Local Cache preload → UserLangPref / DashSummary 노출,
+ *  - DASH-001: 진입 시 local cache load / remote restore → UserLangPref / DashSummary 노출,
  *              Firebase background sync
  *  - DASH-002: 카드별 데이터 상태 관리 ([DashboardUiState.summary] 안의 필드들)
  *  - DASH-006: 학습 언어 변경 시 새 언어 기준으로 DashSummary 재 fetch
@@ -38,7 +38,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    private val preloadLearningState: PreloadLearningStateUseCase,
+    private val ensureLearningStateLoaded: EnsureLearningStateLoadedUseCase,
     private val observeLearningState: ObserveLearningStateUseCase,
     private val syncLearningState: SyncLearningStateUseCase,
     private val changeSelectedLang: ChangeSelectedLangUseCase,
@@ -96,7 +96,7 @@ class DashboardViewModel @Inject constructor(
      * 화면 진입 시 호출. (DASH-001)
      *
      * 두 가지 일을 분리 트리거:
-     *  1. enterJob — Cache preload + observeLearningState() collect (1 회만 셋업)
+     *  1. enterJob — local cache load / remote restore + observeLearningState() collect (1 회만 셋업)
      *  2. fetchJob — Firebase sync (재진입마다 트리거, 중복 방지)
      *
      * AC 12 (오래된 cache 우선 렌더링): 1) 의 첫 emit 으로 stale cache 가 즉시 UI 에 뜨고,
@@ -121,7 +121,7 @@ class DashboardViewModel @Inject constructor(
             return
         }
         enterJob = viewModelScope.launch {
-            Log.d(TAG, "ensureObservation() — DASH-001 preload start")
+            Log.d(TAG, "ensureObservation() — DASH-FIX-001 load start")
             // DASH-001: 의도된 skeleton 최소 표시 지연 (SKELETON_MIN_DISPLAY_MS).
             //   cache hit 시 skeleton 이 1 프레임만 깜빡이고 사라지는 문제 방지용.
             //   첫 emit 직전에 한 번만 잔여 시간 delay. 조정 시 SKELETON_MIN_DISPLAY_MS 만 변경.
@@ -134,14 +134,19 @@ class DashboardViewModel @Inject constructor(
                 )
             }
 
-            // Local Cache preload.
-            //   idempotent. 실패해도 observeLearningState() 가 GlobalLangState.initial() 을
-            //   emit 해서 Empty 분기로 자연스럽게 fallthrough.
-            //   사용자 노출 errorMessage 는 sync 실패 쪽에서만 다룬다 — preload 실패는
-            //   "캐시 없음" 일 뿐 사용자 입장에선 신규 진입과 구분 불가하니까.
-            preloadLearningState().exceptionOrNull()?.let { e ->
-                Log.w(TAG, "preload failed — falling back to Empty", e)
-            }
+            // Local cache + remote restore를 한 번에 정리하는 공통 진입 계약.
+            //   local이 있으면 바로 사용하고, 비어 있으면 repo.sync()로 한 번만 복구를 시도한다.
+            //   Dashboard는 여전히 observeLearningState()가 실제 UI 반영을 담당한다.
+            val loadResult = ensureLearningStateLoaded()
+            loadResult
+                .onSuccess { result ->
+                    Log.d(TAG, "ensureLearningStateLoaded result=$result")
+                }
+                .onFailure { e ->
+                    // local/remote 복구 계약이 실패해도 observeLearningState() collect 자체는 계속 살아 있어야 한다.
+                    // Dashboard는 Empty snapshot으로 열고, 이후 repo emit 이 있으면 자연스럽게 갱신된다.
+                    Log.w(TAG, "ensureLearningStateLoaded failed — falling back to Empty", e)
+                }
 
             // 전역 학습 상태 구독.
             //   AC 12: 오래된 cache 데이터가 존재하더라도 우선 렌더링된다.
