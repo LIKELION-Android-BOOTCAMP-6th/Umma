@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -42,7 +44,6 @@ import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
-import com.app.umma.core.theme.ThemeSecondary
 import com.app.umma.core.theme.TitleColor
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.domain.model.correction.CorrectionSuggestion
@@ -77,8 +78,10 @@ import com.app.umma.domain.model.learningstate.LangCode
 @Composable
 fun CorrectionResultCard(
     suggestion: CorrectionSuggestion,
+    isSpeaking: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onSpeak: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -110,12 +113,14 @@ fun CorrectionResultCard(
                 )
                 Spacer(modifier = Modifier.width(SpacingS))
                 // 정적 아이콘 — TTS 동작은 후속 backlog 에서 연결.
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = "음성 듣기 (준비 중)",
-                    tint = TitleColor,
-                    modifier = Modifier.size(IconSizeSmall)
-                )
+                IconButton(onClick = onSpeak) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = "발음 듣기",
+                        tint = if (isSpeaking) ThemePrimary else TitleColor,
+                        modifier = Modifier.size(IconSizeSmall)
+                    )
+                }
             }
 
             // ─── Before 행: 교정 전 문장 ─────────────────────────────────────
@@ -169,13 +174,16 @@ fun CorrectionResultCard(
                 Icon(
                     imageVector = Icons.Outlined.Info,
                     contentDescription = "설명",
-                    tint = ThemeSecondary,
-                    modifier = Modifier.size(IconSizeSmall)
+                    tint = TitleColor,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .offset(y = (-2).dp)
                 )
                 Text(
                     text = suggestion.explanation,
                     style = TextExplanationR,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    modifier = Modifier.offset(y = (-1).dp)
                 )
             }
         }
@@ -190,8 +198,10 @@ private fun CorrectionResultCardPreview() {
     val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
     CorrectionResultCard(
         suggestion = suggestion,
+        isSpeaking = false,
         isSelected = false,
         onClick = {},
+        onSpeak = {},
         modifier = Modifier.padding(SpacingL)
     )
 }
@@ -203,8 +213,10 @@ private fun CorrectionResultCardSelectedPreview() {
     val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
     CorrectionResultCard(
         suggestion = suggestion,
+        isSpeaking = true,
         isSelected = true,
         onClick = {},
+        onSpeak = {},
         modifier = Modifier.padding(SpacingL)
     )
 }
@@ -220,8 +232,10 @@ private fun CorrectionResultCardLongExplanationPreview() {
     )
     CorrectionResultCard(
         suggestion = longExplanation,
+        isSpeaking = false,
         isSelected = false,
         onClick = {},
+        onSpeak = {},
         modifier = Modifier.padding(SpacingL)
     )
 }

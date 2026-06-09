@@ -36,8 +36,10 @@ import com.app.umma.domain.model.learningstate.LangCode
 @Composable
 fun CorrectionResultList(
     suggestions: List<CorrectionSuggestion>,
+    speakingSuggestionId: String?,
     selectedIds: Set<String>,
     onCardClicked: (String) -> Unit,
+    onSpeak: (CorrectionSuggestion) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -51,8 +53,10 @@ fun CorrectionResultList(
         ) { suggestion ->
             CorrectionResultCard(
                 suggestion = suggestion,
+                isSpeaking = suggestion.id == speakingSuggestionId,
                 isSelected = suggestion.id in selectedIds,
                 onClick = { onCardClicked(suggestion.id) },
+                onSpeak = { onSpeak(suggestion) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -67,8 +71,10 @@ private fun CorrectionResultListPreview() {
     val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
     CorrectionResultList(
         suggestions = suggestions,
+        speakingSuggestionId = null,
         selectedIds = emptySet(),
         onCardClicked = {},
+        onSpeak = {},
     )
 }
 
@@ -79,7 +85,9 @@ private fun CorrectionResultListWithSelectionPreview() {
     val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
     CorrectionResultList(
         suggestions = suggestions,
+        speakingSuggestionId = suggestions.firstOrNull()?.id,
         selectedIds = setOfNotNull(suggestions.firstOrNull()?.id),
         onCardClicked = {},
+        onSpeak = {},
     )
 }
