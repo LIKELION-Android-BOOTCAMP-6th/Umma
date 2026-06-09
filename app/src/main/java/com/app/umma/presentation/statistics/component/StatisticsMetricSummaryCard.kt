@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Card
@@ -49,7 +50,7 @@ import com.app.umma.domain.model.statistics.StatisticsMetricType
 import com.app.umma.presentation.statistics.model.StatisticsMetricSummaryItem
 
 /**
- * Statistics의 5개 요약 지표 카드를 읽기 쉬운 2열 레이아웃으로 배치한다.
+ * Statistics의 6개 요약 지표 카드를 읽기 쉬운 2열 레이아웃으로 배치한다.
  *
  * 레퍼런스처럼 카드 표면은 흰색으로 두고, metric별 포인트 컬러만 얹어서
  * 한눈에 구분되도록 만든다.
@@ -94,6 +95,7 @@ private fun StatisticsMetricSummaryCard(
     // 카드별 포인트 컬러를 metricType에 묶어두면,
     // 화면이 데이터를 읽는 순간 어떤 카드인지 빠르게 구분된다.
     val accent = item.metricType.accentColor()
+    val contentAlpha = if (item.isAvailable) 1.0f else 0.62f
     Card(
         onClick = onClick,
         modifier = modifier.heightIn(min = 132.dp),
@@ -110,7 +112,7 @@ private fun StatisticsMetricSummaryCard(
                 modifier = Modifier
                     .size(32.dp)
                     .background(
-                        color = accent.copy(alpha = 0.10f),
+                        color = accent.copy(alpha = if (item.isAvailable) 0.10f else 0.06f),
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -118,7 +120,7 @@ private fun StatisticsMetricSummaryCard(
                 Icon(
                     imageVector = item.metricType.icon(),
                     contentDescription = item.title,
-                    tint = accent,
+                    tint = accent.copy(alpha = contentAlpha),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -127,7 +129,7 @@ private fun StatisticsMetricSummaryCard(
             Text(
                 text = item.title,
                 style = TextExplanationR,
-                color = accent
+                color = accent.copy(alpha = contentAlpha)
             )
             Text(
                 text = item.valueText,
@@ -135,7 +137,7 @@ private fun StatisticsMetricSummaryCard(
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold
                 ),
-                color = accent
+                color = accent.copy(alpha = contentAlpha)
             )
         }
     }
@@ -143,6 +145,7 @@ private fun StatisticsMetricSummaryCard(
 
 private fun StatisticsMetricType.accentColor(): Color {
     return when (this) {
+        StatisticsMetricType.ConversationBand -> ThemePrimary
         StatisticsMetricType.VocabularyLevel -> ThemePrimary
         StatisticsMetricType.GrammarAccuracy -> ThemeSecondary
         StatisticsMetricType.ExpressionRange -> TextCorrect
@@ -153,6 +156,7 @@ private fun StatisticsMetricType.accentColor(): Color {
 
 private fun StatisticsMetricType.icon(): ImageVector {
     return when (this) {
+        StatisticsMetricType.ConversationBand -> Icons.Outlined.CheckCircle
         StatisticsMetricType.VocabularyLevel -> Icons.AutoMirrored.Outlined.MenuBook
         StatisticsMetricType.GrammarAccuracy -> Icons.Outlined.EditNote
         StatisticsMetricType.ExpressionRange -> Icons.Outlined.ChatBubbleOutline

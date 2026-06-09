@@ -18,12 +18,14 @@ data class StatisticsUiState(
     val isLoading: Boolean = true,
     // 초기 컨텍스트 조립 결과. 성공 시 화면은 이 스냅샷을 기준으로 표시한다.
     val overview: StatisticsOverview? = null,
-    // STAT-002에서 사용할 5개 요약 카드 state.
+    // STAT-002에서 사용할 6개 요약 카드 state.
     val metricSummaryCards: List<StatisticsMetricSummaryItem> = emptyList(),
     // 지금 선택된 metric. STAT-003에서 chart 입력으로 이어받을 값이다.
     val selectedMetricType: StatisticsMetricType? = null,
     // 선택 metric에 대한 chart dialog 상태.
     val metricChartState: StatisticsMetricChartState = StatisticsMetricChartState.Hidden,
+    // 종합 레벨 카드는 변화 차트보다 단계 의미 설명이 더 중요하므로 별도 안내 dialog로 연다.
+    val isConversationLevelGuideVisible: Boolean = false,
     // background refresh / pending sync를 보여주는 보조 상태.
     val syncState: StatisticsSyncState = StatisticsSyncState.Idle,
     // 실패 시 사용자에게 보여줄 메시지.
@@ -35,6 +37,7 @@ data class StatisticsUiState(
     // UI가 자주 꺼내 쓰는 값은 state 내부에서 바로 접근할 수 있게 계산 프로퍼티로 둔다.
     val selectedLearningLanguage = overview?.selectedLearningLanguage
     val currentExternalMetrics = overview?.currentExternalMetrics
+    val currentLangAbilityStats = overview?.currentLangAbilityStats
     val historyQueryState: StatisticsHistoryQueryState? = overview?.historyQueryState
     val selectedChartMetricType = when (val state = metricChartState) {
         is StatisticsMetricChartState.Loading -> state.metricType

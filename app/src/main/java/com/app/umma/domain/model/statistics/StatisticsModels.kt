@@ -1,6 +1,7 @@
 package com.app.umma.domain.model.statistics
 
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.VocabLevel
 import kotlin.math.roundToInt
@@ -20,15 +21,18 @@ data class StatisticsHistory(
     val language: LangCode,
     // line chart의 x축 기준이 되는 저장 시각.
     val recordedAt: Long,
-    // 외부 화면에 보여주는 CEFR 등급.
+    // 대화 전체의 현재 band. 종합 레벨 카드와 레벨 안내 dialog가 이 값을 읽는다.
+    val conversationBand: ConversationAbilityBand? = null,
+    // 어휘 카드는 아직 측정 준비 중이지만, 기존 history schema를 유지하기 위해 저장한다.
     val vocabularyLevel: VocabLevel,
-    // 문법 정확도 원본 값. current state의 원본 스케일을 유지한다.
+    // 문법 카드와 차트가 공유하는 현재 문법 능력 점수다.
     val grammarAccuracy: Double,
-    // 표현 폭을 단순화한 값.
+    // 표현력 카드는 아직 측정 준비 중이지만, 기존 history schema를 유지하기 위해 저장한다.
     val expressionRange: Int,
-    // 유창성 점수 원본 값.
+    // 말하기 카드와 차트가 공유하는 현재 말하기 흐름 점수다.
     val fluencyScore: Double,
-    // 자연스러움 점수 원본 값.
+    // legacy 필드명은 naturalnessScore지만, 새 Statistics 화면에서는 이해력 점수로 사용한다.
+    // 필드명을 바로 바꾸면 local/Firestore history 호환이 깨지므로 의미만 새 지표에 맞춘다.
     val naturalnessScore: Double,
     // 같은 분석 이벤트의 중복 기록 방지용 id.
     val sourceEventId: String,
@@ -77,11 +81,12 @@ enum class StatisticsMetricType(
     // UI에서 사용할 읽기 쉬운 이름.
     val displayName: String
 ) {
-    VocabularyLevel("vocabularyLevel", "어휘 레벨"),
-    GrammarAccuracy("grammarAccuracy", "문법 정확도"),
-    ExpressionRange("expressionRange", "표현 폭"),
-    FluencyScore("fluencyScore", "유창성"),
-    NaturalnessScore("naturalnessScore", "자연스러움");
+    ConversationBand("conversationBand", "종합 레벨"),
+    VocabularyLevel("vocabularyLevel", "어휘"),
+    GrammarAccuracy("grammarAccuracy", "문법"),
+    ExpressionRange("expressionRange", "표현력"),
+    FluencyScore("fluencyScore", "말하기"),
+    NaturalnessScore("naturalnessScore", "이해력");
 
     companion object {
         fun fromMetricKey(metricKey: String): StatisticsMetricType? {
@@ -110,51 +115,21 @@ sealed interface StatisticsHistoryState {
 }
 
 /**
- * 한 history를 차트 포인트로 바꾸는 공통 변환 함수다.
- *
- * Statistics 화면은 current LangState를 다시 계산하지 않고,
- * 이 snapshot과 UseCase를 통해 파생 point만 읽는다.
- */
-fun StatisticsHistory.toMetricPoints(): List<MetricHistoryPoint> {
-    return listOf(
-        MetricHistoryPoint(
-            metricType = StatisticsMetricType.VocabularyLevel,
-            recordedAt = recordedAt,
-            value = vocabularyLevel.toChartValue(),
-            displayValue = vocabularyLevel.name
-        ),
-        MetricHistoryPoint(
-            metricType = StatisticsMetricType.GrammarAccuracy,
-            recordedAt = recordedAt,
-            value = grammarAccuracy.toPercentageValue(),
-            displayValue = grammarAccuracy.toPercentageLabel()
-        ),
-        MetricHistoryPoint(
-            metricType = StatisticsMetricType.ExpressionRange,
-            recordedAt = recordedAt,
-            value = expressionRange.toDouble(),
-            displayValue = expressionRange.toString()
-        ),
-        MetricHistoryPoint(
-            metricType = StatisticsMetricType.FluencyScore,
-            recordedAt = recordedAt,
-            value = fluencyScore.toPercentageValue(),
-            displayValue = fluencyScore.toPercentageLabel()
-        ),
-        MetricHistoryPoint(
-            metricType = StatisticsMetricType.NaturalnessScore,
-            recordedAt = recordedAt,
-            value = naturalnessScore.toPercentageValue(),
-            displayValue = naturalnessScore.toPercentageLabel()
-        )
-    )
-}
-
-/**
  * 선택한 metric 타입 하나만 차트 포인트로 바꿀 때 사용하는 보조 함수다.
+ *
+ * 종합 레벨도 history에는 저장하지만 현재 화면에서는 차트로 열지 않는다.
+ * 그래도 오래된 호출 경계가 들어와도 null-safe하게 처리할 수 있도록 point 변환 자체는 보존한다.
  */
-fun StatisticsHistory.toMetricPoint(metricType: StatisticsMetricType): MetricHistoryPoint {
+fun StatisticsHistory.toMetricPointOrNull(metricType: StatisticsMetricType): MetricHistoryPoint? {
     return when (metricType) {
+        StatisticsMetricType.ConversationBand -> conversationBand?.let {
+            MetricHistoryPoint(
+                metricType = metricType,
+                recordedAt = recordedAt,
+                value = it.toChartValue(),
+                displayValue = it.toDisplayLabel()
+            )
+        }
         StatisticsMetricType.VocabularyLevel -> MetricHistoryPoint(
             metricType = metricType,
             recordedAt = recordedAt,
@@ -185,6 +160,24 @@ fun StatisticsHistory.toMetricPoint(metricType: StatisticsMetricType): MetricHis
             value = naturalnessScore.toPercentageValue(),
             displayValue = naturalnessScore.toPercentageLabel()
         )
+    }
+}
+
+private fun ConversationAbilityBand.toChartValue(): Double {
+    // history point 계약은 숫자 value를 요구하므로 enum 순서를 1~6 좌표로 보존한다.
+    // 현재 UI는 이 값을 차트로 열지 않고, 레벨 안내 dialog에서 의미를 설명한다.
+    return ordinal + 1.0
+}
+
+private fun ConversationAbilityBand.toDisplayLabel(): String {
+    // history point가 필요할 때 내부 enum명을 사용자-facing 레벨명으로 바꾼다.
+    return when (this) {
+        ConversationAbilityBand.IntentOnly -> "시작 Level"
+        ConversationAbilityBand.PhraseEmerging -> "단어 Level"
+        ConversationAbilityBand.SimpleSentence -> "문장 Level"
+        ConversationAbilityBand.BasicConversation -> "대화 Level"
+        ConversationAbilityBand.ConnectedExpression -> "표현 Level"
+        ConversationAbilityBand.NuanceControl -> "능숙 Level"
     }
 }
 

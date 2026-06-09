@@ -44,6 +44,7 @@ import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseC
 import com.app.umma.domain.usecase.learningstate.ApplyFlashcardSummaryUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.ApplyLanguageStateUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.DefaultLangStateAnalysisPolicy
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.model.realtime.SummarizeTopicsCommand
 import com.app.umma.domain.usecase.realtime.CompressSessionMemoryUseCase
 import com.app.umma.domain.usecase.realtime.SummarizeRecentTopicsUseCase
@@ -82,7 +83,9 @@ class CompleteCorrectionUseCaseTest {
         applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase,
         applyCorrectionSignalUpdateUseCase = applyCorrectionSignalUpdateUseCase,
         recordStatisticsHistoryUseCase = RecordStatisticsHistoryUseCase(
-            buildStatisticsHistoryUseCase = BuildStatisticsHistoryUseCase(),
+            buildStatisticsHistoryUseCase = BuildStatisticsHistoryUseCase(
+                buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
+            ),
             statisticsRepository = statisticsRepository
         ),
         buildSessionCompressionPayloadUseCase = BuildSessionCompressionPayloadUseCase(),

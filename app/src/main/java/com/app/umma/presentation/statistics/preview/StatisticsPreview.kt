@@ -3,9 +3,23 @@ package com.app.umma.presentation.statistics.preview
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.app.umma.core.theme.UmmaTheme
+import com.app.umma.domain.model.chat.ConversationConsistencyEvidence
+import com.app.umma.domain.model.chat.ConversationSustainabilityEvidence
+import com.app.umma.domain.model.chat.LanguageDependenceEvidence
+import com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence
+import com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence
+import com.app.umma.domain.model.chat.TargetLanguageProductionEvidence
+import com.app.umma.domain.model.learningstate.EvidenceDirection
 import com.app.umma.domain.model.learningstate.ExternalMetrics
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.LearningMetricKey
+import com.app.umma.domain.model.learningstate.MetricEvidence
+import com.app.umma.domain.model.learningstate.ProfileConfidence
+import com.app.umma.domain.model.learningstate.InternalMetrics
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.LangStateAnalysisMeta
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
+import com.app.umma.domain.model.learningstate.toLangAbilityStats
 import com.app.umma.domain.model.statistics.StatisticsHistoryQueryState
 import com.app.umma.domain.model.statistics.StatisticsOverview
 import com.app.umma.domain.model.statistics.StatisticsMetricType
@@ -74,10 +88,47 @@ fun StatisticsChartDialogPreview() {
  */
 private fun previewUiState(): StatisticsUiState {
     val language = LangCode.EN
+    val langState = LangState.initial(language).copy(
+        internal = InternalMetrics.initial().copy(
+            speechRate = 0.78,
+            pauseFrequency = 0.18,
+            spokenNaturalness = 0.72,
+            naturalExpressionUsage = 0.77,
+            grammarAccuracy = 0.81
+        ),
+        analysisMeta = LangStateAnalysisMeta(
+            metricEvidence = mapOf(
+                LearningMetricKey.GrammarAccuracy to MetricEvidence(
+                    observedCount = 3,
+                    confidence = 0.82,
+                    sourceTypes = setOf(com.app.umma.domain.model.learningstate.LearningSignalSource.CorrectionSignal),
+                    direction = EvidenceDirection.Up,
+                    directionCount = 3,
+                    lastObservedAt = 1_740_326_400_000L
+                )
+            ),
+            activeFocus = emptyList(),
+            lastSignalAt = 1_740_326_400_000L,
+            lastChatAnalysisEventId = "preview-chat",
+            chatEvidenceSummary = ChatEvidenceSummary(
+                targetLanguageComprehension = TargetLanguageComprehensionEvidence.SimpleSentence,
+                targetLanguageProduction = TargetLanguageProductionEvidence.SimpleSentences,
+                supportLanguageDependence = LanguageDependenceEvidence.Low,
+                aiScaffoldingDependence = LanguageDependenceEvidence.Low,
+                conversationSustainability = ConversationSustainabilityEvidence.SustainedSimple,
+                consistency = ConversationConsistencyEvidence.Stable,
+                responseDifficultyFit = ResponseDifficultyFitEvidence.Fits,
+                confidence = ProfileConfidence.Medium,
+                observedCount = 3,
+                lastObservedAt = 1_740_326_400_000L
+            )
+        ),
+        updatedAt = 1_740_326_400_000L
+    )
     val overview = StatisticsOverview(
         userId = "preview-user",
         selectedLearningLanguage = language,
-        currentLangState = LangState.initial(language),
+        currentLangState = langState,
         currentExternalMetrics = ExternalMetrics(
             vocabularyLevel = com.app.umma.domain.model.learningstate.VocabLevel.B2,
             grammarAccuracy = 0.82,
@@ -85,7 +136,17 @@ private fun previewUiState(): StatisticsUiState {
             fluencyScore = 0.74,
             naturalnessScore = 0.69
         ),
-        availableMetricTypes = StatisticsMetricType.entries,
+        currentLangAbilityStats = langState.toLangAbilityStats(
+            com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase().invoke(langState)
+        ),
+        availableMetricTypes = listOf(
+            StatisticsMetricType.ConversationBand,
+            StatisticsMetricType.FluencyScore,
+            StatisticsMetricType.GrammarAccuracy,
+            StatisticsMetricType.NaturalnessScore,
+            StatisticsMetricType.VocabularyLevel,
+            StatisticsMetricType.ExpressionRange
+        ),
         historyQueryState = StatisticsHistoryQueryState.Ready(
             userId = "preview-user",
             language = language

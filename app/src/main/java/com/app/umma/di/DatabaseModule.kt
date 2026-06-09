@@ -33,6 +33,16 @@ private val MIGRATION_1_2_CORRECTION_FLASHCARD = object : Migration(1, 2) {
     }
 }
 
+private val MIGRATION_1_2_STATISTICS_HISTORY = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 종합 레벨 history는 기존 row를 지우지 않고, nullable 컬럼만 추가해서
+        // 이전 설치본의 statistics_history 데이터를 그대로 유지한다.
+        db.execSQL(
+            "ALTER TABLE statistics_history ADD COLUMN conversationBand TEXT"
+        )
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -109,7 +119,10 @@ object DatabaseModule {
             context,
             StatisticsHistoryDatabase::class.java,
             "umma_statistics_history_db"
-        ).fallbackToDestructiveMigration(false).build()
+        )
+            .addMigrations(MIGRATION_1_2_STATISTICS_HISTORY)
+            .fallbackToDestructiveMigration(false)
+            .build()
     }
 
     @Provides

@@ -8,6 +8,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.VocabLevel
@@ -27,6 +28,7 @@ data class StatisticsHistoryEntity(
     val userId: String,
     val language: String,
     val recordedAt: Long,
+    val conversationBand: String? = null,
     val vocabularyLevel: String,
     val grammarAccuracy: Double,
     val expressionRange: Int,
@@ -113,7 +115,7 @@ interface StatisticsHistoryDao {
  */
 @Database(
     entities = [StatisticsHistoryEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class StatisticsHistoryDatabase : RoomDatabase() {
@@ -171,6 +173,7 @@ fun StatisticsHistoryEntity.toDomain(): StatisticsHistory {
         userId = userId,
         language = LangCode.fromCode(language) ?: LangCode.EN,
         recordedAt = recordedAt,
+        conversationBand = conversationBand.toConversationAbilityBandOrNull(),
         vocabularyLevel = VocabLevel.valueOf(vocabularyLevel),
         grammarAccuracy = grammarAccuracy,
         expressionRange = expressionRange,
@@ -179,4 +182,11 @@ fun StatisticsHistoryEntity.toDomain(): StatisticsHistory {
         sourceEventId = sourceEventId,
         syncStatus = SyncStatus.valueOf(syncStatus)
     )
+}
+
+private fun String?.toConversationAbilityBandOrNull(): ConversationAbilityBand? {
+    // Room에 이미 저장된 값이 앱 업데이트 사이에서 깨져도 기존 5개 통계 지표는 계속 복원되어야 한다.
+    return this?.let { rawValue ->
+        runCatching { ConversationAbilityBand.valueOf(rawValue) }.getOrNull()
+    }
 }

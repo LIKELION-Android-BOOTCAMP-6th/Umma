@@ -1,6 +1,7 @@
 package com.app.umma.domain.model.statistics
 
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.VocabLevel
 import org.junit.Assert.assertEquals
@@ -9,9 +10,39 @@ import org.junit.Test
 class StatisticsModelsTest {
 
     @Test
-    fun `history converts to five metric points in MVP order`() {
+    fun `history converts selected metric to chart point`() {
         val history = StatisticsHistory(
             id = "stats-1",
+            userId = "user-1",
+            language = LangCode.EN,
+            recordedAt = 100L,
+            conversationBand = ConversationAbilityBand.BasicConversation,
+            vocabularyLevel = VocabLevel.B2,
+            grammarAccuracy = 0.81,
+            expressionRange = 7,
+            fluencyScore = 0.66,
+            naturalnessScore = 0.72,
+            sourceEventId = "event-1",
+            syncStatus = SyncStatus.SYNCED
+        )
+
+        val bandPoint = history.toMetricPointOrNull(StatisticsMetricType.ConversationBand)
+        val grammarPoint = history.toMetricPointOrNull(StatisticsMetricType.GrammarAccuracy)
+
+        // chart 조회 UseCase는 선택된 metric 하나만 변환한다.
+        // 전체 metric 목록을 한 번에 만드는 이전 helper는 실제 호출 경로가 없어 제거했다.
+        assertEquals(StatisticsMetricType.ConversationBand, bandPoint?.metricType)
+        assertEquals(4.0, bandPoint?.value ?: -1.0, 0.0)
+        assertEquals("대화 Level", bandPoint?.displayValue)
+        assertEquals(StatisticsMetricType.GrammarAccuracy, grammarPoint?.metricType)
+        assertEquals(81.0, grammarPoint?.value ?: -1.0, 0.0)
+        assertEquals("81%", grammarPoint?.displayValue)
+    }
+
+    @Test
+    fun `history without conversation band returns null for band point`() {
+        val history = StatisticsHistory(
+            id = "legacy-stats-1",
             userId = "user-1",
             language = LangCode.EN,
             recordedAt = 100L,
@@ -24,19 +55,14 @@ class StatisticsModelsTest {
             syncStatus = SyncStatus.SYNCED
         )
 
-        val points = history.toMetricPoints()
+        val bandPoint = history.toMetricPointOrNull(StatisticsMetricType.ConversationBand)
+        val grammarPoint = history.toMetricPointOrNull(StatisticsMetricType.GrammarAccuracy)
 
-        // MVP chart 는 하나의 history 를 5개 지표 점으로 펼치는 계약을 유지해야 한다.
-        assertEquals(5, points.size)
-        assertEquals(StatisticsMetricType.VocabularyLevel, points[0].metricType)
-        assertEquals(4.0, points[0].value, 0.0)
-        assertEquals("B2", points[0].displayValue)
-        assertEquals(StatisticsMetricType.GrammarAccuracy, points[1].metricType)
-        assertEquals(81.0, points[1].value, 0.0)
-        assertEquals("81%", points[1].displayValue)
-        assertEquals(StatisticsMetricType.ExpressionRange, points[2].metricType)
-        assertEquals(7.0, points[2].value, 0.0)
-        assertEquals("7", points[2].displayValue)
+        // 이전 저장 데이터에는 conversationBand가 없으므로 band chart point는 만들지 않는다.
+        // 다른 기존 지표는 같은 row에서 계속 변환되어 history 호환성을 유지한다.
+        assertEquals(null, bandPoint)
+        assertEquals(StatisticsMetricType.GrammarAccuracy, grammarPoint?.metricType)
+        assertEquals("81%", grammarPoint?.displayValue)
     }
 
     @Test

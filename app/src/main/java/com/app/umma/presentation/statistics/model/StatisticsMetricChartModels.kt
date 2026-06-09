@@ -12,11 +12,14 @@ import kotlin.math.roundToInt
 
 private const val SCORE_AXIS_MIN = 0.0
 private const val SCORE_AXIS_MAX = 100.0
+private const val SCORE_AXIS_TICK_STEP = 10.0
 private const val EXPRESSION_AXIS_MIN = 0.0
 private const val EXPRESSION_DEFAULT_AXIS_MAX = 10.0
 private const val EXPRESSION_TICK_STEP = 2
 private const val VOCABULARY_AXIS_MIN = 1.0
 private const val VOCABULARY_AXIS_MAX = 6.0
+private const val CONVERSATION_AXIS_MIN = 1.0
+private const val CONVERSATION_AXIS_MAX = 6.0
 private const val AXIS_VALUE_EPSILON = 0.001
 
 /**
@@ -38,7 +41,7 @@ sealed interface StatisticsMetricChartState {
     ) : StatisticsMetricChartState
 
     /**
-     * 최소 2개 이상의 point가 준비되어 실제 line chart를 그릴 수 있는 상태다.
+     * metric별로 요구되는 최소 point가 준비되어 실제 chart를 그릴 수 있는 상태다.
      */
     data class Ready(
         val metricType: StatisticsMetricType,
@@ -72,16 +75,26 @@ val StatisticsMetricChartState.isVisible: Boolean
 /**
  * line chart에 바로 넣을 수 있는 point 목록을 dialog 상태로 바꾼다.
  *
- * point가 2개 미만이면 line chart 대신 Empty 안내를 유지한다.
+ * line chart는 최소 두 점이 있어야 변화 추세를 보여줄 수 있으므로,
+ * point가 2개 미만이면 Empty 안내를 유지한다.
  */
 fun List<MetricHistoryPoint>.toStatisticsMetricChartState(
     metricType: StatisticsMetricType
 ): StatisticsMetricChartState {
+    if (metricType == StatisticsMetricType.ConversationBand) {
+        // 종합 레벨은 차트보다 단계 정의 안내가 사용자에게 더 유용하다.
+        // ViewModel에서 먼저 guide dialog로 분기하지만, mapper도 방어해 accidental chart를 막는다.
+        return StatisticsMetricChartState.Empty(
+            metricType = metricType,
+            message = "종합 레벨은 차트 대신 단계 설명으로 확인할 수 있어요."
+        )
+    }
+
     // Repository가 정렬된 값을 주더라도 presentation 경계에서 한 번 더 정렬해
     // preview/test/real 흐름 모두 같은 chart 입력 순서를 보장한다.
     val sortedPoints = sortedBy { it.recordedAt }
     return if (sortedPoints.size < 2) {
-        // line chart는 최소 두 점이 있어야 의미가 있으므로 더미 선을 만들지 않는다.
+        // 최소 point 수가 부족하면 더미 선을 만들지 않고 Empty 안내를 유지한다.
         StatisticsMetricChartState.Empty(metricType = metricType)
     } else {
         StatisticsMetricChartState.Ready(
@@ -229,6 +242,22 @@ private fun List<MetricHistoryPoint>.toYAxisPolicy(
         }
     )
 
+    StatisticsMetricType.ConversationBand -> StatisticsChartAxisPolicy(
+        minY = CONVERSATION_AXIS_MIN,
+        maxY = CONVERSATION_AXIS_MAX,
+        labels = listOf(
+            "시작",
+            "단어",
+            "문장",
+            "대화",
+            "표현",
+            "능숙"
+        ).mapIndexed { index, label ->
+            // y축은 1~6 숫자 좌표를 쓰지만, 화면에는 Umma가 정의한 레벨명을 짧게 보여준다.
+            StatisticsChartAxisLabel(value = (index + 1).toDouble(), label = label)
+        }
+    )
+
     StatisticsMetricType.ExpressionRange -> {
         // 표현 범위는 기본 0~10으로 보되, 실제 값이 넘치면 선이 잘리지 않도록 짝수 상한으로 확장한다.
         // 숫자 자체가 label이므로 Vocabulary처럼 별도 의미 매핑은 없다.
@@ -256,9 +285,14 @@ private fun List<MetricHistoryPoint>.toYAxisPolicy(
     StatisticsMetricType.NaturalnessScore -> StatisticsChartAxisPolicy(
         minY = SCORE_AXIS_MIN,
         maxY = SCORE_AXIS_MAX,
-        labels = listOf(0.0, 25.0, 50.0, 75.0, 100.0).map { value ->
+        labels = (SCORE_AXIS_MIN.toInt()..SCORE_AXIS_MAX.toInt())
+            .step(SCORE_AXIS_TICK_STEP.toInt())
+            .map { value ->
+                value.toDouble()
+            }
+            .map { value ->
             StatisticsChartAxisLabel(value = value, label = "${value.roundToInt()}%")
-        }
+            }
     )
 }
 
@@ -295,6 +329,7 @@ fun formatMetricChange(
     return when (metricType) {
         // Vocabulary는 ordinal 간 차이가 곧 몇 단계가 바뀌었는지이므로 단계 단위로 보여준다.
         StatisticsMetricType.VocabularyLevel -> "$sign${absoluteDiff}단계"
+        StatisticsMetricType.ConversationBand -> "$sign${absoluteDiff}단계"
         // Expression은 정수 스케일 차이만 보여주면 된다.
         StatisticsMetricType.ExpressionRange -> "$sign$absoluteDiff"
         // 점수형 metric은 percent 표기만 붙이고 p는 붙이지 않는다.

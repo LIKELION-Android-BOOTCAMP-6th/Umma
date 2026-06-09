@@ -1,6 +1,7 @@
 package com.app.umma.presentation.statistics
 
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.ChatEvidenceSummary
 import com.app.umma.domain.model.learningstate.ExternalMetrics
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.GlobalLangState
@@ -17,6 +18,7 @@ import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.StatisticsRepository
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.app.umma.domain.usecase.statistics.GetMetricHistoryPointsUseCase
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -63,7 +66,8 @@ class StatisticsViewModelTest {
             syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
             getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
                 getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+                buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
             ),
             getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
         )
@@ -73,6 +77,40 @@ class StatisticsViewModelTest {
 
         // 현재 로그인 사용자 user-1에 대해서만 pending sync retry가 요청되어야 한다.
         assertEquals(listOf("user-1"), statisticsRepo.syncedUserIds)
+    }
+
+    @Test
+    fun `conversation band click opens level guide instead of chart`() = runTest {
+        // 종합 레벨은 변화 차트보다 "각 단계가 무엇을 뜻하는지" 설명하는 카드다.
+        // 시작 상태는 EN으로 두어 overview와 카드 목록이 정상 준비된 화면을 만든다.
+        val learningRepo = FakeLearningStateRepo(initialState = statisticsState(LangCode.EN))
+        // chart repository는 있어야 하지만, 종합 레벨 클릭에서는 실제 조회가 시작되면 안 된다.
+        val statisticsRepo = ControlledStatisticsRepository()
+        val viewModel = StatisticsViewModel(
+            observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+            preloadLearningStateUseCase = PreloadLearningStateUseCase(learningRepo),
+            observeStatisticsHistoryUseCase = ObserveStatisticsHistoryUseCase(statisticsRepo),
+            refreshStatisticsHistoryUseCase = RefreshStatisticsHistoryUseCase(statisticsRepo),
+            syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
+            getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
+                getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+                buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
+            ),
+            getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
+        )
+
+        // 종합 레벨 클릭은 chart Loading 상태를 만들지 않고, 레벨 정의 안내 dialog만 열어야 한다.
+        viewModel.onMetricClick(StatisticsMetricType.ConversationBand)
+
+        assertTrue(viewModel.uiState.value.isConversationLevelGuideVisible)
+        assertTrue(viewModel.uiState.value.metricChartState is StatisticsMetricChartState.Hidden)
+
+        // 닫기 동작은 안내 dialog flag만 내리고, 차트 상태는 계속 닫힌 상태로 유지한다.
+        viewModel.dismissConversationLevelGuide()
+
+        assertFalse(viewModel.uiState.value.isConversationLevelGuideVisible)
+        assertTrue(viewModel.uiState.value.metricChartState is StatisticsMetricChartState.Hidden)
     }
 
     @Test
@@ -90,7 +128,8 @@ class StatisticsViewModelTest {
             syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
             getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
                 getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+                buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
             ),
             getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
         )
@@ -134,7 +173,8 @@ class StatisticsViewModelTest {
             syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
             getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
                 getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+                buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
             ),
             getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
         )
@@ -142,7 +182,7 @@ class StatisticsViewModelTest {
         // 최초 EN 카드 값이 준비될 때까지 init coroutine을 진행한다.
         advanceUntilIdle()
         assertEquals(LangCode.EN, viewModel.uiState.value.selectedLearningLanguage)
-        assertEquals("B2", viewModel.uiState.value.metricSummaryCards.first().valueText)
+        assertEquals("문장 Level", viewModel.uiState.value.metricSummaryCards.first().valueText)
 
         // LearningState emit으로 selected language를 KO로 바꾸면 overview를 다시 조립해야 한다.
         learningRepo.emit(statisticsState(LangCode.KO))
@@ -150,8 +190,9 @@ class StatisticsViewModelTest {
 
         // 언어 label과 카드 값이 모두 KO snapshot 기준으로 바뀌어야 한다.
         assertEquals(LangCode.KO, viewModel.uiState.value.selectedLearningLanguage)
-        assertEquals("B1", viewModel.uiState.value.metricSummaryCards.first().valueText)
-        assertEquals("74%", viewModel.uiState.value.metricSummaryCards[1].valueText)
+        assertEquals("문장 Level", viewModel.uiState.value.metricSummaryCards.first().valueText)
+        assertEquals("71%", viewModel.uiState.value.metricSummaryCards[1].valueText)
+        assertEquals("81%", viewModel.uiState.value.metricSummaryCards[2].valueText)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -170,7 +211,8 @@ class StatisticsViewModelTest {
             syncPendingStatisticsHistoriesUseCase = SyncPendingStatisticsHistoriesUseCase(statisticsRepo),
             getStatisticsOverviewUseCase = GetStatisticsOverviewUseCase(
                 getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo)
+                observeLearningStateUseCase = ObserveLearningStateUseCase(learningRepo),
+                buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
             ),
             getMetricHistoryPointsUseCase = GetMetricHistoryPointsUseCase(statisticsRepo)
         )
@@ -200,9 +242,10 @@ class StatisticsViewModelTest {
     }
 
     private fun statisticsState(lang: LangCode): GlobalLangState {
-        // lang 별로 서로 다른 external snapshot을 만들어, selected language 전환이 화면에 반영되는지 검증한다.
+        // lang 별로 서로 다른 evidence snapshot을 만들어, selected language 전환이 화면에 반영되는지 검증한다.
         // EN은 시작 상태, KO는 언어 변경 이후 상태로 사용한다.
-        val selectedExternal = if (lang == LangCode.EN) {
+        val isEnglish = lang == LangCode.EN
+        val selectedExternal = if (isEnglish) {
             ExternalMetrics(
                 vocabularyLevel = VocabLevel.B2,
                 grammarAccuracy = 0.81,
@@ -219,6 +262,98 @@ class StatisticsViewModelTest {
                 naturalnessScore = 0.69
             )
         }
+        val chatEvidence = ChatEvidenceSummary(
+            targetLanguageComprehension = if (isEnglish) {
+                com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence.SimpleSentence
+            } else {
+                com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence.NaturalFlow
+            },
+            targetLanguageProduction = if (isEnglish) {
+                com.app.umma.domain.model.chat.TargetLanguageProductionEvidence.SimpleSentences
+            } else {
+                com.app.umma.domain.model.chat.TargetLanguageProductionEvidence.ConnectedTurns
+            },
+            supportLanguageDependence = if (isEnglish) {
+                com.app.umma.domain.model.chat.LanguageDependenceEvidence.Medium
+            } else {
+                com.app.umma.domain.model.chat.LanguageDependenceEvidence.Low
+            },
+            aiScaffoldingDependence = if (isEnglish) {
+                com.app.umma.domain.model.chat.LanguageDependenceEvidence.Medium
+            } else {
+                com.app.umma.domain.model.chat.LanguageDependenceEvidence.Low
+            },
+            conversationSustainability = if (isEnglish) {
+                com.app.umma.domain.model.chat.ConversationSustainabilityEvidence.SustainedSimple
+            } else {
+                com.app.umma.domain.model.chat.ConversationSustainabilityEvidence.SustainedNatural
+            },
+            consistency = com.app.umma.domain.model.chat.ConversationConsistencyEvidence.Stable,
+            responseDifficultyFit = com.app.umma.domain.model.chat.ResponseDifficultyFitEvidence.Fits,
+            confidence = if (isEnglish) {
+                com.app.umma.domain.model.learningstate.ProfileConfidence.Medium
+            } else {
+                com.app.umma.domain.model.learningstate.ProfileConfidence.High
+            },
+            observedCount = if (isEnglish) 3 else 4,
+            lastObservedAt = if (isEnglish) 1_000L else 2_000L
+        )
+        val grammarEvidence = com.app.umma.domain.model.learningstate.MetricEvidence(
+            observedCount = if (isEnglish) 3 else 4,
+            confidence = if (isEnglish) 0.82 else 0.74,
+            sourceTypes = setOf(com.app.umma.domain.model.learningstate.LearningSignalSource.CorrectionSignal),
+            direction = com.app.umma.domain.model.learningstate.EvidenceDirection.Up,
+            directionCount = if (isEnglish) 3 else 4,
+            lastObservedAt = if (isEnglish) 1_000L else 2_000L
+        )
+        val internal = com.app.umma.domain.model.learningstate.InternalMetrics.initial().copy(
+            grammarAccuracy = if (isEnglish) 0.81 else 0.74,
+            speechRate = if (isEnglish) 0.79 else 0.71,
+            pauseFrequency = if (isEnglish) 0.18 else 0.23,
+            avgUtteranceLength = if (isEnglish) 0.68 else 0.61,
+            spokenNaturalness = if (isEnglish) 0.77 else 0.69,
+            naturalExpressionUsage = if (isEnglish) 0.74 else 0.66
+        )
+        val analysisMeta = com.app.umma.domain.model.learningstate.LangStateAnalysisMeta(
+            metricEvidence = mapOf(
+                com.app.umma.domain.model.learningstate.LearningMetricKey.GrammarAccuracy to grammarEvidence
+            ),
+            activeFocus = emptyList(),
+            lastSignalAt = if (isEnglish) 1_000L else 2_000L,
+            lastChatAnalysisEventId = "chat-$lang",
+            chatEvidenceSummary = chatEvidence
+        )
+        val updatedAnalysisMeta = com.app.umma.domain.model.learningstate.LangStateAnalysisMeta(
+            metricEvidence = mapOf(
+                com.app.umma.domain.model.learningstate.LearningMetricKey.GrammarAccuracy to grammarEvidence.copy(
+                    observedCount = if (isEnglish) 4 else 3,
+                    confidence = if (isEnglish) 0.74 else 0.82,
+                    lastObservedAt = if (isEnglish) 2_000L else 1_000L
+                )
+            ),
+            activeFocus = emptyList(),
+            lastSignalAt = if (isEnglish) 2_000L else 1_000L,
+            lastChatAnalysisEventId = "chat-$lang-ko",
+            chatEvidenceSummary = chatEvidence.copy(
+                targetLanguageComprehension = if (isEnglish) {
+                    com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence.NaturalFlow
+                } else {
+                    com.app.umma.domain.model.chat.TargetLanguageComprehensionEvidence.SimpleSentence
+                },
+                targetLanguageProduction = if (isEnglish) {
+                    com.app.umma.domain.model.chat.TargetLanguageProductionEvidence.ConnectedTurns
+                } else {
+                    com.app.umma.domain.model.chat.TargetLanguageProductionEvidence.SimpleSentences
+                },
+                confidence = if (isEnglish) {
+                    com.app.umma.domain.model.learningstate.ProfileConfidence.High
+                } else {
+                    com.app.umma.domain.model.learningstate.ProfileConfidence.Medium
+                },
+                observedCount = if (isEnglish) 4 else 3,
+                lastObservedAt = if (isEnglish) 2_000L else 1_000L
+            )
+        )
 
         // ViewModel은 selectedLang과 currentLangState.updatedAt을 signature로 삼아 reload 여부를 판단한다.
         return GlobalLangState(
@@ -229,18 +364,16 @@ class StatisticsViewModelTest {
             langStates = mapOf(
                 // EN state는 최초 화면 진입과 이전 chart 요청의 기준이다.
                 LangCode.EN to LangState.initial(LangCode.EN).copy(
-                    external = ExternalMetrics(
-                        vocabularyLevel = VocabLevel.B2,
-                        grammarAccuracy = 0.81,
-                        expressionRange = 8,
-                        fluencyScore = 0.79,
-                        naturalnessScore = 0.77
-                    ),
+                    internal = internal,
+                    external = selectedExternal,
+                    analysisMeta = analysisMeta,
                     updatedAt = 1_000L
                 ),
                 // KO state는 언어 전환 이후 최신 context를 만들기 위한 입력이다.
                 LangCode.KO to LangState.initial(LangCode.KO).copy(
+                    internal = internal.copy(grammarAccuracy = if (isEnglish) 0.74 else 0.81),
                     external = selectedExternal,
+                    analysisMeta = updatedAnalysisMeta,
                     updatedAt = 2_000L
                 )
             ),

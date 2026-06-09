@@ -1,6 +1,7 @@
 package com.app.umma.data.model.statistics
 
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.ConversationAbilityBand
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.model.statistics.StatisticsHistory
@@ -18,6 +19,7 @@ data class StatisticsHistoryDto(
     val userId: String,
     val language: String,
     val recordedAt: Long,
+    val conversationBand: String? = null,
     val vocabularyLevel: String,
     val grammarAccuracy: Double,
     val expressionRange: Int,
@@ -33,6 +35,7 @@ fun StatisticsHistory.toDto(): StatisticsHistoryDto {
         userId = userId,
         language = language.code,
         recordedAt = recordedAt,
+        conversationBand = conversationBand?.name,
         vocabularyLevel = vocabularyLevel.name,
         grammarAccuracy = grammarAccuracy,
         expressionRange = expressionRange,
@@ -49,6 +52,7 @@ fun StatisticsHistoryDto.toDomain(): StatisticsHistory {
         userId = userId,
         language = LangCode.fromCode(language) ?: LangCode.EN,
         recordedAt = recordedAt,
+        conversationBand = conversationBand.toConversationAbilityBandOrNull(),
         vocabularyLevel = VocabLevel.valueOf(vocabularyLevel),
         grammarAccuracy = grammarAccuracy,
         expressionRange = expressionRange,
@@ -59,18 +63,26 @@ fun StatisticsHistoryDto.toDomain(): StatisticsHistory {
     )
 }
 
+private fun String?.toConversationAbilityBandOrNull(): ConversationAbilityBand? {
+    // 새로 추가된 저장 필드는 오래된/손상된 remote 값이 섞여도 통계 화면 전체를 깨지 않게 건너뛴다.
+    return this?.let { rawValue ->
+        runCatching { ConversationAbilityBand.valueOf(rawValue) }.getOrNull()
+    }
+}
+
 fun StatisticsHistoryDto.toFirestoreMap(): Map<String, Any> {
-    return mapOf(
-        "id" to id,
-        "userId" to userId,
-        "language" to language,
-        "recordedAt" to recordedAt,
-        "vocabularyLevel" to vocabularyLevel,
-        "grammarAccuracy" to grammarAccuracy,
-        "expressionRange" to expressionRange,
-        "fluencyScore" to fluencyScore,
-        "naturalnessScore" to naturalnessScore,
-        "sourceEventId" to sourceEventId,
-        "syncStatus" to syncStatus
-    )
+    return buildMap {
+        put("id", id)
+        put("userId", userId)
+        put("language", language)
+        put("recordedAt", recordedAt)
+        conversationBand?.let { put("conversationBand", it) }
+        put("vocabularyLevel", vocabularyLevel)
+        put("grammarAccuracy", grammarAccuracy)
+        put("expressionRange", expressionRange)
+        put("fluencyScore", fluencyScore)
+        put("naturalnessScore", naturalnessScore)
+        put("sourceEventId", sourceEventId)
+        put("syncStatus", syncStatus)
+    }
 }
