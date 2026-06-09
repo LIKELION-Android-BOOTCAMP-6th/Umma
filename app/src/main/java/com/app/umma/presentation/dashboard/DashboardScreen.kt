@@ -123,6 +123,9 @@ fun DashboardScreen(
     //   값이 바뀌면 Compose 가 recomposition.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val authState by authViewModel.uiState.collectAsStateWithLifecycle()
+    // Initial Setup 필요 여부 확인하는 동안 화면 요소 클릭 막는용
+    val isInitialSetupLocked = authState.isInitialSetupChecking ||
+            authState.initialSetupDialogStep != InitialSetupDialogStep.NONE
     // Snackbar 큐 host. errorMessage 가 세팅되면 LaunchedEffect 가 여기로 showSnackbar 호출.
     val snackbarHostState = remember { SnackbarHostState() }
     var nicknameInput by remember { mutableStateOf("") }
@@ -136,17 +139,12 @@ fun DashboardScreen(
     // DASH-001: 화면 진입 시 1 회 preload + sync 트리거.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
+        authViewModel.startInitialSetupFlow()
     }
 
     // 디버그용: state 변동 시 로그.
     LaunchedEffect(uiState) {
         Log.d("DashboardScreen", "uiState=$uiState")
-    }
-
-    LaunchedEffect(uiState.isEmpty) {
-        if (uiState.isEmpty && authState.initialSetupDialogStep == InitialSetupDialogStep.NONE) {
-            authViewModel.startInitialSetupFlow()
-        }
     }
 
     // DASH-001 AC 7: errorMessage 가 세팅되면 Snackbar 표시.
@@ -194,11 +192,15 @@ fun DashboardScreen(
                             dialogSelectedLang = selected
                             isLanguageDialogOpen = true
                         },
-                        isLoading = uiState.isLoading || uiState.isChangingLanguage
+                        isLoading = uiState.isLoading || uiState.isChangingLanguage ||
+                                isInitialSetupLocked
                     )
                     // 와이어프레임 정합: AppBar 우측 끝에 마이페이지 진입 IconButton.
                     Spacer(modifier = Modifier.width(SpacingXS))
-                    IconButton(onClick = onNavigateToMyPage) {
+                    IconButton(
+                        enabled = !isInitialSetupLocked,
+                        onClick = onNavigateToMyPage
+                    ) {
                         Icon(
                             imageVector = Icons.Outlined.AccountCircle,
                             contentDescription = "마이페이지",
@@ -216,7 +218,9 @@ fun DashboardScreen(
                 .fillMaxSize()
         ) {
             when {
+                authState.isInitialSetupChecking -> DashboardSkeleton()
                 uiState.isLoading -> DashboardSkeleton()
+                isInitialSetupLocked -> DashboardSkeleton()
                 uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
                 else -> DashboardContent(
                     summary = uiState.summary,
@@ -288,9 +292,14 @@ fun DashboardScreen(
                     modifier = Modifier.padding(horizontal = SpacingL),
                     onCancel = {},
                     onConfirm = {
-                        selectedLearningLanguage?.let {
+                        val selectedLang = selectedLearningLanguage
+                        if (selectedLang == null) {
+                            authViewModel.updateLearningLanguageErrorMessage(
+                                "학습 언어를 선택해 주세요."
+                            )
+                        } else {
                             authViewModel.onLanguageSelectAndSave(
-                                selectedLearningLanguage = it,
+                                selectedLearningLanguage = selectedLang,
                             )
                         }
                     },
@@ -309,7 +318,10 @@ fun DashboardScreen(
                             LanguageButton(
                                 text = label,
                                 isSelected = isSelected,
-                                onClick = { selectedLearningLanguage = code }
+                                onClick = {
+                                    selectedLearningLanguage = code
+                                    authViewModel.updateLearningLanguageErrorMessage(null)
+                                }
                             )
                         }
                         authState.learningLanguageError?.let {

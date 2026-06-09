@@ -116,7 +116,7 @@ fun UmmaDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 필수 선택 흐름에서는 취소 버튼 자체를 숨겨 사용자가 설정 단계를 우회하지 못하게 한다.
-                Box(modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.fillMaxWidth().height(48.dp)) {
                     // 기본값은 true 라서 기존 다이얼로그 호출부의 UX는 유지된다.
                     if (showCancelButton) {
                         IconButton(

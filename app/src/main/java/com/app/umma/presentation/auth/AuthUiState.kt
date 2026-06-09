@@ -16,6 +16,8 @@ data class AuthUiState(
     val nickname: String = "",
     val nicknameError: String? = null,
     val learningLanguageError: String? = null,
+    /** 신규 사용자 여부 */
+    val isInitialSetupChecking: Boolean = false,
     /**
      * 로그아웃 완료 여부
      * 로그아웃 버튼 클릭 -> 로그아웃 완료 기다리지 않고 즉시 화면 이동하는 상황 방지용
@@ -24,7 +26,7 @@ data class AuthUiState(
     /** 회원탈퇴 완료 여부 */
     val isDeleteAccountCompleted: Boolean = false,
     val isSessionChecking: Boolean = false,
-    val sessionError: String? = null
+    val sessionError: String? = null,
 )
 
 /**

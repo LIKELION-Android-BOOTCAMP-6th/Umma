@@ -155,16 +155,34 @@ class AuthViewModel @Inject constructor(
      */
     fun startInitialSetupFlow() {
         viewModelScope.launch {
+            // 이미 초기 설정 확인중 or 다이얼로그 열린 상태면 중복 실행 X
+            if (_uiState.value.isInitialSetupChecking ||
+                _uiState.value.initialSetupDialogStep != InitialSetupDialogStep.NONE
+            ) {
+                return@launch
+            }
+            _uiState.update { it.copy(isInitialSetupChecking = true) }
+
             // uid 없으면 비로그인 상태
-            val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid()
+            if (uid == null) {
+                _uiState.update { it.copy(isInitialSetupChecking = false) }
+                return@launch
+            }
 
             // Firestore 에서 신규 사용자 여부 확인
             // 판단 기준: users/{uid} 문서 없음 또는 isSetupCompleted == false
             val isNewUser = checkInitialSetupUseCase(uid)
 
-            if (isNewUser) {
-                // 신규 사용자 -> 닉네임 입력 다이얼로그 표시
-                _uiState.update { it.copy(initialSetupDialogStep = InitialSetupDialogStep.NICKNAME) }
+            _uiState.update {
+                it.copy(
+                    isInitialSetupChecking = false,
+                    initialSetupDialogStep = if (isNewUser) {
+                        InitialSetupDialogStep.NICKNAME
+                    } else {
+                        InitialSetupDialogStep.NONE
+                    }
+                )
             }
         }
     }
