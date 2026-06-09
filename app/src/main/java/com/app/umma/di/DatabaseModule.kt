@@ -8,6 +8,8 @@ import com.app.umma.data.source.local.ChatUsageDao
 import com.app.umma.data.source.local.ChatUsageDatabase
 import com.app.umma.data.source.local.CorrectionFlashcardDao
 import com.app.umma.data.source.local.CorrectionFlashcardDatabase
+import com.app.umma.data.source.local.CorrectionSuggestionCacheDao
+import com.app.umma.data.source.local.CorrectionSuggestionCacheDatabase
 import com.app.umma.data.source.local.SessionMemoryDatabase
 import com.app.umma.data.source.local.SessionMetadataDao
 import com.app.umma.data.source.local.SessionTurnDao
@@ -77,6 +79,25 @@ object DatabaseModule {
         database: CorrectionFlashcardDatabase
     ): CorrectionFlashcardDao {
         return database.correctionFlashcardDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCorrectionSuggestionCacheDatabase(
+        @ApplicationContext context: Context
+    ): CorrectionSuggestionCacheDatabase {
+        return Room.databaseBuilder(
+            context,
+            CorrectionSuggestionCacheDatabase::class.java,
+            "umma_correction_suggestion_cache_db"
+        ).fallbackToDestructiveMigration(false).build()
+    }
+
+    @Provides
+    fun provideCorrectionSuggestionCacheDao(
+        database: CorrectionSuggestionCacheDatabase
+    ): CorrectionSuggestionCacheDao {
+        return database.correctionSuggestionCacheDao()
     }
 
     @Provides

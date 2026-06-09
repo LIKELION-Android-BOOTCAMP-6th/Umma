@@ -328,6 +328,7 @@ fun CorrectionScreen(
                 )
             }
 
+            CorrectionUiState.Phase.Restoring,
             CorrectionUiState.Phase.Done -> {
                 // COR backlog: 완료 성공 직후 Dashboard 이벤트가 즉시 발화되므로 별도 완료 안내 UI 를 노출하지 않는다.
                 // navigation 콜백 처리 전 아주 짧은 프레임이 생겨도 완료 문구나 카드 수는 보여주지 않는다.

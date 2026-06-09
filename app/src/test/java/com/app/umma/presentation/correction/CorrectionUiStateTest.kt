@@ -675,7 +675,7 @@ class CorrectionUiStateTest {
     }
 
     @Test
-    fun `shouldTriggerGeneration returns false on Loading Generating Content EmptyResult Error Done Retry`() {
+    fun `shouldTriggerGeneration returns false on Loading Generating Restoring Content EmptyResult Error Done Retry`() {
         // Ready 이외의 모든 phase 는 generate 진입 자격이 없다는 invariant. enum 분기 완전성 회귀.
         // COR-002-B 에서 추가된 EmptyResult 도 포함 — launched 와 무관하게 false.
         // COR-006-B 에서 추가된 Retry 도 포함 — Retry 는 "사용자 명시 재시도 대기" 상태라
@@ -683,6 +683,7 @@ class CorrectionUiStateTest {
         listOf(
             CorrectionUiState.Phase.Loading,
             CorrectionUiState.Phase.Generating,
+            CorrectionUiState.Phase.Restoring,
             CorrectionUiState.Phase.Content,
             CorrectionUiState.Phase.EmptyResult,
             CorrectionUiState.Phase.Error,
@@ -718,6 +719,32 @@ class CorrectionUiStateTest {
         assertEquals(suggestions, next.suggestions)
         assertTrue(next.selectedSuggestionIds.isEmpty())
         assertNull(next.errorReason)
+        assertNull(next.saveRequest)
+        assertNull(next.saveErrorReason)
+    }
+
+    @Test
+    fun `applyRestoredSuggestions transitions to Content with cleared selection and stale save state removed`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val state = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Restoring,
+            primaryLanguage = LangCode.KO,
+            selectedSuggestionIds = setOf("stale-id"),
+            errorReason = "old error",
+            saveRequest = sampleSaveRequest(),
+            saveErrorReason = "old save error",
+        )
+
+        val next = state.applyRestoredSuggestions(
+            suggestions = suggestions,
+            primaryLanguage = LangCode.KO,
+        )
+
+        assertEquals(CorrectionUiState.Phase.Content, next.phase)
+        assertEquals(suggestions, next.suggestions)
+        assertTrue(next.selectedSuggestionIds.isEmpty())
+        assertNull(next.errorReason)
+        assertNull(next.emptyResultReason)
         assertNull(next.saveRequest)
         assertNull(next.saveErrorReason)
     }
