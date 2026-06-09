@@ -876,7 +876,7 @@ private fun CorrectionEmptyResult(
  * Retry 는 [CorrectionViewModel.onRetryClicked] 를 통해 같은 Session Memory / 현재 선택 언어 기준으로
  * [CorrectionViewModel.triggerGeneration] 을 재진입한다.
  *
- * @param errorReason [CorrectionUiState.errorReason] — null 이면 사유 텍스트를 표시하지 않는다.
+ * @param errorReason [CorrectionUiState.errorReason] — raw 진단 사유. 화면에는 직접 노출하지 않는다.
  */
 @Composable
 private fun CorrectionError(
@@ -893,11 +893,10 @@ private fun CorrectionError(
             text = "교정 결과 생성에 실패했어요",
             textAlign = TextAlign.Center,
         )
-        // 사유는 디버깅 단서로만 병기. 실제 운영에서는 errorReason 이 기술적 메시지일 수 있으므로
-        // UX 디자인이 확정되면 별도 포맷팅을 검토한다.
-        errorReason?.let { reason ->
+        // COR-UX-002 / COR-FIX-009: raw parser exception / 내부 candidateId 는 UI에 직접 노출하지 않는다.
+        if (errorReason != null) {
             Text(
-                text = "사유: $reason",
+                text = "잠시 후 다시 시도해 주세요.",
                 textAlign = TextAlign.Center,
             )
         }
@@ -966,7 +965,7 @@ private fun CorrectionSaveButton(
  *
  * Content phase 카드 목록 위에 깔리며, 색상은 Material3 의 errorContainer / onErrorContainer
  * 슬롯을 그대로 쓴다(별도 디자인 토큰 추가 보류 — 다른 화면도 동일 슬롯을 쓰면 일괄 갱신 가능).
- * 사용자 안내 문구와 raw 사유를 두 줄로 병기해 디버깅 단서를 남긴다.
+ * raw 사유는 state/logcat 에만 남기고, 사용자 표면은 고정 안내 문구만 노출한다.
  */
 @Composable
 private fun CorrectionSaveErrorBanner(
@@ -982,10 +981,12 @@ private fun CorrectionSaveErrorBanner(
             text = "저장 요청을 만들지 못했어요",
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
-        Text(
-            text = "사유: $reason",
-            color = MaterialTheme.colorScheme.onErrorContainer,
-        )
+        if (reason.isNotEmpty()) {
+            Text(
+                text = "잠시 후 다시 시도해 주세요.",
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
     }
 }
 
@@ -998,7 +999,7 @@ private fun CorrectionSaveErrorBanner(
  * errorContainer 색상 토큰을 그대로 쓴다. 두 배너는 의미가 다르다 — saveErrorReason 은 저장 요청 변환
  * 단계 실패, 본 배너는 완료 파이프라인(Flashcard 저장 / LangState 갱신 등) 단계 실패.
  *
- * 첫 줄은 사용자 안내, 둘째 줄은 raw 진단 사유. 사용자가 같은 저장 버튼을 다시 누르면 ViewModel 이
+ * raw 진단 사유는 state/logcat 에만 남긴다. 사용자가 같은 저장 버튼을 다시 누르면 ViewModel 이
  * 같은 saveRequest 로 [CorrectionViewModel.launchCompletion] 에 재진입한다.
  */
 @Composable
@@ -1015,9 +1016,11 @@ private fun CorrectionCompletionRetryBanner(
             text = "저장에 실패했어요. 다시 시도해 주세요",
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
-        Text(
-            text = "사유: $reason",
-            color = MaterialTheme.colorScheme.onErrorContainer,
-        )
+        if (reason.isNotEmpty()) {
+            Text(
+                text = "잠시 후 다시 시도해 주세요.",
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
     }
 }

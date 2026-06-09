@@ -341,6 +341,9 @@ class CorrectionViewModel @Inject constructor(
             delay(STEP_MIN_DURATION_MS)
 
             // COR-002-B: 분기 결정(EmptyResult/Content/Error) 과 필드 정리는 pure helper 에 위임.
+            result.exceptionOrNull()?.let { error ->
+                Log.w(TAG, "generation failure — reason=${error.toDiagnosticReason()}", error)
+            }
             _uiState.value = _uiState.value.applyGenerationOutcome(result)
             Log.d(
                 TAG,
@@ -868,7 +871,7 @@ class CorrectionViewModel @Inject constructor(
                 )
             },
             onFailure = { e ->
-                Log.w(TAG, "completion failure — reason=${e.message ?: e.javaClass.simpleName}", e)
+                Log.w(TAG, "completion failure — reason=${e.toDiagnosticReason()}", e)
             },
         )
     }

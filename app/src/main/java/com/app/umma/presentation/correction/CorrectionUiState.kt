@@ -264,7 +264,7 @@ internal fun CorrectionUiState.computeSaveRequestOutcome(
 
     return prepare(uid, selected).fold(
         onSuccess = { SaveRequestOutcome.Prepared(it) },
-        onFailure = { e -> SaveRequestOutcome.Failed(e.message ?: e.javaClass.simpleName) }
+        onFailure = { e -> SaveRequestOutcome.Failed(e.toDiagnosticReason()) }
     )
 }
 
@@ -428,8 +428,8 @@ internal fun CorrectionUiState.applyCompletionOutcome(
     },
     onFailure = { e ->
         // COR-006-B: Retry 분기. 카드 목록 / 선택 / saveRequest 는 그대로 둔다.
-        // applyGenerationOutcome 의 reason 채움 패턴(message ?: javaClass.simpleName) 을 그대로 따른다.
-        val reason = e.message ?: e.javaClass.simpleName
+        // raw reason 은 state/logcat 에 보관하고, 화면은 고정 안내 문구만 노출한다.
+        val reason = e.toDiagnosticReason()
         copy(
             phase = CorrectionUiState.Phase.Retry,
             completionErrorReason = reason,
@@ -536,8 +536,8 @@ internal fun CorrectionUiState.applyGenerationOutcome(
         )
     },
     onFailure = { e ->
-        // message 가 null 이면 class 이름으로 fallback — 현 ViewModel 패턴과 동치.
-        val reason = e.message ?: e.javaClass.simpleName
+        // raw reason 은 디버깅/로그 용도로만 state 에 보관하고, 화면은 별도 고정 문구를 사용한다.
+        val reason = e.toDiagnosticReason()
         copy(
             phase = CorrectionUiState.Phase.Error,
             suggestions = emptyList(),
@@ -548,6 +548,8 @@ internal fun CorrectionUiState.applyGenerationOutcome(
         )
     },
 )
+
+internal fun Throwable.toDiagnosticReason(): String = message ?: javaClass.simpleName
 
 /**
  * COR-001-B: Ready 게이트 통과 직후의 generateSuggestions 1회 트리거 가드.

@@ -615,6 +615,7 @@ class CorrectionUiStateTest {
     @Test
     fun `applyGenerationOutcome on failure with message transitions to Error`() {
         // AC: "AI 요청 실패, 응답 파싱 실패, 필수 필드 누락 시 Error 상태로 전환."
+        // COR-UX-002: 저장되는 errorReason 은 사용자 표시 문구가 아니라 raw 진단 사유다.
         val throwable = CorrectionSuggestionFixtures.generateFailure("candidateId mismatch")
         val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
 
@@ -642,6 +643,18 @@ class CorrectionUiStateTest {
         assertEquals(CorrectionUiState.Phase.Error, next.phase)
         // simpleName 은 anonymous object 라 빈 문자열이 될 수 있으므로, null 이 아닌 것만 확인.
         assertNotNull(next.errorReason)
+    }
+
+    @Test
+    fun `toDiagnosticReason returns throwable message before class name fallback`() {
+        val withMessage = IllegalArgumentException("unknown correction candidate id: ja-6-0-79967d5")
+        val withoutMessage = IllegalStateException()
+
+        assertEquals(
+            "unknown correction candidate id: ja-6-0-79967d5",
+            withMessage.toDiagnosticReason(),
+        )
+        assertEquals("IllegalStateException", withoutMessage.toDiagnosticReason())
     }
 
     @Test
