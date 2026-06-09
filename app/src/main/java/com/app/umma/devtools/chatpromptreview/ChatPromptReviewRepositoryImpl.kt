@@ -213,6 +213,9 @@ class ChatPromptReviewRepositoryImpl @Inject constructor(
             )
             val reportMap = mapOf(
                 "reportId" to reportId,
+                // Firestore rules validate the top-level review index with userId.
+                // Keep uid below for existing tooling, but write userId as the rules-facing owner field.
+                "userId" to userId,
                 "uid" to userId,
                 "sessionId" to sessionId,
                 "reviewId" to reportId,
