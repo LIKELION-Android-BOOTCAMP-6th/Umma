@@ -161,6 +161,8 @@ data class CorrectionUiState(
         // AI 호출 in-flight. 중복 트리거 방지에도 사용된다.
         Generating,
 
+        Restoring,
+
         // 비어 있지 않은 suggestions 가 있는 정상 상태.
         // (COR-002-B: 0건은 [EmptyResult] 로 빠지므로 Content 는 suggestions.isNotEmpty() 를 보장한다.)
         Content,
@@ -558,6 +560,20 @@ internal fun CorrectionUiState.applyGenerationOutcome(
             saveErrorReason = null,
         )
     },
+)
+
+internal fun CorrectionUiState.applyRestoredSuggestions(
+    suggestions: List<CorrectionSuggestion>,
+    primaryLanguage: LangCode?,
+): CorrectionUiState = copy(
+    phase = CorrectionUiState.Phase.Content,
+    primaryLanguage = primaryLanguage ?: this.primaryLanguage,
+    suggestions = suggestions,
+    selectedSuggestionIds = emptySet(),
+    errorReason = null,
+    emptyResultReason = null,
+    saveRequest = null,
+    saveErrorReason = null,
 )
 
 internal fun Throwable.toDiagnosticReason(): String = message ?: javaClass.simpleName

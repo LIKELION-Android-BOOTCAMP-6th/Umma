@@ -9,6 +9,7 @@ import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewContex
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSnapshot
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSuggestion
 import com.app.umma.devtools.correctionpromptreview.ReportCorrectionPromptReviewUseCase
+import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.CompleteCorrectionInput
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionContextTurn
@@ -22,10 +23,13 @@ import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase
+import com.app.umma.domain.usecase.correction.ClearCorrectionCacheUseCase
 import com.app.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
 import com.app.umma.domain.usecase.correction.FilterCorrectionCandidatesForSafetyUseCase
 import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
+import com.app.umma.domain.usecase.correction.GetCachedCorrectionUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
+import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputCommand
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
@@ -124,6 +128,9 @@ class CorrectionViewModel @Inject constructor(
     private val filterCorrectionCandidatesForSafety: FilterCorrectionCandidatesForSafetyUseCase,
     // 후보 + LangState → AI 호출 → CorrectionSuggestion 목록. Result 로 success/failure 가 갈린다.
     private val generateSuggestions: GenerateSuggestionsUseCase,
+    private val getCachedCorrection: GetCachedCorrectionUseCase,
+    private val saveCorrectionCache: SaveCorrectionCacheUseCase,
+    private val clearCorrectionCache: ClearCorrectionCacheUseCase,
     // COR-TUNE-01: langState snapshot → 교정 적응 정책(LearnerAdaptationProfile). raw metric 해석은 이 domain UseCase 가 전담하고
     // 프롬프트 빌더는 숫자를 모르게 한다. @Inject constructor() 라 Hilt 모듈 추가 없이 자동 주입된다.
     private val buildLearnerAdaptationProfile: BuildLearnerAdaptationProfileUseCase,
@@ -260,6 +267,18 @@ class CorrectionViewModel @Inject constructor(
                     )
                 }
                 val previous = _uiState.value
+                val shouldAutoGenerate = shouldTriggerGeneration(next.phase, generationLaunched)
+                if (shouldAutoGenerate) {
+                    generationLaunched = true
+                    val restored = restoreCachedSuggestionsOrNull(
+                        ready = next,
+                        previous = previous,
+                    )
+                    if (restored != null) {
+                        _uiState.value = restored
+                        return@collect
+                    }
+                }
                 _uiState.value = next.mergeReviewButtonState(
                     previous = previous,
                     shouldShowButton = shouldShowCorrectionReviewReportButton,
@@ -268,8 +287,7 @@ class CorrectionViewModel @Inject constructor(
                 // 가드 2 (COR-001-B): generate 트리거 분기는 pure helper 가 결정한다.
                 // helper 가 false 를 돌리는 모든 경우(Empty / 이미 launched / Generating 등) 가
                 // CorrectionUiStateTest 의 shouldTriggerGeneration 표 회귀로 못 박혀 있다.
-                if (shouldTriggerGeneration(next.phase, generationLaunched)) {
-                    generationLaunched = true
+                if (shouldAutoGenerate) {
                     triggerGeneration(next)
                 }
             }
@@ -359,6 +377,14 @@ class CorrectionViewModel @Inject constructor(
             )
 
             // COR-002-B: 터미널 phase 진입 시 가드 해제 — 학습 언어 변경 후 새 Ready emit 에서 자동 재시도.
+            if (_uiState.value.phase == CorrectionUiState.Phase.Content) {
+                persistGeneratedSuggestionsIfPossible(
+                    language = lang,
+                    suggestions = _uiState.value.suggestions,
+                    sessionFingerprint = ready.sessionSummary?.updatedAt,
+                    primaryLanguage = _uiState.value.primaryLanguage,
+                )
+            }
             if (_uiState.value.phase in terminalPhases) {
                 generationLaunched = false
             }
@@ -775,6 +801,9 @@ class CorrectionViewModel @Inject constructor(
             )
             logCompletionResult(result)
             _uiState.update { current -> current.applyCompletionOutcome(result) }
+            if (result.isSuccess) {
+                clearCorrectionCacheAfterCompletion(lang = lang)
+            }
 
             // COR-007-A: 완료 성공 경로에서만 Dashboard 복귀 1회성 이벤트를 발화한다.
             // 1~4단계 실패와 5단계 호출 실패 분기는 각자 위에서 applyCompletionOutcome(err) + return@launch
@@ -787,6 +816,74 @@ class CorrectionViewModel @Inject constructor(
                     )
                 )
             }
+        }
+    }
+
+    private suspend fun restoreCachedSuggestionsOrNull(
+        ready: CorrectionUiState,
+        previous: CorrectionUiState,
+    ): CorrectionUiState? {
+        val lang = ready.selectedLearningLanguage ?: return null
+        val sessionFingerprint = ready.sessionSummary?.updatedAt ?: return null
+        val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() } ?: return null
+        val cached = runCatching {
+            getCachedCorrection(
+                uid = uid,
+                language = lang,
+                expectedFingerprint = sessionFingerprint,
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "cache lookup failed lang=${lang.code}", error)
+        }.getOrNull() ?: return null
+
+        val restoring = ready.copy(phase = CorrectionUiState.Phase.Restoring)
+            .mergeReviewButtonState(
+                previous = previous,
+                shouldShowButton = shouldShowCorrectionReviewReportButton,
+            )
+        _uiState.value = restoring
+        delay(RESTORE_INDICATOR_MIN_DURATION_MS)
+        Log.d(
+            TAG,
+            "cache restore hit lang=${lang.code}, fingerprint=$sessionFingerprint, suggestions=${cached.suggestions.size}",
+        )
+        return restoring.applyRestoredSuggestions(
+            suggestions = cached.suggestions,
+            primaryLanguage = cached.primaryLanguage,
+        ).mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = shouldShowCorrectionReviewReportButton,
+        )
+    }
+
+    private suspend fun persistGeneratedSuggestionsIfPossible(
+        language: LangCode,
+        suggestions: List<CorrectionSuggestion>,
+        sessionFingerprint: Long?,
+        primaryLanguage: LangCode?,
+    ) {
+        runCatching {
+            saveCorrectionCache(
+                uid = getCurrentUserUid.getCurrentUserUid(),
+                language = language,
+                suggestions = suggestions,
+                sessionFingerprint = sessionFingerprint,
+                primaryLanguage = primaryLanguage,
+                cachedAt = System.currentTimeMillis(),
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "cache save failed lang=${language.code}", error)
+        }
+    }
+
+    private suspend fun clearCorrectionCacheAfterCompletion(lang: LangCode) {
+        runCatching {
+            clearCorrectionCache(
+                uid = getCurrentUserUid.getCurrentUserUid(),
+                language = lang,
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "cache clear failed lang=${lang.code}", error)
         }
     }
 
@@ -906,6 +1003,7 @@ class CorrectionViewModel @Inject constructor(
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
+        const val RESTORE_INDICATOR_MIN_DURATION_MS = 180L
         // COR-UX-001: 기존 일괄 MIN_LOADING_GUIDE_DURATION_MS(20초)를 대체하는 단계별 최소 노출 시간.
         // [triggerGeneration] 의 5단계(loadingStep 0~4) 각각이 이 시간만큼은 노출되도록 보장한다 —
         // 0~2단계는 단순 delay, 3단계(AI 호출)는 SystemClock.elapsedRealtime 기반 잔여시간 보정,

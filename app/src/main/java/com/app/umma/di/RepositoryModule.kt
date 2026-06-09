@@ -8,10 +8,13 @@ import com.app.umma.data.repository.ChatConversationAnalysisJobRepositoryImpl
 import com.app.umma.data.repository.ChatConversationEvidenceRepositoryImpl
 import com.app.umma.data.repository.ChatUsageRepositoryImpl
 import com.app.umma.data.repository.chatconversation.ChatConversationAnalysisRepositoryImpl
+import com.app.umma.data.repository.correction.CorrectionSuggestionCacheRepositoryImpl
 import com.app.umma.data.repository.NotificationSettingsRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
+import com.app.umma.data.source.local.CorrectionSuggestionCacheLocalDataSource
 import com.app.umma.data.source.local.RoomCorrectionFlashcardLocalDataSource
+import com.app.umma.data.source.local.RoomCorrectionSuggestionCacheLocalDataSource
 import com.app.umma.data.source.remote.CorrectionFlashcardRemoteDataSource
 import com.app.umma.data.source.remote.ChatUsageRemoteDataSource
 import com.app.umma.data.source.remote.FirestoreCorrectionFlashcardRemoteDataSource
@@ -31,6 +34,7 @@ import com.app.umma.domain.repository.ChatConversationAnalysisJobRepository
 import com.app.umma.domain.repository.ChatConversationEvidenceRepository
 import com.app.umma.domain.repository.ChatUsageRepository
 import com.app.umma.domain.repository.NotificationSettingsRepository
+import com.app.umma.domain.repository.CorrectionSuggestionCacheRepository
 import com.app.umma.domain.repository.UserProfileRepository
 import dagger.Binds
 import dagger.Module
@@ -70,6 +74,18 @@ abstract class RepositoryModule {
     abstract fun bindCorrectionFlashcardLocalDataSource(
         impl: RoomCorrectionFlashcardLocalDataSource
     ): CorrectionFlashcardLocalDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindCorrectionSuggestionCacheLocalDataSource(
+        impl: RoomCorrectionSuggestionCacheLocalDataSource
+    ): CorrectionSuggestionCacheLocalDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindCorrectionSuggestionCacheRepository(
+        impl: CorrectionSuggestionCacheRepositoryImpl
+    ): CorrectionSuggestionCacheRepository
 
     @Binds
     @Singleton
