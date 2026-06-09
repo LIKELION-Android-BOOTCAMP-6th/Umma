@@ -6,6 +6,9 @@ import kotlinx.coroutines.flow.StateFlow
 interface WearChatRepository {
     val chatState: StateFlow<WearChatState>
 
+    suspend fun refreshPhoneTargets(): Result<Unit>
+    suspend fun selectPhoneTarget(nodeId: String): Result<Unit>
+    suspend fun setTargetChooserVisible(visible: Boolean)
     suspend fun attachToPhoneSession(): Result<Unit>
     suspend fun detachFromPhoneSession(): Result<Unit>
     suspend fun startUserTurn(): Result<Unit>

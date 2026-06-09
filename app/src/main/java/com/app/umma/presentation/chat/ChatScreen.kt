@@ -292,6 +292,16 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(horizontal = SpacingL)
         ) {
+            if (uiState.watchAttached) {
+                WatchAttachedBanner(
+                    onSwitchToPhoneClick = viewModel::switchWatchToPhone,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp)
+                )
+            }
+
             VoiceInteractionCharacter(
                 inputLevel = uiState.inputLevel,
                 outputLevel = uiState.outputLevel,
@@ -301,7 +311,7 @@ fun ChatScreen(
                 isAudioOutputPlaying = uiState.isAudioOutputPlaying,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 28.dp)
+                    .padding(top = if (uiState.watchAttached) 112.dp else 28.dp)
             )
 
             if (uiState.showSubtitle) {
@@ -551,6 +561,59 @@ fun ChatScreen(
                         modifier = Modifier.padding(top = SpacingS)
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchAttachedBanner(
+    onSwitchToPhoneClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        BackgroundSecondary,
+                        BackgroundPrimary
+                    )
+                )
+            )
+            .border(
+                border = BorderStroke(1.dp, ThemePrimary.copy(alpha = 0.18f)),
+                shape = RoundedCornerShape(24.dp)
+            )
+            .padding(horizontal = 18.dp, vertical = 16.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "워치에서 대화 중입니다",
+                color = TextPrimary,
+                style = TextAnalysisR.copy(fontWeight = FontWeight.SemiBold),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "음성 입력과 음성 응답이 워치로 전환되었습니다",
+                color = TextPrimary,
+                style = TextAnalysisR,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            Button(
+                onClick = onSwitchToPhoneClick,
+                modifier = Modifier.padding(top = 12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ThemePrimary,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(text = "휴대폰으로 전환하기")
             }
         }
     }

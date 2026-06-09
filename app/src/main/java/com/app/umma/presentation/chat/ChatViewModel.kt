@@ -345,6 +345,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun switchWatchToPhone() {
+        phoneChatSessionController.detachWatch()
+    }
+
     /**
      * startSession 성공 반환값만으로도 READY 상태를 확정합니다.
      *
