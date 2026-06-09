@@ -19,6 +19,7 @@ developmentTargetSelector.xml
 ### Android ###
 # Gradle files
 .gradle/
+.gradle-local/
 build/
 
 # Local configuration file (sdk path, etc)
@@ -210,6 +211,7 @@ RULES.md
 
 # Dev tool outputs
 tools/chat_prompt_review/output/*
+tools/correction_prompt_review/output/*
 
 # Android Patch
 

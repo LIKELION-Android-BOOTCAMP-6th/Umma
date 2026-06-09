@@ -1,61 +1,79 @@
 package com.app.umma.domain.usecase.correction
 
-import com.app.umma.domain.model.correction.CorrectionSaveRequest
-import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.CorrectionFlashcardSaveItem
+import com.app.umma.domain.model.correction.CorrectionSaveRequest
+import com.app.umma.domain.model.correction.CorrectionSaveZeroReason
+import com.app.umma.domain.model.correction.CorrectionSuggestion
+import com.app.umma.domain.model.correction.PrepareCorrectionSaveRequestResult
 import javax.inject.Inject
 
 /**
- * 선택된 교정 결과를 Flashcard 저장 요청으로 정리하는 UseCase 입니다.
+ * 선택한 교정 결과를 Flashcard 저장 요청으로 정리하는 UseCase다.
+ *
+ * 품질 필터와 안전 차단을 함께 적용하고, 저장 가능한 카드가 0개가 된 사유를 결과에 남긴다.
  */
-class PrepareSaveRequestUseCase @Inject constructor() {
+class PrepareSaveRequestUseCase @Inject constructor(
+    private val correctionSafetyPolicy: CorrectionSafetyPolicy
+) {
 
     operator fun invoke(
         uid: String,
         selectedSuggestions: List<CorrectionSuggestion>,
         requestedAt: Long = System.currentTimeMillis()
-    ): Result<CorrectionSaveRequest> {
+    ): Result<PrepareCorrectionSaveRequestResult> {
         return runCatching {
-            // Flashcard Room 엔터티는 userId + cardId 복합 키로 중복을 막는다.
-            // 따라서 화면에서 uid를 빠뜨리면 계정별 저장 경계를 만들 수 없어 여기서 먼저 차단한다.
             require(uid.isNotBlank()) {
                 "uid must not be blank"
             }
 
-            // 선택 상태에서 중복 클릭/중복 선택이 들어와도 저장 요청은 카드당 하나만 만든다.
             val normalizedSuggestions = selectedSuggestions.distinctBy { it.id }
             require(normalizedSuggestions.isNotEmpty()) {
                 "selectedSuggestions must not be empty"
             }
 
-            // 한 저장 요청 안에서는 현재 선택 언어 하나만 다뤄야 완료 파이프라인이 흔들리지 않는다.
             val lang = normalizedSuggestions.first().lang
             require(normalizedSuggestions.all { it.lang == lang }) {
                 "selectedSuggestions must use the same language"
             }
 
-            // COR-TUNE-007: 저품질 카드 제외 후 배치 내 텍스트 중복을 skip한다.
-            // 제외·중복으로 카드 수가 줄거나 0개가 돼도 예외를 던지지 않고 자연스럽게 진행한다.
+            val safetyBlockedIds = mutableListOf<String>()
+            val safetyEligibleSuggestions = normalizedSuggestions.filter { suggestion ->
+                val blocked = correctionSafetyPolicy.isBlocked(suggestion)
+                if (blocked) {
+                    safetyBlockedIds += suggestion.id
+                }
+                !blocked
+            }
+
             val seenKeys = mutableSetOf<String>()
-            val filteredSuggestions = normalizedSuggestions.filter { suggestion ->
+            val qualityFilteredIds = mutableListOf<String>()
+            val saveableSuggestions = safetyEligibleSuggestions.filter { suggestion ->
                 val normalizedBefore = CorrectionCardTextNormalizer.normalize(suggestion.beforeText)
                 val normalizedAfter = CorrectionCardTextNormalizer.normalize(suggestion.afterText)
                 val normalizedFront = CorrectionCardTextNormalizer.normalize(suggestion.nativeText)
 
-                // 교정 전후 동일한 카드는 학습 가치가 없으므로 제외한다.
-                if (normalizedBefore == normalizedAfter) return@filter false
-                // 교정 문장이 지나치게 짧은 카드는 학습 자료로 성립하지 않으므로 제외한다.
-                if (normalizedAfter.length < MIN_CARD_CHAR_LENGTH) return@filter false
-                // 앞면 텍스트가 없는 카드는 모국어 단서를 잃으므로 제외한다.
-                if (normalizedFront.isEmpty()) return@filter false
+                if (normalizedBefore == normalizedAfter) {
+                    qualityFilteredIds += suggestion.id
+                    return@filter false
+                }
+                if (normalizedAfter.length < MIN_CARD_CHAR_LENGTH) {
+                    qualityFilteredIds += suggestion.id
+                    return@filter false
+                }
+                if (normalizedFront.isEmpty()) {
+                    qualityFilteredIds += suggestion.id
+                    return@filter false
+                }
 
-                // 배치 내에서 (앞면, 뒷면) 텍스트가 동일한 카드는 첫 번째만 유지하고 이후는 skip한다.
                 val key = "$normalizedFront\t$normalizedAfter"
-                seenKeys.add(key)
+                if (!seenKeys.add(key)) {
+                    qualityFilteredIds += suggestion.id
+                    return@filter false
+                }
+                true
             }
 
-            // SYS-CORRECTION-INFRA 저장 계약: 앞면은 모국어, 뒷면은 교정 문장과 설명이다.
-            val flashcards = filteredSuggestions.map { suggestion ->
+            val flashcards = saveableSuggestions.map { suggestion ->
                 CorrectionFlashcardSaveItem(
                     suggestionId = suggestion.id,
                     frontText = suggestion.nativeText.trim(),
@@ -64,18 +82,28 @@ class PrepareSaveRequestUseCase @Inject constructor() {
                 )
             }
 
-            CorrectionSaveRequest(
-                uid = uid,
-                lang = lang,
-                flashcards = flashcards,
-                requestedAt = requestedAt
+            val zeroReason = when {
+                flashcards.isNotEmpty() -> null
+                safetyBlockedIds.isNotEmpty() && qualityFilteredIds.isEmpty() -> CorrectionSaveZeroReason.SAFETY_BLOCKED
+                else -> CorrectionSaveZeroReason.QUALITY_FILTERED
+            }
+
+            PrepareCorrectionSaveRequestResult(
+                request = CorrectionSaveRequest(
+                    uid = uid,
+                    lang = lang,
+                    flashcards = flashcards,
+                    requestedAt = requestedAt
+                ),
+                saveableSuggestionIds = saveableSuggestions.map { it.id },
+                qualityFilteredSuggestionIds = qualityFilteredIds,
+                safetyBlockedSuggestionIds = safetyBlockedIds,
+                zeroReason = zeroReason
             )
         }
     }
 
     companion object {
-        // 정규화 후 이 글자 수 미만이면 교정 Flashcard에서 제외한다.
-        // 보수적 기준으로, 한 글자라도 교정 가치가 있는 카드는 최대한 보존한다.
         internal const val MIN_CARD_CHAR_LENGTH = 2
     }
 }

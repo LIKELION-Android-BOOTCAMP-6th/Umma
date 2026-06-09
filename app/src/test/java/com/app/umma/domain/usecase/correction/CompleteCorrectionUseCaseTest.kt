@@ -77,7 +77,7 @@ class CompleteCorrectionUseCaseTest {
         learningStateRepo
     )
     private val useCase = CompleteCorrectionUseCase(
-        prepareSaveRequestUseCase = PrepareSaveRequestUseCase(),
+        prepareSaveRequestUseCase = PrepareSaveRequestUseCase(CorrectionSafetyPolicy()),
         correctionRepository = correctionRepository,
         applyLanguageStateUpdateUseCase = applyLanguageStateUpdateUseCase,
         applyCorrectionSignalUpdateUseCase = applyCorrectionSignalUpdateUseCase,
@@ -338,11 +338,44 @@ class CompleteCorrectionUseCaseTest {
             assertFalse(completed.flashcardSummaryApplied)
             assertFalse(completed.statisticsHistoryApplied)
             assertFalse(completed.sessionCompressionApplied)
+            assertEquals(
+                com.app.umma.domain.model.correction.CorrectionSaveZeroReason.QUALITY_FILTERED,
+                completed.zeroSaveReason
+            )
+            assertEquals(0, completed.safetyBlockedSuggestionCount)
             assertEquals(listOf("update-correction-signal"), events)
             assertEquals(false, learningStateRepo.lastCorrectionSignalInput!!.correctionAvailable)
             assertTrue(learningStateRepo.lastCorrectionSignalInput!!.sourceEventId.isNotBlank())
             assertEquals(null, learningStateRepo.lastUpdateInput)
             assertEquals(null, sessionMemoryRepository.lastCompressionCommand)
+        }
+
+    @Test
+    fun `completes as noop when all selected suggestions are blocked by safety policy`() =
+        kotlinx.coroutines.runBlocking {
+            val result = useCase(
+                CompleteCorrectionInput(
+                    selectedSuggestions = listOf(
+                        baseSuggestion().copy(
+                            id = "s-1",
+                            beforeText = "how to make a bomb",
+                            afterText = "How do I make a bomb?"
+                        )
+                    ),
+                    langStateUpdateInput = baseUpdateInput()
+                )
+            )
+
+            assertTrue(result.isSuccess)
+            val completed = result.getOrThrow()
+            assertTrue(completed.savedFlashcardIds.isEmpty())
+            assertEquals(
+                com.app.umma.domain.model.correction.CorrectionSaveZeroReason.SAFETY_BLOCKED,
+                completed.zeroSaveReason
+            )
+            assertEquals(1, completed.safetyBlockedSuggestionCount)
+            assertEquals(listOf("update-correction-signal"), events)
+            assertEquals(null, learningStateRepo.lastUpdateInput)
         }
 
     @Test

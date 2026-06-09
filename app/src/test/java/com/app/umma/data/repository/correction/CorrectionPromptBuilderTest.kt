@@ -25,6 +25,7 @@ import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -147,6 +148,51 @@ class CorrectionPromptBuilderTest {
         assertTrue("sourceLang 이 원문(sourceText) 기준임을 알리는 Rule 누락", prompt.contains("sourceText"))
         assertTrue("sourceLang 이 afterText 기준이 아님을 알리는 Rule 누락", prompt.contains("not the corrected afterText"))
         assertTrue("확신 없으면 unknown 을 쓰라는 escape hatch 지시 누락", prompt.contains("\"unknown\""))
+    }
+
+    @Test
+    fun `prompt adds filler cleanup guidance without changing source preservation contract`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "I mean, you know, I was like really tired."
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("filler cleanup 吏???꾨씫", prompt.contains("Filler and repetition cleanup"))
+        assertTrue("afterText 媛꾧껐??/ flashcard 吏???꾨씫", prompt.contains("natural and concise for learning and flashcard use"))
+        assertTrue("sourceText 蹂댁〈 怨꾩빟 ?꾨씫", prompt.contains("Do not rewrite, trim, sanitize, or remove filler from sourceText itself"))
+        assertTrue("meaning-bearing expression 蹂댁〈 吏???꾨씫", prompt.contains("Do NOT remove an expression if it carries real meaning"))
+    }
+
+    @Test
+    fun `prompt includes representative filler examples and edge-case preservation guidance`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "Like, I was tired."
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("English filler example ?꾨씫", prompt.contains("\"you know\""))
+        assertTrue("English discourse-marker like example ?꾨씫", prompt.contains("discourse-marker \"like\""))
+        assertTrue("Japanese filler example ?꾨씫", prompt.contains("\"なんか\""))
+        assertTrue("Korean filler example ?꾨씫", prompt.contains("\"약간\""))
+        assertTrue("I like coffee edge case ?꾨씫", prompt.contains("\"I like coffee.\""))
+        assertTrue("Japanese referential その edge case ?꾨씫", prompt.contains("referential \"その\""))
+        assertTrue("Korean negative 아니 edge case ?꾨씫", prompt.contains("negative \"아니\""))
     }
 
     @Test
@@ -629,6 +675,27 @@ class CorrectionPromptBuilderTest {
     /** MeaningFirst 기본 정책. focusLine 게이트 테스트 등 "policy 무관" 케이스에서 사용한다. */
     private fun meaningFirstPolicy(): CorrectionGrowthPolicy =
         CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst)
+
+    @Test
+    fun `includes safety guard instructions exactly once`() {
+        val prompt = builder.build(
+            inputOf(
+                candidates = listOf(
+                    CorrectionCandidate(
+                        id = "en-0-safe",
+                        lang = LangCode.EN,
+                        sourceTurnIndex = 0,
+                        sourceText = "i goed home"
+                    )
+                )
+            )
+        )
+
+        assertEquals(1, Regex("Safety:").findAll(prompt).count())
+        assertTrue(prompt.contains("Do not correct, naturalize, translate, or make harmful content more actionable."))
+        assertTrue(prompt.contains("Skip candidates involving self-harm instructions"))
+        assertTrue(prompt.contains("Emit one suggestion per safe candidate."))
+    }
 
     private fun noFocus(): LearningFocusSummary = LearningFocusSummary(
         primaryFocus = null,

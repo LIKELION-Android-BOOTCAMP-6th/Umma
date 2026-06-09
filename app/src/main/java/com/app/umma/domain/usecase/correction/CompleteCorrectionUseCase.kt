@@ -4,6 +4,7 @@ import com.app.umma.domain.model.correction.CompleteCorrectionInput
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSaveResult
+import com.app.umma.domain.model.correction.PrepareCorrectionSaveRequestResult
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionResult
@@ -59,21 +60,22 @@ class CompleteCorrectionUseCase @Inject constructor(
 
         // 화면은 CorrectionSuggestion 만 넘기고, Flashcard 앞/뒷면 계약은 domain 에서 만든다.
         // 이렇게 해야 COR-005 저장 요청 형식이 화면 구현에 흩어지지 않는다.
-        val saveRequest = prepareSaveRequestUseCase(
+        val prepareResult = prepareSaveRequestUseCase(
             uid = input.langStateUpdateInput.uid,
             selectedSuggestions = input.selectedSuggestions,
             requestedAt = input.requestedAt
         ).getOrElse { error ->
             return Result.failure(error)
         }
+        val saveRequest = prepareResult.request
 
         val saveableSuggestions = filterSaveableSuggestions(
             selectedSuggestions = input.selectedSuggestions,
-            saveRequest = saveRequest
+            prepareResult = prepareResult
         )
 
         if (saveRequest.flashcards.isEmpty()) {
-            return completeEmptySaveRequest(input)
+            return completeEmptySaveRequest(input, prepareResult)
         }
 
         // 교정 결과는 LangState 업데이트용 최소 모델만 넘긴다.
@@ -156,6 +158,8 @@ class CompleteCorrectionUseCase @Inject constructor(
                     flashcardSummaryPending = flashcardSummaryResult.pending,
                     topicSummariesApplied = topicSummaryResult.applied,
                     topicSummariesPending = topicSummaryResult.pending,
+                    zeroSaveReason = prepareResult.zeroReason,
+                    safetyBlockedSuggestionCount = prepareResult.safetyBlockedSuggestionIds.size,
                     completedAt = input.requestedAt
                 )
             )
@@ -265,7 +269,8 @@ class CompleteCorrectionUseCase @Inject constructor(
      * 세션을 처리했다는 사실만 summary 신호로 닫아 같은 교정이 다시 노출되지 않게 한다.
      */
     private suspend fun completeEmptySaveRequest(
-        input: CompleteCorrectionInput
+        input: CompleteCorrectionInput,
+        prepareResult: PrepareCorrectionSaveRequestResult
     ): Result<CompleteCorrectionResult> {
         val signalResult = applyCorrectionSignalUpdateUseCase(
             CorrectionSignalUpdateInput(
@@ -288,6 +293,8 @@ class CompleteCorrectionUseCase @Inject constructor(
                 savedFlashcardIds = emptyList(),
                 pendingSyncFlashcardIds = emptyList(),
                 sessionMemoryKey = input.langStateUpdateInput.sessionMemoryKey,
+                zeroSaveReason = prepareResult.zeroReason,
+                safetyBlockedSuggestionCount = prepareResult.safetyBlockedSuggestionIds.size,
                 completedAt = input.requestedAt
             )
         )
@@ -295,10 +302,10 @@ class CompleteCorrectionUseCase @Inject constructor(
 
     private fun filterSaveableSuggestions(
         selectedSuggestions: List<CorrectionSuggestion>,
-        saveRequest: CorrectionSaveRequest
+        prepareResult: PrepareCorrectionSaveRequestResult
     ): List<CorrectionSuggestion> {
         val suggestionsById = selectedSuggestions.distinctBy { it.id }.associateBy { it.id }
-        return saveRequest.flashcards.mapNotNull { item -> suggestionsById[item.suggestionId] }
+        return prepareResult.saveableSuggestionIds.mapNotNull { id -> suggestionsById[id] }
     }
 
     private fun buildNoopCompletionEventId(

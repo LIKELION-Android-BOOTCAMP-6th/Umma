@@ -237,6 +237,154 @@ class CorrectionUiStateTest {
     }
 
     @Test
+    fun `correction review report state is disabled by default`() {
+        val state = CorrectionUiState()
+
+        assertFalse(state.showCorrectionReviewReportButton)
+        assertFalse(state.isCorrectionReviewReporting)
+        assertFalse(state.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `correction review report state can mark in flight and completed`() {
+        val state = CorrectionUiState(showCorrectionReviewReportButton = true)
+
+        val reporting = state.copy(isCorrectionReviewReporting = true)
+        val completed = reporting.copy(
+            isCorrectionReviewReporting = false,
+            hasCorrectionReviewReported = true,
+        )
+
+        assertTrue(reporting.showCorrectionReviewReportButton)
+        assertTrue(reporting.isCorrectionReviewReporting)
+        assertFalse(reporting.hasCorrectionReviewReported)
+        assertFalse(completed.isCorrectionReviewReporting)
+        assertTrue(completed.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `mergeReviewButtonState keeps reported state for same review target`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+            showCorrectionReviewReportButton = true,
+            hasCorrectionReviewReported = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertTrue(merged.showCorrectionReviewReportButton)
+        assertTrue(merged.hasCorrectionReviewReported)
+        assertFalse(merged.isCorrectionReviewReporting)
+    }
+
+    @Test
+    fun `mergeReviewButtonState keeps reporting state for same review target`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+            showCorrectionReviewReportButton = true,
+            isCorrectionReviewReporting = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertTrue(merged.isCorrectionReviewReporting)
+        assertFalse(merged.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `mergeReviewButtonState resets review flags when suggestion ids change`() {
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = listOf(
+                CorrectionSuggestion(
+                    id = "s-1",
+                    lang = LangCode.EN,
+                    sourceCandidateIds = listOf("c-1"),
+                    sourceTurnIndex = 0,
+                    beforeText = "a",
+                    nativeText = "a",
+                    afterText = "b",
+                    explanation = "e",
+                ),
+            ),
+            showCorrectionReviewReportButton = true,
+            isCorrectionReviewReporting = true,
+            hasCorrectionReviewReported = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = listOf(
+                CorrectionSuggestion(
+                    id = "s-2",
+                    lang = LangCode.EN,
+                    sourceCandidateIds = listOf("c-2"),
+                    sourceTurnIndex = 0,
+                    beforeText = "c",
+                    nativeText = "c",
+                    afterText = "d",
+                    explanation = "f",
+                ),
+            ),
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertFalse(merged.isCorrectionReviewReporting)
+        assertFalse(merged.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `mergeReviewButtonState resets review flags when error reason changes`() {
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Error,
+            selectedLearningLanguage = LangCode.EN,
+            errorReason = "first error",
+            showCorrectionReviewReportButton = true,
+            hasCorrectionReviewReported = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Error,
+            selectedLearningLanguage = LangCode.EN,
+            errorReason = "second error",
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertFalse(merged.hasCorrectionReviewReported)
+        assertFalse(merged.isCorrectionReviewReporting)
+    }
+
+    @Test
     fun `computeCompletionLaunch returns AlreadyInFlight when isCompleting`() {
         // 첫 호출이 isCompleting=true 를 emit 한 직후 들어온 두 번째 트리거를 막는 가드.
         val state = CorrectionUiState(
@@ -564,7 +712,7 @@ class CorrectionUiStateTest {
         val suggestions = CorrectionSuggestionFixtures.contentSuggestions()
         val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
 
-        val next = state.applyGenerationOutcome(Result.success(suggestions))
+        val next = state.applyGenerationOutcome(Result.success(GenerationOutcomePayload(suggestions = suggestions)))
 
         assertEquals(CorrectionUiState.Phase.Content, next.phase)
         assertEquals(suggestions, next.suggestions)
@@ -579,7 +727,14 @@ class CorrectionUiStateTest {
         // AC: "결과가 비어 있으면 Empty 상태를 반환한다." (설계 문서 = Phase.EmptyResult)
         val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
 
-        val next = state.applyGenerationOutcome(Result.success(emptyList()))
+        val next = state.applyGenerationOutcome(
+            Result.success(
+                GenerationOutcomePayload(
+                    suggestions = emptyList(),
+                    emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED,
+                )
+            )
+        )
 
         assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)
         assertTrue(next.suggestions.isEmpty())
@@ -589,6 +744,7 @@ class CorrectionUiStateTest {
     @Test
     fun `applyGenerationOutcome on failure with message transitions to Error`() {
         // AC: "AI 요청 실패, 응답 파싱 실패, 필수 필드 누락 시 Error 상태로 전환."
+        // COR-UX-002: 저장되는 errorReason 은 사용자 표시 문구가 아니라 raw 진단 사유다.
         val throwable = CorrectionSuggestionFixtures.generateFailure("candidateId mismatch")
         val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
 
@@ -619,6 +775,18 @@ class CorrectionUiStateTest {
     }
 
     @Test
+    fun `toDiagnosticReason returns throwable message before class name fallback`() {
+        val withMessage = IllegalArgumentException("unknown correction candidate id: ja-6-0-79967d5")
+        val withoutMessage = IllegalStateException()
+
+        assertEquals(
+            "unknown correction candidate id: ja-6-0-79967d5",
+            withMessage.toDiagnosticReason(),
+        )
+        assertEquals("IllegalStateException", withoutMessage.toDiagnosticReason())
+    }
+
+    @Test
     fun `applyGenerationOutcome clears stale selectedIds saveRequest saveErrorReason on all outcomes`() {
         // 직전 Content 상태에서 selectedIds / saveRequest / saveErrorReason 이 채워져 있던 경우에도
         // outcome 적용 후 모두 비워지는 invariant — 정리 책임을 helper 로 통합했음을 검증.
@@ -636,14 +804,21 @@ class CorrectionUiStateTest {
 
         // 성공 케이스
         val afterContent = staleState.applyGenerationOutcome(
-            Result.success(CorrectionSuggestionFixtures.contentSuggestions()),
+            Result.success(GenerationOutcomePayload(suggestions = CorrectionSuggestionFixtures.contentSuggestions())),
         )
         assertTrue(afterContent.selectedSuggestionIds.isEmpty())
         assertNull(afterContent.saveRequest)
         assertNull(afterContent.saveErrorReason)
 
         // 빈 목록 케이스
-        val afterEmptyResult = staleState.applyGenerationOutcome(Result.success(emptyList()))
+        val afterEmptyResult = staleState.applyGenerationOutcome(
+            Result.success(
+                GenerationOutcomePayload(
+                    suggestions = emptyList(),
+                    emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED,
+                )
+            )
+        )
         assertTrue(afterEmptyResult.selectedSuggestionIds.isEmpty())
         assertNull(afterEmptyResult.saveRequest)
         assertNull(afterEmptyResult.saveErrorReason)
@@ -674,7 +849,14 @@ class CorrectionUiStateTest {
             suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
         )
 
-        val next = staleContent.applyGenerationOutcome(Result.success(emptyList()))
+        val next = staleContent.applyGenerationOutcome(
+            Result.success(
+                GenerationOutcomePayload(
+                    suggestions = emptyList(),
+                    emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED,
+                )
+            )
+        )
 
         // EmptyResult 로 전환됐는지 확인.
         assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)
