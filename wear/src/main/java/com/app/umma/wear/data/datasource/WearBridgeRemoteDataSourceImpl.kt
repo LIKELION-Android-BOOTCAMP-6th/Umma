@@ -6,6 +6,7 @@ import com.app.umma.watchbridge.contract.WatchBridgeCommand
 import com.app.umma.watchbridge.contract.WatchBridgeEvent
 import com.app.umma.watchbridge.contract.WatchBridgePath
 import com.app.umma.wear.data.WearAudioConfig
+import com.app.umma.wear.domain.model.WearPhoneTarget
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.wearable.ChannelIOException
 import com.google.android.gms.tasks.Tasks
@@ -116,10 +117,29 @@ class WearBridgeRemoteDataSourceImpl(
         }
     }
 
-    override suspend fun sendCommand(command: WatchBridgeCommand): Result<String> {
+    override suspend fun listConnectedPhoneTargets(): Result<List<WearPhoneTarget>> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                val node = requirePhoneNode()
+                Tasks.await(nodeClient.connectedNodes)
+                    .map { node ->
+                        WearPhoneTarget(
+                            nodeId = node.id,
+                            displayName = node.displayName.orEmpty().ifBlank { "이 휴대폰" },
+                            isNearby = node.isNearby
+                        )
+                    }
+                    .sortedWith(
+                        compareByDescending<WearPhoneTarget> { it.isNearby }
+                            .thenBy { it.displayName }
+                    )
+            }
+        }
+    }
+
+    override suspend fun sendCommand(command: WatchBridgeCommand, nodeId: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val node = requirePhoneNode(nodeId)
                 val payload = json.encodeToString(
                     WatchBridgeCommand.serializer(),
                     command
@@ -169,10 +189,10 @@ class WearBridgeRemoteDataSourceImpl(
         }
     }
 
-    private fun requirePhoneNode(): Node {
+    private fun requirePhoneNode(nodeId: String): Node {
         val nodes = Tasks.await(nodeClient.connectedNodes)
-        return nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull()
-        ?: error("No connected phone node is available.")
+        return nodes.firstOrNull { it.id == nodeId }
+            ?: error("Selected phone node is not connected.")
     }
 
     private fun WatchBridgeEvent.summary(): String {

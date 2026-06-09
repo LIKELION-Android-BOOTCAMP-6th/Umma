@@ -25,6 +25,9 @@ class MainActivity : ComponentActivity() {
             pressPttUseCase = container.pressPttUseCase,
             releasePttUseCase = container.releasePttUseCase,
             observeWatchChatStateUseCase = container.observeWatchChatStateUseCase,
+            refreshPhoneTargetsUseCase = container.refreshPhoneTargetsUseCase,
+            selectPhoneTargetUseCase = container.selectPhoneTargetUseCase,
+            setTargetChooserVisibleUseCase = container.setTargetChooserVisibleUseCase,
             debugReleasePhoneOwnerUseCase = container.debugReleasePhoneOwnerUseCase
         )
     }
@@ -44,8 +47,12 @@ class MainActivity : ComponentActivity() {
             WearDebugApp(
                 uiState = uiState,
                 onAttachClick = viewModel::onAttachClick,
+                onDetachClick = viewModel::onDetachClick,
                 onPttClick = ::handlePressPttClick,
-                onReleaseOwnerClick = viewModel::onReleaseOwnerClick
+                onRefreshTargetsClick = viewModel::refreshTargets,
+                onTargetChooserClick = viewModel::onTargetChooserClick,
+                onTargetSelected = viewModel::onTargetSelected,
+                onDismissTargetChooser = viewModel::onTargetChooserDismiss
             )
         }
     }

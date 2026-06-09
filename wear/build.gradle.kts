@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.play.services.wearable)
+    implementation("androidx.wear.compose:compose-foundation:1.6.2")
     implementation(libs.wear.compose.material3)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

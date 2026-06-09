@@ -21,7 +21,7 @@ class WatchChatForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureNotificationChannel()
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_splash_watermark)
+            .setSmallIcon(R.drawable.baseline_record_voice_over_24)
             .setContentTitle(getString(R.string.watch_chat_notification_title))
             .setContentText(getString(R.string.watch_chat_notification_body))
             .setOngoing(true)
