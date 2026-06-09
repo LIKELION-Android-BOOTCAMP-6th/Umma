@@ -133,6 +133,12 @@ class CorrectionPromptBuilder @Inject constructor() {
             // 확신이 없을 때 "unknown"을 쓰게 해 mapper 가 보수적으로 null(=평가 통과)로 떨어뜨릴 escape hatch 를 둔다.
             appendLine("- sourceLang: the ISO code (e.g. \"ko\", \"en\", \"ja\", \"de\") of the language the learner ACTUALLY used in sourceText (not the corrected afterText). If you are not sure, use \"unknown\".")
             appendLine("- Emit one suggestion per candidate. Skip a candidate only if no correction is needed.")
+            appendLine("- Preserve sourceText as the original utterance context. Do not rewrite, trim, sanitize, or remove filler from sourceText itself; cleanup applies only to afterText.")
+            appendLine("- Filler and repetition cleanup: in afterText, remove unnecessary filler words, hesitation markers, and repeated discourse markers when doing so does not change the speaker's meaning.")
+            appendLine("- Keep afterText natural and concise for learning and flashcard use.")
+            appendLine("- Examples of removable filler/discourse markers include English \"um\", \"uh\", \"you know\", discourse-marker \"like\", and some uses of \"I mean\"; Japanese \"なんか\" and discourse-marker \"その\"; Korean \"음\", \"어\", \"그니까\", \"약간\", \"뭐가\", and some uses of \"아니\".")
+            appendLine("- Do NOT remove an expression if it carries real meaning, contrast, emphasis, correction, or the speaker's intended nuance.")
+            appendLine("- Keep meaning-bearing uses such as \"I like coffee.\", corrective/emphatic \"I mean\", Japanese \"なんか\" meaning \"something\", referential \"その\", Korean degree-marker \"약간\", and negative \"아니\".")
             // COR-TUNE-02: learningSignal 은 능력 점수가 아니라 "이번 교정에서 관찰한 것"만 담는다.
             // 규칙은 enum 을 1:1 장황하게 나열하지 않고 실행 가능한 짧은 지시로 압축한다.
             appendLine("learningSignal rules (what you observed in THIS correction; never rate the learner's overall level):")
@@ -145,7 +151,7 @@ class CorrectionPromptBuilder @Inject constructor() {
             // COR-TUNE-003-FIX: editSpans의 enum 제약·폐기 경고 추가.
             // 매퍼 normalizeEditSpan은 issueCategory/improvementType이 허용 목록 밖이면 learningSignal 전체를 drop한다(COR-TUNE-002-FIX).
             // top-level 규칙(issueCategories/improvementTypes)과 동일 어휘로 명시해 AI가 자연어 값을 넣지 않게 한다.
-            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. Each span's issueCategory MUST be one of [$issueCategoryValues] and improvementType one of [$improvementTypeValues] — any value outside these lists discards the whole learningSignal. languageFeatureKey may be null.")
+            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. If filler cleanup is the main correction, include only a simple span when you are confident. Each span's issueCategory MUST be one of [$issueCategoryValues] and improvementType one of [$improvementTypeValues] — any value outside these lists discards the whole learningSignal. languageFeatureKey may be null.")
             appendLine("- meaningPreserved: ALWAYS include it (never omit) — true unless the correction changed the speaker's intended meaning. A missing value discards the whole learningSignal.")
             appendLine("- confidence: a number in 0.0..1.0, or omit it if unsure.")
             appendLine("- If unsure about a signal, use an empty array or low confidence rather than guessing.")

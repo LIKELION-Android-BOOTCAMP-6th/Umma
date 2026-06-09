@@ -239,6 +239,23 @@ class ExtractCandidatesUseCaseTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
+    fun `source text keeps filler utterance unchanged for downstream prompt cleanup`() {
+        // COR-TUNE-012: filler ?뺣━??afterText ?앹꽦 ?뺤콉?먯꽌留?泥섎━?섍퀬 sourceText???먮Ц 洹몃?濡?蹂댁〈?쒕떎.
+        val result = useCase(
+            ExtractCandidatesInput(
+                selectedLang = LangCode.EN,
+                sessionLang = LangCode.EN,
+                recentFullContext = listOf(
+                    ConversationTurn(TurnSpeaker.USER, "I mean, you know, I was like really tired.")
+                )
+            )
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("I mean, you know, I was like really tired.", result.first().sourceText)
+    }
+
+    @Test
     fun `split candidates have unique ids with split index included`() {
         // 같은 원본 turn에서 나온 분할 후보들의 ID는 서로 달라야 하고,
         // splitIndex 를 포함하는 형식이어야 한다 — "en-{turnIdx}-{splitIdx}-{hash}".

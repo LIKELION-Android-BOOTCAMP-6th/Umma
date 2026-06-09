@@ -150,6 +150,51 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `prompt adds filler cleanup guidance without changing source preservation contract`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "I mean, you know, I was like really tired."
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("filler cleanup 吏???꾨씫", prompt.contains("Filler and repetition cleanup"))
+        assertTrue("afterText 媛꾧껐??/ flashcard 吏???꾨씫", prompt.contains("natural and concise for learning and flashcard use"))
+        assertTrue("sourceText 蹂댁〈 怨꾩빟 ?꾨씫", prompt.contains("Do not rewrite, trim, sanitize, or remove filler from sourceText itself"))
+        assertTrue("meaning-bearing expression 蹂댁〈 吏???꾨씫", prompt.contains("Do NOT remove an expression if it carries real meaning"))
+    }
+
+    @Test
+    fun `prompt includes representative filler examples and edge-case preservation guidance`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "Like, I was tired."
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("English filler example ?꾨씫", prompt.contains("\"you know\""))
+        assertTrue("English discourse-marker like example ?꾨씫", prompt.contains("discourse-marker \"like\""))
+        assertTrue("Japanese filler example ?꾨씫", prompt.contains("\"なんか\""))
+        assertTrue("Korean filler example ?꾨씫", prompt.contains("\"약간\""))
+        assertTrue("I like coffee edge case ?꾨씫", prompt.contains("\"I like coffee.\""))
+        assertTrue("Japanese referential その edge case ?꾨씫", prompt.contains("referential \"その\""))
+        assertTrue("Korean negative 아니 edge case ?꾨씫", prompt.contains("negative \"아니\""))
+    }
+
+    @Test
     fun `prompt declares learningSignal schema keys and allowed enums`() {
         // COR-TUNE-02: 응답 schema 에 suggestion 당 learningSignal 중첩과 허용 enum/규칙이 노출되어야
         // mapper 가 받는 DTO/정규화 계약과 어긋나지 않는다.
