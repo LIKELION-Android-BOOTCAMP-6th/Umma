@@ -2,6 +2,7 @@ package com.app.umma.di
 
 import com.app.umma.core.util.NetworkConnectivityMonitor
 import com.app.umma.core.util.NetworkConnectivityMonitorImpl
+import com.app.umma.data.repository.AiContentReportRepositoryImpl
 import com.app.umma.data.repository.AuthRepositoryImpl
 import com.app.umma.data.repository.ChatConversationAnalysisJobRepositoryImpl
 import com.app.umma.data.repository.ChatConversationEvidenceRepositoryImpl
@@ -24,6 +25,7 @@ import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepositoryImpl
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewRepository
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewRepositoryImpl
 import com.app.umma.domain.repository.AuthRepository
+import com.app.umma.domain.repository.AiContentReportRepository
 import com.app.umma.domain.repository.ChatConversationAnalysisRepository
 import com.app.umma.domain.repository.ChatConversationAnalysisJobRepository
 import com.app.umma.domain.repository.ChatConversationEvidenceRepository
@@ -122,6 +124,12 @@ abstract class RepositoryModule {
     abstract fun bindChatPromptReviewRepository(
         impl: ChatPromptReviewRepositoryImpl
     ): ChatPromptReviewRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAiContentReportRepository(
+        impl: AiContentReportRepositoryImpl
+    ): AiContentReportRepository
 
     @Binds
     @Singleton

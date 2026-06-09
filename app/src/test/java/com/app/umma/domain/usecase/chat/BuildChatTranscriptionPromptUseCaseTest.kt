@@ -23,11 +23,16 @@ class BuildChatTranscriptionPromptUseCaseTest {
         assertTrue(prompt.contains("primary language is Korean"))
         assertTrue(prompt.contains("target learning language is Japanese"))
         assertTrue(prompt.contains("English words may also appear naturally"))
-        assertTrue(prompt.contains("mix Korean, Japanese, English within the same sentence"))
+        assertTrue(prompt.contains("A single utterance may contain Korean, Japanese, English."))
+        assertTrue(prompt.contains("Do not force the whole utterance into one language."))
+        assertTrue(prompt.contains("Keep each segment in the language it was spoken or clearly intended."))
         assertTrue(prompt.contains("Do not translate between languages"))
+        assertTrue(prompt.contains("Do not normalize the whole sentence into one language."))
         assertTrue(prompt.contains("imperfect pronunciation"))
+        assertTrue(prompt.contains("Common English app, product, and technical words should remain in English"))
+        assertTrue(prompt.contains("Keep Korean fillers as Korean fillers unless another language is clearly spoken."))
         assertTrue(prompt.contains("If uncertain"))
-        assertTrue(trace.contains("transcription={revision=stt_prompt_v1,languages=ko+ja+en}"))
+        assertTrue(trace.contains("transcription={revision=stt_prompt_v2,languages=ko+ja+en}"))
         assertFalse(prompt.contains("answer"))
         assertFalse(prompt.contains("teacher"))
     }
@@ -44,7 +49,7 @@ class BuildChatTranscriptionPromptUseCaseTest {
         )
 
         // 영어가 이미 학습언어인 세션에서는 trace와 혼합 언어 목록이 영어를 중복 표시하지 않는다.
-        assertTrue(prompt.contains("mix Korean, English within the same sentence"))
+        assertTrue(prompt.contains("A single utterance may contain Korean, English."))
         assertTrue(trace.contains("languages=ko+en"))
         assertFalse(trace.contains("ko+en+en"))
     }

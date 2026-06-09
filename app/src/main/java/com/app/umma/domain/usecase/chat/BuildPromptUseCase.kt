@@ -59,8 +59,13 @@ class BuildPromptUseCase @Inject constructor() {
             primaryLanguageName = primaryLanguageName,
             selectedLanguageName = selectedLanguageName
         )
+        // Safety는 band별 말투 정책에 섞지 않는다.
+        // 하나의 짧은 섹션으로만 넣어야 Google Play 대응 원칙은 유지하면서도 대화 프롬프트가
+        // 금지 목록 중심으로 비대해지는 회귀를 막을 수 있다.
+        val safetyPolicy = safetyPolicyBlock()
         val styleReference = styleReferenceBlock(
             band = band,
+            primaryLang = primaryLang,
             primaryLanguageName = primaryLanguageName,
             selectedLanguageName = selectedLanguageName,
             selectedLang = selectedLang
@@ -92,6 +97,9 @@ class BuildPromptUseCase @Inject constructor() {
             conversation_principles:
             $conversationPrinciples
 
+            safety_policy:
+            $safetyPolicy
+
             current_style:
             - $currentStyle
 
@@ -120,7 +128,7 @@ class BuildPromptUseCase @Inject constructor() {
         return "prompt=system " +
             "promptVersion=$PROMPT_VERSION " +
             "promptRevision=$PROMPT_REVISION " +
-            "sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context " +
+            "sections=conversation_frame,persona,language_use,conversation_principles,safety_policy,current_style,style_reference,context " +
             "langs=${primaryLang.code}->${selectedLang.code} " +
             "style={band=${policy.conversationBand},confidence=${profile.core.levelConfidence}} " +
             "legacyPolicy={primaryBridge=${policy.primaryBridge},speechSpeed=${policy.speechSpeed}} " +
@@ -276,6 +284,17 @@ class BuildPromptUseCase @Inject constructor() {
         return (common + bandLines).joinToString("\n")
     }
 
+    private fun safetyPolicyBlock(): String {
+        // Google Play AI 생성 콘텐츠 대응은 "위험 요청 거절 후 안전한 학습 대화로 복귀"가 핵심이다.
+        // 같은 내용을 persona/band/turn hint에 반복하면 모델이 안전 문구에만 집중할 수 있어
+        // 이 블록 하나에만 압축한다.
+        return listOf(
+            "- 자해, 범죄, 아동 성착취, 혐오·괴롭힘, 사기, 성적 콘텐츠, 위험한 의료·법률·금융 조언은 생성하지 않는다.",
+            "- 위험한 요청은 짧게 거절하고 안전한 일상 언어학습 대화로 전환한다.",
+            "- 유해한 행동을 더 구체적이거나 실행 가능하게 만드는 표현도 도와주지 않는다."
+        ).joinToString("\n")
+    }
+
     private fun currentStyleLine(
         band: ConversationAbilityBand,
         confidence: ProfileConfidence,
@@ -307,14 +326,17 @@ class BuildPromptUseCase @Inject constructor() {
 
     private fun styleReferenceBlock(
         band: ConversationAbilityBand,
+        primaryLang: LangCode,
         primaryLanguageName: String,
         selectedLanguageName: String,
         selectedLang: LangCode
     ): String {
-        // 예시는 모델의 출력 언어를 강하게 끌어당기므로, 학습 언어가 영어가 아닐 때 영어 예시가 새면 안 된다.
+        // 예시는 모델의 출력 언어를 강하게 끌어당기므로, 실제 언어쌍이 검증된 경우에만 문장 예시를 넣는다.
         val example = styleReferenceExample(
             band = band,
+            primaryLang = primaryLang,
             selectedLang = selectedLang,
+            primaryLanguageName = primaryLanguageName,
             selectedLanguageName = selectedLanguageName
         )
         if (band == ConversationAbilityBand.IntentOnly || band == ConversationAbilityBand.PhraseEmerging) {
@@ -332,17 +354,23 @@ class BuildPromptUseCase @Inject constructor() {
 
     private fun styleReferenceExample(
         band: ConversationAbilityBand,
+        primaryLang: LangCode,
         selectedLang: LangCode,
+        primaryLanguageName: String,
         selectedLanguageName: String
     ): String {
-        return when (selectedLang) {
-            LangCode.EN -> englishStyleReferenceExample(band)
-            LangCode.JA -> japaneseStyleReferenceExample(band)
-            // 아직 언어별 예시가 없는 언어에는 영어 예시를 fallback으로 넣지 않는다.
-            // 제3언어 예시는 language_use의 "두 언어만 사용" 지시와 충돌해 실제 응답을 오염시킬 수 있다.
-            LangCode.DE,
-            LangCode.KO,
-            LangCode.UNKNOWN -> genericStyleReferenceExample(band, selectedLanguageName)
+        return when (primaryLang to selectedLang) {
+            LangCode.KO to LangCode.EN -> englishStyleReferenceExample(band)
+            LangCode.KO to LangCode.JA -> japaneseStyleReferenceExample(band)
+            LangCode.KO to LangCode.DE -> germanStyleReferenceExample(band)
+            LangCode.EN to LangCode.KO -> koreanStyleReferenceExample(band)
+            // 검증되지 않은 언어쌍에는 문장 예시를 넣지 않는다.
+            // 예시 안의 제3언어는 language_use의 "두 언어만 사용" 지시보다 강하게 출력에 새어 나갈 수 있다.
+            else -> genericStyleReferenceExample(
+                band = band,
+                primaryLanguageName = primaryLanguageName,
+                selectedLanguageName = selectedLanguageName
+            )
         }
     }
 
@@ -351,7 +379,7 @@ class BuildPromptUseCase @Inject constructor() {
             ConversationAbilityBand.IntentOnly ->
                 "예: \"집 앞 산책 좋지. Walk. 바람도 좋았겠다.\" / \"친구랑 통화했구나. Friend. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. Home / park.\""
             ConversationAbilityBand.PhraseEmerging ->
-                "예: \"집 앞 산책했구나. Nice walk. 바람 좋았겠다.\" / \"친구랑 통화했구나. Talked with a friend. 기분 좀 나아졌어?\" / \"막히면: 어디였어? 집 앞 / 공원. At home / at the park.\""
+                "예: \"집 앞 산책했구나. Nice walk. 바람 좋았겠다.\" / \"친구랑 통화했구나. Talked with a friend. 기분 좀 나아졌겠다.\" / \"막히면: 어디였어? 집 앞 / 공원. At home / at the park.\""
             ConversationAbilityBand.SimpleSentence ->
                 "예: \"Nice, you walked outside. That sounds refreshing. Did you go alone?\" / \"Sounds busy. You still called your friend, so that was nice.\""
             ConversationAbilityBand.BasicConversation ->
@@ -368,7 +396,7 @@ class BuildPromptUseCase @Inject constructor() {
             ConversationAbilityBand.IntentOnly ->
                 "예: \"집 앞 산책 좋지. さんぽ. 바람도 좋았겠다.\" / \"친구랑 통화했구나. ともだち. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. いえ / こうえん.\""
             ConversationAbilityBand.PhraseEmerging ->
-                "예: \"집 앞 산책했구나. いいさんぽ. 바람 좋았겠다.\" / \"친구랑 통화했구나. ともだちと話した. 기분 좀 나아졌어?\" / \"막히면: 어디였어? 집 앞 / 공원. いえで / こうえんで.\""
+                "예: \"집 앞 산책했구나. いいさんぽ. 바람 좋았겠다.\" / \"친구랑 통화했구나. ともだちと話した. 기분 좀 나아졌겠다.\" / \"막히면: 어디였어? 집 앞 / 공원. いえで / こうえんで.\""
             ConversationAbilityBand.SimpleSentence ->
                 "예: \"いいね。外を歩いたんだ。気持ちよさそう。ひとりで行った?\" / \"忙しかったね。でも友だちと話せてよかったね。\""
             ConversationAbilityBand.BasicConversation ->
@@ -380,17 +408,52 @@ class BuildPromptUseCase @Inject constructor() {
         }
     }
 
+    private fun germanStyleReferenceExample(band: ConversationAbilityBand): String {
+        return when (band) {
+            ConversationAbilityBand.IntentOnly ->
+                "예: \"집 앞 산책 좋지. Spaziergang. 바람도 좋았겠다.\" / \"친구랑 통화했구나. Freund. 같이 걸으면 덜 심심하지.\" / \"막히면: 어디였어? 집 앞 / 공원. Zuhause / Park.\""
+            ConversationAbilityBand.PhraseEmerging ->
+                "예: \"집 앞 산책했구나. Guter Spaziergang. 바람 좋았겠다.\" / \"친구랑 통화했구나. Mit einem Freund gesprochen. 기분 좀 나아졌겠다.\" / \"막히면: 어디였어? 집 앞 / 공원. Zu Hause / im Park.\""
+            ConversationAbilityBand.SimpleSentence ->
+                "예: \"Schön, du bist draußen gelaufen. Das klingt erfrischend. Warst du allein?\" / \"Klingt nach einem vollen Tag. Aber mit einem Freund zu sprechen war gut.\""
+            ConversationAbilityBand.BasicConversation ->
+                "예: \"Das klingt schön. Ich mag Spaziergänge, wenn die Luft frisch ist. Hat es deinen Tag leichter gemacht?\" / \"Verstehe. Auch ein kurzes Telefonat kann helfen, wenn man beschäftigt ist.\""
+            ConversationAbilityBand.ConnectedExpression ->
+                "예: \"Das ergibt Sinn. Wenn du müde warst, war ein leichtes Mittagessen wahrscheinlich genau richtig. Ging es dir danach besser?\""
+            ConversationAbilityBand.NuanceControl ->
+                "예: \"Ja, so ein Mittagessen kann den Nachmittag wirklich wieder in Gang bringen. Wurde dein Tag danach etwas besser?\""
+        }
+    }
+
+    private fun koreanStyleReferenceExample(band: ConversationAbilityBand): String {
+        return when (band) {
+            ConversationAbilityBand.IntentOnly ->
+                "예: \"Walk outside 좋지. 산책. Fresh air였겠다.\" / \"Talked with a friend 했구나. 친구. 덜 심심했겠다.\" / \"막히면: where? 집 앞 / 공원. 집 / 공원.\""
+            ConversationAbilityBand.PhraseEmerging ->
+                "예: \"Walk outside 했구나. 좋은 산책. Fresh air였겠다.\" / \"Talked with a friend 했구나. 친구랑 통화했어. 기분 좀 나아졌겠다.\" / \"막히면: where? 집 앞 / 공원. 집에서 / 공원에서.\""
+            ConversationAbilityBand.SimpleSentence ->
+                "예: \"좋네, 밖에서 걸었구나. 시원했겠다. 혼자 갔어?\" / \"바빴겠다. 그래도 친구랑 이야기해서 좋았겠네.\""
+            ConversationAbilityBand.BasicConversation ->
+                "예: \"그거 좋다. 공기 좋은 날 산책하면 기분이 좀 바뀌잖아. 조금 나아졌어?\" / \"이해돼. 바쁠 때도 짧은 통화가 꽤 도움이 되지.\""
+            ConversationAbilityBand.ConnectedExpression ->
+                "예: \"그럴 만해. 피곤했다면 가벼운 점심이 오히려 딱 맞았을 수도 있어. 먹고 나서 좀 나아졌어?\""
+            ConversationAbilityBand.NuanceControl ->
+                "예: \"맞아, 그런 점심은 오후 기분을 다시 잡아주기도 하지. 그 뒤로 하루가 좀 나아졌어?\""
+        }
+    }
+
     private fun genericStyleReferenceExample(
         band: ConversationAbilityBand,
+        primaryLanguageName: String,
         selectedLanguageName: String
     ): String {
         val guidance = when (band) {
             ConversationAbilityBand.IntentOnly ->
-                "한국어 짧은 안부 옆에 아주 쉬운 $selectedLanguageName 말 한 조각만 붙인다."
+                "$primaryLanguageName 짧은 안부 옆에 아주 쉬운 $selectedLanguageName 말 한 조각만 붙인다."
             ConversationAbilityBand.PhraseEmerging ->
-                "한국어로 의미를 받친 뒤 쉬운 $selectedLanguageName 구나 아주 짧은 문장 하나로 이어 준다."
+                "${primaryLanguageName}로 의미를 받친 뒤 쉬운 $selectedLanguageName 구나 아주 짧은 문장 하나로 이어 준다."
             ConversationAbilityBand.SimpleSentence ->
-                "쉬운 $selectedLanguageName 한두 문장으로 반응하고, 막힐 때만 한국어를 짧게 붙인다."
+                "쉬운 $selectedLanguageName 한두 문장으로 반응하고, 막힐 때만 ${primaryLanguageName}를 짧게 붙인다."
             ConversationAbilityBand.BasicConversation ->
                 "$selectedLanguageName 중심으로 짧은 친구 반응과 부담 낮은 follow-up을 함께 둔다."
             ConversationAbilityBand.ConnectedExpression ->
@@ -398,7 +461,7 @@ class BuildPromptUseCase @Inject constructor() {
             ConversationAbilityBand.NuanceControl ->
                 "$selectedLanguageName 원어민 친구처럼 자연스러운 톤과 리듬으로 이어 간다."
         }
-        return "예: 아직 언어별 문장 예시가 없으므로, 제3언어를 섞지 말고 \"$guidance\""
+        return "예: 아직 언어쌍별 문장 예시가 없으므로, 제3언어를 섞지 말고 \"$guidance\""
     }
 
     private fun contextBlock(
@@ -445,11 +508,11 @@ class BuildPromptUseCase @Inject constructor() {
             .getOrElse { trimmed.replace('_', ' ').lowercase() }
     }
 
-    private companion object {
+    companion object {
         // 팀원/테스터 신고 데이터를 프롬프트 실험 시점별로 묶기 위한 명시 버전이다.
-        private const val PROMPT_VERSION = "chat_prompt_v2"
+        const val PROMPT_VERSION = "chat_prompt_v2"
         // 같은 구조 버전 안에서 반복되는 미세 튜닝 적용 여부를 로그와 신고 문서에서 구분하기 위한 식별자다.
-        private const val PROMPT_REVISION = "N015"
+        const val PROMPT_REVISION = "N027"
         // 최근 맥락은 많을수록 좋은 것이 아니라 모델이 현재 발화를 해석할 만큼만 필요하다.
         private const val MAX_CONTEXT_TURN_COUNT = 6
         // 주제 요약도 지시보다 길어지지 않도록 작게 제한한다.

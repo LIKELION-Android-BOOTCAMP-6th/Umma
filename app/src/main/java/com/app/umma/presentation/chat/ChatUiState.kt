@@ -1,9 +1,11 @@
 package com.app.umma.presentation.chat
 
+import com.app.umma.domain.model.chat.AiContentReportContextTurn
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.user.Topic
-import com.app.umma.watchbridge.SessionOwner
+import com.app.umma.watchbridge.contract.WatchInputSurface
+import com.app.umma.watchbridge.contract.WatchOutputSurface
 
 /**
  * AI Chat 화면의 UI 상태를 정의하는 데이터 클래스입니다.
@@ -36,6 +38,11 @@ import com.app.umma.watchbridge.SessionOwner
  * @property showPromptReviewReportButton 개발용 프롬프트 리뷰 신고 버튼 노출 여부
  * @property isPromptReviewReporting 신고 요청 중복 클릭 방지 상태
  * @property hasPromptReviewReported 현재 화면 세션에서 이미 신고가 완료됐는지 여부
+ * @property reportableAiTurnId 운영용 신고 대상이 될 수 있는 가장 최근 AI final turnId
+ * @property reportContextTurns 운영 신고에 함께 저장할 최근 final turn snapshot
+ * @property isAiContentReporting 운영용 AI 콘텐츠 신고 중복 요청 방지 상태
+ * @property reportedAiContentTurnIds 현재 화면 세션에서 이미 운영 신고가 완료된 AI turnId 목록
+ * @property aiContentReportErrorMessage 운영 신고 실패를 Chat 오류와 분리해 표시하기 위한 메시지
  * @property errorMessage 세션 오류 메시지
  */
 data class ChatUiState(
@@ -81,8 +88,39 @@ data class ChatUiState(
     val showPromptReviewReportButton: Boolean = false,
     val isPromptReviewReporting: Boolean = false,
     val hasPromptReviewReported: Boolean = false,
-    val sessionOwner: SessionOwner = SessionOwner.NONE,
+    val reportableAiTurnId: String? = null,
+    val reportableAiSessionId: String? = null,
+    val reportContextTurns: List<AiContentReportContextTurn> = emptyList(),
+    val isAiContentReporting: Boolean = false,
+    val reportedAiContentTurnIds: Set<String> = emptySet(),
+    val aiContentReportErrorMessage: String? = null,
+    val watchAttached: Boolean = false,
+    val activeInputSurface: WatchInputSurface = WatchInputSurface.NONE,
+    val activeOutputSurface: WatchOutputSurface = WatchOutputSurface.PHONE,
 ) {
+    /**
+     * 운영용 AI 콘텐츠 신고 버튼 활성 조건입니다.
+     *
+     * 신고 대상은 Google Play 대응 목적상 "확정된 AI final 응답"이어야 하므로,
+     * partial transcript나 아직 응답이 없는 세션에서는 비활성화한다.
+     */
+    val canReportAiContent: Boolean
+        get() {
+            val turnId = reportableAiTurnId ?: return false
+            return !isAiContentReporting && !reportedAiContentTurnIds.contains(turnId)
+        }
+
+    /**
+     * 현재 신고 대상 AI 응답이 이미 접수됐는지 여부입니다.
+     *
+     * 버튼 문구를 "접수됨"으로 유지하기 위한 presentation 전용 파생 상태다.
+     */
+    val hasReportedCurrentAiContent: Boolean
+        get() {
+            val turnId = reportableAiTurnId ?: return false
+            return reportedAiContentTurnIds.contains(turnId)
+        }
+
     /**
      * 유저가 발화를 시작할 수 있는 경우 ->
      * 현재 세션 준비가 되었고 녹음중이 아니고 AI가 말, 생각, 재연결 상태가 아닐 때
@@ -97,7 +135,8 @@ data class ChatUiState(
                 && aiState != AIState.SPEAKING
                 && aiState != AIState.THINKING
                 && aiState != AIState.RECONNECTING
-                && sessionOwner != SessionOwner.WATCH
+                && !watchAttached
+                && activeInputSurface != WatchInputSurface.WATCH
 
     /**
      * 유저가 발화를 끝낼 수 있는 경우 ->

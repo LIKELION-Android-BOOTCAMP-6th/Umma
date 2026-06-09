@@ -81,6 +81,7 @@ class ChatPromptIntegrationUseCaseTest {
         assertTrue(chatRepository.startedInstruction.contains("persona:"))
         assertTrue(chatRepository.startedInstruction.contains("language_use:"))
         assertTrue(chatRepository.startedInstruction.contains("conversation_principles:"))
+        assertTrue(chatRepository.startedInstruction.contains("safety_policy:"))
         assertTrue(chatRepository.startedInstruction.contains("current_style:"))
         assertTrue(chatRepository.startedInstruction.contains("style_reference:"))
         assertTrue(chatRepository.startedInstruction.contains("learning_language: 영어"))
@@ -95,12 +96,13 @@ class ChatPromptIntegrationUseCaseTest {
 
         // trace는 prompt 전문 없이 현재 버전과 섹션만 남겨 Logcat/리뷰 도구에서 구조를 확인하게 한다.
         assertTrue(chatRepository.startedPromptTrace!!.contains("promptVersion=chat_prompt_v2"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N015"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("transcription={revision=stt_prompt_v1,languages=ko+en}"))
-        assertTrue(chatRepository.startedPromptTrace!!.contains("sections=conversation_frame,persona,language_use,conversation_principles,current_style,style_reference,context"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("promptRevision=N027"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("transcription={revision=stt_prompt_v2,languages=ko+en}"))
+        assertTrue(chatRepository.startedPromptTrace!!.contains("sections=conversation_frame,persona,language_use,conversation_principles,safety_policy,current_style,style_reference,context"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("context={turns=1,topics=1,interests=2}"))
         assertTrue(chatRepository.startedPromptTrace!!.contains("conversationEvidence={applied=false,band=IntentOnly,source=none}"))
-        assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("The user may mix Korean, English within the same sentence."))
+        assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("A single utterance may contain Korean, English."))
+        assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("Do not force the whole utterance into one language."))
         assertTrue(chatRepository.startedTranscriptionPrompt!!.contains("Do not translate between languages."))
     }
 
@@ -200,7 +202,7 @@ class ChatPromptIntegrationUseCaseTest {
         assertEquals(startRepository.startedOutputAudioSpeed!!, retryRepository.reconnectedOutputAudioSpeed!!, 0.0)
         assertTrue(startRepository.startedPromptTrace!!.contains("conversationEvidence="))
         assertFalse(retryRepository.reconnectedPromptTrace!!.contains("conversationEvidence="))
-        assertTrue(retryRepository.reconnectedPromptTrace!!.contains("transcription={revision=stt_prompt_v1"))
+        assertTrue(retryRepository.reconnectedPromptTrace!!.contains("transcription={revision=stt_prompt_v2"))
     }
 
     @Test
@@ -327,6 +329,8 @@ class ChatPromptIntegrationUseCaseTest {
         override suspend fun preload(): Result<Unit> = Result.success(Unit)
 
         override suspend fun changeSelectedLang(lang: LangCode): Result<Unit> = Result.success(Unit)
+
+        override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> = Result.success(Unit)
 
         override suspend fun updateLanguageState(input: LangStateUpdateInput): Result<LearningStateUpdateResult> {
             return Result.failure(UnsupportedOperationException("not used in chat prompt integration tests"))

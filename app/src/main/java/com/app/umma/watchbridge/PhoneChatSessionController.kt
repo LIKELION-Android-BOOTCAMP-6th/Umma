@@ -8,6 +8,8 @@ import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.usecase.chat.RetryConnectionResult
 import com.app.umma.watchbridge.contract.WatchBridgeErrorCode
 import com.app.umma.watchbridge.contract.WatchChatStatus
+import com.app.umma.watchbridge.contract.WatchInputSurface
+import com.app.umma.watchbridge.contract.WatchOutputSurface
 import com.app.umma.watchbridge.contract.WatchRecentTurn
 import com.app.umma.watchbridge.contract.WatchTurnRole
 import javax.inject.Inject
@@ -38,89 +40,137 @@ class PhoneChatSessionController @Inject constructor(
 
     fun currentSnapshot(): PhoneChatSessionSnapshot = snapshot.value
 
-    /**
-     * 현재 앱 레벨 세션의 학습 언어를 반환합니다.
-     *
-     * 세션 종료 후 분석처럼 sessionId와 language를 함께 캡처해야 하는 경계에서만 사용하고,
-     * Chat 정책 해석은 domain usecase가 담당한다.
-     */
     fun getCurrentSessionLang() = runtime.getCurrentSessionLang()
 
-    fun tryAcquireOwner(owner: SessionOwner): Boolean {
-        val currentOwner = snapshot.value.owner
-        if (currentOwner != SessionOwner.NONE && currentOwner != owner) {
-            Log.d(TAG, "tryAcquireOwner rejected: requested=$owner current=$currentOwner")
-            return false
+    fun setAppForeground(isForeground: Boolean) {
+        _snapshot.update {
+            val next = it.copy(appInForeground = isForeground)
+            next.withResolvedOutputSurface()
         }
-        _snapshot.update { it.copy(owner = owner) }
-        Log.d(TAG, "tryAcquireOwner success: requested=$owner")
+        Log.d(TAG, "setAppForeground: isForeground=$isForeground")
+    }
+
+    fun setChatRouteVisible(isVisible: Boolean) {
+        _snapshot.update {
+            val next = it.copy(chatRouteVisible = isVisible)
+            next.withResolvedOutputSurface()
+        }
+        Log.d(TAG, "setChatRouteVisible: isVisible=$isVisible")
+    }
+
+    fun attachWatch(): Boolean {
+        val current = snapshot.value
+        if (!current.isWarmForWatch) return false
+        _snapshot.update {
+            it.copy(
+                watchAttached = true
+            ).withResolvedOutputSurface()
+        }
+        Log.d(TAG, "attachWatch success: sessionId=${snapshot.value.activeSessionId}")
         return true
     }
 
-    fun releaseOwner(owner: SessionOwner) {
-        if (snapshot.value.owner != owner) return
+    fun detachWatch() {
         _snapshot.update {
             it.copy(
-                owner = SessionOwner.NONE,
-                isWatchRecording = false
-            )
+                watchAttached = false,
+                activeInputSurface = if (it.activeInputSurface == WatchInputSurface.WATCH) {
+                    WatchInputSurface.NONE
+                } else {
+                    it.activeInputSurface
+                }
+            ).withResolvedOutputSurface()
         }
-        Log.d(TAG, "releaseOwner: released=$owner")
+        Log.d(TAG, "detachWatch")
+    }
+
+    fun canWatchStartUserTurn(): Boolean {
+        val current = snapshot.value
+        return current.watchAttached &&
+            current.isWarmForWatch &&
+            current.activeInputSurface != WatchInputSurface.PHONE
+    }
+
+    fun canPhoneStartUserTurn(): Boolean {
+        val current = snapshot.value
+        return !current.watchAttached && current.activeInputSurface != WatchInputSurface.WATCH
+    }
+
+    fun markWatchRecording(isRecording: Boolean) {
+        val current = snapshot.value
+        if (!current.watchAttached) {
+            Log.d(TAG, "markWatchRecording ignored: watch is detached")
+            return
+        }
+        _snapshot.update {
+            it.copy(
+                activeInputSurface = if (isRecording) WatchInputSurface.WATCH else WatchInputSurface.NONE,
+                status = if (isRecording) WatchChatStatus.RECORDING else statusFromAiState(AIState.IDLE)
+            ).withResolvedOutputSurface()
+        }
+        Log.d(TAG, "markWatchRecording: isRecording=$isRecording")
+    }
+
+    fun markPhoneRecording(isRecording: Boolean) {
+        if (isRecording && snapshot.value.watchAttached) {
+            Log.d(TAG, "markPhoneRecording ignored: watch is attached")
+            return
+        }
+        _snapshot.update {
+            val nextInputSurface = when {
+                isRecording -> WatchInputSurface.PHONE
+                it.activeInputSurface == WatchInputSurface.PHONE -> WatchInputSurface.NONE
+                else -> it.activeInputSurface
+            }
+            it.copy(activeInputSurface = nextInputSurface).withResolvedOutputSurface()
+        }
+        Log.d(TAG, "markPhoneRecording: isRecording=$isRecording")
     }
 
     suspend fun startSession(owner: SessionOwner): Result<String> {
         Log.d(TAG, "startSession requested by owner=$owner")
-        if (!tryAcquireOwner(owner)) {
-            return Result.failure(IllegalStateException("Session is controlled by another surface."))
-        }
         val result = runtime.startSession()
         syncRepositoryState()
-        if (result.isFailure) {
-            releaseOwner(owner)
-        }
-        Log.d(
-            TAG,
-            "startSession result: owner=$owner success=${result.isSuccess} sessionId=${runtime.getActiveSessionId()}"
-        )
+        markPhoneRecording(false)
         return result
     }
 
     suspend fun retryConnection(owner: SessionOwner): RetryConnectionResult {
         Log.d(TAG, "retryConnection requested by owner=$owner")
-        if (!tryAcquireOwner(owner)) {
-            return RetryConnectionResult.Failed("Session is controlled by another surface.")
-        }
         val result = runtime.retryConnection()
         syncRepositoryState()
-        if (result is RetryConnectionResult.Failed || result is RetryConnectionResult.RequireNewSession) {
-            releaseOwner(owner)
-        }
-        Log.d(
-            TAG,
-            "retryConnection result: owner=$owner result=${result::class.simpleName} sessionId=${runtime.getActiveSessionId()}"
-        )
         return result
     }
 
     suspend fun stopSession(owner: SessionOwner, clearAppSession: Boolean) {
-        if (snapshot.value.owner != owner && snapshot.value.owner != SessionOwner.NONE) {
-            Log.d(
-                TAG,
-                "stopSession ignored: requester=$owner currentOwner=${snapshot.value.owner}"
-            )
-            return
-        }
         runtime.stopSession(clearAppSession = clearAppSession)
-        syncRepositoryState(statusOverride = WatchChatStatus.IDLE)
-        releaseOwner(owner)
+        _snapshot.update {
+            it.copy(
+                status = WatchChatStatus.IDLE,
+                activeSessionId = if (clearAppSession) null else runtime.getActiveSessionId(),
+                currentLang = runtime.getCurrentSessionLang(),
+                watchAttached = false,
+                activeInputSurface = WatchInputSurface.NONE,
+                replayAvailable = false,
+                errorCode = null,
+                errorMessage = null,
+                recoverableError = false
+            ).withResolvedOutputSurface()
+        }
         Log.d(TAG, "stopSession completed: owner=$owner clearAppSession=$clearAppSession")
     }
 
     suspend fun sendAudioData(owner: SessionOwner, audio: ByteArray): Boolean {
-        if (snapshot.value.owner != owner) {
+        val current = snapshot.value
+        val expectedSurface = if (owner == SessionOwner.WATCH) {
+            WatchInputSurface.WATCH
+        } else {
+            WatchInputSurface.PHONE
+        }
+        if (current.activeInputSurface != expectedSurface) {
             Log.d(
                 TAG,
-                "sendAudioData rejected: requester=$owner currentOwner=${snapshot.value.owner}"
+                "sendAudioData rejected: requester=$owner currentInputSurface=${current.activeInputSurface}"
             )
             return false
         }
@@ -130,52 +180,77 @@ class PhoneChatSessionController @Inject constructor(
     }
 
     fun endUserTurn(owner: SessionOwner, durationMs: Long?): Boolean {
-        if (snapshot.value.owner != owner) {
+        val current = snapshot.value
+        val expectedSurface = if (owner == SessionOwner.WATCH) {
+            WatchInputSurface.WATCH
+        } else {
+            WatchInputSurface.PHONE
+        }
+        if (current.activeInputSurface != expectedSurface) {
             Log.d(
                 TAG,
-                "endUserTurn rejected: requester=$owner currentOwner=${snapshot.value.owner}"
+                "endUserTurn rejected: requester=$owner currentInputSurface=${current.activeInputSurface}"
             )
             return false
         }
         runtime.endUserTurn(durationMs)
-        if (owner == SessionOwner.WATCH) {
-            _snapshot.update { it.copy(isWatchRecording = false) }
+        _snapshot.update {
+            it.copy(
+                activeInputSurface = WatchInputSurface.NONE,
+                status = WatchChatStatus.THINKING
+            ).withResolvedOutputSurface()
         }
         Log.d(TAG, "endUserTurn accepted: owner=$owner durationMs=$durationMs")
         return true
     }
 
     fun cancelPendingUserTurn(owner: SessionOwner): Boolean {
-        if (snapshot.value.owner != owner) {
+        val current = snapshot.value
+        val expectedSurface = if (owner == SessionOwner.WATCH) {
+            WatchInputSurface.WATCH
+        } else {
+            WatchInputSurface.PHONE
+        }
+        if (current.activeInputSurface != expectedSurface && current.activeInputSurface != WatchInputSurface.NONE) {
             Log.d(
                 TAG,
-                "cancelPendingUserTurn rejected: requester=$owner currentOwner=${snapshot.value.owner}"
+                "cancelPendingUserTurn rejected: requester=$owner currentInputSurface=${current.activeInputSurface}"
             )
             return false
         }
         runtime.cancelPendingUserTurn()
-        if (owner == SessionOwner.WATCH) {
-            _snapshot.update { it.copy(isWatchRecording = false) }
+        _snapshot.update {
+            it.copy(
+                activeInputSurface = WatchInputSurface.NONE,
+                status = if (it.activeSessionId != null) WatchChatStatus.READY else WatchChatStatus.IDLE
+            ).withResolvedOutputSurface()
         }
         Log.d(TAG, "cancelPendingUserTurn accepted: owner=$owner")
         return true
     }
 
-    fun markWatchRecording(isRecording: Boolean) {
-        if (snapshot.value.owner != SessionOwner.WATCH) {
-            Log.d(
-                TAG,
-                "markWatchRecording ignored: currentOwner=${snapshot.value.owner} requested=$isRecording"
-            )
+    fun recoverWatchInputTimeout() {
+        val current = snapshot.value
+        if (current.activeInputSurface != WatchInputSurface.WATCH) {
             return
         }
+        runtime.cancelPendingUserTurn()
         _snapshot.update {
             it.copy(
-                isWatchRecording = isRecording,
-                status = if (isRecording) WatchChatStatus.RECORDING else statusFromAiState(AIState.IDLE)
-            )
+                activeInputSurface = WatchInputSurface.NONE,
+                status = if (it.activeSessionId != null) WatchChatStatus.READY else WatchChatStatus.IDLE,
+                recoverableError = true,
+                errorCode = WatchBridgeErrorCode.RECOVERABLE_ERROR,
+                errorMessage = "Watch input timed out before turn completion."
+            ).withResolvedOutputSurface()
         }
-        Log.d(TAG, "markWatchRecording: isRecording=$isRecording")
+        Log.w(TAG, "recoverWatchInputTimeout")
+    }
+
+    fun releaseOwner(owner: SessionOwner) {
+        if (owner == SessionOwner.WATCH) {
+            detachWatch()
+        }
     }
 
     private fun syncRepositoryState(statusOverride: WatchChatStatus? = null) {
@@ -184,7 +259,7 @@ class PhoneChatSessionController @Inject constructor(
                 activeSessionId = runtime.getActiveSessionId(),
                 currentLang = runtime.getCurrentSessionLang(),
                 status = statusOverride ?: it.status
-            )
+            ).withResolvedOutputSurface()
         }
     }
 
@@ -201,7 +276,7 @@ class PhoneChatSessionController @Inject constructor(
                         recoverableError = false,
                         errorCode = null,
                         errorMessage = null
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
@@ -209,13 +284,17 @@ class PhoneChatSessionController @Inject constructor(
                 Log.d(TAG, "applyEvent Initialized sessionId=${event.sessionId}")
                 _snapshot.update {
                     it.copy(
-                        status = if (it.isWatchRecording) WatchChatStatus.RECORDING else WatchChatStatus.READY,
+                        status = if (it.activeInputSurface == WatchInputSurface.WATCH) {
+                            WatchChatStatus.RECORDING
+                        } else {
+                            WatchChatStatus.READY
+                        },
                         activeSessionId = event.sessionId,
                         currentLang = runtime.getCurrentSessionLang(),
                         recoverableError = false,
                         errorCode = null,
                         errorMessage = null
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
@@ -234,25 +313,27 @@ class PhoneChatSessionController @Inject constructor(
                         activeSessionId = event.sessionId,
                         currentLang = event.sessionLang,
                         recentTurns = (it.recentTurns + recentTurn).takeLast(MAX_RECENT_TURNS)
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
             is AIEvent.AudioResponse -> {
                 Log.v(TAG, "applyEvent AudioResponse bytes=${event.audio.size}")
-                _snapshot.update { it.copy(replayAvailable = true) }
+                _snapshot.update {
+                    it.copy(replayAvailable = true).withResolvedOutputSurface()
+                }
             }
 
             is AIEvent.StateChanged -> {
                 Log.d(TAG, "applyEvent StateChanged state=${event.state}")
                 _snapshot.update {
                     it.copy(
-                        status = if (it.isWatchRecording) {
+                        status = if (it.activeInputSurface == WatchInputSurface.WATCH) {
                             WatchChatStatus.RECORDING
                         } else {
                             statusFromAiState(event.state)
                         }
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
@@ -271,7 +352,7 @@ class PhoneChatSessionController @Inject constructor(
                             WatchBridgeErrorCode.TERMINAL_ERROR
                         },
                         errorMessage = event.message
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
@@ -279,13 +360,17 @@ class PhoneChatSessionController @Inject constructor(
                 Log.d(TAG, "applyEvent Reconnected sessionId=${event.sessionId}")
                 _snapshot.update {
                     it.copy(
-                        status = if (it.isWatchRecording) WatchChatStatus.RECORDING else WatchChatStatus.READY,
+                        status = if (it.activeInputSurface == WatchInputSurface.WATCH) {
+                            WatchChatStatus.RECORDING
+                        } else {
+                            WatchChatStatus.READY
+                        },
                         activeSessionId = event.sessionId,
                         currentLang = runtime.getCurrentSessionLang(),
                         recoverableError = false,
                         errorCode = null,
                         errorMessage = null
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
@@ -304,7 +389,7 @@ class PhoneChatSessionController @Inject constructor(
                             WatchBridgeErrorCode.TERMINAL_ERROR
                         },
                         errorMessage = event.message
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
@@ -316,13 +401,24 @@ class PhoneChatSessionController @Inject constructor(
                         recoverableError = false,
                         errorCode = WatchBridgeErrorCode.UNKNOWN,
                         errorMessage = event.message
-                    )
+                    ).withResolvedOutputSurface()
                 }
             }
 
             is AIEvent.ChatUsageReported,
             is AIEvent.PartialTranscription -> Unit
         }
+    }
+
+    private fun PhoneChatSessionSnapshot.withResolvedOutputSurface(): PhoneChatSessionSnapshot {
+        val nextOutputSurface = when {
+            !watchAttached -> WatchOutputSurface.PHONE
+            else -> WatchOutputSurface.WATCH
+        }
+        return copy(
+            owner = SessionOwner.PHONE,
+            activeOutputSurface = nextOutputSurface
+        )
     }
 
     private fun statusFromAiState(state: AIState): WatchChatStatus {

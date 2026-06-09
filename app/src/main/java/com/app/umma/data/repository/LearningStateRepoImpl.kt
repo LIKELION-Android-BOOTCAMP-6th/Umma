@@ -17,17 +17,17 @@ import com.app.umma.data.model.learningstate.toDto
 import com.app.umma.data.source.remote.LearningStateRemote
 import com.app.umma.data.source.remote.LearningStateRemoteDataSource
 import com.app.umma.data.source.remote.LearningStateRemoteUpdate
-import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
+import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
-import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
+import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.UserLangPref
@@ -39,9 +39,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Preferences DataStore + in-memory snapshot을 함께 쓰는 학습 상태 저장소 구현체.
@@ -119,7 +119,8 @@ class LearningStateRepoImpl @Inject constructor(
             val normalizedPref = if (existingPref != null) {
                 existingPref.copy(
                     selectedLang = lang,
-                    learningLangs = existingPref.learningLangs.toMutableSet().apply { add(lang) }.toList()
+                    learningLangs = existingPref.learningLangs.toMutableSet().apply { add(lang) }
+                        .toList()
                 )
             } else {
                 UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang)
@@ -131,6 +132,46 @@ class LearningStateRepoImpl @Inject constructor(
                 dashSummaries = current.dashSummaries.ensureDashSummary(lang),
                 sessionSummaries = current.sessionSummaries.ensureSessionSummary(lang),
                 flashcardSummaries = current.flashcardSummaries.ensureFlashcardSummary(lang),
+                isPreloaded = true
+            )
+        }
+    }
+
+    /**
+     * 주언어(primaryLang)를 변경한다.
+     *
+     * 로컬(DataStore)에는 즉시 반영하고, Firestore 전송은 pending key만 남긴다.
+     * 실제 서버 반영은 호출자가 sync()를 부를 때 일어난다. (local-first)
+     *
+     * userPref가 메모리에 없을 수 있는 진입 경로(MyPage 등)를 위한 방어:
+     * DataStore -> Firestore 순으로 복원을 시도한다. 보통은 화면 진입 시 preload로
+     * 이미 채워져 있어 이 fallback은 거의 타지 않는다.
+     */
+    override suspend fun changePrimaryLang(lang: LangCode): Result<Unit> {
+        // 메모리 비어 있다면 DataStore에서 복원 시도
+        if (_state.value.userPref == null) {
+            preload().getOrElse { return Result.failure(it) }
+        }
+        // 여전히 null 이면 Firestore에서 fetch 시도
+        if (_state.value.userPref == null) {
+            sync().getOrElse { return Result.failure(it) }
+        }
+        val currentPref = _state.value.userPref
+            ?: return Result.failure(IllegalStateException("UserLangPref is required"))
+
+        if (currentPref.primaryLang == lang) {
+            return Result.success(Unit)
+        }
+
+        return persistStateSafely(
+            addPendingSyncKeys = setOf(PendingSyncKey.userPref())
+        ) { current ->
+            val userPref = current.userPref ?: return@persistStateSafely current
+            current.copy(
+                userPref = userPref.copy(
+                    primaryLang = lang,
+                    updatedAt = System.currentTimeMillis()
+                ),
                 isPreloaded = true
             )
         }
@@ -154,7 +195,7 @@ class LearningStateRepoImpl @Inject constructor(
             ) {
                 LearningSignalFlowLog.d(
                     "store_skipped_duplicate lang=${lang.code} eventId=${input.analysisEventId} " +
-                        "signals=${input.correctionResult?.learningSignals?.size ?: 0}"
+                            "signals=${input.correctionResult?.learningSignals?.size ?: 0}"
                 )
                 return Result.success(
                     LearningStateUpdateResult(
@@ -191,7 +232,8 @@ class LearningStateRepoImpl @Inject constructor(
                     // 교정 완료 흐름이 새 주제를 넘겨준 경우에만 갱신하고, 그 외 부분 갱신 호출은 이전 값을 보존한다.
                     // updateCorrectionSignal 의 같은 패턴(L336)을 따라 dash/session 양쪽에 같은 값을 기록해
                     //   Dashboard 카드와 Chat 진입 시 주제가 어긋나지 않게 한다.
-                    val nextTopic = input.recentTopic ?: updatedSession.recentTopic ?: updatedDash.recentTopic
+                    val nextTopic =
+                        input.recentTopic ?: updatedSession.recentTopic ?: updatedDash.recentTopic
                     nextDash = updatedDash.copy(
                         recentMinutes = measuredMinutes,
                         recentTopic = nextTopic,
@@ -215,6 +257,7 @@ class LearningStateRepoImpl @Inject constructor(
                     )
                     correctionAvailableForLog = correctionAvailable
                 }
+
                 LangStateSummaryUpdatePolicy.PreserveExisting -> {
                     // Chat evidence는 공식 LangState 근거만 누적한다.
                     // Summary를 함께 갱신하면 recentMinutes/correctionAvailable 같은 화면 요약이 분석 turn payload에 의해 오염된다.
@@ -239,13 +282,13 @@ class LearningStateRepoImpl @Inject constructor(
             _state.value = nextState
 
             LearningSignalFlowLog.d(
-                    "store_success lang=${lang.code} eventId=${input.analysisEventId ?: "none"} " +
+                "store_success lang=${lang.code} eventId=${input.analysisEventId ?: "none"} " +
                         "applied=true signals=${input.correctionResult?.learningSignals?.size ?: 0} " +
-                    "pendingKeys=${pendingSyncKeys.size} " +
-                    "summaryPolicy=${input.summaryUpdatePolicy} " +
-                    "correctionAvailable=${correctionAvailableForLog ?: "preserved"} " +
-                    "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
-                    "focus=${preparedState.analysisMeta.activeFocus.size}"
+                        "pendingKeys=${pendingSyncKeys.size} " +
+                        "summaryPolicy=${input.summaryUpdatePolicy} " +
+                        "correctionAvailable=${correctionAvailableForLog ?: "preserved"} " +
+                        "evidence=${preparedState.analysisMeta.metricEvidence.size} " +
+                        "focus=${preparedState.analysisMeta.activeFocus.size}"
             )
 
             Result.success(
@@ -260,7 +303,7 @@ class LearningStateRepoImpl @Inject constructor(
         } catch (e: Exception) {
             LearningSignalFlowLog.w(
                 "store_failed lang=${input.lang.code} eventId=${input.analysisEventId ?: "none"} " +
-                    "signals=${input.correctionResult?.learningSignals?.size ?: 0} reason=${e::class.simpleName}",
+                        "signals=${input.correctionResult?.learningSignals?.size ?: 0} reason=${e::class.simpleName}",
                 e
             )
             Result.failure(e)
@@ -277,7 +320,8 @@ class LearningStateRepoImpl @Inject constructor(
         return try {
             val current = _state.value
             val lang = input.lang
-            val previousFlashcard = current.flashcardSummaries[lang] ?: FlashcardSummary.initial(lang)
+            val previousFlashcard =
+                current.flashcardSummaries[lang] ?: FlashcardSummary.initial(lang)
             val previousDash = current.dashSummaries[lang] ?: DashSummary.initial(lang)
 
             // SRS가 계산한 원본 수치를 FlashcardSummary와 Dashboard Summary에 같은 값으로 반영한다.
@@ -383,7 +427,8 @@ class LearningStateRepoImpl @Inject constructor(
             }
 
             val nextMinutes = input.recentMinutes ?: previousSession.recentMinutes
-            val nextTopic = input.recentTopic ?: previousSession.recentTopic ?: previousDash.recentTopic
+            val nextTopic =
+                input.recentTopic ?: previousSession.recentTopic ?: previousDash.recentTopic
 
             // correctionAvailable 값은 UseCase/caller가 결정한 정책 입력이다.
             // Repository는 true를 하드코딩하지 않고 두 summary에 같은 값을 저장만 한다.

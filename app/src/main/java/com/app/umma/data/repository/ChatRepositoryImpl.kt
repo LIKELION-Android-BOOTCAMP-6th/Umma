@@ -3,6 +3,7 @@ package com.app.umma.data.repository
 import android.util.Base64
 import android.util.Log
 import com.app.umma.BuildConfig
+import com.app.umma.data.source.remote.FirebaseAppCheckTokenProvider
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewEvent
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewEventType
 import com.app.umma.devtools.chatpromptreview.ChatPromptReviewRepository
@@ -67,6 +68,7 @@ import okhttp3.WebSocketListener
 @Singleton
 class ChatRepositoryImpl @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
+    private val appCheckTokenProvider: FirebaseAppCheckTokenProvider,
     private val chatPromptReviewRepository: ChatPromptReviewRepository
 ) : ChatRepository, ChatPromptReviewSessionReporter {
 
@@ -1383,14 +1385,21 @@ class ChatRepositoryImpl @Inject constructor(
     private suspend fun fetchRealtimeToken(): String = withContext(Dispatchers.IO) {
         // endpoint 는 Firebase Cloud Function 이며, OpenAI API key 는 서버 Secret Manager 에만 있다.
         val firebaseIdToken = fetchFirebaseIdToken()
+        // OkHttp로 호출하는 onRequest Function은 Firebase SDK 자동 App Check 부착 대상이 아니다.
+        // 서버가 "로그인한 사용자"뿐 아니라 "우리 앱에서 온 요청"인지도 검증할 수 있도록 token을 직접 붙인다.
+        val appCheckToken = appCheckTokenProvider.fetchOptionalToken(REALTIME_TOKEN_REQUEST_NAME)
         val body = "{}".toRequestBody(JSON_MEDIA_TYPE)
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(BuildConfig.OPENAI_REALTIME_TOKEN_URL)
             .post(body)
             // CHAT-ENGINE-001-A: token endpoint 는 Firebase 로그인 사용자에게만 short-lived client secret 을 발급한다.
             // Android 앱에는 OpenAI API key 를 두지 않고, Firebase ID token 만 bearer 로 전달한다.
             .addHeader("Authorization", "Bearer $firebaseIdToken")
-            .build()
+        // App Check enforcement를 켜기 전까지는 token 획득 실패가 앱 흐름을 막지 않도록 header만 조건부로 붙인다.
+        appCheckToken?.let { token ->
+            requestBuilder.addHeader(FirebaseAppCheckTokenProvider.HEADER_NAME, token)
+        }
+        val request = requestBuilder.build()
 
         client.newCall(request).execute().use { response ->
             val responseBody = response.body.string()
@@ -1587,6 +1596,7 @@ class ChatRepositoryImpl @Inject constructor(
         const val TAG = "OpenAIRealtime"
         const val DIAG_TAG = "AiChatPlayback"
         const val PROMPT_TRACE_TAG = "AiChatPromptTrace"
+        const val REALTIME_TOKEN_REQUEST_NAME = "realtimeToken"
         const val EVENT_BUFFER_CAPACITY = 64
         const val COMPLETED_RESPONSE_ID_LIMIT = 24
         const val SESSION_READY_TIMEOUT_MS = 10_000L

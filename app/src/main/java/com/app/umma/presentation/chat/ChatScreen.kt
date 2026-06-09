@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -19,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,10 +39,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,8 +55,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -84,13 +85,16 @@ import com.app.umma.core.theme.SpacingXL
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
-import com.app.umma.core.theme.TextSecondary
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
+import com.app.umma.domain.model.chat.AiContentReportReasonCategory
 import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.realtime.AIState
 import com.app.umma.domain.model.user.Topic
+import com.app.umma.presentation.chat.component.AiContentReportDialog
+import com.app.umma.presentation.chat.component.ChatReportTopActions
+import com.app.umma.presentation.chat.component.PromptReviewReportDialog
 import com.app.umma.presentation.chat.component.VoiceInteractionCharacter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,6 +104,9 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val localView = LocalView.current
     val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     val windowInfo = LocalWindowInfo.current
@@ -108,7 +115,15 @@ fun ChatScreen(
     // 신고 버튼은 실제 Firestore report index를 만들기 때문에, 실수 클릭 방지를 위해 확인 다이얼로그를 거친다.
     val promptReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
     // 신고 메모는 개발용 리뷰 자료에만 저장되며, 실제 대화/자막/SessionMemory 상태와 분리한다.
-    var promptReviewReportNote by rememberSaveable { mutableStateOf("") }
+    val promptReviewReportNoteState = rememberSaveable { mutableStateOf("") }
+    // 운영용 AI 콘텐츠 신고는 Google Play 대응 기능이므로 dev prompt review와 별도 다이얼로그로 관리한다.
+    val aiContentReportDialogState = rememberSaveable { mutableStateOf(false) }
+    // 신고 사유는 필수값이다. null이면 확인 버튼을 비활성화해 불완전한 운영 신고 문서를 막는다.
+    val selectedAiContentReportReasonState = rememberSaveable {
+        mutableStateOf<AiContentReportReasonCategory?>(null)
+    }
+    // 상세 메모는 선택값이다. 사용자가 민감정보를 더 쓰지 않아도 신고 사유만으로 접수 가능해야 한다.
+    val aiContentReportNoteState = rememberSaveable { mutableStateOf("") }
     // screenHeightDp 대신 실제 Compose window container 높이를 사용한다.
     // 이렇게 해야 회전, multi-window, split-screen 에서 다이얼로그/자막 높이 계산이 실제 화면과 맞는다.
     val containerHeightDp = with(density) {
@@ -135,6 +150,19 @@ fun ChatScreen(
                 Uri.fromParts("package", context.packageName, null)
             )
         )
+    }
+
+    fun dismissKeyboard() {
+        // 일부 MIUI/구형 IME는 Compose keyboardController.hide()만으로 키보드를 내리지 않는다.
+        // focus 강제 해제, Compose controller, Android InputMethodManager를 모두 호출해 제조사 IME 차이를 줄인다.
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+        val inputMethodManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        val token = activity?.currentFocus?.windowToken ?: localView.windowToken
+        inputMethodManager?.hideSoftInputFromWindow(token, 0)
+        // 키보드가 실제로 내려가지 않는 기기에서도 포커스가 다시 TextField로 돌아가지 않게 View focus도 정리한다.
+        activity?.currentFocus?.clearFocus()
+        localView.clearFocus()
     }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -198,46 +226,23 @@ fun ChatScreen(
                 title = "대화",
                 isCenterTitle = true,
                 leadingActions = {
-                    if (uiState.showPromptReviewReportButton) {
-                        // 자막 토글과 오터치가 생기지 않도록 신고 버튼은 AppBar 왼쪽 보조 액션으로 분리한다.
-                        Button(
-                            onClick = { promptReviewReportConfirmDialogState.value = true },
-                            enabled = !uiState.isPromptReviewReporting && !uiState.hasPromptReviewReported,
-                            modifier = Modifier
-                                .padding(start = 10.dp)
-                                .height(32.dp),
-                            shape = RoundedCornerShape(999.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (uiState.hasPromptReviewReported) {
-                                    ThemePrimary.copy(alpha = 0.36f)
-                                } else {
-                                    ThemePrimary
-                                }
-                            ),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (uiState.hasPromptReviewReported) {
-                                    ThemePrimary.copy(alpha = 0.16f)
-                                } else {
-                                    ThemePrimary
-                                },
-                                contentColor = if (uiState.hasPromptReviewReported) {
-                                    ThemePrimary
-                                } else {
-                                    TextSecondary
-                                },
-                                disabledContainerColor = ThemePrimary.copy(alpha = 0.14f),
-                                disabledContentColor = ThemePrimary.copy(alpha = 0.72f)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp)
-                        ) {
-                            Text(
-                                text = if (uiState.hasPromptReviewReported) "접수됨" else "신고",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                    ChatReportTopActions(
+                        canReportAiContent = uiState.canReportAiContent,
+                        isAiContentReporting = uiState.isAiContentReporting,
+                        hasReportedCurrentAiContent = uiState.hasReportedCurrentAiContent,
+                        showPromptReviewReportButton = uiState.showPromptReviewReportButton,
+                        isPromptReviewReporting = uiState.isPromptReviewReporting,
+                        hasPromptReviewReported = uiState.hasPromptReviewReported,
+                        onAiContentReportClick = {
+                            // 신고 draft는 다이얼로그를 열 때 초기화해 이전 입력이 다음 신고에 남지 않게 한다.
+                            selectedAiContentReportReasonState.value = null
+                            aiContentReportNoteState.value = ""
+                            aiContentReportDialogState.value = true
+                        },
+                        onPromptReviewReportClick = {
+                            promptReviewReportConfirmDialogState.value = true
                         }
-                    }
+                    )
                 },
                 actions = {
                     IconButton(
@@ -424,71 +429,54 @@ fun ChatScreen(
                         modifier = Modifier.padding(top = SpacingS)
                     )
                 }
+
+                uiState.aiContentReportErrorMessage?.let { message ->
+                    // 운영 신고 실패는 대화 실패가 아니므로 하단 상태에만 짧게 보여주고,
+                    // sessionState/errorMessage를 바꾸지 않는다.
+                    Text(
+                        text = message,
+                        textAlign = TextAlign.Center,
+                        color = TextLogout,
+                        style = TextAnalysisR,
+                        modifier = Modifier.padding(top = SpacingS)
+                    )
+                }
             }
         }
     }
 
+    if (aiContentReportDialogState.value) {
+        AiContentReportDialog(
+            selectedReasonState = selectedAiContentReportReasonState,
+            noteState = aiContentReportNoteState,
+            isReporting = uiState.isAiContentReporting,
+            onDismissKeyboard = ::dismissKeyboard,
+            onCancel = {
+                aiContentReportDialogState.value = false
+            },
+            onConfirm = { reason, note ->
+                // 확인 버튼에서만 실제 운영 신고를 저장한다.
+                // 다이얼로그 열기/닫기는 Firestore write를 만들지 않는다.
+                viewModel.reportLatestAiContent(
+                    reasonCategory = reason,
+                    detailNote = note
+                )
+                aiContentReportDialogState.value = false
+            }
+        )
+    }
+
     if (promptReviewReportConfirmDialogState.value) {
-        UmmaDialog(
-            title = "대화 신고",
-            titleColor = ThemePrimary,
-            modifier = Modifier.padding(horizontal = SpacingL),
+        PromptReviewReportDialog(
+            reportNoteState = promptReviewReportNoteState,
+            onDismissKeyboard = ::dismissKeyboard,
             onCancel = { promptReviewReportConfirmDialogState.value = false },
             onConfirm = {
                 // 확인 이후에만 실제 신고를 실행한다. 버튼 클릭 자체는 Firestore write를 만들지 않는다.
                 promptReviewReportConfirmDialogState.value = false
-                viewModel.reportPromptReviewSession(reportNote = promptReviewReportNote)
-            },
-            confirmText = "신고",
-            dismissText = "취소",
-            showCancelButton = false,
-            confirmButtonColor = ThemePrimary
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = SpacingL),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "대화 불편을 신고할까요?\n대화내용이 저장됩니다.\n민감한 정보가 있었다면 취소를 눌러주세요.",
-                    color = TextPrimary,
-                    textAlign = TextAlign.Center,
-                    fontSize = 14.sp,
-                    lineHeight = 21.sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = promptReviewReportNote,
-                    onValueChange = { value ->
-                        // Firestore report index에서 바로 읽는 값이므로 과도한 길이는 화면에서 먼저 제한한다.
-                        promptReviewReportNote = value.take(PROMPT_REVIEW_REPORT_NOTE_MAX_LENGTH)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = SpacingL),
-                    minLines = 3,
-                    maxLines = 5,
-                    label = {
-                        Text(text = "불편했던 상황")
-                    },
-                    placeholder = {
-                        Text(text = "예: 일본어로만 답해서 따라가기 어려웠어요.")
-                    },
-                    supportingText = {
-                        Text(text = "${promptReviewReportNote.length}/$PROMPT_REVIEW_REPORT_NOTE_MAX_LENGTH")
-                    },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = BackgroundPrimary,
-                        unfocusedContainerColor = BackgroundPrimary,
-                        focusedIndicatorColor = ThemePrimary,
-                        unfocusedIndicatorColor = TextPrimary.copy(alpha = 0.18f),
-                        focusedLabelColor = ThemePrimary,
-                        unfocusedLabelColor = TextPrimary.copy(alpha = 0.62f)
-                    )
-                )
+                viewModel.reportPromptReviewSession(reportNote = promptReviewReportNoteState.value)
             }
-        }
+        )
     }
 
     if (uiState.showTopicDialog) {
@@ -817,7 +805,6 @@ private fun calculateSubtitleMaxHeight(screenHeightDp: Int): Dp {
 }
 
 private const val REQUIRED_TOPIC_COUNT = 5
-private const val PROMPT_REVIEW_REPORT_NOTE_MAX_LENGTH = 500
 private const val SubtitleReservedVerticalSpaceDp = 500
 private const val SubtitleMinHeightDp = 120
 private const val SubtitleMaxHeightDp = 220

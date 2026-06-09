@@ -197,6 +197,10 @@ class FlashcardRepositoryImplTest {
             flashcardIds: List<String>
         ): Result<Unit> = Result.success(Unit)
 
+        override suspend fun fetchFlashcards(
+            language: String
+        ): Result<List<CorrectionFlashcardDto>> = Result.success(emptyList())
+
         override suspend fun syncReviewSchedule(
             flashcardId: String,
             nextReviewAt: Long,

@@ -28,14 +28,26 @@ class FlashcardRepositoryImpl @Inject constructor(
     override fun observeDueFlashcards(userId: String, language: LangCode): Flow<ReviewDeckState> {
         // MVP는 첫 진입 시점의 안전한 스냅샷만 반환하고, 이후 observe 스트림으로 넓힐 수 있다.
         return flow {
+            val now = System.currentTimeMillis()
             // local source 에서 due deck 을 읽어 화면이 바로 쓸 수 있는 상태로 변환한다.
-            val dueDtos = localDataSource.getDueFlashcards(
+            var dueDtos = localDataSource.getDueFlashcards(
                 uid = userId,
                 language = language.code,
-                now = System.currentTimeMillis(),
+                now = now,
                 limit = 100
             )
 
+            // due가 없을 때, "오늘 복습할 게 없음"인지 "원본이 통째로 없음인지 구분
+            // 후자일 때만 Firestore에서 1회 복원 후 다시 조회
+            if (dueDtos.isEmpty()) {
+                restoreFlashcardsIfEmpty(userId, language.code)
+                dueDtos = localDataSource.getDueFlashcards(
+                    uid = userId,
+                    language = language.code,
+                    now = now,
+                    limit = 100
+                )
+            }
             if (dueDtos.isEmpty()) {
                 emit(ReviewDeckState.Empty)
             } else {
@@ -176,12 +188,20 @@ class FlashcardRepositoryImpl @Inject constructor(
         language: LangCode
     ): Result<List<Flashcard>> {
         return try {
-            val cards = localDataSource.getFlashcards(
+            var cards = localDataSource.getFlashcards(
                 uid = userId,
                 language = language.code
             )
-                .map { it.toDomain() }
-            Result.success(cards)
+            // 목록도 재설치 등으로 비었으면 Firestore에서 1회 복원 후 다시 조회한다.
+            if (cards.isEmpty()) {
+                restoreFlashcardsIfEmpty(userId, language.code)
+                cards = localDataSource.getFlashcards(
+                    uid = userId,
+                    language = language.code
+                )
+            }
+
+            Result.success(cards.map { it.toDomain() })
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -211,6 +231,22 @@ class FlashcardRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Room이 통째로 비었을 때만(재설치 등) Firestore에서 원본을 1회 복원
+     *
+     * "오늘 due가 없음"과 "원본이 없음"을 구분하기 위해 due 수가 아니라 전체 수(countFlashcards)로 판단
+     * Room에 카드가 하나라도 있으면 평상시로 보고 Firestore를 호출하지 않는다
+     * fetch 실패는 복원만 건너뛰고 예외로 올리지 않아 다음 진입 때 자연스럽게 재시도
+     */
+    private suspend fun restoreFlashcardsIfEmpty(userId: String, languageCode: String) {
+        if (localDataSource.countFlashcards(userId, languageCode) > 0) return
+
+        val remoteCards = remoteDataSource.fetchFlashcards(languageCode).getOrNull()
+        if (!remoteCards.isNullOrEmpty()) {
+            // saveFlashcards는 onConflict IGNORE라 빈 Room 복원에 안전하다.
+            localDataSource.saveFlashcards(userId, remoteCards)
+        }
+    }
 
     private fun CorrectionFlashcardDto.toDomain(): Flashcard {
         // correction 이 저장한 원본 필드를 SRS 용 domain 모델로만 변환한다.
