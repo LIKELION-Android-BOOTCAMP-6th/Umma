@@ -46,6 +46,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -112,6 +113,8 @@ fun ChatScreen(
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
+    // Chat 라우트가 숨겨질 때 ON_STOP 과 onDispose 가 연달아 들어와도 stop 작업이 중복 실행되지 않게 한다.
+    val routeHiddenHandled = remember { mutableStateOf(false) }
     // 신고 버튼은 실제 Firestore report index를 만들기 때문에, 실수 클릭 방지를 위해 확인 다이얼로그를 거친다.
     val promptReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
     // 신고 메모는 개발용 리뷰 자료에만 저장되며, 실제 대화/자막/SessionMemory 상태와 분리한다.
@@ -188,22 +191,35 @@ fun ChatScreen(
 
     DisposableEffect(activity, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && activity?.isChangingConfigurations != true) {
-                // Bottom navigation 의 saveState 경로에서는 Chat composable 이 dispose 되지 않고
-                // back stack 에 보존될 수 있다. 이 경우 stopChat()이 호출되지 않으므로,
-                // 화면이 보이지 않는 ON_STOP 시점에 usage sync 만 별도로 시도한다.
-                viewModel.syncCurrentUsageForHiddenScreen()
+            if (activity?.isChangingConfigurations == true) return@LifecycleEventObserver
+
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    // hidden 상태에서 돌아올 때는 저장된 UI를 재사용하지 말고 새 세션 경계를 다시 연다.
+                    routeHiddenHandled.value = false
+                    viewModel.enterChat()
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    // 탭 전환이나 앱 백그라운드 진입 시점에 transport 를 먼저 닫아 stale session 재사용을 막는다.
+                    if (!routeHiddenHandled.value) {
+                        routeHiddenHandled.value = true
+                        viewModel.onChatRouteHidden()
+                    }
+                }
+
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
 
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // 화면 회전은 같은 ChatViewModel을 재사용하는 configuration change 이므로
-            // 세션과 자막 상태를 유지한다. 실제 navigation 이탈처럼 Activity 재구성이 아닌
-            // dispose 에서만 기존 Sprint2 정책대로 녹음/재생/realtime transport 를 정리한다.
-            if (activity?.isChangingConfigurations != true) {
-                viewModel.stopChat()
+            // 일부 navigation 경로에서는 onStop 전에 onDispose 가 먼저 들어올 수 있다.
+            // routeHiddenHandled 로 한 번만 정리되도록 보장하고, 여기서는 누락 방지용 마지막 정리만 남긴다.
+            if (activity?.isChangingConfigurations != true && !routeHiddenHandled.value) {
+                routeHiddenHandled.value = true
+                viewModel.onChatRouteHidden()
             }
         }
     }
