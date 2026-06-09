@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.BuildConfig
+import com.app.umma.core.tts.TextToSpeechController
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewContextTurn
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSnapshot
 import com.app.umma.devtools.correctionpromptreview.CorrectionPromptReviewSuggestion
@@ -52,6 +53,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 /**
@@ -148,6 +151,7 @@ class CorrectionViewModel @Inject constructor(
     // SRS 카드 목록(SrsCardListViewModel)과 동일한 진입점이며, 새 저장소 메서드를 신설하지 않는다
     // (읽기 전용 — 스케줄/평가/저장 등 SRS 책임은 일절 건드리지 않는다).
     private val getFlashcards: GetFlashcardsUseCase,
+    private val ttsController: TextToSpeechController,
     private val reportCorrectionPromptReviewUseCase: ReportCorrectionPromptReviewUseCase,
 ) : ViewModel() {
 
@@ -202,6 +206,11 @@ class CorrectionViewModel @Inject constructor(
     // 플래그(state) 가 ViewModel 외부 회귀의 SSOT 이고, 이 Job 은 ViewModel 내부에서 같은 호출 스택 두 번
     // 진입을 더 빠르게 끊기 위한 보조 가드다.
     private var completionJob: Job? = null
+    private var loadingFlashcardsJob: Job? = null
+    private var activeLoadingFlashcardsRequestId = 0L
+    private var speakingPlaybackRequestId = 0L
+    private var cacheMutationVersion = 0L
+    private val cacheMutationMutex = Mutex()
 
     /**
      * Ready 진입 시 generateSuggestions 트리거를 한 번만 실행하기 위한 가드.
@@ -325,16 +334,21 @@ class CorrectionViewModel @Inject constructor(
         val langState = ready.langStateSnapshot ?: return
 
         viewModelScope.launch {
+            val loadingFlashcardsRequestId = beginLoadingFlashcardsRequest()
             // Generating 전환 + 단계 인디케이터 초기화. COR-UX-001: loadingStep 의 단일 진실은
             // 본 함수이고, 화면(CorrectionLoading)은 이 값을 그대로 렌더링만 한다.
             _uiState.value = _uiState.value.copy(
                 phase = CorrectionUiState.Phase.Generating,
                 errorReason = null,
                 loadingStep = 0,
+                loadingFlashcards = emptyList(),
             )
 
             // COR-UX-001: 로딩 화면 복습 카드 적재 — 본 파이프라인과 독립적으로 병렬 진행한다.
-            loadLoadingFlashcards(lang)
+            loadLoadingFlashcards(
+                lang = lang,
+                requestId = loadingFlashcardsRequestId,
+            )
 
             // COR-UX-001: 백그라운드 선행 — AI 호출을 포함한 실제 파이프라인을 진입 즉시 시작해
             // 1~3단계 연출과 겹쳐 돌린다. AI가 빠르면 전체 체감 대기도 그만큼 짧아진다(합의 사항).
@@ -383,6 +397,7 @@ class CorrectionViewModel @Inject constructor(
                     suggestions = _uiState.value.suggestions,
                     sessionFingerprint = ready.sessionSummary?.updatedAt,
                     primaryLanguage = _uiState.value.primaryLanguage,
+                    mutationVersion = registerCacheMutationVersion(),
                 )
             }
             if (_uiState.value.phase in terminalPhases) {
@@ -471,13 +486,16 @@ class CorrectionViewModel @Inject constructor(
      * [GetFlashcardsUseCase] 의 DAO 정렬은 newest-first(SrsCardListScreen 용)라 새 쿼리/정렬을
      * 추가하지 않고(신설 금지 원칙) 화면 책임으로 메모리에서 재정렬한다.
      */
-    private fun loadLoadingFlashcards(lang: LangCode) {
-        viewModelScope.launch {
+    private fun loadLoadingFlashcards(lang: LangCode, requestId: Long) {
+        loadingFlashcardsJob?.cancel()
+        loadingFlashcardsJob = viewModelScope.launch {
             val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() } ?: return@launch
             val cards = getFlashcards(uid, lang).getOrNull() ?: return@launch
             val loadingCards = cards
                 .sortedBy { it.createdAt }
                 .map { CorrectionLoadingCard(front = it.frontText, back = it.backText) }
+                .shuffled()
+            if (!shouldApplyLoadingFlashcards(requestId = requestId, lang = lang)) return@launch
             _uiState.update { it.copy(loadingFlashcards = loadingCards) }
         }
     }
@@ -556,6 +574,37 @@ class CorrectionViewModel @Inject constructor(
                 current.selectedSuggestionIds + id
             }
             current.copy(selectedSuggestionIds = next)
+        }
+    }
+
+    fun onPlaySuggestionAudio(suggestion: CorrectionSuggestion) {
+        val lang = _uiState.value.selectedLearningLanguage ?: return
+        if (suggestion.afterText.isBlank()) return
+        if (!ttsController.setLanguage(lang)) return
+
+        val requestId = ++speakingPlaybackRequestId
+        val clearIfLatest: () -> Unit = {
+            _uiState.update { state ->
+                if (
+                    speakingPlaybackRequestId == requestId &&
+                    state.speakingSuggestionId == suggestion.id
+                ) {
+                    state.copy(speakingSuggestionId = null)
+                } else {
+                    state
+                }
+            }
+        }
+
+        _uiState.update { it.copy(speakingSuggestionId = suggestion.id) }
+        val started = ttsController.speak(
+            text = suggestion.afterText,
+            onComplete = clearIfLatest,
+            onInterrupted = clearIfLatest,
+            onFailed = clearIfLatest,
+        )
+        if (!started) {
+            clearIfLatest()
         }
     }
 
@@ -802,7 +851,10 @@ class CorrectionViewModel @Inject constructor(
             logCompletionResult(result)
             _uiState.update { current -> current.applyCompletionOutcome(result) }
             if (result.isSuccess) {
-                clearCorrectionCacheAfterCompletion(lang = lang)
+                clearCorrectionCacheAfterCompletion(
+                    lang = lang,
+                    mutationVersion = registerCacheMutationVersion(),
+                )
             }
 
             // COR-007-A: 완료 성공 경로에서만 Dashboard 복귀 1회성 이벤트를 발화한다.
@@ -861,29 +913,80 @@ class CorrectionViewModel @Inject constructor(
         suggestions: List<CorrectionSuggestion>,
         sessionFingerprint: Long?,
         primaryLanguage: LangCode?,
+        mutationVersion: Long,
     ) {
         runCatching {
-            saveCorrectionCache(
-                uid = getCurrentUserUid.getCurrentUserUid(),
+            runLatestCacheMutation(
+                mutationVersion = mutationVersion,
                 language = language,
-                suggestions = suggestions,
-                sessionFingerprint = sessionFingerprint,
-                primaryLanguage = primaryLanguage,
-                cachedAt = System.currentTimeMillis(),
-            )
+                operation = "save",
+            ) {
+                saveCorrectionCache(
+                    uid = getCurrentUserUid.getCurrentUserUid(),
+                    language = language,
+                    suggestions = suggestions,
+                    sessionFingerprint = sessionFingerprint,
+                    primaryLanguage = primaryLanguage,
+                    cachedAt = System.currentTimeMillis(),
+                )
+            }
         }.onFailure { error ->
             Log.w(TAG, "cache save failed lang=${language.code}", error)
         }
     }
 
-    private suspend fun clearCorrectionCacheAfterCompletion(lang: LangCode) {
+    private suspend fun clearCorrectionCacheAfterCompletion(
+        lang: LangCode,
+        mutationVersion: Long,
+    ) {
         runCatching {
-            clearCorrectionCache(
-                uid = getCurrentUserUid.getCurrentUserUid(),
+            runLatestCacheMutation(
+                mutationVersion = mutationVersion,
                 language = lang,
-            )
+                operation = "clear",
+            ) {
+                clearCorrectionCache(
+                    uid = getCurrentUserUid.getCurrentUserUid(),
+                    language = lang,
+                )
+            }
         }.onFailure { error ->
             Log.w(TAG, "cache clear failed lang=${lang.code}", error)
+        }
+    }
+
+    private fun beginLoadingFlashcardsRequest(): Long {
+        activeLoadingFlashcardsRequestId += 1
+        return activeLoadingFlashcardsRequestId
+    }
+
+    private fun shouldApplyLoadingFlashcards(requestId: Long, lang: LangCode): Boolean {
+        val current = _uiState.value
+        return current.phase == CorrectionUiState.Phase.Generating &&
+                current.selectedLearningLanguage == lang &&
+                activeLoadingFlashcardsRequestId == requestId
+    }
+
+    private fun registerCacheMutationVersion(): Long {
+        cacheMutationVersion += 1
+        return cacheMutationVersion
+    }
+
+    private suspend fun runLatestCacheMutation(
+        mutationVersion: Long,
+        language: LangCode,
+        operation: String,
+        block: suspend () -> Unit,
+    ) {
+        cacheMutationMutex.withLock {
+            if (cacheMutationVersion != mutationVersion) {
+                Log.d(
+                    TAG,
+                    "cache $operation skipped as stale lang=${language.code}, version=$mutationVersion, latest=$cacheMutationVersion",
+                )
+                return
+            }
+            block()
         }
     }
 
@@ -1009,6 +1112,12 @@ class CorrectionViewModel @Inject constructor(
         // 0~2단계는 단순 delay, 3단계(AI 호출)는 SystemClock.elapsedRealtime 기반 잔여시간 보정,
         // 4단계는 결과 매핑이 즉시 끝나도 문구가 스쳐 지나가지 않도록 동일하게 적용한다.
         const val STEP_MIN_DURATION_MS = 3_500L
+    }
+
+    override fun onCleared() {
+        speakingPlaybackRequestId++
+        ttsController.stop()
+        super.onCleared()
     }
 }
 
