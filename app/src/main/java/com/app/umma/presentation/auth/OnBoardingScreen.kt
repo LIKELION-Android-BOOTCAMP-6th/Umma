@@ -2,11 +2,10 @@ package com.app.umma.presentation.auth
 
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,8 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -27,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -112,48 +108,42 @@ fun OnBoardingScreen(
                 //----- pager 끝
                 //----- google 로그인 버튼 시작
                 if (pagerState.currentPage == onBoardingPages.size - 1) {
-                    Button(
-                        enabled = !uiState.isLoading,
-                        onClick = {
-                            viewModel.updateLoading(true)
-                            coroutineScope.launch {
-                                try {
-                                    val idToken =
-                                        GoogleSignInHelper.getGoogleIdToken(
-                                            context = context,
-                                            webClientId = webClientId
-                                        )
-                                    viewModel.signInWithGoogle(idToken)
-                                } catch (e: Exception) {
-                                    viewModel.updateLoading(false)
-                                    viewModel.updateErrorMessage(
-                                        "Google 로그인에 실패했습니다"
-                                    )
-                                }
-                            }
-                        },
+                    Box(
                         modifier = Modifier
+                            .padding(horizontal = SpacingL)
                             .fillMaxWidth()
-                            .padding(horizontal = SpacingL),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(0.dp)
+                            .height(48.dp)
+                            .clickable(enabled = !uiState.isLoading) {
+                                viewModel.updateLoading(true)
+                                coroutineScope.launch {
+                                    try {
+                                        val idToken =
+                                            GoogleSignInHelper.getGoogleIdToken(
+                                                context = context,
+                                                webClientId = webClientId
+                                            )
+                                        viewModel.signInWithGoogle(idToken)
+                                    } catch (e: Exception) {
+                                        viewModel.updateLoading(false)
+                                        viewModel.updateErrorMessage(
+                                            "Google 로그인에 실패했습니다"
+                                        )
+                                    }
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
                     ) {
                         if (uiState.isLoading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
                             )
                         } else {
-                            val googleButton = painterResource(id = R.drawable.ic_auth_google)
                             Image(
-                                painter = googleButton,
+                                painter = painterResource(id = R.drawable.ic_auth_google),
                                 contentDescription = "Google 로그인",
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(googleButton.intrinsicSize.width / googleButton.intrinsicSize.height)
+                                modifier = Modifier.matchParentSize(),
                             )
                         }
                     }
