@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,7 +44,6 @@ import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
-import com.app.umma.core.theme.ThemeSecondary
 import com.app.umma.core.theme.TitleColor
 import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.domain.model.correction.CorrectionSuggestion
@@ -174,13 +174,16 @@ fun CorrectionResultCard(
                 Icon(
                     imageVector = Icons.Outlined.Info,
                     contentDescription = "설명",
-                    tint = ThemeSecondary,
-                    modifier = Modifier.size(IconSizeSmall)
+                    tint = TitleColor,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .offset(y = (-2).dp)
                 )
                 Text(
                     text = suggestion.explanation,
                     style = TextExplanationR,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    modifier = Modifier.offset(y = (-1).dp)
                 )
             }
         }
