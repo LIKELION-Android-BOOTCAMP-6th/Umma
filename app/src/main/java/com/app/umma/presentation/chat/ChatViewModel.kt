@@ -50,7 +50,6 @@ import com.app.umma.domain.usecase.user.GetUserNicknameUseCase
 import com.app.umma.domain.usecase.user.SaveInterestTopicsUseCase
 import com.app.umma.watchbridge.PhoneChatSessionController
 import com.app.umma.watchbridge.SessionOwner
-import com.app.umma.watchbridge.contract.WatchInputSurface
 import com.app.umma.watchbridge.contract.WatchOutputSurface
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -537,25 +536,33 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Chat destination 이 back stack 에 저장된 채 화면에서만 내려가는 경우의 정리 경계입니다.
+     *
+     * Bottom navigation 의 saveState/restoreState 경로에서는 Composable 이 즉시 dispose 되지 않을 수 있다.
+     * Phone-only 경로에서는 ON_STOP 시점에 local-first 저장/분석 예약을 유지한 채 realtime transport 를 닫고
+     * 다음 ON_START 에서 새 세션을 다시 열 수 있도록 앱 세션 정보를 비운다.
+     * Watch 가 이미 세션에 붙어 있는 예외 경로는 transport 소유권이 다르므로 Phone 화면 리소스만 정리한다.
+     */
+    fun onChatRouteHidden() {
+        val snapshot = phoneChatSessionController.currentSnapshot()
+        val shouldPreserveWatchSession = snapshot.watchAttached && snapshot.activeSessionId != null
+
+        requestChatSessionStop(
+            reason = if (shouldPreserveWatchSession) "route_hidden_watch_attached" else "route_hidden",
+            clearAppSession = !shouldPreserveWatchSession,
+            preserveWatchSession = shouldPreserveWatchSession
+        )
+    }
+
+    /**
      * 현재 chat 세션을 종료하고 상태를 초기화합니다.
      */
     fun stopChat() {
-        val current = _uiState.value
-        val sessionIdForUsageSync = current.activeSessionId
-        val selectedLangForAnalysis = phoneChatSessionController.getCurrentSessionLang()
-        launchChatUsageSync(sessionIdForUsageSync)
-        launchConversationEvidenceAnalysis(
-            sessionId = sessionIdForUsageSync,
-            selectedLang = selectedLangForAnalysis,
-            finalTurnCount = current.handledFinalTurnIds.size
+        requestChatSessionStop(
+            reason = "explicit_stop",
+            clearAppSession = true,
+            preserveWatchSession = false
         )
-
-        stopChatJob?.cancel()
-        stopChatJob = viewModelScope.launch {
-            // 사용자가 Chat 화면을 정상적으로 이탈하는 경로다.
-            // usage sync는 applicationScope에서 분리 실행했으므로, 여기서는 UI/오디오/transport만 정리한다.
-            stopChatInternal(resetUiState = true)
-        }
     }
 
     /**
@@ -682,22 +689,49 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Chat destination 이 back stack 에 저장된 채 화면에서만 내려가는 경우에도 usage sync 를 시도합니다.
+     * local-first 저장 예약과 transport 종료를 분리해 요청합니다.
      *
-     * Bottom navigation 의 saveState/restoreState 경로에서는 Composable 이 즉시 dispose 되지 않을 수 있습니다.
-     * 이 경우 [stopChat]이 호출되지 않아 세션 종료 sync가 누락될 수 있으므로,
-     * lifecycle ON_STOP 경계에서 현재 세션의 pending usage만 best-effort로 올립니다.
+     * 저장/재시도는 background best-effort 로 남기고, 화면 전용 transport 만 빠르게 정리한다.
+     * clearAppSession=true 일 때만 repository의 activeSessionId/currentLang까지 비워 stale session 재사용을 막는다.
+     * preserveWatchSession=true 이면 Watch 가 같은 realtime transport 를 계속 써야 하므로 usage/analysis final sync 와
+     * repository stop 은 실행하지 않고 Phone 화면 전용 리소스만 내려준다.
      */
-    fun syncCurrentUsageForHiddenScreen() {
+    private fun requestChatSessionStop(
+        reason: String,
+        clearAppSession: Boolean,
+        preserveWatchSession: Boolean
+    ) {
         val current = _uiState.value
-        val sessionId = current.activeSessionId
-        val selectedLang = phoneChatSessionController.getCurrentSessionLang()
-        launchChatUsageSync(sessionId)
-        launchConversationEvidenceAnalysis(
-            sessionId = sessionId,
-            selectedLang = selectedLang,
-            finalTurnCount = current.handledFinalTurnIds.size
-        )
+        val sessionIdForUsageSync = current.activeSessionId
+        val selectedLangForAnalysis = phoneChatSessionController.getCurrentSessionLang()
+        if (!preserveWatchSession) {
+            launchChatUsageSync(sessionIdForUsageSync)
+            launchConversationEvidenceAnalysis(
+                sessionId = sessionIdForUsageSync,
+                selectedLang = selectedLangForAnalysis,
+                finalTurnCount = current.handledFinalTurnIds.size
+            )
+        }
+
+        // 세션 정리 중에 새 진입이 시작되면 이전 transport가 뒤늦게 살아나는 일을 막는다.
+        enterChatJob?.cancel()
+        stopChatJob?.cancel()
+        stopChatJob = viewModelScope.launch {
+            Log.d(
+                TAG,
+                "stopChat started reason=$reason clearAppSession=$clearAppSession " +
+                    "preserveWatchSession=$preserveWatchSession"
+            )
+            stopChatInternal(
+                clearAppSession = clearAppSession,
+                preserveWatchSession = preserveWatchSession
+            )
+            Log.d(
+                TAG,
+                "stopChat finished reason=$reason clearAppSession=$clearAppSession " +
+                    "preserveWatchSession=$preserveWatchSession"
+            )
+        }
     }
 
     /**
@@ -705,9 +739,15 @@ class ChatViewModel @Inject constructor(
      *
      * 화면 회전에서는 [ChatScreen]이 dispose되더라도 같은 [ChatViewModel]을 재사용할 수 있으므로
      * 이 함수를 호출하지 않는다. navigation 이탈처럼 화면이 실제로 사라지는 경우에는 [stopChat]이,
-     * ViewModel 자체가 제거되는 경우에는 onCleared가 호출해 녹음/재생/realtime transport를 정리한다.
+     * ViewModel 자체가 제거되는 경우에는 onCleared가 호출해 녹음/재생/realtime transport와
+     * 앱 레벨 세션 상태까지 정리한다.
+     * preserveWatchSession=true 는 Phone 화면이 숨겨졌지만 Watch 가 같은 세션을 계속 쓰는 예외 경계다.
+     * 이 경우 Watch controller/runtime 은 건드리지 않고 Phone UI collector, recorder, local audio 만 정리한다.
      */
-    private suspend fun stopChatInternal(resetUiState: Boolean) {
+    private suspend fun stopChatInternal(
+        clearAppSession: Boolean,
+        preserveWatchSession: Boolean
+    ) {
         eventJob?.cancel()
         eventJob = null
 
@@ -719,18 +759,18 @@ class ChatViewModel @Inject constructor(
         currentUserTurnEndedAtMs = null
         phoneChatSessionController.markPhoneRecording(false)
         phoneChatSessionController.cancelPendingUserTurn(SessionOwner.PHONE)
-        phoneChatSessionController.detachWatch()
         audioPlayer.stopPlaying()
-        phoneChatSessionController.stopSession(
-            owner = SessionOwner.PHONE,
-            clearAppSession = false
-        )
+        if (!preserveWatchSession) {
+            phoneChatSessionController.detachWatch()
+            phoneChatSessionController.stopSession(
+                owner = SessionOwner.PHONE,
+                clearAppSession = clearAppSession
+            )
+        }
 
         pendingTurnSaveCount = 0
         conversationSnapshot = ChatConversationSnapshot()
-        if (resetUiState) {
-            _uiState.value = initialChatUiState()
-        }
+        _uiState.value = initialChatUiState()
     }
 
     /**
@@ -1594,9 +1634,11 @@ class ChatViewModel @Inject constructor(
         outputLevelJob?.cancel()
         outputPlaybackJob?.cancel()
         // onCleared는 Chat back stack이 제거되는 실제 종료 경계다. 화면 회전과 달리
-        // 여기서는 transport와 오디오 리소스만 즉시 정리한다.
+        // 여기서는 transport와 오디오 리소스를 정리하고, 앱 세션도 남기지 않는다.
         // Firestore usage sync는 네트워크 요청이라 onCleared/runBlocking 경계에 묶지 않고,
         // local PENDING row를 다음 Chat 진입의 pending retry가 처리하도록 둔다.
+        enterChatJob?.cancel()
+        stopChatJob?.cancel()
         runBlocking {
             val current = _uiState.value
             val sessionIdForAnalysis = current.activeSessionId
@@ -1606,7 +1648,10 @@ class ChatViewModel @Inject constructor(
                 selectedLang = selectedLangForAnalysis,
                 finalTurnCount = current.handledFinalTurnIds.size
             )
-            stopChatInternal(resetUiState = false)
+            stopChatInternal(
+                clearAppSession = true,
+                preserveWatchSession = false
+            )
         }
     }
 
