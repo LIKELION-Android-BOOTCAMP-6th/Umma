@@ -32,10 +32,8 @@ import com.app.umma.domain.usecase.realtime.GetSessionMemoryUseCase
 import com.app.umma.test.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
-import io.mockk.runs
 import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -65,7 +63,7 @@ class CorrectionViewModelTtsTest {
 
         assertNull(viewModel.uiState.value.speakingSuggestionId)
         verify(exactly = 0) { ttsController.setLanguage(any()) }
-        verify(exactly = 0) { ttsController.speak(any(), any()) }
+        verify(exactly = 0) { ttsController.speak(any(), any(), any(), any()) }
     }
 
     @Test
@@ -80,7 +78,7 @@ class CorrectionViewModelTtsTest {
 
         assertNull(viewModel.uiState.value.speakingSuggestionId)
         verify(exactly = 0) { ttsController.setLanguage(any()) }
-        verify(exactly = 0) { ttsController.speak(any(), any()) }
+        verify(exactly = 0) { ttsController.speak(any(), any(), any(), any()) }
     }
 
     @Test
@@ -96,7 +94,7 @@ class CorrectionViewModelTtsTest {
 
         assertNull(viewModel.uiState.value.speakingSuggestionId)
         verify(exactly = 1) { ttsController.setLanguage(LangCode.EN) }
-        verify(exactly = 0) { ttsController.speak(any(), any()) }
+        verify(exactly = 0) { ttsController.speak(any(), any(), any(), any()) }
     }
 
     @Test
@@ -105,7 +103,9 @@ class CorrectionViewModelTtsTest {
         val ttsController = mockk<TextToSpeechController>()
         val onComplete = slot<() -> Unit>()
         every { ttsController.setLanguage(LangCode.EN) } returns true
-        every { ttsController.speak(any(), capture(onComplete)) } just runs
+        every {
+            ttsController.speak(any(), capture(onComplete), any(), any())
+        } returns true
         val suggestion = sampleSuggestion()
         val viewModel = buildReadyViewModel(suggestion, ttsController)
         advanceUntilIdle()
@@ -113,7 +113,9 @@ class CorrectionViewModelTtsTest {
         viewModel.onPlaySuggestionAudio(suggestion)
 
         assertEquals(suggestion.id, viewModel.uiState.value.speakingSuggestionId)
-        verify(exactly = 1) { ttsController.speak(suggestion.afterText, any()) }
+        verify(exactly = 1) {
+            ttsController.speak(suggestion.afterText, any(), any(), any())
+        }
 
         onComplete.captured.invoke()
 
@@ -125,7 +127,7 @@ class CorrectionViewModelTtsTest {
     fun `onPlaySuggestionAudio replaces active speakingSuggestionId when a new card is tapped`() = runTest {
         val ttsController = mockk<TextToSpeechController>()
         every { ttsController.setLanguage(LangCode.EN) } returns true
-        every { ttsController.speak(any(), any()) } just runs
+        every { ttsController.speak(any(), any(), any(), any()) } returns true
         val first = sampleSuggestion()
         val second = first.copy(id = "s-2", afterText = "You go to school.")
         val viewModel = buildReadyViewModel(first, ttsController)
@@ -137,7 +139,50 @@ class CorrectionViewModelTtsTest {
         viewModel.onPlaySuggestionAudio(second)
 
         assertEquals(second.id, viewModel.uiState.value.speakingSuggestionId)
-        verify(exactly = 2) { ttsController.speak(any(), any()) }
+        verify(exactly = 2) { ttsController.speak(any(), any(), any(), any()) }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `onPlaySuggestionAudio clears speakingSuggestionId when speak cannot start`() = runTest {
+        val ttsController = mockk<TextToSpeechController>()
+        every { ttsController.setLanguage(LangCode.EN) } returns true
+        every { ttsController.speak(any(), any(), any(), any()) } returns false
+        val suggestion = sampleSuggestion()
+        val viewModel = buildReadyViewModel(suggestion, ttsController)
+        advanceUntilIdle()
+
+        viewModel.onPlaySuggestionAudio(suggestion)
+
+        assertNull(viewModel.uiState.value.speakingSuggestionId)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `older callback for same card cannot clear latest playback state`() = runTest {
+        val ttsController = mockk<TextToSpeechController>()
+        val callbacks = mutableListOf<() -> Unit>()
+        every { ttsController.setLanguage(LangCode.EN) } returns true
+        every {
+            ttsController.speak(any(), any(), any(), any())
+        } answers {
+            callbacks += (args[1] as () -> Unit)
+            true
+        }
+        val suggestion = sampleSuggestion()
+        val viewModel = buildReadyViewModel(suggestion, ttsController)
+        advanceUntilIdle()
+
+        viewModel.onPlaySuggestionAudio(suggestion)
+        viewModel.onPlaySuggestionAudio(suggestion)
+
+        callbacks.first().invoke()
+
+        assertEquals(suggestion.id, viewModel.uiState.value.speakingSuggestionId)
+
+        callbacks.last().invoke()
+
+        assertNull(viewModel.uiState.value.speakingSuggestionId)
     }
 
     private fun buildReadyViewModel(

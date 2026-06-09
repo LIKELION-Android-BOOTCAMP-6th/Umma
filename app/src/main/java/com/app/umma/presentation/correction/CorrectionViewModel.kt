@@ -208,6 +208,7 @@ class CorrectionViewModel @Inject constructor(
     private var completionJob: Job? = null
     private var loadingFlashcardsJob: Job? = null
     private var activeLoadingFlashcardsRequestId = 0L
+    private var speakingPlaybackRequestId = 0L
     private var cacheMutationVersion = 0L
     private val cacheMutationMutex = Mutex()
 
@@ -580,15 +581,29 @@ class CorrectionViewModel @Inject constructor(
         if (suggestion.afterText.isBlank()) return
         if (!ttsController.setLanguage(lang)) return
 
-        _uiState.update { it.copy(speakingSuggestionId = suggestion.id) }
-        ttsController.speak(suggestion.afterText) {
+        val requestId = ++speakingPlaybackRequestId
+        val clearIfLatest: () -> Unit = {
             _uiState.update { state ->
-                if (state.speakingSuggestionId == suggestion.id) {
+                if (
+                    speakingPlaybackRequestId == requestId &&
+                    state.speakingSuggestionId == suggestion.id
+                ) {
                     state.copy(speakingSuggestionId = null)
                 } else {
                     state
                 }
             }
+        }
+
+        _uiState.update { it.copy(speakingSuggestionId = suggestion.id) }
+        val started = ttsController.speak(
+            text = suggestion.afterText,
+            onComplete = clearIfLatest,
+            onInterrupted = clearIfLatest,
+            onFailed = clearIfLatest,
+        )
+        if (!started) {
+            clearIfLatest()
         }
     }
 
@@ -1099,6 +1114,7 @@ class CorrectionViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        speakingPlaybackRequestId++
         ttsController.stop()
         super.onCleared()
     }

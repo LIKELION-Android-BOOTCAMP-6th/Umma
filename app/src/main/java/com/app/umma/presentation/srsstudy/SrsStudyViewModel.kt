@@ -50,6 +50,7 @@ class SrsStudyViewModel @Inject constructor(
 
     // 카드 관찰 job (언어 로드 완료 후 시작)
     private var deckJob: Job? = null
+    private var pronunciationPlaybackRequestId = 0L
 
     // 화면 열리면 호출
     fun onEnter() {
@@ -146,6 +147,7 @@ class SrsStudyViewModel @Inject constructor(
      * "다시 시도" 버튼 클릭 시 실행
      */
     fun onRetry() {
+        pronunciationPlaybackRequestId++
         ttsController.stop()
         deckJob?.cancel()
         initJob = null
@@ -186,6 +188,7 @@ class SrsStudyViewModel @Inject constructor(
             // SM-2 계산 + Room 저장 + Summary 갱신
             // 평가 결과로 다음 복습 간격을 계산하고, 기기 DB와 대시보드 요약에 반영
             applyReviewDecision(userId, card, decision).onSuccess {
+                pronunciationPlaybackRequestId++
                 ttsController.stop()
                 // Again 카드는 "방금 계산된 schedule"을 반영해 넣음
                 _uiState.update { state ->
@@ -296,16 +299,32 @@ class SrsStudyViewModel @Inject constructor(
         val lang = _uiState.value.selectedLearningLanguage ?: return
         // 언어 설정 실패-> 재생 X
         if (!ttsController.setLanguage(lang)) return
-        // 재생 끝나면 실행
-        ttsController.speak(card.backText) {
-            _uiState.update { it.copy(isSpeaking = false) }
+
+        val requestId = ++pronunciationPlaybackRequestId
+        val clearIfLatest: () -> Unit = {
+            _uiState.update { state ->
+                if (pronunciationPlaybackRequestId == requestId && state.isSpeaking) {
+                    state.copy(isSpeaking = false)
+                } else {
+                    state
+                }
+            }
         }
-        // 재생 시작하면 실행
+
         _uiState.update { it.copy(isSpeaking = true) }
+        val started = ttsController.speak(
+            text = card.backText,
+            onComplete = clearIfLatest,
+            onInterrupted = clearIfLatest,
+            onFailed = clearIfLatest,
+        )
+        if (!started) {
+            clearIfLatest()
+        }
     }
 
-
     override fun onCleared() {
+        pronunciationPlaybackRequestId++
         super.onCleared()
         ttsController.stop()
     }
