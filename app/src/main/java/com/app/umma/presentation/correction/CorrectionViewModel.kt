@@ -494,6 +494,7 @@ class CorrectionViewModel @Inject constructor(
             val loadingCards = cards
                 .sortedBy { it.createdAt }
                 .map { CorrectionLoadingCard(front = it.frontText, back = it.backText) }
+                .shuffled()
             if (!shouldApplyLoadingFlashcards(requestId = requestId, lang = lang)) return@launch
             _uiState.update { it.copy(loadingFlashcards = loadingCards) }
         }

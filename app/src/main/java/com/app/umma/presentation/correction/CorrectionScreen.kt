@@ -738,10 +738,10 @@ private fun CorrectionLoadingCardFace(
 }
 
 // COR-UX-001: 학습 언어에 저장된 플래시카드가 0개(또는 조회 실패)일 때 반복 재생할 안내 카드.
-// 앞/뒷면에 같은 안내 문구를 담아 "곧 카드가 채워질 영역" 임을 같은 형식으로 자연스럽게 알린다.
+// 앞면은 교정 결과 선택, 뒷면은 학습 카드 저장을 안내해 빈 상태에서도 다음 학습 흐름을 자연스럽게 보여준다.
 private val LOADING_FALLBACK_CARD = CorrectionLoadingCard(
-    front = "추후 학습 카드 저장 시 교정 로딩 창에 표시됩니다!",
-    back = "추후 학습 카드 저장 시 교정 로딩 창에 표시됩니다!",
+    front = "교정 결과를 선택해서",
+    back = "학습 카드로 저장해보세요",
 )
 
 // graphicsLayer.rotationY 단위(도) — 한 면이 차지하는 회전폭(180, "정면 ↔ 뒤집힌 정면")과
