@@ -590,7 +590,7 @@ class CorrectionUiStateTest {
         val suggestions = CorrectionSuggestionFixtures.contentSuggestions()
         val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
 
-        val next = state.applyGenerationOutcome(Result.success(suggestions))
+        val next = state.applyGenerationOutcome(Result.success(GenerationOutcomePayload(suggestions = suggestions)))
 
         assertEquals(CorrectionUiState.Phase.Content, next.phase)
         assertEquals(suggestions, next.suggestions)
@@ -605,7 +605,14 @@ class CorrectionUiStateTest {
         // AC: "결과가 비어 있으면 Empty 상태를 반환한다." (설계 문서 = Phase.EmptyResult)
         val state = CorrectionUiState(phase = CorrectionUiState.Phase.Generating)
 
-        val next = state.applyGenerationOutcome(Result.success(emptyList()))
+        val next = state.applyGenerationOutcome(
+            Result.success(
+                GenerationOutcomePayload(
+                    suggestions = emptyList(),
+                    emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED,
+                )
+            )
+        )
 
         assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)
         assertTrue(next.suggestions.isEmpty())
@@ -675,14 +682,21 @@ class CorrectionUiStateTest {
 
         // 성공 케이스
         val afterContent = staleState.applyGenerationOutcome(
-            Result.success(CorrectionSuggestionFixtures.contentSuggestions()),
+            Result.success(GenerationOutcomePayload(suggestions = CorrectionSuggestionFixtures.contentSuggestions())),
         )
         assertTrue(afterContent.selectedSuggestionIds.isEmpty())
         assertNull(afterContent.saveRequest)
         assertNull(afterContent.saveErrorReason)
 
         // 빈 목록 케이스
-        val afterEmptyResult = staleState.applyGenerationOutcome(Result.success(emptyList()))
+        val afterEmptyResult = staleState.applyGenerationOutcome(
+            Result.success(
+                GenerationOutcomePayload(
+                    suggestions = emptyList(),
+                    emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED,
+                )
+            )
+        )
         assertTrue(afterEmptyResult.selectedSuggestionIds.isEmpty())
         assertNull(afterEmptyResult.saveRequest)
         assertNull(afterEmptyResult.saveErrorReason)
@@ -713,7 +727,14 @@ class CorrectionUiStateTest {
             suggestions = CorrectionSuggestionFixtures.contentSuggestions(),
         )
 
-        val next = staleContent.applyGenerationOutcome(Result.success(emptyList()))
+        val next = staleContent.applyGenerationOutcome(
+            Result.success(
+                GenerationOutcomePayload(
+                    suggestions = emptyList(),
+                    emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED,
+                )
+            )
+        )
 
         // EmptyResult 로 전환됐는지 확인.
         assertEquals(CorrectionUiState.Phase.EmptyResult, next.phase)

@@ -54,5 +54,7 @@ data class CompleteCorrectionResult(
     // AI 요약 실패 시 pending 으로만 남기고 Done 진행. 기존 topicSummaries 는 변경하지 않는다.
     val topicSummariesPending: Boolean = false,
     // 완료 시각.
+    val zeroSaveReason: CorrectionSaveZeroReason? = null,
+    val safetyBlockedSuggestionCount: Int = 0,
     val completedAt: Long
 )

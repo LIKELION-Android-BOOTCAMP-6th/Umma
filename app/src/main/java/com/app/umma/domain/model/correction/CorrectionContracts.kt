@@ -31,6 +31,16 @@ data class GenerateSuggestionsInput(
 )
 
 /**
+ * Correction 결과가 비었을 때 화면이 안내 문구를 구분할 수 있게 하는 사유 모델이다.
+ */
+enum class CorrectionEmptyResultReason {
+    // 안전 후보는 있었지만 교정 결과가 0건인 일반 빈 결과.
+    NO_CORRECTION_NEEDED,
+    // 후보 단계 안전 필터가 모든 후보를 차단한 결과.
+    SAFETY_BLOCKED
+}
+
+/**
  * 교정 의도 파악을 돕는 세션 맥락 read model 입니다 (COR-TUNE-010).
  *
  * 출처:
@@ -79,6 +89,25 @@ data class CorrectionSaveRequest(
     // 요청 시각.
     val requestedAt: Long = System.currentTimeMillis()
 )
+
+/**
+ * 저장 요청 조립 단계가 품질 필터와 안전 차단 결과를 함께 보존하는 결과 모델이다.
+ */
+data class PrepareCorrectionSaveRequestResult(
+    val request: CorrectionSaveRequest,
+    val saveableSuggestionIds: List<String>,
+    val qualityFilteredSuggestionIds: List<String>,
+    val safetyBlockedSuggestionIds: List<String>,
+    val zeroReason: CorrectionSaveZeroReason? = null
+)
+
+/**
+ * 저장 가능한 카드가 0개가 된 사유.
+ */
+enum class CorrectionSaveZeroReason {
+    QUALITY_FILTERED,
+    SAFETY_BLOCKED
+}
 
 /**
  * Correction 결과를 Flashcard 저장소에 넘길 때 사용하는 카드 단위 계약입니다.

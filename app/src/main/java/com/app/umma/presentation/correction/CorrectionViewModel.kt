@@ -1,7 +1,7 @@
 package com.app.umma.presentation.correction
 
-import android.util.Log
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.BuildConfig
@@ -14,7 +14,6 @@ import com.app.umma.domain.model.correction.CompleteCorrectionResult
 import com.app.umma.domain.model.correction.CorrectionContextTurn
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSessionContext
-import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.learningstate.LangCode
@@ -24,6 +23,7 @@ import com.app.umma.domain.model.realtime.SessionTurn
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.correction.CompleteCorrectionUseCase
 import com.app.umma.domain.usecase.correction.ExtractSessionCandidatesUseCase
+import com.app.umma.domain.usecase.correction.FilterCorrectionCandidatesForSafetyUseCase
 import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
@@ -34,6 +34,7 @@ import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
 import com.app.umma.domain.usecase.realtime.GetCorrectionContextUseCase
 import com.app.umma.domain.usecase.realtime.GetSessionMemoryUseCase
+import com.app.umma.presentation.correction.CorrectionViewModel.Companion.STEP_MIN_DURATION_MS
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -120,6 +121,7 @@ class CorrectionViewModel @Inject constructor(
     private val getSessionMemory: GetSessionMemoryUseCase,
     // 세션 turn 목록 → CorrectionCandidate 목록. 빈 결과면 generateSuggestions 가 early-return.
     private val extractSessionCandidates: ExtractSessionCandidatesUseCase,
+    private val filterCorrectionCandidatesForSafety: FilterCorrectionCandidatesForSafetyUseCase,
     // 후보 + LangState → AI 호출 → CorrectionSuggestion 목록. Result 로 success/failure 가 갈린다.
     private val generateSuggestions: GenerateSuggestionsUseCase,
     // COR-TUNE-01: langState snapshot → 교정 적응 정책(LearnerAdaptationProfile). raw metric 해석은 이 domain UseCase 가 전담하고
@@ -373,7 +375,7 @@ class CorrectionViewModel @Inject constructor(
         lang: LangCode,
         langState: LangState,
         primaryLanguage: LangCode?,
-    ): Result<List<CorrectionSuggestion>> = runCatching {
+    ): Result<GenerationOutcomePayload> = runCatching {
         // RT-003 read model 은 Flow 라 추가 emit 이 흘러도 첫 snapshot 만 본다.
         val sessionTurns = getCorrectionContext(lang).first()
         Log.d(
@@ -385,10 +387,17 @@ class CorrectionViewModel @Inject constructor(
             sessionLang = lang,
             sessionTurns = sessionTurns,
         )
+        val filteredCandidates = filterCorrectionCandidatesForSafety(candidates)
         Log.d(
             TAG,
-            "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
+            "correction candidates extracted lang=${lang.code}, candidates=${candidates.size}, blocked=${filteredCandidates.blockedCount}, candidateTurnIds=${candidates.mapNotNull { it.sourceTurnId }}"
         )
+        if (filteredCandidates.allowedCandidates.isEmpty()) {
+            return@runCatching GenerationOutcomePayload(
+                suggestions = emptyList(),
+                emptyReason = com.app.umma.domain.model.correction.CorrectionEmptyResultReason.SAFETY_BLOCKED
+            )
+        }
 
         // COR-TUNE-010: 의도 파악용 세션 맥락을 함께 확보한다.
         // - 이전 세션 기억(topicSummaries/topicKeySentences/recentTopics)은 getSessionMemory(lang) 로 읽는다
@@ -403,14 +412,22 @@ class CorrectionViewModel @Inject constructor(
         // 근거 부족/null 이면 UseCase 가 보수적 profile 을 돌려주므로 프롬프트도 안전한 최소 교정으로 떨어진다.
         val profile = buildLearnerAdaptationProfile(langState)
         val input = GenerateSuggestionsInput(
-            candidates = candidates,
+            candidates = filteredCandidates.allowedCandidates,
             langState = langState,
             // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
             primaryLang = primaryLanguage ?: LangCode.KO,
             profile = profile,
             sessionContext = sessionContext,
         )
-        generateSuggestions(input).getOrThrow()
+        val suggestions = generateSuggestions(input).getOrThrow()
+        GenerationOutcomePayload(
+            suggestions = suggestions,
+            emptyReason = if (suggestions.isEmpty()) {
+                com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED
+            } else {
+                null
+            }
+        )
     }
 
     /**
@@ -658,7 +675,7 @@ class CorrectionViewModel @Inject constructor(
         // 사용자 입장에서 윈도우가 끊기지 않는다는 점이고, 분기별로 어느 단계에서 in-flight 였는지 진단 가능하게
         // 의미를 분리해 둔 것이다.
         if (outcome is SaveRequestOutcome.Prepared) {
-            launchCompletion(outcome.request)
+            launchCompletion(outcome.result.request)
         }
     }
 
@@ -771,10 +788,15 @@ class CorrectionViewModel @Inject constructor(
 
     private fun CompleteCorrectionResult.toDashboardToastMessage(): String {
         val savedCount = savedFlashcardIds.size
-        return if (savedCount > 0) {
-            "학습 카드 ${savedCount}개가 저장되었어요"
-        } else {
-            "저장할 학습 카드가 없어 정리만 완료했어요!"
+        return when {
+            savedCount > 0 && safetyBlockedSuggestionCount > 0 ->
+                "일부 문장은 학습 카드로 저장할 수 없어 제외했어요"
+            savedCount > 0 ->
+                "학습 카드 ${savedCount}개가 저장되었어요"
+            zeroSaveReason == com.app.umma.domain.model.correction.CorrectionSaveZeroReason.SAFETY_BLOCKED ->
+                "이번 교정 결과에는 저장 가능한 학습 문장이 없어요"
+            else ->
+                "저장할 학습 카드가 없어 정리만 완료했어요!"
         }
     }
 
@@ -804,7 +826,7 @@ class CorrectionViewModel @Inject constructor(
             )
             is SaveRequestOutcome.Prepared -> Log.d(
                 TAG,
-                "onSaveClicked — saveRequest 준비 — flashcards=${outcome.request.flashcards.size}",
+                "onSaveClicked — saveRequest 준비 — flashcards=${outcome.result.request.flashcards.size}, safetyBlocked=${outcome.result.safetyBlockedSuggestionIds.size}, zeroReason=${outcome.result.zeroReason}",
             )
             is SaveRequestOutcome.Failed -> Log.w(
                 TAG,

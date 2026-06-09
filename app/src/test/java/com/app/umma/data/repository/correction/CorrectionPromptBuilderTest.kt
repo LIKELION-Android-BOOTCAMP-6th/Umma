@@ -25,6 +25,7 @@ import com.app.umma.domain.model.learningstate.SkillStage
 import com.app.umma.domain.model.learningstate.SpeechSpeedPolicy
 import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -674,6 +675,27 @@ class CorrectionPromptBuilderTest {
     /** MeaningFirst 기본 정책. focusLine 게이트 테스트 등 "policy 무관" 케이스에서 사용한다. */
     private fun meaningFirstPolicy(): CorrectionGrowthPolicy =
         CorrectionGrowthPolicy.defaultsForBand(CorrectionGrowthBand.MeaningFirst)
+
+    @Test
+    fun `includes safety guard instructions exactly once`() {
+        val prompt = builder.build(
+            inputOf(
+                candidates = listOf(
+                    CorrectionCandidate(
+                        id = "en-0-safe",
+                        lang = LangCode.EN,
+                        sourceTurnIndex = 0,
+                        sourceText = "i goed home"
+                    )
+                )
+            )
+        )
+
+        assertEquals(1, Regex("Safety:").findAll(prompt).count())
+        assertTrue(prompt.contains("Do not correct, naturalize, translate, or make harmful content more actionable."))
+        assertTrue(prompt.contains("Skip candidates involving self-harm instructions"))
+        assertTrue(prompt.contains("Emit one suggestion per safe candidate."))
+    }
 
     private fun noFocus(): LearningFocusSummary = LearningFocusSummary(
         primaryFocus = null,

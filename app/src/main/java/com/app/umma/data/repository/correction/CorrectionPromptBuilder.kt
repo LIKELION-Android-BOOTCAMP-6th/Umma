@@ -79,6 +79,10 @@ class CorrectionPromptBuilder @Inject constructor() {
             focusLine(focus)?.let { appendLine("- $it") }
             appendLine()
             appendLine("Task: For each candidate sentence below, return one corrected version that preserves the speaker's meaning and is natural at the learner's level.")
+            appendLine("Safety:")
+            appendLine("- Do not correct, naturalize, translate, or make harmful content more actionable.")
+            appendLine("- Skip candidates involving self-harm instructions, child sexual content, hate or harassment, crime, fraud, explicit sexual content, or dangerous professional advice.")
+            appendLine("- Safe language-learning help is allowed only when it does not preserve or strengthen harmful intent.")
             appendLine()
             // COR-TUNE-005: band별 few-shot anchor. 모델 출력을 band 기대 형태(길이/강도)에 맞춘다.
             // 예시는 anchor일 뿐, candidate 언어 조합을 강제하지 않는다(교정은 항상 selectedLang).
@@ -132,7 +136,7 @@ class CorrectionPromptBuilder @Inject constructor() {
             // afterText(=항상 selectedLang)와 혼동하지 않도록 "원문(sourceText) 기준"임을 명시하고,
             // 확신이 없을 때 "unknown"을 쓰게 해 mapper 가 보수적으로 null(=평가 통과)로 떨어뜨릴 escape hatch 를 둔다.
             appendLine("- sourceLang: the ISO code (e.g. \"ko\", \"en\", \"ja\", \"de\") of the language the learner ACTUALLY used in sourceText (not the corrected afterText). If you are not sure, use \"unknown\".")
-            appendLine("- Emit one suggestion per candidate. Skip a candidate only if no correction is needed.")
+            appendLine("- Emit one suggestion per safe candidate. Skip a candidate if it is unsafe or if no correction is needed.")
             appendLine("- Preserve sourceText as the original utterance context. Do not rewrite, trim, sanitize, or remove filler from sourceText itself; cleanup applies only to afterText.")
             appendLine("- Filler and repetition cleanup: in afterText, remove unnecessary filler words, hesitation markers, and repeated discourse markers when doing so does not change the speaker's meaning.")
             appendLine("- Keep afterText natural and concise for learning and flashcard use.")

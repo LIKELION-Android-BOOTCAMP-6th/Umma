@@ -1,8 +1,10 @@
 package com.app.umma.presentation.correction
 
 import com.app.umma.domain.model.correction.CompleteCorrectionResult
+import com.app.umma.domain.model.correction.CorrectionEmptyResultReason
 import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSuggestion
+import com.app.umma.domain.model.correction.PrepareCorrectionSaveRequestResult
 import com.app.umma.domain.model.flashcard.Flashcard
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
@@ -84,6 +86,7 @@ data class CorrectionUiState(
     val selectedSuggestionIds: Set<String> = emptySet(),
     // Error 상태에서 logcat / 화면 디버깅 텍스트로 노출할 짧은 사유. 그 외에는 null.
     val errorReason: String? = null,
+    val emptyResultReason: CorrectionEmptyResultReason? = null,
     // COR-005-A: 변환에 성공한 Flashcard 저장 요청 모델. COR-006 이 이 값을 읽어
     // CompleteCorrectionUseCase 로 넘기므로 화면 계층에서는 보관만 한다.
     // 새 suggestions 가 들어오거나 변환이 다시 시도될 때 ViewModel 이 함께 갱신/초기화한다.
@@ -205,6 +208,11 @@ data class CorrectionLoadingCard(
     val back: String,
 )
 
+internal data class GenerationOutcomePayload(
+    val suggestions: List<CorrectionSuggestion>,
+    val emptyReason: CorrectionEmptyResultReason? = null
+)
+
 /**
  * COR-005-A 저장 요청 변환 시도의 분기 결과.
  *
@@ -232,7 +240,7 @@ internal sealed interface SaveRequestOutcome {
     data class UidUnavailable(val reason: String = "uid unavailable") : SaveRequestOutcome
 
     /** [com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase] 성공. */
-    data class Prepared(val request: CorrectionSaveRequest) : SaveRequestOutcome
+    data class Prepared(val result: PrepareCorrectionSaveRequestResult) : SaveRequestOutcome
 
     /** UseCase require 실패 등 변환이 실제로 시도됐지만 실패한 경우. */
     data class Failed(val reason: String) : SaveRequestOutcome
@@ -247,7 +255,7 @@ internal sealed interface SaveRequestOutcome {
  */
 internal fun CorrectionUiState.computeSaveRequestOutcome(
     uid: String?,
-    prepare: (uid: String, selected: List<CorrectionSuggestion>) -> Result<CorrectionSaveRequest>,
+    prepare: (uid: String, selected: List<CorrectionSuggestion>) -> Result<PrepareCorrectionSaveRequestResult>,
 ): SaveRequestOutcome {
     // COR-005-B: in-flight 가드는 canSave 보다 먼저 본다.
     // canSave 도 isSavePreparing 을 참조하기 때문에, 가드 순서가 뒤집히면 "중복 클릭" 과
@@ -294,7 +302,7 @@ internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutco
             isSavePreparing = false,
         )
         is SaveRequestOutcome.Prepared -> copy(
-            saveRequest = outcome.request,
+            saveRequest = outcome.result.request,
             saveErrorReason = null,
             isSavePreparing = false,
         )
@@ -517,9 +525,10 @@ internal fun GlobalLangState.notAvailableReason(): String? {
  *  - [CorrectionUiState.saveErrorReason]       = null
  */
 internal fun CorrectionUiState.applyGenerationOutcome(
-    result: Result<List<CorrectionSuggestion>>,
+    result: Result<GenerationOutcomePayload>,
 ): CorrectionUiState = result.fold(
-    onSuccess = { suggestions ->
+    onSuccess = { payload ->
+        val suggestions = payload.suggestions
         // 0건 → EmptyResult, 1건 이상 → Content.
         val nextPhase = if (suggestions.isEmpty()) {
             CorrectionUiState.Phase.EmptyResult
@@ -531,6 +540,7 @@ internal fun CorrectionUiState.applyGenerationOutcome(
             suggestions = suggestions,
             selectedSuggestionIds = emptySet(),
             errorReason = null,
+            emptyResultReason = payload.emptyReason,
             saveRequest = null,
             saveErrorReason = null,
         )
@@ -543,6 +553,7 @@ internal fun CorrectionUiState.applyGenerationOutcome(
             suggestions = emptyList(),
             selectedSuggestionIds = emptySet(),
             errorReason = reason,
+            emptyResultReason = null,
             saveRequest = null,
             saveErrorReason = null,
         )

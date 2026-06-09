@@ -60,6 +60,7 @@ import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleScreenSB
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
+import com.app.umma.domain.model.correction.CorrectionEmptyResultReason
 import com.app.umma.presentation.correction.component.CorrectionResultList
 import com.app.umma.presentation.correction.component.CorrectionSelectAllBar
 import kotlin.math.floor
@@ -287,6 +288,7 @@ fun CorrectionScreen(
             // "다시 시도" 로 generate 를 재진입하거나, "AI 와 대화하기" 로 대화를 더 이어갈 수 있다.
             CorrectionUiState.Phase.EmptyResult -> {
                 CorrectionEmptyResult(
+                    reason = uiState.emptyResultReason,
                     onRetry = viewModel::onRetryClicked,
                     onNavigateToChat = onNavigateToChat,
                     modifier = Modifier
@@ -819,6 +821,7 @@ private fun CorrectionEmpty(
  */
 @Composable
 private fun CorrectionEmptyResult(
+    reason: CorrectionEmptyResultReason?,
     onRetry: () -> Unit,
     onNavigateToChat: () -> Unit,
     modifier: Modifier = Modifier,
@@ -829,11 +832,19 @@ private fun CorrectionEmptyResult(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "AI 가 교정할 부분을 찾지 못했어요",
+            text = if (reason == CorrectionEmptyResultReason.SAFETY_BLOCKED) {
+                "이번 교정 결과에는 저장 가능한 학습 문장이 없어요"
+            } else {
+                "AI 가 교정할 부분을 찾지 못했어요"
+            },
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "다시 시도하거나 대화를 더 이어가 보세요",
+            text = if (reason == CorrectionEmptyResultReason.SAFETY_BLOCKED) {
+                "다시 시도하거나 AI 대화를 이어가 보세요"
+            } else {
+                "다시 시도하거나 대화를 더 이어가 보세요"
+            },
             textAlign = TextAlign.Center,
         )
         // Primary CTA: generate 재진입.
