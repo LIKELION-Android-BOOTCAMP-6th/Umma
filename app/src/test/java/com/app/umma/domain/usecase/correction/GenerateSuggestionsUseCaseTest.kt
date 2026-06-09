@@ -11,14 +11,15 @@ import com.app.umma.domain.repository.CorrectionRepository
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertSame
 import org.junit.Test
 
 /**
- * UseCase 는 repository 로 위임만 한다.
+ * UseCase 는 repository 호출을 감싸되, domain 정책인 교정 결과 개수 상한을 최종 보증한다.
  *
  * AI 호출 흐름과 happy path 는 [com.app.umma.data.repository.CorrectionRepositoryImplTest] 가 검증한다.
- * 여기서는 UseCase 가 입력을 변형하지 않고 repository 결과를 그대로 돌려준다는 점만 본다.
+ * 여기서는 UseCase 가 입력을 그대로 위임하면서도, 성공 결과를 최대 10개로 수렴시키는지 확인한다.
  */
 class GenerateSuggestionsUseCaseTest {
 
@@ -58,6 +59,82 @@ class GenerateSuggestionsUseCaseTest {
 
         assertSame(repository.lastInput, input)
         assertEquals(expected.getOrThrow(), actual.getOrThrow())
+    }
+
+    @Test
+    fun `caps repository suggestions to 10 when more than 10 are returned`() = runBlocking {
+        val repository = RecordingCorrectionRepository(
+            Result.success((0 until 11).map { index -> suggestionOf(index) })
+        )
+        val useCase = GenerateSuggestionsUseCase(repository)
+
+        val actual = useCase(inputOf(candidateCount = 11)).getOrThrow()
+
+        assertEquals(10, actual.size)
+        assertEquals("corr-en-0-a", actual.first().id)
+        assertEquals("corr-en-9-a", actual.last().id)
+    }
+
+    @Test
+    fun `keeps exactly 10 suggestions unchanged`() = runBlocking {
+        val expectedSuggestions = (0 until 10).map { index -> suggestionOf(index) }
+        val repository = RecordingCorrectionRepository(Result.success(expectedSuggestions))
+        val useCase = GenerateSuggestionsUseCase(repository)
+
+        val actual = useCase(inputOf(candidateCount = 10)).getOrThrow()
+
+        assertEquals(expectedSuggestions, actual)
+    }
+
+    @Test
+    fun `keeps fewer than 10 suggestions unchanged`() = runBlocking {
+        val expectedSuggestions = (0 until 5).map { index -> suggestionOf(index) }
+        val repository = RecordingCorrectionRepository(Result.success(expectedSuggestions))
+        val useCase = GenerateSuggestionsUseCase(repository)
+
+        val actual = useCase(inputOf(candidateCount = 5)).getOrThrow()
+
+        assertEquals(expectedSuggestions, actual)
+    }
+
+    @Test
+    fun `keeps empty suggestions result unchanged`() = runBlocking {
+        val repository = RecordingCorrectionRepository(Result.success(emptyList()))
+        val useCase = GenerateSuggestionsUseCase(repository)
+
+        val actual = useCase(inputOf(candidateCount = 0)).getOrThrow()
+
+        assertTrue(actual.isEmpty())
+    }
+
+    private fun inputOf(candidateCount: Int): GenerateSuggestionsInput {
+        val lang = LangCode.EN
+        return GenerateSuggestionsInput(
+            candidates = (0 until candidateCount).map { index ->
+                CorrectionCandidate(
+                    id = "en-$index-a",
+                    lang = lang,
+                    sourceTurnIndex = index,
+                    sourceText = "source-$index"
+                )
+            },
+            langState = LangState.initial(lang),
+            primaryLang = LangCode.KO,
+            profile = BuildLearnerAdaptationProfileUseCase()(LangState.initial(lang))
+        )
+    }
+
+    private fun suggestionOf(index: Int): CorrectionSuggestion {
+        return CorrectionSuggestion(
+            id = "corr-en-$index-a",
+            lang = LangCode.EN,
+            sourceCandidateIds = listOf("en-$index-a"),
+            sourceTurnIndex = index,
+            beforeText = "before-$index",
+            nativeText = "native-$index",
+            afterText = "after-$index",
+            explanation = "explanation-$index"
+        )
     }
 
     private class RecordingCorrectionRepository(

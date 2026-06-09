@@ -94,6 +94,25 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `prompt asks AI to keep at most 10 most impactful suggestions`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(
+                    id = "en-0-a",
+                    lang = LangCode.EN,
+                    sourceTurnIndex = 0,
+                    sourceText = "i go school"
+                )
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("최대 10개 지시 누락", prompt.contains("Return at most 10 suggestions"))
+        assertTrue("영향도 우선 지시 누락", prompt.contains("keep the 10 most impactful"))
+    }
+
+    @Test
     fun `prompt enforces candidateId exact-copy contract with copy, no-invent, and skip rules`() {
         // COR-FIX-009: "unknown correction candidate id: ja-6-0-79967d5" 실패의 직접 원인은
         // AI 가 candidateId 를 새로 만들어(hallucinate) 돌려준 것으로 추정된다. 한 줄짜리 지시("COPY
@@ -323,6 +342,24 @@ class CorrectionPromptBuilderTest {
     }
 
     @Test
+    fun `nativeText rule makes intended-meaning contract explicit and forbids correction explanation`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "i go school")
+            ),
+            lang = LangCode.EN,
+            primaryLang = LangCode.KO
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("nativeText 규칙에 afterText 번역 계약 누락", prompt.contains("translation of the corrected sentence (afterText)"))
+        assertTrue("nativeText 규칙에 하려던 말 계약 누락", prompt.contains("what the learner meant to say"))
+        assertTrue("nativeText 규칙에 교정 설명 금지 가드 누락", prompt.contains("Do NOT describe the correction here"))
+        assertTrue("nativeText 규칙에 explanation 전용 책임 구분 누락", prompt.contains("belongs ONLY in explanation"))
+    }
+
+    @Test
     fun `explanation rule delegates to Explanation policy not fixed primaryLang`() {
         // COR-TUNE-003-FIX: explanation 응답 규칙은 더 이상 primaryLang 을 고정하지 않는다.
         // 언어 결정은 Explanation 정책(explanationLine)에 위임되므로, 응답 규칙 줄에 "Explanation policy" 위임 문구가 있어야 한다.
@@ -337,6 +374,21 @@ class CorrectionPromptBuilderTest {
         val prompt = builder.build(input)
         assertTrue("Explanation policy 위임 문구 누락", prompt.contains("Explanation policy above"))
         assertFalse("explanation 응답 규칙에 primaryLang 고정 문구가 남아 있음", prompt.contains("a short correction tip in Korean"))
+    }
+
+    @Test
+    fun `explanation rule contrasts its role with nativeText while keeping existing policy delegation`() {
+        val input = inputOf(
+            candidates = listOf(
+                CorrectionCandidate(id = "en-0-a", lang = LangCode.EN, sourceTurnIndex = 0, sourceText = "hi")
+            )
+        )
+
+        val prompt = builder.build(input)
+
+        assertTrue("explanation 역할 대비 문구 누락", prompt.contains("unlike nativeText"))
+        assertTrue("explanation 교정 이유 문구 누락", prompt.contains("explaining what changed and why"))
+        assertTrue("Explanation policy 위임 문구 누락", prompt.contains("Explanation policy above"))
     }
 
     @Test
