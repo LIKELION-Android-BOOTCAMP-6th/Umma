@@ -127,12 +127,12 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("- candidateId: COPY EXACTLY one of the candidateId values from the Candidates section above. Do not invent new ids.")
             appendLine("- Never create, infer, shorten, hash, translate, or reformat a candidateId.")
             appendLine("- If you cannot use an exact candidateId from the Candidates section, skip that candidate.")
-            appendLine("- nativeText: the front-face sentence in $primaryLangName (${primaryLang.code}).")
+            appendLine("- nativeText: a natural $primaryLangName (${primaryLang.code}) translation of the corrected sentence (afterText) — i.e. what the learner meant to say. Do NOT describe the correction here; what was changed belongs ONLY in explanation.")
             appendLine("- afterText: the corrected sentence in ${selectedLang.code}.")
             // COR-TUNE-003-FIX: primaryLang 고정 제거 → Explanation 정책에 위임.
             // explanationLine()이 band별로 언어를 결정하므로(고급 band: target language, 초급: primaryLang)
             // 여기서 언어를 다시 고정하면 두 지시가 충돌한다. 형식 제약(60자)만 남기고 언어는 위 정책을 따른다.
-            appendLine("- explanation: a short correction tip (under 60 chars), in the language set by the Explanation policy above. Every suggestion MUST include a non-empty explanation — never omit it. If the reason is simple, still give a short tip.")
+            appendLine("- explanation: unlike nativeText, this field is only for a short correction tip explaining what changed and why (under 60 chars), in the language set by the Explanation policy above. Every suggestion MUST include a non-empty explanation — never omit it. If the reason is simple, still give a short tip.")
             // COR-TUNE-011-FIX (Method B): detectedLang seam 이 폐기되어, 발화 원문 언어는 이제 AI 가 직접 보고한다.
             // afterText(=항상 selectedLang)와 혼동하지 않도록 "원문(sourceText) 기준"임을 명시하고,
             // 확신이 없을 때 "unknown"을 쓰게 해 mapper 가 보수적으로 null(=평가 통과)로 떨어뜨릴 escape hatch 를 둔다.
