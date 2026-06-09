@@ -259,7 +259,11 @@ class CorrectionViewModel @Inject constructor(
                                 "langState.updatedAt=${next.langStateSnapshot?.updatedAt}"
                     )
                 }
-                _uiState.value = next.withReviewButtonState()
+                val previous = _uiState.value
+                _uiState.value = next.mergeReviewButtonState(
+                    previous = previous,
+                    shouldShowButton = shouldShowCorrectionReviewReportButton,
+                )
 
                 // 가드 2 (COR-001-B): generate 트리거 분기는 pure helper 가 결정한다.
                 // helper 가 false 를 돌리는 모든 경우(Empty / 이미 launched / Generating 등) 가
@@ -899,13 +903,6 @@ class CorrectionViewModel @Inject constructor(
     }
 
     // 클래스 내부 진단 로그 전용 상수 묶음. ViewModel 외부에서 참조할 일이 없어 private companion 으로 격리한다.
-    private fun CorrectionUiState.withReviewButtonState(): CorrectionUiState =
-        copy(
-            showCorrectionReviewReportButton = shouldShowCorrectionReviewReportButton,
-            isCorrectionReviewReporting = false,
-            hasCorrectionReviewReported = false,
-        )
-
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
@@ -916,3 +913,42 @@ class CorrectionViewModel @Inject constructor(
         const val STEP_MIN_DURATION_MS = 3_500L
     }
 }
+
+internal fun CorrectionUiState.mergeReviewButtonState(
+    previous: CorrectionUiState,
+    shouldShowButton: Boolean,
+): CorrectionUiState {
+    val isSameReviewTarget = previous.reviewTargetKey() == reviewTargetKey()
+    return copy(
+        showCorrectionReviewReportButton = shouldShowButton,
+        isCorrectionReviewReporting = if (isSameReviewTarget) {
+            previous.isCorrectionReviewReporting
+        } else {
+            false
+        },
+        hasCorrectionReviewReported = if (isSameReviewTarget) {
+            previous.hasCorrectionReviewReported
+        } else {
+            false
+        },
+    )
+}
+
+internal fun CorrectionUiState.reviewTargetKey(): CorrectionReviewTargetKey =
+    CorrectionReviewTargetKey(
+        selectedLearningLanguage = selectedLearningLanguage,
+        phase = phase,
+        suggestionIds = suggestions.map { it.id },
+        errorReason = errorReason,
+        saveErrorReason = saveErrorReason,
+        completionErrorReason = completionErrorReason,
+    )
+
+internal data class CorrectionReviewTargetKey(
+    val selectedLearningLanguage: LangCode?,
+    val phase: CorrectionUiState.Phase,
+    val suggestionIds: List<String>,
+    val errorReason: String?,
+    val saveErrorReason: String?,
+    val completionErrorReason: String?,
+)

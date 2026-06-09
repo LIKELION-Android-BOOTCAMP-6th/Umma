@@ -263,6 +263,128 @@ class CorrectionUiStateTest {
     }
 
     @Test
+    fun `mergeReviewButtonState keeps reported state for same review target`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+            showCorrectionReviewReportButton = true,
+            hasCorrectionReviewReported = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertTrue(merged.showCorrectionReviewReportButton)
+        assertTrue(merged.hasCorrectionReviewReported)
+        assertFalse(merged.isCorrectionReviewReporting)
+    }
+
+    @Test
+    fun `mergeReviewButtonState keeps reporting state for same review target`() {
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+            showCorrectionReviewReportButton = true,
+            isCorrectionReviewReporting = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = suggestions,
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertTrue(merged.isCorrectionReviewReporting)
+        assertFalse(merged.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `mergeReviewButtonState resets review flags when suggestion ids change`() {
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = listOf(
+                CorrectionSuggestion(
+                    id = "s-1",
+                    lang = LangCode.EN,
+                    sourceCandidateIds = listOf("c-1"),
+                    sourceTurnIndex = 0,
+                    beforeText = "a",
+                    nativeText = "a",
+                    afterText = "b",
+                    explanation = "e",
+                ),
+            ),
+            showCorrectionReviewReportButton = true,
+            isCorrectionReviewReporting = true,
+            hasCorrectionReviewReported = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Content,
+            selectedLearningLanguage = LangCode.EN,
+            suggestions = listOf(
+                CorrectionSuggestion(
+                    id = "s-2",
+                    lang = LangCode.EN,
+                    sourceCandidateIds = listOf("c-2"),
+                    sourceTurnIndex = 0,
+                    beforeText = "c",
+                    nativeText = "c",
+                    afterText = "d",
+                    explanation = "f",
+                ),
+            ),
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertFalse(merged.isCorrectionReviewReporting)
+        assertFalse(merged.hasCorrectionReviewReported)
+    }
+
+    @Test
+    fun `mergeReviewButtonState resets review flags when error reason changes`() {
+        val previous = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Error,
+            selectedLearningLanguage = LangCode.EN,
+            errorReason = "first error",
+            showCorrectionReviewReportButton = true,
+            hasCorrectionReviewReported = true,
+        )
+        val next = CorrectionUiState(
+            phase = CorrectionUiState.Phase.Error,
+            selectedLearningLanguage = LangCode.EN,
+            errorReason = "second error",
+        )
+
+        val merged = next.mergeReviewButtonState(
+            previous = previous,
+            shouldShowButton = true,
+        )
+
+        assertFalse(merged.hasCorrectionReviewReported)
+        assertFalse(merged.isCorrectionReviewReporting)
+    }
+
+    @Test
     fun `computeCompletionLaunch returns AlreadyInFlight when isCompleting`() {
         // 첫 호출이 isCompleting=true 를 emit 한 직후 들어온 두 번째 트리거를 막는 가드.
         val state = CorrectionUiState(
