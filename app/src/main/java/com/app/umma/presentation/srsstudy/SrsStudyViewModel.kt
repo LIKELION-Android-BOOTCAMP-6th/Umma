@@ -304,6 +304,16 @@ class SrsStudyViewModel @Inject constructor(
         _uiState.update { it.copy(isSpeaking = true) }
     }
 
+    /**
+     * SRS 화면이 보이지 않게 되면 진행 중인 TTS를 중단한다.
+     *
+     * Android 홈 버튼으로 앱이 백그라운드로 내려가도 ViewModel은 바로 제거되지 않기 때문에,
+     * onCleared()만으로는 재생 중인 음성을 멈출 수 없다
+     */
+    fun stopPronunciation() {
+        ttsController.stop()
+        _uiState.update { it.copy(isSpeaking = false) }
+    }
 
     override fun onCleared() {
         super.onCleared()
