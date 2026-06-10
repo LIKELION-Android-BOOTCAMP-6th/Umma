@@ -33,7 +33,6 @@ class AiContentReportRepositoryImpl @Inject constructor(
         // enum은 문자열로 저장해 Firestore Console에서 바로 읽을 수 있게 한다.
         // LangCode도 내부 enum 객체가 아니라 코드 문자열만 저장해야 cross-platform 운영 도구가 다루기 쉽다.
         return mapOf(
-            "reportId" to reportId,
             "userId" to userId,
             "sessionId" to sessionId,
             "reportedTurnId" to reportedTurnId,

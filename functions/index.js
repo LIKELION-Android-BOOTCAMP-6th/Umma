@@ -231,9 +231,13 @@ exports.submitAiContentReport = onCall(
 
     const report = normalizeAiContentReportPayload(request.data, uid);
 
+    // reportId는 클라이언트 입력을 신뢰하지 않고 서버에서 직접 계산한다.
+    // 같은 (sessionId, reportedTurnId) → 항상 같은 reportId → 재시도 시 중복 문서 생성 방지.
+    const reportId = buildReportId(report.sessionId, report.reportedTurnId);
+
     const userRef = firestore.collection(USERS_COLLECTION).doc(uid);
     const lockRef = firestore.collection(ACCOUNT_DELETE_LOCKS_COLLECTION).doc(uid);
-    const reportDocRef = firestore.collection(AI_CONTENT_REPORTS_COLLECTION).doc(report.reportId);
+    const reportDocRef = firestore.collection(AI_CONTENT_REPORTS_COLLECTION).doc(reportId);
 
     // reportedAt은 트랜잭션 외부에서 한 번 계산한다.
     // 트랜잭션이 재시도되더라도 보존 만료 시각의 미세한 차이는 허용 범위 내다.
@@ -268,6 +272,7 @@ exports.submitAiContentReport = onCall(
 
       tx.set(reportDocRef, {
         ...report,
+        reportId,
         reportedAt,
         expiresAt,
         status: "New",
@@ -276,7 +281,7 @@ exports.submitAiContentReport = onCall(
 
     return {
       ok: true,
-      reportId: report.reportId,
+      reportId,
       reportedAt,
       expiresAt,
     };
@@ -395,25 +400,51 @@ exports.cleanupExpiredAccountDeleteLocks = onSchedule(
     timeZone: "Asia/Seoul",
   },
   async () => {
-    const snapshot = await firestore
-      .collection(ACCOUNT_DELETE_LOCKS_COLLECTION)
-      .where("expiresAt", "<=", Date.now())
-      .limit(CLEANUP_BATCH_LIMIT)
-      .get();
+    let deletedCount = 0;
+    let passCount = 0;
 
-    if (snapshot.empty) {
+    // 락은 uid 기반 단일 문서라 실제 잔존량이 많지 않지만,
+    // ai_content_reports cleanup과 동일한 반복 구조로 맞춰 backlog가 쌓여도 정리되도록 한다.
+    while (passCount < 5) {
+      const snapshot = await firestore
+        .collection(ACCOUNT_DELETE_LOCKS_COLLECTION)
+        .where("expiresAt", "<=", Date.now())
+        .limit(CLEANUP_BATCH_LIMIT)
+        .get();
+
+      if (snapshot.empty) {
+        break;
+      }
+
+      const batch = firestore.batch();
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+
+      deletedCount += snapshot.size;
+      passCount += 1;
+
+      if (snapshot.size < CLEANUP_BATCH_LIMIT) {
+        break;
+      }
+    }
+
+    if (passCount === 5) {
+      logger.warn("expired account delete lock cleanup reached pass limit", {
+        deletedCount,
+        passCount,
+      });
+    }
+
+    if (deletedCount === 0) {
       logger.info("expired account delete lock cleanup skipped: no documents");
       return;
     }
 
-    const batch = firestore.batch();
-    snapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    await batch.commit();
-
     logger.info("expired account delete locks deleted", {
-      deletedCount: snapshot.size,
+      deletedCount,
+      passCount,
     });
   },
 );
@@ -594,12 +625,15 @@ async function verifyFirebaseIdToken(request) {
   }
 }
 
-function normalizeAiContentReportPayload(data, uid) {
-  const reportId = stringValue(data?.reportId).trim();
-  if (!reportId) {
-    throwInvalidArgument("reportId is required");
-  }
+// 클라이언트와 동일한 sanitization 규칙으로 서버에서 직접 계산한다.
+// uid를 포함하지 않으면서 같은 (sessionId, turnId)에 대해 항상 같은 id를 보장한다.
+function buildReportId(sessionId, reportedTurnId) {
+  const safeSession = sessionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 24);
+  const safeTurn = reportedTurnId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 24);
+  return `report_${safeSession}_${safeTurn}`;
+}
 
+function normalizeAiContentReportPayload(data, uid) {
   const userId = stringValue(data?.userId).trim();
   if (userId !== uid) {
     throwInvalidArgument("userId must match authenticated user");
@@ -643,7 +677,6 @@ function normalizeAiContentReportPayload(data, uid) {
     : [];
 
   return {
-    reportId,
     sessionId,
     reportedTurnId,
     reportedAiText,

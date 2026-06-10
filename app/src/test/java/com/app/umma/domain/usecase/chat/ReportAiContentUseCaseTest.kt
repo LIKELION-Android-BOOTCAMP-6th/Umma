@@ -47,8 +47,6 @@ class ReportAiContentUseCaseTest {
     ): AiContentReport {
         // fixture는 정책 신고 저장에 필요한 최소 필드를 모두 채워 정상 경로를 재현한다.
         return AiContentReport(
-            // sessionId + reportedTurnId 기반 id 형식을 재현한다. buildAiContentReportId 정책과 일치해야 한다.
-            reportId = "report_session-1_ai-turn-1",
             userId = userId,
             sessionId = sessionId,
             reportedTurnId = reportedTurnId,

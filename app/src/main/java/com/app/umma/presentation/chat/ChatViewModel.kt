@@ -663,10 +663,6 @@ class ChatViewModel @Inject constructor(
 
             val reportedAt = System.currentTimeMillis()
             val report = AiContentReport(
-                reportId = buildAiContentReportId(
-                    sessionId = reportableSessionId,
-                    reportedTurnId = reportableTurnId,
-                ),
                 userId = uid,
                 sessionId = reportableSessionId,
                 reportedTurnId = reportableTurnId,
@@ -697,7 +693,7 @@ class ChatViewModel @Inject constructor(
                             aiContentReportErrorMessage = null
                         )
                     }
-                    Log.i(TAG, "ai_content_report_submitted reportId=${report.reportId} turnId=$reportableTurnId")
+                    Log.i(TAG, "ai_content_report_submitted sessionId=$reportableSessionId turnId=$reportableTurnId")
                 }
                 .onFailure { error ->
                     _uiState.update {
@@ -1965,14 +1961,6 @@ private fun AIEvent.FinalTranscription.toReportContextTurn(): AiContentReportCon
     )
 }
 
-private fun buildAiContentReportId(sessionId: String, reportedTurnId: String): String {
-    // sessionId(가명 식별자)와 turnId 조합으로 같은 turn 재제출은 같은 문서로 수렴하게 한다.
-    // uid 대신 sessionId를 쓰므로 문서 경로에서 사용자를 직접 식별할 수 없다.
-    // 서버의 existingSnapshot 체크와 함께 동작해 네트워크 재시도·더블 탭을 멱등 처리한다.
-    val safeSession = sessionId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)
-    val safeTurn = reportedTurnId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)
-    return "report_${safeSession}_$safeTurn"
-}
 
 /**
  * 새 세션 시작이 사용자에게 "복구/전환 완료"로 안내되어야 하는지 결정합니다.

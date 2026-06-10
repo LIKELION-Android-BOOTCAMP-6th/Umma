@@ -11,8 +11,6 @@ import com.app.umma.domain.model.learningstate.TurnSpeaker
  * 그래서 SessionMemory나 devtools 저장소와 섞지 않고 별도 domain 모델로 둡니다.
  */
 data class AiContentReport(
-    // 같은 AI turn을 중복 제출해도 원격 문서를 하나로 식별하기 위한 report id.
-    val reportId: String,
     // 신고한 Firebase 사용자 uid. 운영 검토와 abuse 방지를 위해 필수다.
     val userId: String,
     // 신고 대상 AI 응답이 발생한 Chat app session id.

@@ -68,7 +68,7 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 
 - **운영용 AI 신고는 90일 보관 후 정리한다.**
 - `ai_content_reports`는 신고 원문과 최소 context가 있어야 AI 안전 검토 가치가 있다.
-  - 문서 경로(`reportId`)에는 `uid`를 넣지 않고, 시간+난수 기반의 opaque id를 쓴다.
+  - 문서 경로(`reportId`)에는 `uid`를 넣지 않고, `report_{sessionId}_{reportedTurnId}` 형식의 결정론적 id를 쓴다. 같은 turn 재제출 시 같은 문서로 수렴되도록 서버에서 직접 계산한다.
   - 문서 본문에도 uid, 이메일, 닉네임 같은 사용자 식별자는 저장하지 않는다.
   - `sessionId`, `reportedTurnId`, `contextTurns.turnId`는 분석 재현을 위한 가명 식별자로 남길 수 있지만, 사용자 uid와 직접 연결되는 경로값은 아니다.
   - 보관 목적은 AI 안전 정책 개선, 부적절 응답 조사, abuse 대응으로 제한한다.
@@ -166,7 +166,7 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 - `chat_prompt_review_reports`는 계정 삭제 시 삭제한다.
 - `ai_content_reports`는 AI 안전 정책 개선을 위해 원문 context를 포함해 90일 동안 제한 보관한다.
 - `ai_content_reports`는 Cloud Function이 저장 시점의 서버 기준 90일 만료 시각을 함께 기록한다.
-- `ai_content_reports`의 문서 ID는 uid를 포함하지 않는 opaque id로 생성한다.
+- `ai_content_reports`의 문서 ID는 uid를 포함하지 않는 `report_{sessionId}_{reportedTurnId}` 형식의 결정론적 id로 생성한다. id 계산은 서버(Cloud Function)가 담당하며, 클라이언트 입력값을 그대로 신뢰하지 않는다.
 - 운영 보관 목적은 AI 안전, 부적절 응답 조사, abuse 대응으로 제한한다.
 
 ## 3. Cloud Function 보강
