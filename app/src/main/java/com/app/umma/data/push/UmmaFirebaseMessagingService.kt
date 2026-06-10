@@ -18,14 +18,14 @@ import com.app.umma.domain.usecase.notification.RegisterNotificationDeviceUseCas
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
+import java.util.TimeZone
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.TimeZone
-import javax.inject.Inject
 
 /**
- * FCM 토큰 갱신과 학습 알림 표시를 담당하는 서비스.
+ * Handles FCM token refresh and phone-owned notification display.
  */
 @AndroidEntryPoint
 class UmmaFirebaseMessagingService : FirebaseMessagingService() {
@@ -64,6 +64,12 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
     private fun showSrsNotification(message: RemoteMessage) {
+        val content = SrsNotificationContentPolicy.build(
+            title = message.data[DATA_TITLE],
+            body = message.data[DATA_BODY],
+            fallbackTitle = getString(R.string.notification_srs_fallback_title),
+            fallbackBody = getString(R.string.notification_srs_fallback_body)
+        )
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_NOTIFICATION_TYPE, SRS_NOTIFICATION_TYPE)
@@ -74,10 +80,8 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID_SRS_REVIEW)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(message.data[DATA_TITLE] ?: "학습 알림")
-            .setContentText(
-                message.data[DATA_BODY] ?: "복습할 카드가 있습니다. 앱에서 확인해보세요."
-            )
+            .setContentTitle(content.title)
+            .setContentText(content.body)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(
                 buildPendingIntent(
@@ -105,8 +109,12 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID_MARKETING)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(message.data[DATA_TITLE] ?: "Umma")
-            .setContentText(message.data[DATA_BODY] ?: "앱에서 새로운 소식을 확인해보세요.")
+            .setContentTitle(
+                message.data[DATA_TITLE] ?: getString(R.string.notification_marketing_fallback_title)
+            )
+            .setContentText(
+                message.data[DATA_BODY] ?: getString(R.string.notification_marketing_fallback_body)
+            )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(
                 buildPendingIntent(
@@ -172,19 +180,23 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID_SRS_REVIEW,
-                    "학습 알림",
+                    context.getString(R.string.notification_channel_srs_review_name),
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "SRS 학습 리마인드 알림"
+                    description = context.getString(
+                        R.string.notification_channel_srs_review_description
+                    )
                 }
             )
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID_MARKETING,
-                    "marketing_notifications",
+                    context.getString(R.string.notification_channel_marketing_name),
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "마케팅 캠페인 알림"
+                    description = context.getString(
+                        R.string.notification_channel_marketing_description
+                    )
                 }
             )
         }

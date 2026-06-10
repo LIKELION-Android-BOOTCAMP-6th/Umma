@@ -4,4 +4,12 @@
     <string name="dashboard_err_no_learning_langs">학습 언어를 불러오지 못했습니다.</string>
     <string name="dashboard_err_lang_change_failed">언어 변경에 실패했습니다.</string>
     <string name="dashboard_retry">다시 시도</string>
+    <string name="notification_channel_srs_review_name">학습 알림</string>
+    <string name="notification_channel_srs_review_description">SRS 학습 리마인드 알림</string>
+    <string name="notification_channel_marketing_name">마케팅 알림</string>
+    <string name="notification_channel_marketing_description">마케팅 캠페인 알림</string>
+    <string name="notification_srs_fallback_title">학습 알림</string>
+    <string name="notification_srs_fallback_body">복습할 카드가 있어요. 앱에서 확인해보세요.</string>
+    <string name="notification_marketing_fallback_title">Umma</string>
+    <string name="notification_marketing_fallback_body">앱에서 새로운 소식을 확인해보세요.</string>
 </resources>
