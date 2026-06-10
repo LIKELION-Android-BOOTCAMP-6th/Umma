@@ -205,7 +205,12 @@ class CorrectionPromptBuilderTest {
 
         val prompt = builder.build(input)
 
-        assertTrue("English filler example ?꾨씫", prompt.contains("\"you know\""))
+        assertFalse(
+            "COR-TUNE-014: \"you know\"는 필러 예시에서 제외되어야 함 (의미 보유 완충 표현 보존)",
+            prompt.contains("\"you know\"")
+        )
+        assertTrue("English um filler example 누락", prompt.contains("\"um\""))
+        assertTrue("English uh filler example 누락", prompt.contains("\"uh\""))
         assertTrue("English discourse-marker like example ?꾨씫", prompt.contains("discourse-marker \"like\""))
         assertTrue("Japanese filler example ?꾨씫", prompt.contains("\"なんか\""))
         assertTrue("Korean filler example ?꾨씫", prompt.contains("\"약간\""))
