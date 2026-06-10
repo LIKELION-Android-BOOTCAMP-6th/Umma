@@ -17,5 +17,15 @@
         "*.local"
       ]
     }
-  ]
+  ],
+"hosting": {
+    "public": "docs/policy",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "cleanUrls": true,
+    "trailingSlash": false
+  }
 }
