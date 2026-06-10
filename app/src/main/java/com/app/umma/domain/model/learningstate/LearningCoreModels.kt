@@ -18,6 +18,11 @@ enum class LangCode(val code: String) {
     UNKNOWN("unknown");
 
     companion object {
+        // 기준 언어(primaryLang) 결정 실패 시 사용하는 단일 기본값(SSOT).
+        // primaryLang 이 null 이거나 UNKNOWN 으로 오염됐을 때의 방어 폴백 — ViewModel·DTO·PromptBuilder 가 공유한다.
+        // 향후 기본 기준 언어를 바꾸려면 이 한 줄만 수정한다.
+        val DEFAULT_PRIMARY: LangCode = KO
+
         // Firestore나 문자열 입력을 enum으로 되돌릴 때 사용한다.
         fun fromCode(code: String): LangCode? {
             return entries.firstOrNull { it.code.equals(code, ignoreCase = true) }

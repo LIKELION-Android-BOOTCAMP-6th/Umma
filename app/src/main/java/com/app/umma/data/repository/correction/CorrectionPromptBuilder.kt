@@ -376,7 +376,8 @@ class CorrectionPromptBuilder @Inject constructor() {
         LangCode.JA -> "Japanese"
         LangCode.KO -> "Korean"
         LangCode.DE -> "German"
-        LangCode.UNKNOWN -> "Korean"
+        // UNKNOWN(오염/미지원)은 기준 언어 폴백과 동일하게 처리한다(SSOT 경유). DEFAULT_PRIMARY=KO → "Korean".
+        LangCode.UNKNOWN -> languageName(LangCode.DEFAULT_PRIMARY)
     }
 
     private companion object {

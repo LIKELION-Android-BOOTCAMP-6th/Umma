@@ -460,7 +460,7 @@ class CorrectionViewModel @Inject constructor(
             candidates = filteredCandidates.allowedCandidates,
             langState = langState,
             // primaryLanguage 가 없으면 한국어로 fallback — Chat 의 UNKNOWN→영어 fallback 패턴과 동일.
-            primaryLang = primaryLanguage ?: LangCode.KO,
+            primaryLang = primaryLanguage ?: LangCode.DEFAULT_PRIMARY,
             profile = profile,
             sessionContext = sessionContext,
         )

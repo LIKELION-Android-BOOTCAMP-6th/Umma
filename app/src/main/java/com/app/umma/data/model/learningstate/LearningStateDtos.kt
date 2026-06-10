@@ -187,7 +187,7 @@ fun UserLangPref.toDto(): UserLangPrefDto {
 }
 fun UserLangPrefDto.toDomain(): UserLangPref {
     // primaryLanguage는 기준 언어라 learningLanguages 밖이어도 정상이다. 포함 여부로 primary를 버리지 않는다.
-    val primary = LangCode.fromCode(primaryLanguage) ?: LangCode.KO
+    val primary = LangCode.fromCode(primaryLanguage) ?: LangCode.DEFAULT_PRIMARY
     val rawSelected = LangCode.fromCode(selectedLearningLanguage)
     val validLearningLangs = learningLanguages.mapNotNull(LangCode::fromCode)
     val selected = when {
