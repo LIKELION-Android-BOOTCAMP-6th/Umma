@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -48,6 +49,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.CardElevation
@@ -110,6 +114,7 @@ fun CorrectionScreen(
     viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val correctionReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
     var correctionReviewReportNote by rememberSaveable { mutableStateOf("") }
     // 선택 0개로 저장 버튼 클릭 시 노출. 확인 → onSkipSaveAndExit, 취소 → 화면 유지.
@@ -120,6 +125,22 @@ fun CorrectionScreen(
     // 화면 진입 시 1회만 Flow 셋업. ViewModel 내부에 가드가 있어 재호출되어도 안전.
     LaunchedEffect(Unit) {
         viewModel.onEnter()
+    }
+
+    // COR-FIX-014: onCleared() 만으로는 홈 버튼 백그라운드 진입 시 TTS 가 즉시 멈추지 않는다 —
+    // ViewModel 은 화면 dispose 시점에야 clear 되기 때문이다. SRS 화면과 동일하게 화면 이탈
+    // (ON_STOP / onDispose) 시 stopPronunciation() 을 명시적으로 호출해 재생을 끊는다.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.stopPronunciation()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.stopPronunciation()
+        }
     }
 
     // COR-007-A: 1회성 effect 채널 collect.

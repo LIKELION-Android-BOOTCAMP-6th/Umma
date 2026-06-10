@@ -635,6 +635,29 @@ class CorrectionViewModel @Inject constructor(
     }
 
     /**
+     * 교정 화면이 보이지 않게 되면 진행 중인 TTS를 중단한다.
+     *
+     * [onCleared] 만으로는 백그라운드 전환(홈 버튼)을 커버하지 못한다 — ViewModel 은 화면 dispose
+     * 시점에야 clear 되므로, 홈 버튼으로 백그라운드 진입한 상황에서는 재생이 계속된다. 따라서 화면
+     * 이탈(ON_STOP / onDispose) 시점에 [CorrectionScreen] 이 본 함수를 명시적으로 호출한다.
+     * SRS 의 동명 함수([com.app.umma.presentation.srsstudy.SrsStudyViewModel.stopPronunciation])와
+     * 동일한 정책이다.
+     *
+     * - [speakingPlaybackRequestId] 를 증가시켜 이미 큐잉된 stale 콜백(onComplete 등)이 새 상태를
+     *   덮어쓰지 못하게 무효화한다([onPlaySuggestionAudio] 의 clearIfLatest 가드와 동일한 id 기준).
+     * - [ttsController.stop][com.app.umma.core.tts.TextToSpeechController.stop] 호출 — Singleton TTS
+     *   라 stop 은 이미 종료/미초기화 상태에서도 안전한 no-op.
+     * - [CorrectionUiState.speakingSuggestionId] = null 로 스피커 활성 표시가 남지 않게 한다.
+     *
+     * 회전/구성 변경/이미 정지된 상태에서 중복 호출되어도 위 세 동작 모두 멱등이라 안전하다.
+     */
+    fun stopPronunciation() {
+        speakingPlaybackRequestId++
+        ttsController.stop()
+        _uiState.update { it.copy(speakingSuggestionId = null) }
+    }
+
+    /**
      * 전체 선택/해제 토글.
      *
      * AC:

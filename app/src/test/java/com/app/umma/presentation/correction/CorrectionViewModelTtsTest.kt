@@ -186,6 +186,67 @@ class CorrectionViewModelTtsTest {
         assertNull(viewModel.uiState.value.speakingSuggestionId)
     }
 
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `stopPronunciation stops tts and clears speakingSuggestionId`() = runTest {
+        val ttsController = mockk<TextToSpeechController>()
+        every { ttsController.setLanguage(LangCode.EN) } returns true
+        every { ttsController.speak(any(), any(), any(), any()) } returns true
+        every { ttsController.stop() } returns Unit
+        val suggestion = sampleSuggestion()
+        val viewModel = buildReadyViewModel(suggestion, ttsController)
+        advanceUntilIdle()
+
+        viewModel.onPlaySuggestionAudio(suggestion)
+        assertEquals(suggestion.id, viewModel.uiState.value.speakingSuggestionId)
+
+        viewModel.stopPronunciation()
+
+        verify(exactly = 1) { ttsController.stop() }
+        assertNull(viewModel.uiState.value.speakingSuggestionId)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `stopPronunciation is safe to call multiple times without crash`() = runTest {
+        val ttsController = mockk<TextToSpeechController>()
+        every { ttsController.setLanguage(LangCode.EN) } returns true
+        every { ttsController.speak(any(), any(), any(), any()) } returns true
+        every { ttsController.stop() } returns Unit
+        val suggestion = sampleSuggestion()
+        val viewModel = buildReadyViewModel(suggestion, ttsController)
+        advanceUntilIdle()
+
+        viewModel.stopPronunciation()
+        viewModel.stopPronunciation()
+
+        verify(exactly = 2) { ttsController.stop() }
+        assertNull(viewModel.uiState.value.speakingSuggestionId)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `stale onComplete callback cannot restore speakingSuggestionId after stopPronunciation`() = runTest {
+        val ttsController = mockk<TextToSpeechController>()
+        val onComplete = slot<() -> Unit>()
+        every { ttsController.setLanguage(LangCode.EN) } returns true
+        every { ttsController.speak(any(), capture(onComplete), any(), any()) } returns true
+        every { ttsController.stop() } returns Unit
+        val suggestion = sampleSuggestion()
+        val viewModel = buildReadyViewModel(suggestion, ttsController)
+        advanceUntilIdle()
+
+        viewModel.onPlaySuggestionAudio(suggestion)
+        // 화면 이탈로 정지
+        viewModel.stopPronunciation()
+        assertNull(viewModel.uiState.value.speakingSuggestionId)
+
+        // 이미 무효화된 stale 콜백이 뒤늦게 호출되어도 상태를 변경하지 않는다
+        onComplete.captured.invoke()
+
+        assertNull(viewModel.uiState.value.speakingSuggestionId)
+    }
+
     private fun buildReadyViewModel(
         suggestion: CorrectionSuggestion,
         ttsController: TextToSpeechController,
