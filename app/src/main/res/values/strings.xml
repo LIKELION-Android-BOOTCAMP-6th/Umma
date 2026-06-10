@@ -4,4 +4,24 @@
     <string name="dashboard_err_no_learning_langs">학습 언어를 불러오지 못했습니다.</string>
     <string name="dashboard_err_lang_change_failed">언어 변경에 실패했습니다.</string>
     <string name="dashboard_retry">다시 시도</string>
+    <string name="notification_channel_srs_review_name">학습 알림</string>
+    <string name="notification_channel_srs_review_description">SRS 학습 리마인드 알림</string>
+    <string name="notification_channel_marketing_name">마케팅 알림</string>
+    <string name="notification_channel_marketing_description">마케팅 캠페인 알림</string>
+    <string name="notification_srs_fallback_title">학습 알림</string>
+    <string name="notification_srs_fallback_body">복습할 카드가 있어요. 앱에서 확인해보세요.</string>
+    <string name="notification_marketing_fallback_title">Umma</string>
+    <string name="notification_marketing_fallback_body">앱에서 새로운 소식을 확인해보세요.</string>
+    <string name="debug_notification_action_content_description">테스트 알림 전송</string>
+    <string name="debug_notification_dialog_title">테스트 알림 전송</string>
+    <string name="debug_notification_dialog_body">보낼 알림 종류를 고른 뒤 전송을 누르세요.</string>
+    <string name="debug_notification_choice_label">보낼 알림</string>
+    <string name="debug_notification_target_srs">학습</string>
+    <string name="debug_notification_target_marketing">마케팅</string>
+    <string name="debug_notification_send">전송</string>
+    <string name="debug_notification_cancel">취소</string>
+    <string name="debug_notification_success_srs">학습 테스트 알림을 보냈습니다.</string>
+    <string name="debug_notification_success_marketing">마케팅 테스트 알림을 보냈습니다.</string>
+    <string name="debug_notification_failure">테스트 알림 전송에 실패했습니다.</string>
+    <string name="debug_notification_not_signed_in">로그인한 상태에서만 테스트 알림을 보낼 수 있습니다.</string>
 </resources>

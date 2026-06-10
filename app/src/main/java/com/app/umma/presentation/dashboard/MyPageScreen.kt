@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +45,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Scaffold
@@ -68,6 +71,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -76,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.app.umma.BuildConfig
+import com.app.umma.R
 import com.app.umma.core.theme.BackgroundHighlight
 import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
@@ -203,6 +209,13 @@ fun MyPageScreen(
         }
     }
 
+    LaunchedEffect(notificationUiState.testNotificationMessage) {
+        notificationUiState.testNotificationMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            myPageViewModel.onTestNotificationMessageConsumed()
+        }
+    }
+
     LaunchedEffect(profileUiState.message) {
         profileUiState.message?.let { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -245,6 +258,21 @@ fun MyPageScreen(
                     title = "마이페이지",
                     isCenterTitle = true,
                     onBackClick = if (isProcessing) null else onBackClick,
+                    actions = {
+                        if (BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev") {
+                            IconButton(
+                                onClick = myPageViewModel::onTestNotificationActionClicked,
+                                enabled = !notificationUiState.isSendingTestNotification,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = stringResource(
+                                        R.string.debug_notification_action_content_description,
+                                    ),
+                                )
+                            }
+                        }
+                    },
                 )
             },
         ) { paddingValues ->
@@ -441,6 +469,63 @@ fun MyPageScreen(
                         )
                     }
                 }
+
+                if (notificationUiState.showTestNotificationDialog) {
+                    UmmaDialog(
+                        title = stringResource(R.string.debug_notification_dialog_title),
+                        modifier = Modifier.padding(horizontal = SpacingL),
+                        onCancel = myPageViewModel::onTestNotificationDialogDismissed,
+                        onConfirm = myPageViewModel::onTestNotificationConfirmed,
+                        confirmText = stringResource(R.string.debug_notification_send),
+                        dismissText = stringResource(R.string.debug_notification_cancel),
+                        confirmEnabled = !notificationUiState.isSendingTestNotification,
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.debug_notification_dialog_body),
+                                color = TextPrimary,
+                                textAlign = TextAlign.Start,
+                            )
+
+                            Text(
+                                text = stringResource(R.string.debug_notification_choice_label),
+                                color = TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                DebugTargetButton(
+                                    text = stringResource(R.string.debug_notification_target_srs),
+                                    selected = notificationUiState.testNotificationTarget ==
+                                        NotificationTestTarget.SRS,
+                                    enabled = !notificationUiState.isSendingTestNotification,
+                                    onClick = {
+                                        myPageViewModel.onTestNotificationTargetSelected(
+                                            NotificationTestTarget.SRS,
+                                        )
+                                    },
+                                )
+                                DebugTargetButton(
+                                    text = stringResource(R.string.debug_notification_target_marketing),
+                                    selected = notificationUiState.testNotificationTarget ==
+                                        NotificationTestTarget.MARKETING,
+                                    enabled = !notificationUiState.isSendingTestNotification,
+                                    onClick = {
+                                        myPageViewModel.onTestNotificationTargetSelected(
+                                            NotificationTestTarget.MARKETING,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
         }
@@ -627,6 +712,38 @@ private fun NotificationSettingsCard(
                 },
             )
         }
+    }
+}
+
+@Composable
+private fun RowScope.DebugTargetButton(
+    text: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        border = if (selected) BorderStroke(1.5.dp, ThemePrimary) else null,
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = BackgroundSecondary,
+            disabledContainerColor = BackgroundSecondary,
+        ),
+        shape = RoundedCornerShape(30.dp),
+        modifier = Modifier
+            .weight(1f)
+            .height(48.dp),
+    ) {
+        Text(
+            text = text,
+            color = when {
+                !enabled -> TextPrimary.copy(alpha = 0.3f)
+                selected -> ThemePrimary
+                else -> TextPrimary
+            },
+            fontSize = 14.sp,
+        )
     }
 }
 

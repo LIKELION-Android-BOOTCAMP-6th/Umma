@@ -9,7 +9,7 @@ V1의 제품 역할은 다음과 같이 고정한다.
 
 - 워치는 `독립 AI 클라이언트`가 아니라 `폰의 확장 UI + 원격 입력 장치`다.
 - 폰은 인증, OpenAI Realtime token 발급, WebSocket transport, usage sync, Session Memory, notification device 등록의 유일한 소유자다.
-- 워치는 `원격 마이크 + 경량 채팅 UI + 알림 액션 표면`만 담당한다.
+- 워치는 `원격 마이크 + 경량 채팅 UI + 알림 미러링 표면`만 담당한다.
 
 ---
 
@@ -21,7 +21,7 @@ V1의 제품 역할은 다음과 같이 고정한다.
 | 2. Wear 모듈 및 브릿지 계약 스캐폴딩 | `:wear` 모듈, shared contract, command/event 타입 추가 | 워치-폰 통신 경계가 코드 구조로 분리됨 | 성공: 계약 고정 / 실패: 워치 구현이 폰 domain과 과결합 | WATCH-002 |
 | 3. 폰 소유 워치 AI 브릿지 | 워치 command를 기존 chat use case에 연결하고 AIEvent를 워치 상태로 변환 | 워치 입력이 기존 AI Chat 파이프라인으로 흘러감 | 성공: 기존 chat stack 재사용 / 실패: 세션 소유권 분산 | WATCH-003 |
 | 4. 활성 대화용 Foreground Service | 워치 active chat 동안만 폰에서 마이크/네트워크 리소스 유지 | 화면 off 상태에서도 워치 대화 지속 | 성공: active chat 지속 / 실패: 세션 중단 또는 과도한 백그라운드 점유 | WATCH-004 |
-| 5. 워치 채팅 UX 및 알림 액션 | PTT, replay, history 펼치기, watch review/snooze/open-on-phone 구현 | 워치에서 짧고 반복 가능한 학습 루프 제공 | 성공: 빠른 재진입 / 실패: UI 과밀, 개인정보 과노출 | WATCH-005 ~ WATCH-008 |
+| 5. 워치 채팅 UX 및 알림 미러링 검증 | PTT, replay, history 펼치기, 워치 알림 미러링 QA 기준 정리 | 워치에서 짧고 반복 가능한 대화 UX와 폰 알림 미러링 정책을 함께 검증 | 성공: 빠른 재진입 / 실패: UI 과밀, 개인정보 과노출, OS 설정 의존성 오판 | WATCH-005 ~ WATCH-008 |
 
 ---
 
@@ -59,7 +59,8 @@ V1의 제품 역할은 다음과 같이 고정한다.
 - 알림은 기존 폰 FCM 및 로컬 알림을 기준으로 생성한다.
 - 워치는 시스템 notification mirroring으로 알림을 받는다.
 - V1에서 watch-specific FCM token 저장 및 direct watch push는 구현하지 않는다.
-- 워치 액션은 `SRS 알림`에만 우선 제공한다.
+- 워치 알림은 시스템 notification mirroring 결과를 확인하는 수준으로만 다룬다.
+- V1에서 워치 알림 액션, 워치 알림 기반 handoff, snooze 재스케줄은 구현 범위에 포함하지 않는다.
 
 ### 3-5. 워치 대화 UX 정책
 
@@ -104,13 +105,16 @@ V1의 제품 역할은 다음과 같이 고정한다.
 - 녹음 시작/종료 command 전달
 - 폰 상태를 watch UI 상태로 렌더링
 - replay, history expand/collapse, open-on-phone CTA 제공
-- SRS 알림 액션 진입 처리
+- 시스템 미러링으로 전달된 폰 알림 표시
 
 ### V1 범위 밖
 
 - 워치 독립 AI 세션
 - 워치 자체 Realtime token 발급
 - 워치 FCM token 저장/직접 push
+- 워치 알림 액션
+- 워치 알림 기반 review 진입
+- 워치 알림 기반 snooze 재스케줄
 - direct cloud fallback
 - Tile/Complication
 - 이어폰 media button PTT
@@ -138,8 +142,6 @@ V1의 제품 역할은 다음과 같이 고정한다.
 - `ExpandHistory`
 - `CollapseHistory`
 - `OpenOnPhone`
-- `NotificationActionReview`
-- `NotificationActionSnooze10m`
 
 ### 폰 → 워치 상태/event 기준
 
@@ -187,9 +189,8 @@ V1의 제품 역할은 다음과 같이 고정한다.
 ```text
 폰에서 SRS 알림 생성
 -> 워치로 notification mirroring
--> 사용자가 워치 액션 선택
--> watch action command가 phone에 전달
--> phone이 review 진입 또는 snooze reschedule 수행
+-> Galaxy Wearable / Wear OS 설정이 켜져 있으면 워치에 동일 알림 노출
+-> 워치에서는 mirrored surface로만 확인
 ```
 
 ---
@@ -214,7 +215,7 @@ V1의 제품 역할은 다음과 같이 고정한다.
 
 ### 알림 및 안정성
 
-- `WATCH-008` SRS 알림 워치 액션 및 폰 핸드오프 구현
+- `WATCH-008` SRS 알림 워치 미러링 QA 및 노출 정책 정리
 - `WATCH-009` 워치 연결 실패/복구 및 안정성 검증
 
 ---
@@ -241,10 +242,10 @@ V1의 제품 역할은 다음과 같이 고정한다.
 - AI response는 끝났지만 replay 가능한 마지막 음성이 없을 수 있다.
 - 이 경우 replay 버튼은 숨기거나 비활성화하고 상태 문구만 유지한다.
 
-### 5. due card 소진
+### 5. 워치 미러링 미노출
 
-- 워치 알림에서 `워치에서 복습`을 눌렀더라도 이미 due card가 소진됐을 수 있다.
-- 이 경우 empty review 상태를 보여주고 폰에서 열기 CTA를 제공한다.
+- 폰에 알림이 보여도 워치에서 보이지 않을 수 있다.
+- 이 경우 앱 로직보다 Galaxy Wearable 설정, 방해 금지 모드, 취침 모드, 폰-워치 연결 상태를 먼저 확인한다.
 
 ---
 
@@ -257,3 +258,13 @@ V1의 제품 역할은 다음과 같이 고정한다.
 - [FLOW_SRS.md](../Sprint2/User_FlowDB/FLOW_SRS.md)
 - [06_srs_review_pipeline.drawio](../drawio/06_srs_review_pipeline.drawio)
 
+## 8-1. 워치 알림 범위 정리
+
+- V1 알림의 source of truth는 폰이다.
+- 알림 생성은 기존 폰 FCM / 로컬 알림 경로를 유지한다.
+- 워치는 시스템 notification mirroring만 사용한다.
+- 워치 자체 FCM token 등록과 direct watch push는 V1 범위 밖이다.
+- SRS 워치 알림에는 `워치에서 복습`, `10분 뒤 다시 알림`, `폰에서 열기` 액션이 포함된다.
+- snooze와 폰 열기 액션의 최종 처리는 폰이 담당한다.
+- 마케팅 알림은 미러링 대상이지만, V1 기본 범위에서는 워치 전용 액션을 두지 않는다.
+- 개발/QA용 테스트 알림 생성기는 마이페이지 디버그 액션에서 호출하며, 실제 제품 플로우와 분리한다.
