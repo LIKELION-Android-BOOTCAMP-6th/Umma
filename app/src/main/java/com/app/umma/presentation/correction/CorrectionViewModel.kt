@@ -30,6 +30,7 @@ import com.app.umma.domain.usecase.correction.FilterCorrectionCandidatesForSafet
 import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.app.umma.domain.usecase.correction.GetCachedCorrectionUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
+import com.app.umma.domain.usecase.correction.ReconcileSavedCorrectionOnReentryUseCase
 import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputCommand
@@ -151,6 +152,10 @@ class CorrectionViewModel @Inject constructor(
     // SRS 카드 목록(SrsCardListViewModel)과 동일한 진입점이며, 새 저장소 메서드를 신설하지 않는다
     // (읽기 전용 — 스케줄/평가/저장 등 SRS 책임은 일절 건드리지 않는다).
     private val getFlashcards: GetFlashcardsUseCase,
+    // COR-FIX-012: 재진입 시 정합성 갭(카드 저장됨 + correctionAvailable=true 잔존) 감지 및 복구.
+    // 위험 창(Flashcard commit ~ clearCorrectionCacheAfterCompletion 이전) 에서 프로세스 사망 후
+    // 재진입하면 갭이 발생할 수 있다. 이 UseCase 가 감지해 correctionAvailable=false 로 닫는다.
+    private val reconcileSavedCorrectionOnReentry: ReconcileSavedCorrectionOnReentryUseCase,
     private val ttsController: TextToSpeechController,
     private val reportCorrectionPromptReviewUseCase: ReportCorrectionPromptReviewUseCase,
 ) : ViewModel() {
@@ -225,6 +230,20 @@ class CorrectionViewModel @Inject constructor(
      */
     private var generationLaunched = false
 
+    /**
+     * 캐시 복원 흐름의 세 가지 결과.
+     *
+     * - [Restored]: 유효한 캐시가 있어 이전 교정 제안을 복원했다.
+     * - [Reconciled]: 재진입 정합성 갭(카드 저장됨 + correctionAvailable=true 잔존)을 감지해
+     *   correctionAvailable=false 를 적용하고 캐시를 정리했다. generationLaunched 를 리셋한다.
+     * - [Miss]: 캐시가 없거나 만료되어 새로 생성해야 한다.
+     */
+    private sealed interface CacheRestoreOutcome {
+        data class Restored(val state: CorrectionUiState) : CacheRestoreOutcome
+        data object Reconciled : CacheRestoreOutcome
+        data object Miss : CacheRestoreOutcome
+    }
+
     fun onEnter() {
         ensureObservation()
     }
@@ -279,13 +298,18 @@ class CorrectionViewModel @Inject constructor(
                 val shouldAutoGenerate = shouldTriggerGeneration(next.phase, generationLaunched)
                 if (shouldAutoGenerate) {
                     generationLaunched = true
-                    val restored = restoreCachedSuggestionsOrNull(
-                        ready = next,
-                        previous = previous,
-                    )
-                    if (restored != null) {
-                        _uiState.value = restored
-                        return@collect
+                    when (val cacheOutcome = restoreCachedSuggestionsOrNull(ready = next, previous = previous)) {
+                        is CacheRestoreOutcome.Restored -> {
+                            _uiState.value = cacheOutcome.state
+                            return@collect
+                        }
+                        CacheRestoreOutcome.Reconciled -> {
+                            // correctionAvailable=false 가 이미 적용됐다.
+                            // 다음 LangState emit 이 Empty 로 전환되도록 generationLaunched 를 초기화한다.
+                            generationLaunched = false
+                            return@collect
+                        }
+                        CacheRestoreOutcome.Miss -> Unit
                     }
                 }
                 _uiState.value = next.mergeReviewButtonState(
@@ -884,6 +908,12 @@ class CorrectionViewModel @Inject constructor(
             )
             logCompletionResult(result)
             _uiState.update { current -> current.applyCompletionOutcome(result) }
+            // 캐시 정리는 완료 성공 후에만 실행한다. 이 구간(completeCorrection 성공 ~
+            // clearCorrectionCacheAfterCompletion)에서 프로세스가 사망하면 캐시는 남되
+            // correctionAvailable 은 이미 false(재진입 시 Empty 로 정착).
+            // completeCorrection 이 Step1(Flashcard commit) 후 사망 시에는 정합성 갭
+            // (카드 저장됨 + correctionAvailable=true 잔존) 이 생길 수 있다 — 재진입 시
+            // restoreCachedSuggestionsOrNull 의 reconcile 경로가 이를 무해하게 복구한다. [COR-FIX-012]
             if (result.isSuccess) {
                 clearCorrectionCacheAfterCompletion(
                     lang = lang,
@@ -908,10 +938,10 @@ class CorrectionViewModel @Inject constructor(
     private suspend fun restoreCachedSuggestionsOrNull(
         ready: CorrectionUiState,
         previous: CorrectionUiState,
-    ): CorrectionUiState? {
-        val lang = ready.selectedLearningLanguage ?: return null
-        val sessionFingerprint = ready.sessionSummary?.updatedAt ?: return null
-        val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() } ?: return null
+    ): CacheRestoreOutcome {
+        val lang = ready.selectedLearningLanguage ?: return CacheRestoreOutcome.Miss
+        val sessionFingerprint = ready.sessionSummary?.updatedAt ?: return CacheRestoreOutcome.Miss
+        val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() } ?: return CacheRestoreOutcome.Miss
         val cached = runCatching {
             getCachedCorrection(
                 uid = uid,
@@ -920,7 +950,33 @@ class CorrectionViewModel @Inject constructor(
             )
         }.onFailure { error ->
             Log.w(TAG, "cache lookup failed lang=${lang.code}", error)
-        }.getOrNull() ?: return null
+        }.getOrNull() ?: return CacheRestoreOutcome.Miss
+
+        // 재진입 정합성 갭 확인: 캐시된 suggestion 이 전부 이미 저장돼 있으면 갭으로 판정하고 복구한다.
+        // 위험 창(Flashcard commit ~ clearCorrectionCacheAfterCompletion) 에서 프로세스 사망 후 재진입 시
+        // 카드는 저장됐으나 correctionAvailable=true 가 잔존하는 정합성 갭이 생길 수 있다. [COR-FIX-012]
+        val cachedSuggestionIds = cached.suggestions.map { it.id }
+        val sessionMemoryKey = "${uid}_${lang.code}"
+        val isAlreadySaved = runCatching {
+            reconcileSavedCorrectionOnReentry(
+                uid = uid,
+                lang = lang,
+                sessionMemoryKey = sessionMemoryKey,
+                cachedSuggestionIds = cachedSuggestionIds,
+                requestedAt = System.currentTimeMillis(),
+            ).getOrNull() == ReconcileSavedCorrectionOnReentryUseCase.Outcome.AlreadySaved
+        }.onFailure { error ->
+            Log.w(TAG, "reconcile check failed lang=${lang.code}", error)
+        }.getOrDefault(false)
+
+        if (isAlreadySaved) {
+            Log.d(TAG, "reentry gap reconciled — correctionAvailable closed lang=${lang.code}")
+            clearCorrectionCacheAfterCompletion(
+                lang = lang,
+                mutationVersion = registerCacheMutationVersion(),
+            )
+            return CacheRestoreOutcome.Reconciled
+        }
 
         val restoring = ready.copy(phase = CorrectionUiState.Phase.Restoring)
             .mergeReviewButtonState(
@@ -933,12 +989,14 @@ class CorrectionViewModel @Inject constructor(
             TAG,
             "cache restore hit lang=${lang.code}, fingerprint=$sessionFingerprint, suggestions=${cached.suggestions.size}",
         )
-        return restoring.applyRestoredSuggestions(
-            suggestions = cached.suggestions,
-            primaryLanguage = cached.primaryLanguage,
-        ).mergeReviewButtonState(
-            previous = previous,
-            shouldShowButton = shouldShowCorrectionReviewReportButton,
+        return CacheRestoreOutcome.Restored(
+            restoring.applyRestoredSuggestions(
+                suggestions = cached.suggestions,
+                primaryLanguage = cached.primaryLanguage,
+            ).mergeReviewButtonState(
+                previous = previous,
+                shouldShowButton = shouldShowCorrectionReviewReportButton,
+            )
         )
     }
 

@@ -21,6 +21,7 @@ import com.app.umma.domain.usecase.correction.FilterCorrectionCandidatesForSafet
 import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.app.umma.domain.usecase.correction.GetCachedCorrectionUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
+import com.app.umma.domain.usecase.correction.ReconcileSavedCorrectionOnReentryUseCase
 import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
@@ -219,6 +220,7 @@ class CorrectionViewModelTtsTest {
         val completeCorrection = mockk<CompleteCorrectionUseCase>()
         val buildLangStateUpdateInput = mockk<BuildLangStateUpdateInputUseCase>()
         val getFlashcards = mockk<GetFlashcardsUseCase>()
+        val reconcileSavedCorrectionOnReentry = mockk<ReconcileSavedCorrectionOnReentryUseCase>()
         val reportCorrectionPromptReviewUseCase = mockk<ReportCorrectionPromptReviewUseCase>(relaxed = true)
 
         mockkStatic(Log::class)
@@ -247,6 +249,9 @@ class CorrectionViewModelTtsTest {
             coEvery { getCachedCorrection.invoke(any(), any(), any()) } returns null
         }
         coEvery { getFlashcards.invoke(any(), any()) } returns Result.success(emptyList())
+        coEvery {
+            reconcileSavedCorrectionOnReentry.invoke(any(), any(), any(), any(), any())
+        } returns Result.success(ReconcileSavedCorrectionOnReentryUseCase.Outcome.NotSaved)
 
         return CorrectionViewModel(
             preloadLearningState = preloadLearningState,
@@ -265,6 +270,7 @@ class CorrectionViewModelTtsTest {
             completeCorrection = completeCorrection,
             buildLangStateUpdateInput = buildLangStateUpdateInput,
             getFlashcards = getFlashcards,
+            reconcileSavedCorrectionOnReentry = reconcileSavedCorrectionOnReentry,
             ttsController = ttsController,
             reportCorrectionPromptReviewUseCase = reportCorrectionPromptReviewUseCase,
         )

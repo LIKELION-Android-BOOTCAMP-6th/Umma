@@ -30,6 +30,7 @@ import com.app.umma.domain.usecase.correction.FilterCorrectionCandidatesForSafet
 import com.app.umma.domain.usecase.correction.GenerateSuggestionsUseCase
 import com.app.umma.domain.usecase.correction.GetCachedCorrectionUseCase
 import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
+import com.app.umma.domain.usecase.correction.ReconcileSavedCorrectionOnReentryUseCase
 import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.correction.FilteredCorrectionCandidatesResult
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
@@ -84,6 +85,66 @@ class CorrectionViewModelCacheTest {
         assertEquals(CorrectionUiState.Phase.Content, harness.viewModel.uiState.value.phase)
         assertEquals(suggestions, harness.viewModel.uiState.value.suggestions)
         assertTrue(harness.viewModel.uiState.value.selectedSuggestionIds.isEmpty())
+        coVerify(exactly = 0) { harness.generateSuggestions.invoke(any()) }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `재진입 정합성 갭 - 캐시 hit 이지만 suggestion 이 전부 저장된 경우 Content 복원 없이 캐시를 정리한다`() = runTest {
+        // 시나리오: Flashcard commit 후 프로세스 사망 → 재진입 → 캐시 있음 + 카드 이미 저장됨(갭)
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val clearCacheEvents = mutableListOf<String>()
+        val harness = buildViewModel(
+            observeLearningStateFlow = flowOf(readyGlobal(lang = LangCode.EN, sessionUpdatedAt = 1_234L)),
+            cachedCorrection = CachedCorrectionResult(
+                language = LangCode.EN,
+                suggestions = suggestions,
+                sessionFingerprint = 1_234L,
+                primaryLanguage = LangCode.KO,
+                cachedAt = 5_000L,
+            ),
+            reconcileOutcome = ReconcileSavedCorrectionOnReentryUseCase.Outcome.AlreadySaved,
+            clearCacheAnswer = { _, _ -> clearCacheEvents += "clear" },
+        )
+
+        harness.viewModel.onEnter()
+        advanceUntilIdle()
+
+        // Phase.Content 복원이 일어나면 안 된다 — 카드는 이미 저장됐으므로 교정 미완료가 아니다.
+        assertTrue(
+            "재진입 갭 복구 시 Phase.Content 로 복원되면 안 된다",
+            harness.viewModel.uiState.value.phase != CorrectionUiState.Phase.Content
+        )
+        // 새로운 AI 제안 생성도 트리거되면 안 된다.
+        coVerify(exactly = 0) { harness.generateSuggestions.invoke(any()) }
+        // 잔존 캐시는 정리돼야 한다.
+        assertTrue("재진입 갭 복구 시 캐시가 정리돼야 한다", clearCacheEvents.isNotEmpty())
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `재진입 정합성 갭 - reconcile 이 NotSaved 를 반환하면 캐시 복원 정상 흐름으로 진행한다`() = runTest {
+        // 시나리오: 캐시 hit 이지만 아직 저장 안 된 경우 → 정상 캐시 복원
+        val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+        val harness = buildViewModel(
+            observeLearningStateFlow = flowOf(readyGlobal(lang = LangCode.EN, sessionUpdatedAt = 1_234L)),
+            cachedCorrection = CachedCorrectionResult(
+                language = LangCode.EN,
+                suggestions = suggestions,
+                sessionFingerprint = 1_234L,
+                primaryLanguage = LangCode.KO,
+                cachedAt = 5_000L,
+            ),
+            // NotSaved = 기본값, 명시적으로 전달해 의도 드러냄
+            reconcileOutcome = ReconcileSavedCorrectionOnReentryUseCase.Outcome.NotSaved,
+        )
+
+        harness.viewModel.onEnter()
+        advanceUntilIdle()
+
+        // NotSaved → 정상 캐시 복원 → Content
+        assertEquals(CorrectionUiState.Phase.Content, harness.viewModel.uiState.value.phase)
+        assertEquals(suggestions, harness.viewModel.uiState.value.suggestions)
         coVerify(exactly = 0) { harness.generateSuggestions.invoke(any()) }
     }
 
@@ -174,6 +235,8 @@ class CorrectionViewModelCacheTest {
     private fun buildViewModel(
         observeLearningStateFlow: Flow<GlobalLangState>,
         cachedCorrection: CachedCorrectionResult? = null,
+        reconcileOutcome: ReconcileSavedCorrectionOnReentryUseCase.Outcome =
+            ReconcileSavedCorrectionOnReentryUseCase.Outcome.NotSaved,
         generateSuggestionsResult: Result<List<com.app.umma.domain.model.correction.CorrectionSuggestion>> = Result.failure(
             IllegalStateException("unused")
         ),
@@ -204,6 +267,7 @@ class CorrectionViewModelCacheTest {
         val completeCorrection = mockk<CompleteCorrectionUseCase>()
         val buildLangStateUpdateInput = mockk<BuildLangStateUpdateInputUseCase>()
         val getFlashcards = mockk<GetFlashcardsUseCase>()
+        val reconcileSavedCorrectionOnReentry = mockk<ReconcileSavedCorrectionOnReentryUseCase>()
         val ttsController = mockk<TextToSpeechController>(relaxed = true)
         val reportCorrectionPromptReviewUseCase = mockk<ReportCorrectionPromptReviewUseCase>(relaxed = true)
 
@@ -244,6 +308,9 @@ class CorrectionViewModelCacheTest {
             clearCacheAnswer(firstArg(), secondArg())
         }
         coEvery { getCachedCorrection.invoke(any(), any(), any()) } returns cachedCorrection
+        coEvery {
+            reconcileSavedCorrectionOnReentry.invoke(any(), any(), any(), any(), any())
+        } returns Result.success(reconcileOutcome)
         coEvery { generateSuggestions.invoke(any()) } returns generateSuggestionsResult
 
         return ViewModelHarness(
@@ -264,6 +331,7 @@ class CorrectionViewModelCacheTest {
             completeCorrection = completeCorrection,
             buildLangStateUpdateInput = buildLangStateUpdateInput,
             getFlashcards = getFlashcards,
+            reconcileSavedCorrectionOnReentry = reconcileSavedCorrectionOnReentry,
             ttsController = ttsController,
             reportCorrectionPromptReviewUseCase = reportCorrectionPromptReviewUseCase,
             ),

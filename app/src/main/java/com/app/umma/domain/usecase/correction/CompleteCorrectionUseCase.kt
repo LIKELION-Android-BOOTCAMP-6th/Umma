@@ -90,6 +90,25 @@ class CompleteCorrectionUseCase @Inject constructor(
         return try {
             // 1) 사용자가 선택한 교정 결과를 새 Flashcard 원본으로 먼저 남긴다.
             // 이 단계가 실패하면 사용자가 기대한 저장 결과가 없으므로 전체 완료를 실패로 본다.
+            //
+            // ── 위험 창(Risk Window) ──────────────────────────────────────────────────
+            // 이 라인 이후 ~ ViewModel.clearCorrectionCacheAfterCompletion 이전 구간에서
+            // 프로세스가 사망하면 "카드는 저장됐으나 correctionAvailable=true 가 잔존"하는
+            // 정합성 갭이 발생할 수 있다. 재진입 시에는 아래 3중 dedup 으로 중복을 막는다.
+            //
+            //  1-dedup) Flashcard: correction_flashcards 복합 PK(userId, id=suggestionId) +
+            //           @Insert(onConflict=IGNORE) → 재저장해도 새 row 없음.
+            //           saveResult.localSavedFlashcardIds 가 비어 있어 rollback 대상도 없음.
+            //  2-dedup) LangState: ApplyLanguageStateUpdateUseCase 가
+            //           currentState.lastAnalysisEventId == input.analysisEventId 이면
+            //           early-return(applied=false) → 이동평균 이중 적용 없음.
+            //  3-dedup) Statistics: history id = "${userId}_${lang}_${analysisEventId}" 로
+            //           결정적. @Insert(onConflict=REPLACE) → 같은 id 는 덮어쓰여 중복 row 없음.
+            //
+            // 갭 UX 복구: ViewModel 재진입 시 ReconcileSavedCorrectionOnReentryUseCase 가
+            //           캐시된 suggestion 전부 저장됨을 감지하면 correctionAvailable=false 로
+            //           닫아 화면을 완료 상태로 복구한다. [COR-FIX-012 #370]
+            // ────────────────────────────────────────────────────────────────────────
             saveResult = correctionRepository.saveFlashcards(saveRequest).getOrThrow()
 
             // 1.5) Flashcard 저장 직후 dueFlashcards / savedFlashcards 를 즉시 재계산해 DashSummary 에 반영한다.
