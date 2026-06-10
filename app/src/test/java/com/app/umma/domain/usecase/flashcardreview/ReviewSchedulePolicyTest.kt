@@ -11,17 +11,17 @@ class ReviewSchedulePolicyTest {
 
     @Test
     fun `again resets interval and clamps ease factor`() {
-        // Again 은 즉시 재노출 기준이므로 interval 은 0, easeFactor 는 하한선에 고정된다.
-        // 이 케이스가 깨지면 세션 내 재등장 정책이 흔들린다.
+        // Again 은 1분 뒤 재학습 대상이 되도록 interval 은 1, easeFactor 는 하한선에 고정된다.
+        // 이 케이스가 깨지면 재학습(Again) 스케줄 정책이 흔들린다.
         val result = policy.calculateNextSchedule(
             current = FlashcardSchedule(interval = 1440, easeFactor = 1.2, nextReviewAt = 0L),
             rating = ReviewRating.AGAIN,
             reviewedAt = 1_000L
         )
 
-        assertEquals(0, result.interval)
+        assertEquals(1, result.interval)
         assertEquals(1.3, result.easeFactor, 0.0)
-        assertEquals(1_000L, result.nextReviewAt)
+        assertEquals(1_000L + 60L * 1_000L, result.nextReviewAt)
     }
 
     @Test

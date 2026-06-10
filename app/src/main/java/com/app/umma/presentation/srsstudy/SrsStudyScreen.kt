@@ -5,6 +5,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.SentimentNeutral
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SentimentVerySatisfied
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,6 +46,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -76,7 +80,9 @@ import com.app.umma.core.theme.RatingHard
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
+import com.app.umma.core.theme.SpacingXS
 import com.app.umma.core.theme.SpacingXL
+import com.app.umma.core.theme.SpacingXXL
 import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextCardR
 import com.app.umma.core.theme.TextCorrect
@@ -229,6 +235,28 @@ private fun SrsStudyContent(
             style = TextAnalysisR,
             color = TitleColor
         )
+        Spacer(modifier = Modifier.height(SpacingS))
+        // 학습 진행 정도를 슬림 바로 표시. 총량 고정이라 0%에서 100%로 매끄럽게
+        // 분모가 "1/8" 카운트와 같아 숫자와 바가 일치
+        val sessionProgress = if (displayTotalCount > 0) {
+            displayCurrentCount.toFloat() / displayTotalCount
+        } else {
+            0f
+        }
+        val animatedProgress by animateFloatAsState(
+            targetValue = sessionProgress,
+            label = "srsSessionProgress"
+        )
+        LinearProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp)),
+            color = ThemePrimary,
+            trackColor = BackgroundDeactivated,
+        )
+        Spacer(modifier = Modifier.height(SpacingS))
         // 클릭 시 플래시카드 뒤집기
         SrsFlashCard(
             modifier = Modifier.weight(1f),
@@ -321,15 +349,9 @@ private fun SrsCardFront(card: Flashcard) {
             )
             Spacer(modifier = Modifier.height(SpacingL))
         }
-        // 구분선
-        Box(
-            modifier = Modifier
-                .width(48.dp)
-                .height(2.dp)
-                .background(Color(0xFFE8750A))
-        )
 
-        Spacer(modifier = Modifier.height(SpacingL))
+        Spacer(modifier = Modifier.height(SpacingXXL))
+        Spacer(modifier = Modifier.height(SpacingXL))
         // 아이콘 펄스 애니메이션
         val tapTransition = rememberInfiniteTransition(label = "tapHintIcon")
         val tapAlpha by tapTransition.animateFloat(
@@ -341,17 +363,22 @@ private fun SrsCardFront(card: Flashcard) {
             ),
             label = "tapHintAlpha"
         )
-        Icon(
-            imageVector = Icons.Default.TouchApp,
-            contentDescription = null,
-            tint = TextPrimary.copy(alpha = tapAlpha),
-            modifier = Modifier.height(24.dp)
-        )
-        Text(
-            text = "눌러서 교정 확인",
-            style = TextExplanationR,
-            color = TextPrimary
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(SpacingS)
+        ) {
+            Icon(
+                imageVector = Icons.Default.TouchApp,
+                contentDescription = null,
+                tint = TextPrimary.copy(alpha = tapAlpha),
+                modifier = Modifier.height(24.dp)
+            )
+            Text(
+                text = "눌러서 교정 확인",
+                style = TextExplanationR,
+                color = TextPrimary
+            )
+        }
     }
 }
 
@@ -372,14 +399,21 @@ private fun SrsCardBack(
             verticalArrangement = Arrangement.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = null,
+                    tint = TextCorrect,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(SpacingXS))
                 Text(
                     text = "CORRECT ANSWER",
                     style = TextCorrectionSB,
                     color = TextCorrect
-
                 )
             }
-            Spacer(modifier = Modifier.height(SpacingM))
+            // 카드가 세로로 넓어진 만큼 정답/문장/문법 노트 사이 간격을 더 띄워 답답함을 줄인다.
+            Spacer(modifier = Modifier.height(SpacingL))
 
             Text(
                 text = card.frontText,
@@ -388,7 +422,7 @@ private fun SrsCardBack(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = SpacingXL)
             )
-            Spacer(modifier = Modifier.height(SpacingM))
+            Spacer(modifier = Modifier.height(SpacingL))
             // 정답 문장
             Text(
                 text = card.backText,
@@ -397,7 +431,7 @@ private fun SrsCardBack(
             )
             // Grammar Note 박스
             if (card.explanation.isNotBlank()) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(SpacingXL))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -407,11 +441,20 @@ private fun SrsCardBack(
                         .padding(12.dp)
                 ) {
                     Column {
-                        Text(
-                            text = "Grammar Note",
-                            style = TextSecondaryR,
-                            color = Color(0xFFB8860B),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.Lightbulb,
+                                contentDescription = null,
+                                tint = Color(0xFFB8860B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(SpacingXS))
+                            Text(
+                                text = "Grammar Note",
+                                style = TextSecondaryR,
+                                color = Color(0xFFB8860B),
+                            )
+                        }
                         Spacer(modifier = Modifier.height(SpacingS))
                         Text(
                             text = card.explanation,

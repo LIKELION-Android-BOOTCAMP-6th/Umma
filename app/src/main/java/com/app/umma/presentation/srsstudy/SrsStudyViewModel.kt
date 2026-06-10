@@ -120,8 +120,8 @@ class SrsStudyViewModel @Inject constructor(
                                     currentCardIndex = 0,
                                     isCardFlipped = false,
                                     isDone = false,
-                                    // 덱 최초 로드 시점의 카드 수 고정
-                                    // again 평가로 늘어난 카드 영향 X
+                                    // 덱 최초 로드 시점의 카드 수로 고정한다.
+                                    // Again은 현재 세션에 카드를 다시 추가하지 않으므로 이 값은 세션 내내 불변이다.
                                     studiedCardCount = deckState.cards.size
                                 )
                             }
@@ -190,38 +190,13 @@ class SrsStudyViewModel @Inject constructor(
             applyReviewDecision(userId, card, decision).onSuccess {
                 pronunciationPlaybackRequestId++
                 ttsController.stop()
-                // Again 카드는 "방금 계산된 schedule"을 반영해 넣음
+                // Again을 눌러도 현재 세션에는 재노출하지 않는다.
+                // 다음 복습 일정은 ApplyReviewDecisionUseCase가 SM-2로 저장하므로,
+                // 해당 카드는 다음 세션에서 due가 되어 다시 등장한다.
                 _uiState.update { state ->
-                    // Again 선택 시 현재 카드를 덱 끝에 추가해 당일 재노출
-                    val rescheduledCard: Flashcard? = if (rating == ReviewRating.AGAIN) {
-                        val next = schedulePolicy.calculateNextSchedule(
-                            card.schedule,
-                            rating,
-                            decision.reviewedAt
-                        )
-                        card.copy(
-                            schedule = card.schedule.copy(
-                                interval = next.interval,
-                                easeFactor = next.easeFactor,
-                                nextReviewAt = next.nextReviewAt
-                            ),
-                            lastReviewRating = rating,
-                            lastReviewedAt = decision.reviewedAt
-                        )
-                    } else {
-                        null
-                    }
-
-                    val updatedCards = if (rescheduledCard != null) {
-                        state.cards + rescheduledCard
-                    } else {
-                        state.cards
-                    }
                     val nextIndex = state.currentCardIndex + 1
-                    val isDone = nextIndex >= updatedCards.size
+                    val isDone = nextIndex >= state.cards.size
                     state.copy(
-                        cards = updatedCards,
-                        // 마지막 카드면 인덱스 유지, 아니면 다음으로 이동
                         currentCardIndex = if (isDone) state.currentCardIndex else nextIndex,
                         isCardFlipped = false,
                         isDone = isDone,
@@ -262,7 +237,7 @@ class SrsStudyViewModel @Inject constructor(
     /**
      * 플래시 카드 바뀔 때마다 호출
      * 평가 버튼마다 간격 텍스트 갱신
-     * Again은 세션 내 재등장이라 "다시" 고정
+     * Again은 현재 세션에 재노출하지 않고 1분 뒤 재학습 대상이 되므로 "재학습" 고정
      */
     private fun updateRatingLabels(card: Flashcard) {
         val now = System.currentTimeMillis()
