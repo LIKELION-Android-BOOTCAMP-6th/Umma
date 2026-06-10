@@ -21,6 +21,10 @@ const firestore = getFirestore("default");
 const fieldValue = admin.firestore.FieldValue;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const CLEANUP_BATCH_LIMIT = 300;
+const AI_CONTENT_REPORTS_COLLECTION = "ai_content_reports";
+const ACCOUNT_DELETE_LOCKS_COLLECTION = "account_delete_locks";
+const AI_CONTENT_REPORT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const AI_CONTENT_REPORT_NOTE_MAX_LENGTH = 300;
 const SESSION_USAGE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const USERS_COLLECTION = "users";
 const USER_LEARNING_PREFERENCE_COLLECTION = "user_learning_preference";
@@ -204,6 +208,82 @@ exports.submitChatUsageSession = onRequest(
 );
 
 /**
+ * Stores an AI content report with server-controlled retention metadata.
+ *
+ * The client sends the report draft and identifying data, but the server owns
+ * `reportedAt`/`expiresAt` so the 90-day retention window cannot be extended by
+ * a skewed or tampered device clock.
+ *
+ * The user-existence check, lock check, and document write are executed in a single
+ * transaction to prevent a race where deleteAccount sets the lock between the check
+ * and the write (TOCTOU). If a document with the same reportId already exists the
+ * existing document is kept and an ok response is returned (idempotent retry support).
+ */
+exports.submitAiContentReport = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "로그인이 필요한 기능입니다.");
+    }
+
+    const report = normalizeAiContentReportPayload(request.data, uid);
+
+    const userRef = firestore.collection(USERS_COLLECTION).doc(uid);
+    const lockRef = firestore.collection(ACCOUNT_DELETE_LOCKS_COLLECTION).doc(uid);
+    const reportDocRef = firestore.collection(AI_CONTENT_REPORTS_COLLECTION).doc(report.reportId);
+
+    // reportedAt은 트랜잭션 외부에서 한 번 계산한다.
+    // 트랜잭션이 재시도되더라도 보존 만료 시각의 미세한 차이는 허용 범위 내다.
+    const reportedAt = Date.now();
+    const expiresAt = reportedAt + AI_CONTENT_REPORT_RETENTION_MS;
+
+    await firestore.runTransaction(async (tx) => {
+      // 세 read를 병렬 실행해 왕복 지연을 줄인다.
+      const [userSnapshot, lockSnapshot, existingSnapshot] = await Promise.all([
+        tx.get(userRef),
+        tx.get(lockRef),
+        tx.get(reportDocRef),
+      ]);
+
+      if (!userSnapshot.exists) {
+        throw new HttpsError("failed-precondition", "삭제된 계정에서는 신고를 저장할 수 없습니다.");
+      }
+
+      // lockSnapshot.exists만으로는 TTL이 지난 락을 걸러내지 못한다.
+      // Firestore 규칙과 동일한 기준(expiresAt)으로 유효한 락인지 확인한다.
+      const lockData = lockSnapshot.data();
+      const isActiveLock = lockSnapshot.exists && (lockData?.expiresAt ?? 0) > Date.now();
+      if (isActiveLock) {
+        throw new HttpsError("failed-precondition", "계정 삭제 진행 중에는 신고를 저장할 수 없습니다.");
+      }
+
+      // 같은 reportId로 이미 저장된 문서가 있으면 재저장 없이 그대로 둔다.
+      // 네트워크 재시도나 더블 탭으로 인한 중복 문서 생성을 방지한다.
+      if (existingSnapshot.exists) {
+        return;
+      }
+
+      tx.set(reportDocRef, {
+        ...report,
+        reportedAt,
+        expiresAt,
+        status: "New",
+      });
+    });
+
+    return {
+      ok: true,
+      reportId: report.reportId,
+      reportedAt,
+      expiresAt,
+    };
+  },
+);
+
+/**
  * Deletes expired per-session usage documents.
  *
  * Firestore TTL can also handle this if enabled on `expiresAt`. The scheduled function keeps the
@@ -253,15 +333,76 @@ exports.cleanupExpiredAiContentReports = onSchedule(
     timeZone: "Asia/Seoul",
   },
   async () => {
-    const now = Date.now();
+    let deletedCount = 0;
+    let passCount = 0;
+
+    while (passCount < 20) {
+      const snapshot = await firestore
+        .collection(AI_CONTENT_REPORTS_COLLECTION)
+        .where("expiresAt", "<=", Date.now())
+        .limit(CLEANUP_BATCH_LIMIT)
+        .get();
+
+      if (snapshot.empty) {
+        break;
+      }
+
+      const batch = firestore.batch();
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+
+      deletedCount += snapshot.size;
+      passCount += 1;
+
+      if (snapshot.size < CLEANUP_BATCH_LIMIT) {
+        break;
+      }
+    }
+
+    if (passCount === 20) {
+      logger.warn("expired ai content report cleanup reached pass limit", {
+        deletedCount,
+        passCount,
+      });
+    }
+
+    if (deletedCount === 0) {
+      logger.info("expired ai content report cleanup skipped: no documents");
+      return;
+    }
+
+    logger.info("expired ai content reports deleted", {
+      deletedCount,
+      passCount,
+    });
+  },
+);
+
+/**
+ * Cleans up stale account-deletion lock documents.
+ *
+ * handleDeleteAccount deletes the lock on both success and failure paths, so this job
+ * is a safety net for cases where the explicit delete call itself failed. Locks carry
+ * an `expiresAt` timestamp (24 h from creation), so any document past that time is safe
+ * to remove — the associated deletion either completed or permanently failed.
+ */
+exports.cleanupExpiredAccountDeleteLocks = onSchedule(
+  {
+    region: "us-central1",
+    schedule: "every 24 hours",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
     const snapshot = await firestore
-      .collection("ai_content_reports")
-      .where("expiresAt", "<=", now)
+      .collection(ACCOUNT_DELETE_LOCKS_COLLECTION)
+      .where("expiresAt", "<=", Date.now())
       .limit(CLEANUP_BATCH_LIMIT)
       .get();
 
     if (snapshot.empty) {
-      logger.info("expired ai content report cleanup skipped: no documents");
+      logger.info("expired account delete lock cleanup skipped: no documents");
       return;
     }
 
@@ -271,7 +412,7 @@ exports.cleanupExpiredAiContentReports = onSchedule(
     });
     await batch.commit();
 
-    logger.info("expired ai content reports deleted", {
+    logger.info("expired account delete locks deleted", {
       deletedCount: snapshot.size,
     });
   },
@@ -451,6 +592,91 @@ async function verifyFirebaseIdToken(request) {
     authError.code = "unauthenticated";
     throw authError;
   }
+}
+
+function normalizeAiContentReportPayload(data, uid) {
+  const reportId = stringValue(data?.reportId).trim();
+  if (!reportId) {
+    throwInvalidArgument("reportId is required");
+  }
+
+  const userId = stringValue(data?.userId).trim();
+  if (userId !== uid) {
+    throwInvalidArgument("userId must match authenticated user");
+  }
+
+  const sessionId = stringValue(data?.sessionId).trim();
+  const reportedTurnId = stringValue(data?.reportedTurnId).trim();
+  const reportedAiText = stringValue(data?.reportedAiText).trim();
+  const primaryLang = stringValue(data?.primaryLang).trim();
+  const selectedLang = stringValue(data?.selectedLang).trim();
+  const reasonCategory = stringValue(data?.reasonCategory).trim();
+  const appVersion = stringValue(data?.appVersion).trim();
+  const modelVersion = stringValue(data?.modelVersion).trim();
+  const promptVersion = stringValue(data?.promptVersion).trim();
+  const promptRevision = stringValue(data?.promptRevision).trim();
+
+  if (!sessionId) {
+    throwInvalidArgument("sessionId is required");
+  }
+  if (!reportedTurnId) {
+    throwInvalidArgument("reportedTurnId is required");
+  }
+  if (!reportedAiText) {
+    throwInvalidArgument("reportedAiText is required");
+  }
+  if (!primaryLang) {
+    throwInvalidArgument("primaryLang is required");
+  }
+  if (!selectedLang) {
+    throwInvalidArgument("selectedLang is required");
+  }
+  if (!reasonCategory) {
+    throwInvalidArgument("reasonCategory is required");
+  }
+  if (!appVersion || !modelVersion || !promptVersion || !promptRevision) {
+    throwInvalidArgument("report metadata is required");
+  }
+
+  const contextTurns = Array.isArray(data?.contextTurns)
+    ? data.contextTurns.map((turn) => normalizeAiContentReportContextTurn(turn, sessionId))
+    : [];
+
+  return {
+    reportId,
+    sessionId,
+    reportedTurnId,
+    reportedAiText,
+    previousUserText: optionalStringValue(data?.previousUserText),
+    contextTurns,
+    primaryLang,
+    selectedLang,
+    reasonCategory,
+    detailNote: optionalStringValue(data?.detailNote)?.slice(0, AI_CONTENT_REPORT_NOTE_MAX_LENGTH) ?? null,
+    appVersion,
+    modelVersion,
+    promptVersion,
+    promptRevision,
+  };
+}
+
+function normalizeAiContentReportContextTurn(turn, sessionId) {
+  const turnId = stringValue(turn?.turnId).trim();
+  const role = stringValue(turn?.role).trim();
+  const text = stringValue(turn?.text).trim();
+  const createdAt = Number(turn?.createdAt);
+
+  if (!turnId || !role || !text || !Number.isFinite(createdAt)) {
+    throwInvalidArgument("invalid context turn");
+  }
+
+  return {
+    turnId,
+    sessionId: stringValue(turn?.sessionId).trim() || sessionId,
+    role,
+    text,
+    createdAt,
+  };
 }
 
 async function processSrsReviewNotificationCandidate(settingsDoc, now, currentHourBucket) {
@@ -1329,6 +1555,11 @@ function usageIncrementMap(usage, sign) {
 
 function stringValue(value) {
   return typeof value === "string" ? value : "";
+}
+
+function optionalStringValue(value) {
+  const normalized = stringValue(value).trim();
+  return normalized.length ? normalized : null;
 }
 
 function throwInvalidArgument(message) {

@@ -47,7 +47,8 @@ class ReportAiContentUseCaseTest {
     ): AiContentReport {
         // fixture는 정책 신고 저장에 필요한 최소 필드를 모두 채워 정상 경로를 재현한다.
         return AiContentReport(
-            reportId = "${userId}_$reportedTurnId",
+            // sessionId + reportedTurnId 기반 id 형식을 재현한다. buildAiContentReportId 정책과 일치해야 한다.
+            reportId = "report_session-1_ai-turn-1",
             userId = userId,
             sessionId = sessionId,
             reportedTurnId = reportedTurnId,
@@ -59,7 +60,7 @@ class ReportAiContentUseCaseTest {
             reasonCategory = AiContentReportReasonCategory.HarmfulDangerous,
             detailNote = null,
             reportedAt = 1_000L,
-            expiresAt = 1_000L + 90L * 24 * 60 * 60 * 1000,
+            expiresAt = null,
             status = AiContentReportStatus.New,
             appVersion = "1.0",
             modelVersion = "gpt-realtime-mini",

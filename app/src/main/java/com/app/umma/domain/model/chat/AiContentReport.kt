@@ -33,10 +33,10 @@ data class AiContentReport(
     val reasonCategory: AiContentReportReasonCategory,
     // 사용자가 추가로 적은 선택 메모. 비어 있으면 null로 저장한다.
     val detailNote: String?,
-    // 신고 접수 시각. Firestore 서버 시간이 아니라 앱 이벤트 추적용 클라이언트 시각이다.
+    // 신고 접수 시각. 앱에서 기록하는 기준 시각이지만, 보존 만료 시각은 서버 저장 경로가 최종 결정한다.
     val reportedAt: Long,
-    // 90일 보관 후 자동 정리할 기준 시각. 정책이 바뀌어도 보관 종료 시점을 명시적으로 추적한다.
-    val expiresAt: Long,
+    // 90일 보관 후 자동 정리할 기준 시각. 서버 저장 경로가 최종 값을 채운다.
+    val expiresAt: Long? = null,
     // 운영 큐에서의 처리 상태. 최초 접수는 항상 New다.
     val status: AiContentReportStatus = AiContentReportStatus.New,
     // 앱 버전. 같은 문제를 특정 배포 버전과 묶어 분석하기 위한 값이다.

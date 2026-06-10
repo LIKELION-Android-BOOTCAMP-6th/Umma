@@ -664,8 +664,8 @@ class ChatViewModel @Inject constructor(
             val reportedAt = System.currentTimeMillis()
             val report = AiContentReport(
                 reportId = buildAiContentReportId(
-                    userId = uid,
-                    reportedTurnId = reportableTurnId
+                    sessionId = reportableSessionId,
+                    reportedTurnId = reportableTurnId,
                 ),
                 userId = uid,
                 sessionId = reportableSessionId,
@@ -681,9 +681,7 @@ class ChatViewModel @Inject constructor(
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
                     ?.take(AI_CONTENT_REPORT_NOTE_MAX_LENGTH),
-                // 신고 시각과 만료 시각은 같은 기준 시각에서 계산해야 보관 정책이 흔들리지 않는다.
                 reportedAt = reportedAt,
-                expiresAt = reportedAt + AI_CONTENT_REPORT_RETENTION_MS,
                 appVersion = BuildConfig.VERSION_NAME,
                 modelVersion = BuildConfig.OPENAI_REALTIME_MODEL,
                 promptVersion = BuildPromptUseCase.PROMPT_VERSION,
@@ -1915,8 +1913,6 @@ class ChatViewModel @Inject constructor(
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS = 180L
         const val REPORT_CONTEXT_TURN_LIMIT = 6
         const val AI_CONTENT_REPORT_NOTE_MAX_LENGTH = 300
-        const val AI_CONTENT_REPORT_RETENTION_MS = 90L * 24 * 60 * 60 * 1000
-
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }
@@ -1969,12 +1965,13 @@ private fun AIEvent.FinalTranscription.toReportContextTurn(): AiContentReportCon
     )
 }
 
-private fun buildAiContentReportId(userId: String, reportedTurnId: String): String {
-    // Firestore document id로 안전하게 쓰기 위해 구분자와 공백을 단순 치환한다.
-    // 같은 user/turn 조합은 같은 id가 되어 UI 방어를 우회한 중복 제출도 하나의 문서로 모인다.
-    val safeUserId = userId.replace(Regex("[^A-Za-z0-9_-]"), "_")
-    val safeTurnId = reportedTurnId.replace(Regex("[^A-Za-z0-9_-]"), "_")
-    return "${safeUserId}_$safeTurnId"
+private fun buildAiContentReportId(sessionId: String, reportedTurnId: String): String {
+    // sessionId(가명 식별자)와 turnId 조합으로 같은 turn 재제출은 같은 문서로 수렴하게 한다.
+    // uid 대신 sessionId를 쓰므로 문서 경로에서 사용자를 직접 식별할 수 없다.
+    // 서버의 existingSnapshot 체크와 함께 동작해 네트워크 재시도·더블 탭을 멱등 처리한다.
+    val safeSession = sessionId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)
+    val safeTurn = reportedTurnId.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)
+    return "report_${safeSession}_$safeTurn"
 }
 
 /**
