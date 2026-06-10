@@ -318,7 +318,7 @@ internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutco
     }
 
 /**
- * 저장 버튼 활성 조건.
+ * 저장 요청 진행 가능 조건 — 실제 Prepare/Complete 파이프라인 진입 직전의 최종 가드.
  *
  * Content 또는 Retry 단계이며 한 개 이상 선택되었고, 직전 시도가 어느 단계든 in-flight 가 아닌 경우에만 true.
  * - phase 가드: 생성 중 / 에러 / Empty / Done 등에서는 카드 자체가 안 보이므로
@@ -328,7 +328,8 @@ internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutco
  *   보존된 상태에서 사용자가 같은 저장 버튼을 다시 눌렀을 때 같은 완료 요청으로 재진입할 수 있어야 한다.
  *   ([PrepareSaveRequestUseCase] 가 같은 입력에 대해 같은 saveRequest 를 deterministic 하게 만들어 주므로
  *   COR-006 AC "Retry 시 같은 저장 요청으로 완료 파이프라인을 다시 호출" 이 자연스럽게 충족된다.)
- * - 0개 가드: AC "선택 항목이 0개이면 저장 버튼은 비활성화" 의 직접 반영.
+ * - 0개 가드: PrepareSaveRequest 에 빈 선택 목록이 넘어가지 않도록 하는 내부 계약 가드.
+ *   버튼 활성/비활성은 [canOpenSaveDialog] 가 담당하므로, 이 값은 UI 노출 조건으로 사용하지 않는다.
  * - 변환 in-flight 가드 (COR-005-B): 저장 요청 준비 중에는 같은 버튼이 한 번 더 활성화되지 않도록 한다.
  * - 완료 in-flight 가드 (COR-006-A): 변환 윈도우가 닫힌 직후 완료 윈도우가 열리는 짧은 구간에도
  *   두 번째 클릭이 들어오지 않도록 [isCompleting] 도 함께 가드한다.
@@ -336,6 +337,19 @@ internal fun CorrectionUiState.applySaveRequestOutcome(outcome: SaveRequestOutco
 val CorrectionUiState.canSave: Boolean
     get() = (phase == CorrectionUiState.Phase.Content || phase == CorrectionUiState.Phase.Retry) &&
             selectedSuggestionIds.isNotEmpty() &&
+            !isSavePreparing &&
+            !isCompleting
+
+/**
+ * 저장 버튼 활성화 조건 — 선택 수와 무관하게 저장 의도 확인 다이얼로그 진입 가능 여부를 결정한다.
+ *
+ * [canSave] 와의 차이: 선택 수 가드를 포함하지 않아 0개 선택 상태에서도 버튼이 활성된다.
+ * 클릭 시 화면에서 선택 수를 읽어 0개면 빈-선택 다이얼로그를, 1개 이상이면 저장-확인 다이얼로그를 띄운다.
+ * - phase 가드: Content / Retry 이외 phase 에서는 카드 자체가 노출되지 않으므로 버튼도 비활성.
+ * - in-flight 가드: Prepare/Complete 진행 중에는 버튼을 비활성화해 다이얼로그 중복 진입을 차단한다.
+ */
+val CorrectionUiState.canOpenSaveDialog: Boolean
+    get() = (phase == CorrectionUiState.Phase.Content || phase == CorrectionUiState.Phase.Retry) &&
             !isSavePreparing &&
             !isCompleting
 

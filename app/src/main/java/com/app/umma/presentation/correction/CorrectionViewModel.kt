@@ -730,6 +730,40 @@ class CorrectionViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 저장 없이 교정 화면을 종료하는 진입점.
+     *
+     * 사용자가 카드를 한 장도 선택하지 않고 저장 버튼 → 빈-선택 다이얼로그 → 확인 을 누른 경우 호출된다.
+     * [onSaveClicked] 와 달리 [PrepareSaveRequestUseCase] / [CompleteCorrectionUseCase] 를 호출하지 않는다.
+     * 대신 correction 캐시를 정리해 재진입 시 Empty phase 로 진입하도록 보장하고,
+     * Dashboard 복귀 1회성 이벤트를 발화한다(안내 토스트 포함).
+     *
+     * lang 확보 불가 비정상 상태(진입 자체가 불가능해야 하는 케이스)에서도 Navigation 이벤트는 발화해
+     * 사용자가 화면에 갇히지 않도록 방어한다.
+     */
+    fun onSkipSaveAndExit() {
+        val snapshot = _uiState.value
+        // in-flight 가드 — canOpenSaveDialog 가 false 인 동안 화면에서 버튼을 비활성화하므로
+        // 정상 흐름에서는 이 분기에 진입하지 않는다. 방어 목적으로 남겨 둔다.
+        if (snapshot.isSavePreparing || snapshot.isCompleting) return
+
+        viewModelScope.launch {
+            val lang = snapshot.selectedLearningLanguage
+                ?: snapshot.langStateSnapshot?.lang
+            if (lang != null) {
+                clearCorrectionCacheAfterCompletion(
+                    lang = lang,
+                    mutationVersion = registerCacheMutationVersion(),
+                )
+            } else {
+                Log.w(TAG, "onSkipSaveAndExit — lang unavailable, skipping cache clear")
+            }
+            // 안내 토스트와 함께 Dashboard 복귀를 1회 발화한다.
+            // CorrectionEvent.NavigateToDashboard 를 재사용해 NavHost 처리 코드를 건드리지 않는다.
+            _events.send(CorrectionEvent.NavigateToDashboard(message = SKIP_SAVE_TOAST))
+        }
+    }
+
     fun onSaveClicked() {
         // 가드 판단용 snapshot 은 _uiState 갱신 이전 값으로 잡는다.
         // 첫 호출은 isSavePreparing == false 인 snapshot 으로 compute 가드를 통과하고,
@@ -1106,6 +1140,9 @@ class CorrectionViewModel @Inject constructor(
     private companion object {
         // logcat 필터 식별자. 모든 Log.d/Log.w 호출이 이 태그를 공유해 한 화면 흐름의 로그를 한 번에 grep 할 수 있게 한다.
         const val TAG = "CorrectionViewModel"
+        // onSkipSaveAndExit 경로에서 Dashboard 복귀 시 노출할 안내 토스트 문구.
+        // toDashboardToastMessage() 와 출처를 분리해 저장 완료 결과와 혼용되지 않도록 한다.
+        const val SKIP_SAVE_TOAST = "교정 결과를 저장하지 않고 종료했어요"
         const val RESTORE_INDICATOR_MIN_DURATION_MS = 180L
         // COR-UX-001: 기존 일괄 MIN_LOADING_GUIDE_DURATION_MS(20초)를 대체하는 단계별 최소 노출 시간.
         // [triggerGeneration] 의 5단계(loadingStep 0~4) 각각이 이 시간만큼은 노출되도록 보장한다 —
