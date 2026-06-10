@@ -308,11 +308,10 @@ fun CorrectionScreen(
             }
 
             // COR-002-B: AI 응답이 0건인 경우. Ready 게이트 미통과([Phase.Empty])와 다른 의미.
-            // "다시 시도" 로 generate 를 재진입하거나, "AI 와 대화하기" 로 대화를 더 이어갈 수 있다.
+            // 유일한 CTA "AI 와 대화하기" 로 대화를 더 이어갈 수 있다.
             CorrectionUiState.Phase.EmptyResult -> {
                 CorrectionEmptyResult(
                     reason = uiState.emptyResultReason,
-                    onRetry = viewModel::onRetryClicked,
                     onNavigateToChat = onNavigateToChat,
                     modifier = Modifier
                         .fillMaxSize()
@@ -890,15 +889,12 @@ private fun CorrectionEmpty(
  *
  * AC: "결과가 비어 있으면 Empty 상태를 반환한다" ([COR-002_Suggestion_Generation.md]).
  *
- * CTA 두 가지를 제공한다:
- *  - Primary "다시 시도": [onRetry] 호출 → [CorrectionViewModel.onRetryClicked] →
- *    같은 Session Memory / 선택 언어 기준으로 generate 재진입.
- *  - Secondary "AI 와 대화하기": [onNavigateToChat] 호출 → Chat 탭으로 이동해 대화를 더 만든다.
+ * CTA: "AI 와 대화하기" — [onNavigateToChat] 호출 → Chat 탭으로 이동해 대화를 더 만든다.
+ * "다시 시도"는 [CorrectionViewModel.onRetryClicked] 가 [Phase.Error] 에서만 동작하므로 제공하지 않는다.
  */
 @Composable
 private fun CorrectionEmptyResult(
     reason: CorrectionEmptyResultReason?,
-    onRetry: () -> Unit,
     onNavigateToChat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -917,30 +913,18 @@ private fun CorrectionEmptyResult(
         )
         Text(
             text = if (reason == CorrectionEmptyResultReason.SAFETY_BLOCKED) {
-                "다시 시도하거나 AI 대화를 이어가 보세요"
+                "AI 대화를 이어가 보세요"
             } else {
-                "다시 시도하거나 대화를 더 이어가 보세요"
+                "대화를 더 이어가 보세요"
             },
             textAlign = TextAlign.Center,
         )
-        // Primary CTA: generate 재진입.
-        Button(
-            onClick = onRetry,
-            shape = RoundedCornerShape(ChipCornerRadius),
-            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
-            modifier = Modifier
-                .padding(top = SpacingL)
-                .padding(horizontal = SpacingL, vertical = SpacingS),
-        ) {
-            Text(text = "다시 시도")
-        }
-        // Secondary CTA: Chat 탭 이동.
         Button(
             onClick = onNavigateToChat,
             shape = RoundedCornerShape(ChipCornerRadius),
             colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
             modifier = Modifier
-                .padding(top = SpacingS)
+                .padding(top = SpacingL)
                 .padding(horizontal = SpacingL, vertical = SpacingS),
         ) {
             Text(text = "AI 와 대화하기")
