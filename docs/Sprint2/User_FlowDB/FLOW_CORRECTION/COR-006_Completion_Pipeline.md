@@ -138,3 +138,62 @@ CompleteCorrectionUseCase success
 - `CompleteCorrectionUseCase` 실패 결과 반환
 - 완료 요청이 중복 실행됨
 - 로컬 완료 성공 후 Firestore sync pending 상태가 함께 반환됨
+
+---
+
+# 프로세스 사망 정합성 / 멱등성 보증
+
+> 관련 이슈: [COR-FIX-012 #370]
+
+## 위험 창(Risk Window)
+
+완료 파이프라인에서 **유일한 위험 구간**은 다음과 같다:
+
+```text
+① correctionRepository.saveFlashcards() 성공 (Flashcard Room commit)
+                          ↕ 프로세스 사망 가능 구간
+⑤ ViewModel.clearCorrectionCacheAfterCompletion() (캐시 정리)
+```
+
+이 구간에서 프로세스가 사망하면 **정합성 갭**이 발생한다:
+
+- Flashcard 는 Room 에 commit 됨
+- `correctionAvailable` 이 아직 `false` 로 전환되지 않았을 수 있음 (LangState 갱신 전 사망 시)
+- 교정 캐시도 남아 있어 재진입 시 화면이 교정 미완료로 노출됨
+
+## 치명적 중복은 3중 dedup 으로 이미 차단됨
+
+| 계층 | 구현 | 동작 |
+|---|---|---|
+| **Flashcard** | `correction_flashcards` 복합 PK `(userId, id)` + `@Insert(onConflict=IGNORE)` | 재저장 시도해도 새 row 없음. `saveResult.localSavedFlashcardIds` 가 비어 rollback 대상도 없음 |
+| **LangState** | `ApplyLanguageStateUpdateUseCase`: `currentState.lastAnalysisEventId == analysisEventId` → early-return(`applied=false`) | 이동평균 이중 적용 없음 |
+| **Statistics** | history id = `"${userId}_${lang}_${analysisEventId}"` 결정적 + `@Insert(onConflict=REPLACE)` | 같은 id 는 덮어써 중복 row 없음 |
+
+따라서 재진입이 발생해도 **데이터 무결성은 보장**된다.
+
+## 정합성 갭 UX 복구 (COR-FIX-012 #370 보강)
+
+정합성 갭 상태(카드 저장됨 + `correctionAvailable=true` 잔존) 에서 화면이 미완료로 노출되는 문제를 복구한다:
+
+```text
+재진입 시 흐름
+CorrectionViewModel.ensureObservation()
+  → restoreCachedSuggestionsOrNull()
+    → ReconcileSavedCorrectionOnReentryUseCase(cachedSuggestionIds 전부 저장됨?)
+      → AlreadySaved: ApplyCorrectionSignalUpdateUseCase(correctionAvailable=false)
+                       + clearCorrectionCacheAfterCompletion()
+                       → CacheRestoreOutcome.Reconciled
+  → generationLaunched = false, return@collect
+  → 다음 LangState emit(correctionAvailable=false) → Phase.Empty 로 정착
+```
+
+`ReconcileSavedCorrectionOnReentryUseCase` 는 cachedSuggestionIds 가 **전부** 저장돼 있을 때만 갭으로 판정한다. 부분 저장은 발생하지 않는다 — 저장은 항상 `launchCompletion` 으로 일괄 수행되기 때문이다.
+
+## 회귀 보증 테스트
+
+| 파일 | 내용 |
+|---|---|
+| `CorrectionFlashcardStoreTest` | `save()` 멱등성 — 2회 저장 시 새 row 없음 |
+| `CompleteCorrectionReentryTest` | 동일 `analysisEventId` 2회 완료 시 Flashcard/LangState/Statistics 중복 없음 |
+| `ReconcileSavedCorrectionOnReentryUseCaseTest` | 갭 감지 → `AlreadySaved` / 미저장 → `NotSaved` |
+| `CorrectionViewModelCacheTest` | 재진입 갭 복구 시 Content 복원 없음, 캐시 정리, 생성 미트리거 |

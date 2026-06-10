@@ -141,7 +141,7 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine("- Preserve sourceText as the original utterance context. Do not rewrite, trim, sanitize, or remove filler from sourceText itself; cleanup applies only to afterText.")
             appendLine("- Filler and repetition cleanup: in afterText, remove unnecessary filler words, hesitation markers, and repeated discourse markers when doing so does not change the speaker's meaning.")
             appendLine("- Keep afterText natural and concise for learning and flashcard use.")
-            appendLine("- Examples of removable filler/discourse markers include English \"um\", \"uh\", \"you know\", discourse-marker \"like\", and some uses of \"I mean\"; Japanese \"なんか\" and discourse-marker \"その\"; Korean \"음\", \"어\", \"그니까\", \"약간\", \"뭐가\", and some uses of \"아니\".")
+            appendLine("- Examples of removable filler/discourse markers include English \"um\", \"uh\", discourse-marker \"like\", and some uses of \"I mean\"; Japanese \"なんか\" and discourse-marker \"その\"; Korean \"음\", \"어\", \"그니까\", \"약간\", \"뭐가\", and some uses of \"아니\".")
             appendLine("- Do NOT remove an expression if it carries real meaning, contrast, emphasis, correction, or the speaker's intended nuance.")
             appendLine("- Keep meaning-bearing uses such as \"I like coffee.\", corrective/emphatic \"I mean\", Japanese \"なんか\" meaning \"something\", referential \"その\", Korean degree-marker \"약간\", and negative \"아니\".")
             // COR-TUNE-02: learningSignal 은 능력 점수가 아니라 "이번 교정에서 관찰한 것"만 담는다.
@@ -376,7 +376,8 @@ class CorrectionPromptBuilder @Inject constructor() {
         LangCode.JA -> "Japanese"
         LangCode.KO -> "Korean"
         LangCode.DE -> "German"
-        LangCode.UNKNOWN -> "Korean"
+        // UNKNOWN(오염/미지원)은 기준 언어 폴백과 동일하게 처리한다(SSOT 경유). DEFAULT_PRIMARY=KO → "Korean".
+        LangCode.UNKNOWN -> languageName(LangCode.DEFAULT_PRIMARY)
     }
 
     private companion object {
