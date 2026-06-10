@@ -21,6 +21,9 @@ data class CorrectionPromptReviewSnapshot(
     val errorReason: String?,
     val saveErrorReason: String?,
     val completionErrorReason: String?,
+    // COR-FIX-013: 신고 시점에 적용된 교정 성장 band. 콘솔에서 프롬프트 튜닝 효과를 band별로 추적한다.
+    // band 전달 경로가 연결되지 않은 경우(캐시 복원 등)에는 null이 기록된다.
+    val promptBand: String? = null,
     val reportedAt: Long = System.currentTimeMillis()
 )
 

@@ -233,6 +233,7 @@ function renderMarkdown({ project, uid, reviewId, review }) {
   lines.push(`- language: ${review.language || "unknown"}`);
   lines.push(`- primaryLanguage: ${review.primaryLanguage || "unknown"}`);
   lines.push(`- phase: ${review.phase || "unknown"}`);
+  lines.push(`- promptBand: ${review.promptBand || "unknown"}`);
   lines.push(`- reportedAt: ${formatTime(review.reportedAt)}`);
   lines.push(`- suggestions: ${review.suggestionCount || (review.suggestions || []).length || 0}`);
   lines.push(`- selectedSuggestionIds: ${(review.selectedSuggestionIds || []).join(", ") || "none"}`);
@@ -297,13 +298,13 @@ function renderReportsMarkdown({ project, reports }) {
   lines.push("");
   lines.push("## Reports");
   lines.push("");
-  lines.push("| reportId | reportedAt | phase | language | primaryLanguage | uid | reviewId | suggestions | selected | reportNote | reviewPath |");
-  lines.push("| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- |");
+  lines.push("| reportId | reportedAt | phase | promptBand | language | primaryLanguage | uid | reviewId | suggestions | selected | reportNote | reviewPath |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- |");
   reports.forEach((report) => {
     const reviewId = reviewIdFromReport(report);
     lines.push(
       `| ${code(report.reportId || report.id || "")} | ${formatTime(report.reportedAt || report.updatedAt)} | ${report.phase || ""} | ` +
-        `${report.language || ""} | ${report.primaryLanguage || ""} | ${code(report.uid || "")} | ${code(reviewId || "")} | ` +
+        `${report.promptBand || "unknown"} | ${report.language || ""} | ${report.primaryLanguage || ""} | ${code(report.uid || "")} | ${code(reviewId || "")} | ` +
         `${report.suggestionCount || 0} | ${report.selectedCount || 0} | ${escapeTableCell(report.reportNote || "")} | ${code(report.reviewPath || "")} |`
     );
   });

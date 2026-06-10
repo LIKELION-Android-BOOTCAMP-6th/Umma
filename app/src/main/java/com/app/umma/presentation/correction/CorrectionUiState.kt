@@ -6,6 +6,7 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSuggestion
 import com.app.umma.domain.model.correction.PrepareCorrectionSaveRequestResult
 import com.app.umma.domain.model.flashcard.Flashcard
+import com.app.umma.domain.model.learningstate.CorrectionGrowthBand
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
@@ -128,6 +129,10 @@ data class CorrectionUiState(
     // 로 읽기만 해 변환한 경량 모델이다 — SRS 스케줄/평가 등 원본 책임은 건드리지 않는다.
     // 빈 리스트면 화면이 안내 문구 카드로 폴백한다(파이프라인을 막지 않는 별도 로드라 실패 시에도 빈 리스트).
     val loadingFlashcards: List<CorrectionLoadingCard> = emptyList(),
+    // COR-FIX-013: 생성 파이프라인에서 산출된 교정 성장 band. 신고 시 promptBand 메타로 기록해
+    // 어느 band 정책이 적용됐는지 Firestore 콘솔에서 바로 식별할 수 있도록 한다.
+    // runPipeline 이외 경로(캐시 복원 등)에서는 null이 유지된다.
+    val correctionBand: CorrectionGrowthBand? = null,
     // Development-only Correction review report button visibility.
     val showCorrectionReviewReportButton: Boolean = false,
     // Prevents duplicate report writes while Firestore is in flight.
@@ -214,7 +219,9 @@ data class CorrectionLoadingCard(
 
 internal data class GenerationOutcomePayload(
     val suggestions: List<CorrectionSuggestion>,
-    val emptyReason: CorrectionEmptyResultReason? = null
+    val emptyReason: CorrectionEmptyResultReason? = null,
+    // COR-FIX-013: runPipeline에서 산출한 band를 UiState로 전달하기 위한 중간 운반체.
+    val band: CorrectionGrowthBand? = null,
 )
 
 /**
@@ -560,6 +567,8 @@ internal fun CorrectionUiState.applyGenerationOutcome(
             selectedSuggestionIds = emptySet(),
             errorReason = null,
             emptyResultReason = payload.emptyReason,
+            // COR-FIX-013: 파이프라인이 산출한 band를 보존해 신고 시 promptBand 메타로 기록한다.
+            correctionBand = payload.band,
             saveRequest = null,
             saveErrorReason = null,
         )
@@ -574,6 +583,7 @@ internal fun CorrectionUiState.applyGenerationOutcome(
             selectedSuggestionIds = emptySet(),
             errorReason = reason,
             emptyResultReason = null,
+            correctionBand = null,
             saveRequest = null,
             saveErrorReason = null,
         )

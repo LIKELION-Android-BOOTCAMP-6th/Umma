@@ -495,7 +495,9 @@ class CorrectionViewModel @Inject constructor(
                 com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED
             } else {
                 null
-            }
+            },
+            // COR-FIX-013: 신고 시 promptBand 메타로 기록할 수 있도록 band를 payload에 실어 UiState로 전달한다.
+            band = profile.correctionPolicy.band,
         )
     }
 
@@ -736,6 +738,8 @@ class CorrectionViewModel @Inject constructor(
                 errorReason = current.errorReason,
                 saveErrorReason = current.saveErrorReason,
                 completionErrorReason = current.completionErrorReason,
+                // COR-FIX-013: 파이프라인에서 보존해 둔 band를 스냅샷에 실어 Firestore에 promptBand로 기록한다.
+                promptBand = current.correctionBand?.name,
             )
 
             reportCorrectionPromptReviewUseCase(snapshot)
