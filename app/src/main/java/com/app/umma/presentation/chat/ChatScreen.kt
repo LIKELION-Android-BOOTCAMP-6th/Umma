@@ -199,6 +199,9 @@ fun ChatScreen(
                     // hidden 상태에서 돌아올 때는 저장된 UI를 재사용하지 말고 새 세션 경계를 다시 연다.
                     routeHiddenHandled.value = false
                     viewModel.setChatRouteVisible(true)
+                    // 홈/탭 전환 후 재진입 시에도 관심주제 필수 다이얼로그를 다시 확인한다.
+                    // 이 검사가 없으면 세션 복구(enterChat) 경로로 주제 선택을 우회할 수 있다.
+                    viewModel.checkInterestTopics()
                     viewModel.enterChat()
                 }
 
