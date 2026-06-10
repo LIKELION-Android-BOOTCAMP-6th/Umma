@@ -12,6 +12,14 @@ enum class NotificationPermissionRequestTarget {
 }
 
 /**
+ * 테스트 알림 전송 대상.
+ */
+enum class NotificationTestTarget(val type: String) {
+    SRS("srs_review"),
+    MARKETING("marketing")
+}
+
+/**
  * 마이페이지 알림 설정 UI 상태.
  */
 data class MyPageNotificationUiState(
@@ -21,6 +29,10 @@ data class MyPageNotificationUiState(
     val isSaving: Boolean = false,
     val showTimePicker: Boolean = false,
     val permissionRequestTarget: NotificationPermissionRequestTarget? = null,
+    val showTestNotificationDialog: Boolean = false,
+    val testNotificationTarget: NotificationTestTarget = NotificationTestTarget.SRS,
+    val isSendingTestNotification: Boolean = false,
+    val testNotificationMessage: String? = null,
     val message: String? = null
 ) {
     val permissionRequired: Boolean

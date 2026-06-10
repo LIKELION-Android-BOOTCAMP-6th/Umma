@@ -257,3 +257,14 @@ V1의 제품 역할은 다음과 같이 고정한다.
 - [FLOW_AI_CHAT.md](../Sprint2/User_FlowDB/FLOW_AI_CHAT.md)
 - [FLOW_SRS.md](../Sprint2/User_FlowDB/FLOW_SRS.md)
 - [06_srs_review_pipeline.drawio](../drawio/06_srs_review_pipeline.drawio)
+
+## 8-1. 워치 알림 범위 정리
+
+- V1 알림의 source of truth는 폰이다.
+- 알림 생성은 기존 폰 FCM / 로컬 알림 경로를 유지한다.
+- 워치는 시스템 notification mirroring만 사용한다.
+- 워치 자체 FCM token 등록과 direct watch push는 V1 범위 밖이다.
+- SRS 워치 알림에는 `워치에서 복습`, `10분 뒤 다시 알림`, `폰에서 열기` 액션이 포함된다.
+- snooze와 폰 열기 액션의 최종 처리는 폰이 담당한다.
+- 마케팅 알림은 미러링 대상이지만, V1 기본 범위에서는 워치 전용 액션을 두지 않는다.
+- 개발/QA용 테스트 알림 생성기는 마이페이지 디버그 액션에서 호출하며, 실제 제품 플로우와 분리한다.

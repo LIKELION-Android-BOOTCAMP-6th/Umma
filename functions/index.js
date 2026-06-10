@@ -389,6 +389,144 @@ exports.dispatchMarketingNotifications = onSchedule(
 );
 
 /**
+ * Sends a test notification immediately to the caller's active devices when
+ * the matching notification setting is enabled.
+ *
+ * This is intended for internal QA only. The caller must be authenticated and
+ * can only target their own notification devices.
+ */
+exports.sendTestNotification = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    if (!request.auth || !request.auth.uid) {
+      throw new HttpsError("unauthenticated", "Authentication required");
+    }
+
+    const type = stringValue(request.data?.type).trim();
+    if (type !== SRS_REVIEW_NOTIFICATION_TYPE && type !== MARKETING_NOTIFICATION_TYPE) {
+      throw new HttpsError(
+        "invalid-argument",
+        "type must be srs_review or marketing",
+      );
+    }
+
+    const userRef = firestore.collection(USERS_COLLECTION).doc(request.auth.uid);
+    const notificationEnabled = await isNotificationTypeEnabled(userRef, type);
+    if (!notificationEnabled) {
+      throw new HttpsError(
+        "failed-precondition",
+        `${type} notification setting is disabled`,
+      );
+    }
+
+    const activeDevices = await loadActiveNotificationDevices(userRef);
+    if (activeDevices.length === 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No active notification devices are available",
+      );
+    }
+
+    const now = Date.now();
+    const historyId = buildTestNotificationHistoryId(type, now);
+    const message = buildTestNotificationMessage(type);
+    let selectedLearningLanguage = null;
+
+    if (type === SRS_REVIEW_NOTIFICATION_TYPE) {
+      selectedLearningLanguage = await readSelectedLearningLanguage(userRef);
+      if (!selectedLearningLanguage) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Selected learning language is required for srs_review",
+        );
+      }
+    }
+
+    const multicastResponse = await admin.messaging().sendEachForMulticast({
+      tokens: activeDevices.map((device) => device.fcmToken),
+      data: {
+        type,
+        route: type === SRS_REVIEW_NOTIFICATION_TYPE ? SRS_REVIEW_ROUTE : MARKETING_NOTIFICATION_ROUTE,
+        historyId,
+        title: message.title,
+        body: message.body,
+        ...(selectedLearningLanguage ? { lang: selectedLearningLanguage } : {}),
+      },
+    });
+
+    const invalidDevices = extractInvalidNotificationDevices(
+      activeDevices,
+      multicastResponse.responses,
+    );
+    if (invalidDevices.length > 0) {
+      await disableInvalidNotificationDevices(userRef, invalidDevices, now);
+    }
+
+    await userRef
+      .collection(NOTIFICATION_HISTORY_COLLECTION)
+      .doc(historyId)
+      .set(
+        {
+          type,
+          isTest: true,
+          triggeredByUid: request.auth.uid,
+          targetUid: request.auth.uid,
+          selectedLangAtSend: selectedLearningLanguage,
+          deliveryStatus: multicastResponse.successCount > 0 ? "sent" : "failed",
+          deliveredDeviceCount: multicastResponse.successCount,
+          invalidTokenCount: invalidDevices.length,
+          sentAt: now,
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+
+    return {
+      ok: multicastResponse.successCount > 0,
+      type,
+      historyId,
+      targetDeviceCount: activeDevices.length,
+      successCount: multicastResponse.successCount,
+      failureCount: multicastResponse.failureCount,
+      invalidTokenCount: invalidDevices.length,
+    };
+  },
+);
+
+function buildTestNotificationMessage(type) {
+  if (type === SRS_REVIEW_NOTIFICATION_TYPE) {
+    return {
+      title: "Study reminder",
+      body: "A review is ready. Open the app to check.",
+    };
+  }
+
+  return {
+    title: MARKETING_NOTIFICATION_TITLE,
+    body: "Test marketing notification. Open the app to check.",
+  };
+}
+
+function buildTestNotificationHistoryId(type, now) {
+  return `test_${type}_${now}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function isNotificationTypeEnabled(userRef, type) {
+  const snapshot = await userRef
+    .collection(NOTIFICATION_SETTINGS_COLLECTION)
+    .doc(type)
+    .get();
+
+  if (!snapshot.exists) {
+    return false;
+  }
+
+  return Boolean(snapshot.data()?.enabled);
+}
+
+/**
  * Verifies the Firebase Auth ID token sent by the Android app.
  *
  * The function endpoint may still be reachable as an HTTPS URL, but it must not
