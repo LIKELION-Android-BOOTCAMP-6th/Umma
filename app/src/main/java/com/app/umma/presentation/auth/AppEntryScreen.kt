@@ -22,6 +22,7 @@ import com.app.umma.R
 import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.SpacingXXL
 import com.app.umma.core.theme.ThemePrimary
+import com.app.umma.core.ui.component.UmmaDialog
 
 @Composable
 fun AppEntryScreen(
@@ -36,16 +37,30 @@ fun AppEntryScreen(
     }
 
 
-    LaunchedEffect(uiState.googleState, uiState.isSessionChecking) {
+    LaunchedEffect(uiState.googleState, uiState.isSessionChecking, uiState.forceLogoutMessage) {
         // 조건 3개 (세션 확인 끝, 에러 없음, FAILED 아닐 때) 모두 만족 시 이동
         if (uiState.isSessionChecking) return@LaunchedEffect
         // 에러 있다면 이동 X
         if (uiState.sessionError != null) return@LaunchedEffect
         if (uiState.googleState == GoogleAuthState.FAILED) return@LaunchedEffect
+        // 강제 로그아웃 안내 다이얼로그를 확인하기 전까지는 이동 X
+        if (uiState.forceLogoutMessage != null) return@LaunchedEffect
         when (uiState.googleState) {
             GoogleAuthState.SUCCESS -> onNavigateToDashboard()
             GoogleAuthState.IDLE -> onNavigateToOnBoarding()
             else -> Unit
+        }
+    }
+
+    if (uiState.forceLogoutMessage != null) {
+        UmmaDialog(
+            title = "로그아웃 안내",
+            onCancel = { viewModel.consumeForceLogoutMessage() },
+            onConfirm = { viewModel.consumeForceLogoutMessage() },
+            confirmText = "확인",
+            showCancelButton = false
+        ) {
+            Text(text = uiState.forceLogoutMessage ?: "")
         }
     }
     Box(

@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.repository.AuthRepository
+import com.app.umma.domain.repository.SessionRepository
 import com.app.umma.domain.usecase.auth.CheckInitialSetupUseCase
 import com.app.umma.domain.usecase.auth.DeleteAccountUseCase
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.auth.IsSessionStillActiveUseCase
 import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.auth.SignInWithGoogleUseCase
 import com.app.umma.domain.usecase.user.GetSystemLanguageUseCase
@@ -42,6 +44,8 @@ class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val validateNicknameUseCase: ValidateNicknameUseCase,
     private val getSystemLanguageUseCase: GetSystemLanguageUseCase,
+    private val sessionRepository: SessionRepository,
+    private val isSessionStillActiveUseCase: IsSessionStillActiveUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
@@ -263,11 +267,18 @@ class AuthViewModel @Inject constructor(
      */
     fun checkSession() {
         viewModelScope.launch {
+            // 강제 로그아웃 FCM을 처리한 적 있다면(백그라운드/종료 상태) 안내 메시지 표시 대상
+            val hasPendingForceLogout = sessionRepository.consumePendingForceLogoutNotice()
 
             _uiState.update {
                 it.copy(
                     isSessionChecking = true,
-                    sessionError = null
+                    sessionError = null,
+                    forceLogoutMessage = if (hasPendingForceLogout) {
+                        FORCE_LOGOUT_MESSAGE
+                    } else {
+                        it.forceLogoutMessage
+                    }
                 )
             }
             // 스플래시 화면 0.1초 만에 사라져서 지연 추가
@@ -289,17 +300,34 @@ class AuthViewModel @Inject constructor(
             // 로그인 O -> 재확인: Firebase 서버에서 세션 유효성
             val result = authRepository.hasValidSession()
             result.onSuccess { isValid ->
-                val googleState =
-                    if (isValid) {
-                        GoogleAuthState.SUCCESS
-                    } else {
-                        GoogleAuthState.IDLE
+                if (!isValid) {
+                    _uiState.update {
+                        it.copy(
+                            isSessionChecking = false,
+                            googleState = GoogleAuthState.IDLE
+                        )
                     }
-                _uiState.update {
-                    it.copy(
-                        isSessionChecking = false,
-                        googleState = googleState
-                    )
+                    return@onSuccess
+                }
+
+                // FCM 유실 등으로 force_logout을 못받은 경우를 대비한 fallback 검증
+                val sessionStillActive = isSessionStillActiveUseCase(uid).getOrDefault(true)
+                if (!sessionStillActive) {
+                    logoutUseCase()
+                    _uiState.update {
+                        it.copy(
+                            isSessionChecking = false,
+                            googleState = GoogleAuthState.IDLE,
+                            forceLogoutMessage = FORCE_LOGOUT_MESSAGE
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isSessionChecking = false,
+                            googleState = GoogleAuthState.SUCCESS
+                        )
+                    }
                 }
             }.onFailure { e ->
                 _uiState.update {
@@ -311,6 +339,14 @@ class AuthViewModel @Inject constructor(
                 Log.e("Auth", "checkSession 실패", e)
             }
         }
+    }
+
+    /**
+     * 강제 로그아웃 안내 다이얼로그 "확인" 클릭 시 호출.
+     * 다이얼로그를 닫고 정상 네비게이션 흐름을 재개한다.
+     */
+    fun consumeForceLogoutMessage() {
+        _uiState.update { it.copy(forceLogoutMessage = null) }
     }
 
     /**
@@ -415,5 +451,9 @@ class AuthViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private companion object {
+        const val FORCE_LOGOUT_MESSAGE = "다른 기기에서 로그인되어 자동으로 로그아웃되었습니다."
     }
 }

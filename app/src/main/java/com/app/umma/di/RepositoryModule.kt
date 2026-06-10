@@ -10,6 +10,7 @@ import com.app.umma.data.repository.ChatUsageRepositoryImpl
 import com.app.umma.data.repository.chatconversation.ChatConversationAnalysisRepositoryImpl
 import com.app.umma.data.repository.correction.CorrectionSuggestionCacheRepositoryImpl
 import com.app.umma.data.repository.NotificationSettingsRepositoryImpl
+import com.app.umma.data.repository.SessionRepositoryImpl
 import com.app.umma.data.repository.UserProfileRepositoryImpl
 import com.app.umma.data.source.local.CorrectionFlashcardLocalDataSource
 import com.app.umma.data.source.local.CorrectionSuggestionCacheLocalDataSource
@@ -34,6 +35,7 @@ import com.app.umma.domain.repository.ChatConversationAnalysisJobRepository
 import com.app.umma.domain.repository.ChatConversationEvidenceRepository
 import com.app.umma.domain.repository.ChatUsageRepository
 import com.app.umma.domain.repository.NotificationSettingsRepository
+import com.app.umma.domain.repository.SessionRepository
 import com.app.umma.domain.repository.CorrectionSuggestionCacheRepository
 import com.app.umma.domain.repository.UserProfileRepository
 import dagger.Binds
@@ -164,4 +166,10 @@ abstract class RepositoryModule {
     abstract fun bindNotificationSettingsRepository(
         impl: NotificationSettingsRepositoryImpl
     ): NotificationSettingsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSessionRepository(
+        impl: SessionRepositoryImpl
+    ): SessionRepository
 }

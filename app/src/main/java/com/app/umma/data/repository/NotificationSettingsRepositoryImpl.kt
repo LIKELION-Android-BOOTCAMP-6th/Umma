@@ -1,12 +1,12 @@
 package com.app.umma.data.repository
 
-import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.app.umma.core.util.DeviceIdProvider
 import com.app.umma.data.model.notification.MarketingNotificationSettingsDto
 import com.app.umma.data.model.notification.SrsNotificationSettingsDto
 import com.app.umma.data.model.notification.toDomain
@@ -18,7 +18,6 @@ import com.app.umma.domain.repository.NotificationSettingsRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -30,16 +29,15 @@ import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
 
 @Singleton
 class NotificationSettingsRepositoryImpl @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val authRepository: AuthRepository,
+    private val deviceIdProvider: DeviceIdProvider,
     @Named("notificationSettingsDataStore")
     private val dataStore: DataStore<Preferences>
 ) : NotificationSettingsRepository {
@@ -247,7 +245,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
                 ?: throw IllegalStateException("signed-in user is required")
 
             val now = System.currentTimeMillis()
-            val deviceId = currentDeviceId()
+            val deviceId = deviceIdProvider.getDeviceId()
 
             notificationDevicesCollection(uid)
                 .document(deviceId)
@@ -275,26 +273,27 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         return runCatching {
             val uid = authRepository.getCurrentUserUid() ?: return@runCatching
 
-            if (permissionGranted) {
-                val token = FirebaseMessaging.getInstance().token.await()
-                registerCurrentDevice(
-                    token = token,
-                    permissionGranted = true,
-                    timezone = timezone
-                ).getOrThrow()
-                refreshTimezone(timezone).getOrThrow()
-                return@runCatching
-            }
+            // 강제 로그아웃 알림은 권한과 무관하게 수신해야 하므로, 권한이 꺼져 있어도
+            // FCM 토큰은 항상 등록 상태로 유지한다.
+            val token = FirebaseMessaging.getInstance().token.await()
+            registerCurrentDevice(
+                token = token,
+                permissionGranted = permissionGranted,
+                timezone = timezone
+            ).getOrThrow()
 
-            unregisterCurrentDevice().getOrThrow()
-            disableAllNotificationSettings(uid, timezone)
+            if (permissionGranted) {
+                refreshTimezone(timezone).getOrThrow()
+            } else {
+                disableAllNotificationSettings(uid, timezone)
+            }
         }
     }
 
     override suspend fun unregisterCurrentDevice(): Result<Unit> {
         return runCatching {
             val uid = authRepository.getCurrentUserUid() ?: return@runCatching
-            val deviceId = currentDeviceId()
+            val deviceId = deviceIdProvider.getDeviceId()
 
             notificationDevicesCollection(uid)
                 .document(deviceId)
@@ -459,21 +458,6 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         return (clamped / MINUTES_PER_HOUR) * MINUTES_PER_HOUR
     }
 
-    private fun currentDeviceId(): String {
-        val preferences = context.getSharedPreferences(
-            NOTIFICATION_DEVICE_PREFERENCES,
-            Context.MODE_PRIVATE
-        )
-        val existing = preferences.getString(NOTIFICATION_INSTALLATION_ID_KEY, null)
-        if (!existing.isNullOrBlank()) return existing
-
-        val generated = UUID.randomUUID().toString()
-        preferences.edit()
-            .putString(NOTIFICATION_INSTALLATION_ID_KEY, generated)
-            .apply()
-        return generated
-    }
-
     private fun notificationSettingsCollection(uid: String) = firestore
         .collection(USERS_COLLECTION)
         .document(uid)
@@ -523,8 +507,6 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         const val MINUTES_PER_DAY = 24 * 60
         const val MARKETING_MORNING_HOUR = 7
         const val MARKETING_NOON_HOUR = 12
-        const val NOTIFICATION_DEVICE_PREFERENCES = "notification_device_preferences"
-        const val NOTIFICATION_INSTALLATION_ID_KEY = "notification_installation_id"
 
         val SRS_SETTINGS_CACHE_KEY = stringPreferencesKey("srs_notification_settings_cache")
         val MARKETING_SETTINGS_CACHE_KEY =

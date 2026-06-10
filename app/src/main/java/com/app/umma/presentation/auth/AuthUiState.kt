@@ -27,6 +27,11 @@ data class AuthUiState(
     val isDeleteAccountCompleted: Boolean = false,
     val isSessionChecking: Boolean = false,
     val sessionError: String? = null,
+    /**
+     * 다른 기기에서의 로그인으로 인해 강제 로그아웃되었을 때 표시할 안내 메시지.
+     * null이 아니면 AppEntryScreen에서 다이얼로그를 표시하고, 확인 전까지 화면 이동을 막는다.
+     */
+    val forceLogoutMessage: String? = null,
 )
 
 /**
