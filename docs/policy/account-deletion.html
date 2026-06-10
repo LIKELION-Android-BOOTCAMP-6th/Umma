@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Umma 계정 삭제 안내</title>
+  <style>
+    :root { --bg:#fffaf3; --surface:#fff; --text:#24211d; --muted:#6f665c; --line:#eadfce; --accent:#f4901e; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--text); background:var(--bg); line-height:1.65; }
+    header, main, footer { width:min(960px, calc(100% - 32px)); margin:0 auto; }
+    header { padding:28px 0 18px; border-bottom:1px solid var(--line); }
+    .brand { font-size:24px; font-weight:800; color:var(--accent); }
+    nav { display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }
+    nav a { color:var(--text); text-decoration:none; border:1px solid var(--line); border-radius:999px; padding:6px 12px; background:var(--surface); }
+    main { padding:28px 0 40px; }
+    section { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
+    h1 { font-size:30px; margin:14px 0 8px; }
+    h2 { font-size:20px; margin:0 0 12px; }
+    p, li { color:var(--muted); }
+    ul, ol { padding-left:20px; }
+    strong { color:var(--text); }
+    footer { padding:24px 0 36px; color:var(--muted); font-size:14px; border-top:1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">Umma</div>
+    <nav aria-label="정책 링크">
+      <a href="/privacy">개인정보처리방침</a>
+      <a href="/terms">이용약관</a>
+      <a href="/ai-safety">AI 생성 콘텐츠 및 신고 안내</a>
+      <a href="/account-deletion">계정 삭제 안내</a>
+    </nav>
+    <h1>계정 삭제 안내</h1>
+    <p>사용자는 앱 안에서 회원탈퇴를 진행하거나, 앱을 삭제한 뒤에도 이메일로 계정 삭제를 요청할 수 있습니다.</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>1. 앱 안에서 계정 삭제</h2>
+      <p>Umma 앱에 로그인한 상태라면 마이페이지의 회원탈퇴 기능을 통해 계정 삭제를 요청할 수 있습니다. 회원탈퇴가 완료되면 Firebase Auth 계정과 users/{uid} 하위 사용자 데이터 삭제를 기준으로 처리합니다.</p>
+    </section>
+
+    <section>
+      <h2>2. 앱을 삭제한 뒤 계정 삭제 요청</h2>
+      <p>앱을 삭제했거나 앱에 로그인할 수 없는 경우, 아래 이메일로 계정 삭제를 요청할 수 있습니다.</p>
+      <p><strong>계정 삭제 요청 이메일:</strong> <a href="mailto:umma.app.kr@gmail.com">umma.app.kr@gmail.com</a></p>
+    </section>
+
+    <section>
+      <h2>3. 요청 시 필요한 정보</h2>
+      <p>본인 확인과 삭제 대상 확인을 위해 가능한 범위에서 다음 정보를 포함해 주세요.</p>
+      <ul>
+        <li>Umma에 로그인할 때 사용한 Google 계정 이메일</li>
+        <li>계정 삭제 요청 의사</li>
+        <li>앱에 접근할 수 없는 경우 그 사유</li>
+      </ul>
+      <p>비밀번호나 인증 코드 등 민감한 인증 정보는 이메일로 보내지 마세요.</p>
+    </section>
+
+    <section>
+      <h2>4. 삭제되는 데이터</h2>
+      <p>계정 삭제가 처리되면 다음 데이터 삭제를 기준으로 합니다.</p>
+      <ul>
+        <li>Firebase Auth 계정</li>
+        <li>users/{uid} 하위 사용자 데이터</li>
+        <li>학습 언어 설정, 대시보드 요약, 통계</li>
+        <li>AI Chat 관련 사용자 데이터와 transcript</li>
+        <li>교정 결과, Flashcard, SRS 학습 기록</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>5. 일부 보관될 수 있는 정보</h2>
+      <p>운영 검토가 필요한 신고 데이터, abuse 방지 기록, Cloud Functions 로그처럼 직접 삭제가 어렵거나 별도 보관 목적이 있는 정보는 법적 또는 운영상 필요한 범위에서 일정 기간 보관되거나 비식별화될 수 있습니다.</p>
+      <p>신고 데이터는 기본적으로 신고 접수일 기준 1년 보관 정책을 따릅니다. 자세한 내용은 <a href="/ai-safety">AI 생성 콘텐츠 및 신고 안내</a>를 확인해 주세요.</p>
+    </section>
+
+    <section>
+      <h2>6. 처리 기간</h2>
+      <p>이메일로 접수된 계정 삭제 요청은 본인 확인과 대상 데이터 확인 후 처리됩니다. 처리에는 영업일 기준 일정 시간이 걸릴 수 있으며, 추가 확인이 필요한 경우 회신을 요청할 수 있습니다.</p>
+    </section>
+
+    <section>
+      <h2>7. 문의</h2>
+      <p>계정 삭제 또는 데이터 삭제에 대한 문의는 <a href="mailto:umma.app.kr@gmail.com">umma.app.kr@gmail.com</a>으로 보내주세요.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>마지막 업데이트: 2026-06-10</p>
+    <p>문의: <a href="mailto:umma.app.kr@gmail.com">umma.app.kr@gmail.com</a></p>
+  </footer>
+</body>
+</html>
