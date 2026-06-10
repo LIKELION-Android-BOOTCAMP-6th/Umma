@@ -9,8 +9,8 @@ import org.junit.Test
 class StatisticsMetricChartModelsTest {
 
     @Test
-    fun `returns empty chart state when points are less than two`() {
-        // 한 점만 있는 history는 추세선을 만들 수 없으므로 Empty 상태로 내려야 한다.
+    fun `returns empty chart state when non band metrics have less than two points`() {
+        // 일반 metric은 최소 두 점이 있어야 추세선을 만들 수 있으므로 Empty 상태로 내려야 한다.
         val state = listOf(
             MetricHistoryPoint(
                 metricType = StatisticsMetricType.GrammarAccuracy,
@@ -19,6 +19,28 @@ class StatisticsMetricChartModelsTest {
                 displayValue = "61%"
             )
         ).toStatisticsMetricChartState(StatisticsMetricType.GrammarAccuracy)
+
+        assertTrue(state is StatisticsMetricChartState.Empty)
+    }
+
+    @Test
+    fun `conversation band chart state stays empty even with history points`() {
+        // 종합 레벨은 실제 화면에서 차트가 아니라 레벨 정의 안내로 열린다.
+        // history point가 충분해도 mapper가 Ready를 만들지 않아야 accidental chart 회귀를 막을 수 있다.
+        val state = listOf(
+            MetricHistoryPoint(
+                metricType = StatisticsMetricType.ConversationBand,
+                recordedAt = 1_000L,
+                value = 4.0,
+                displayValue = "대화 Level"
+            ),
+            MetricHistoryPoint(
+                metricType = StatisticsMetricType.ConversationBand,
+                recordedAt = 2_000L,
+                value = 5.0,
+                displayValue = "표현 Level"
+            )
+        ).toStatisticsMetricChartState(StatisticsMetricType.ConversationBand)
 
         assertTrue(state is StatisticsMetricChartState.Empty)
     }
@@ -83,7 +105,10 @@ class StatisticsMetricChartModelsTest {
 
         assertEquals(0.0, displayModel.yAxisPolicy.minY, 0.0)
         assertEquals(100.0, displayModel.yAxisPolicy.maxY, 0.0)
-        assertEquals(listOf("0%", "25%", "50%", "75%", "100%"), displayModel.yAxisPolicy.labels.map { it.label })
+        assertEquals(
+            listOf("0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"),
+            displayModel.yAxisPolicy.labels.map { it.label }
+        )
         assertEquals("61%", displayModel.summary.startValue)
         assertEquals("82%", displayModel.summary.currentValue)
         assertEquals("+21%", displayModel.summary.changeValue)
@@ -102,7 +127,10 @@ class StatisticsMetricChartModelsTest {
         assertEquals("-", displayModel.summary.currentValue)
         assertEquals("-", displayModel.summary.changeValue)
         assertEquals("0개", displayModel.summary.pointCountLabel)
-        assertEquals(listOf("0%", "25%", "50%", "75%", "100%"), displayModel.yAxisPolicy.labels.map { it.label })
+        assertEquals(
+            listOf("0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"),
+            displayModel.yAxisPolicy.labels.map { it.label }
+        )
     }
 
     @Test

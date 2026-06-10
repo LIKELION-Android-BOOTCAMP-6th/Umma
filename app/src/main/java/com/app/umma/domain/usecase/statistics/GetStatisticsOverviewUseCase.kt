@@ -2,10 +2,12 @@ package com.app.umma.domain.usecase.statistics
 
 import com.app.umma.domain.model.learningstate.currentLangState
 import com.app.umma.domain.model.learningstate.selectedLang
+import com.app.umma.domain.model.learningstate.toLangAbilityStats
 import com.app.umma.domain.model.statistics.StatisticsHistoryQueryState
 import com.app.umma.domain.model.statistics.StatisticsMetricType
 import com.app.umma.domain.model.statistics.StatisticsOverview
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import kotlinx.coroutines.flow.firstOrNull
 import javax.inject.Inject
@@ -18,7 +20,8 @@ import javax.inject.Inject
  */
 class GetStatisticsOverviewUseCase @Inject constructor(
     private val getCurrentUserUidUseCase: GetCurrentUserUidUseCase,
-    private val observeLearningStateUseCase: ObserveLearningStateUseCase
+    private val observeLearningStateUseCase: ObserveLearningStateUseCase,
+    private val buildLearnerAdaptationProfileUseCase: BuildLearnerAdaptationProfileUseCase
 ) {
     suspend operator fun invoke(): Result<StatisticsOverview> = runCatching {
         // Statistics 화면은 로그인된 사용자 기준으로만 동작한다.
@@ -36,6 +39,7 @@ class GetStatisticsOverviewUseCase @Inject constructor(
 
         val currentLangState = globalState.currentLangState()
             ?: throw IllegalStateException("현재 선택 언어의 LangState가 없습니다.")
+        val learnerProfile = buildLearnerAdaptationProfileUseCase(currentLangState)
 
         StatisticsOverview(
             userId = userId,
@@ -43,12 +47,25 @@ class GetStatisticsOverviewUseCase @Inject constructor(
             currentLangState = currentLangState,
             // 화면에서 바로 보여줄 수 있는 외부 지표만 미리 꺼내 둔다.
             currentExternalMetrics = currentLangState.external,
-            // 001에서는 사용할 지표 목록만 고정하고, 실제 카드/차트 렌더링은 후속 이슈에서 한다.
-            availableMetricTypes = StatisticsMetricType.entries,
+            // LangState 누적 bundle은 Statistics와 policy가 같은 source를 읽게 하기 위해 같이 준비한다.
+            currentLangAbilityStats = currentLangState.toLangAbilityStats(learnerProfile),
+            // 카드/차트 순서는 종합 레벨 -> 말하기 -> 문법 -> 이해력 -> 어휘 -> 표현력으로 고정한다.
+            availableMetricTypes = statisticsMetricOrder(),
             historyQueryState = StatisticsHistoryQueryState.Ready(
                 userId = userId,
                 language = selectedLanguage
             )
+        )
+    }
+
+    private fun statisticsMetricOrder(): List<StatisticsMetricType> {
+        return listOf(
+            StatisticsMetricType.ConversationBand,
+            StatisticsMetricType.FluencyScore,
+            StatisticsMetricType.GrammarAccuracy,
+            StatisticsMetricType.NaturalnessScore,
+            StatisticsMetricType.VocabularyLevel,
+            StatisticsMetricType.ExpressionRange
         )
     }
 }

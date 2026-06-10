@@ -4,7 +4,7 @@ import com.app.umma.domain.model.statistics.MetricHistoryPoint
 import com.app.umma.domain.model.statistics.StatisticsHistoryState
 import com.app.umma.domain.model.statistics.StatisticsHistoryQueryState
 import com.app.umma.domain.model.statistics.StatisticsMetricType
-import com.app.umma.domain.model.statistics.toMetricPoint
+import com.app.umma.domain.model.statistics.toMetricPointOrNull
 import com.app.umma.domain.repository.StatisticsRepository
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -41,7 +41,7 @@ class GetMetricHistoryPointsUseCase @Inject constructor(
             is StatisticsHistoryState.Content -> historyState.histories
                 // 차트 입력은 항상 시간순이어야 하므로 UseCase에서 정렬을 고정한다.
                 .sortedBy { it.recordedAt }
-                .map { it.toMetricPoint(metricType) }
+                .mapNotNull { it.toMetricPointOrNull(metricType) }
 
             is StatisticsHistoryState.Retry -> {
                 // Retry/Error는 chart dialog의 Error 상태로 이어질 수 있게 실패로 올린다.

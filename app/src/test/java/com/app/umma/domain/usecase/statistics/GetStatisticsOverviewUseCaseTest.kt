@@ -8,12 +8,14 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.repository.AuthRepository
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.model.statistics.StatisticsMetricType
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +32,8 @@ class GetStatisticsOverviewUseCaseTest {
         val repo = RecordingLearningStateRepo(state = statsReadyState())
         val useCase = GetStatisticsOverviewUseCase(
             getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-            observeLearningStateUseCase = ObserveLearningStateUseCase(repo)
+            observeLearningStateUseCase = ObserveLearningStateUseCase(repo),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
         )
 
         val result = useCase().getOrThrow()
@@ -41,8 +44,39 @@ class GetStatisticsOverviewUseCaseTest {
         assertEquals("user-1", result.userId)
         assertEquals(LangCode.EN, result.selectedLearningLanguage)
         assertEquals(VocabLevel.B2, result.currentExternalMetrics.vocabularyLevel)
-        assertEquals(StatisticsMetricType.entries.size, result.availableMetricTypes.size)
+        assertEquals(ProfileConfidence.Low, result.currentLangAbilityStats.conversation.confidence)
+        assertEquals(
+            listOf(
+                StatisticsMetricType.ConversationBand,
+                StatisticsMetricType.FluencyScore,
+                StatisticsMetricType.GrammarAccuracy,
+                StatisticsMetricType.NaturalnessScore,
+                StatisticsMetricType.VocabularyLevel,
+                StatisticsMetricType.ExpressionRange
+            ),
+            result.availableMetricTypes
+        )
         assertTrue(result.historyQueryState is com.app.umma.domain.model.statistics.StatisticsHistoryQueryState.Ready)
+    }
+
+    @Test
+    fun `keeps lang ability stats empty when there is no supporting evidence`() = runBlocking {
+        val repo = RecordingLearningStateRepo(state = statsEmptyEvidenceState())
+        val useCase = GetStatisticsOverviewUseCase(
+            getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
+            observeLearningStateUseCase = ObserveLearningStateUseCase(repo),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
+        )
+
+        val result = useCase().getOrThrow()
+
+        // 초기 LangState는 내부 기본값만 있을 뿐, 아직 실제 관측 evidence가 없다.
+        // 이 경우 conversation band와 score를 그럴듯하게 추정하면 안 되고, 측정 중 상태로 남아야 한다.
+        assertEquals(null, result.currentLangAbilityStats.conversation.currentBand)
+        assertEquals(0, result.currentLangAbilityStats.conversation.observedCount)
+        assertEquals(null, result.currentLangAbilityStats.speaking.score)
+        assertEquals(null, result.currentLangAbilityStats.grammar.score)
+        assertEquals(null, result.currentLangAbilityStats.comprehension.score)
     }
 
     @Test
@@ -50,7 +84,8 @@ class GetStatisticsOverviewUseCaseTest {
         val repo = RecordingLearningStateRepo(state = GlobalLangState.initial())
         val useCase = GetStatisticsOverviewUseCase(
             getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-            observeLearningStateUseCase = ObserveLearningStateUseCase(repo)
+            observeLearningStateUseCase = ObserveLearningStateUseCase(repo),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
         )
 
         val result = useCase()
@@ -74,7 +109,8 @@ class GetStatisticsOverviewUseCaseTest {
         )
         val useCase = GetStatisticsOverviewUseCase(
             getCurrentUserUidUseCase = GetCurrentUserUidUseCase(FakeAuthRepository("user-1")),
-            observeLearningStateUseCase = ObserveLearningStateUseCase(repo)
+            observeLearningStateUseCase = ObserveLearningStateUseCase(repo),
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
         )
 
         val result = useCase()
@@ -96,6 +132,21 @@ class GetStatisticsOverviewUseCaseTest {
             naturalnessScore = 0.68
         )
         val langState = LangState.initial(lang).copy(external = external)
+        return GlobalLangState(
+            userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang),
+            langStates = mapOf(lang to langState),
+            dashSummaries = mapOf(lang to DashSummary.initial(lang)),
+            sessionSummaries = mapOf(lang to SessionSummary.initial(lang)),
+            flashcardSummaries = mapOf(lang to FlashcardSummary.initial(lang)),
+            isPreloaded = true
+        )
+    }
+
+    private fun statsEmptyEvidenceState(): GlobalLangState {
+        // LangState는 존재하지만, 아직 chat/correction 관측이 거의 없는 초기 상태를 만든다.
+        // statistics bundle이 내부 기본값을 실제 지표처럼 보이게 만들지 않는지 확인하는 fixture다.
+        val lang = LangCode.EN
+        val langState = LangState.initial(lang)
         return GlobalLangState(
             userPref = UserLangPref.initial(primaryLang = LangCode.KO, selectedLang = lang),
             langStates = mapOf(lang to langState),

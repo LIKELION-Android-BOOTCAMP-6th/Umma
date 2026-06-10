@@ -30,6 +30,7 @@ import com.app.umma.core.theme.TitleB
 import com.app.umma.core.theme.TitleColor
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.domain.model.statistics.StatisticsMetricType
+import com.app.umma.presentation.statistics.component.StatisticsConversationLevelGuideDialog
 import com.app.umma.presentation.statistics.component.StatisticsMetricLineChartDialog
 import com.app.umma.presentation.statistics.component.StatisticsMetricSummaryGrid
 import com.app.umma.presentation.statistics.component.StatisticsSkeleton
@@ -73,6 +74,13 @@ fun StatisticsScreen(
                 chartState = uiState.metricChartState,
                 onDismiss = viewModel::dismissMetricChart,
                 onRetry = viewModel::retryMetricChart
+            )
+        }
+
+        if (uiState.isConversationLevelGuideVisible) {
+            StatisticsConversationLevelGuideDialog(
+                currentBand = uiState.currentLangAbilityStats?.conversation?.currentBand,
+                onDismiss = viewModel::dismissConversationLevelGuide
             )
         }
     }

@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.umma.domain.model.statistics.StatisticsHistoryState
 import com.app.umma.domain.model.learningstate.currentLangState
+import com.app.umma.domain.model.learningstate.LangAbilityStats
+import com.app.umma.domain.model.learningstate.AbilityReadinessState
 import com.app.umma.domain.model.learningstate.selectedLang
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
@@ -20,7 +22,7 @@ import com.app.umma.presentation.statistics.model.toMetricSummaryItems
 import com.app.umma.presentation.statistics.model.StatisticsSyncState
 import com.app.umma.presentation.statistics.model.resolveStatisticsSyncState
 import com.app.umma.presentation.statistics.model.isVisible
-import com.app.umma.domain.model.statistics.toMetricPoint
+import com.app.umma.domain.model.statistics.toMetricPointOrNull
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -85,15 +87,39 @@ class StatisticsViewModel @Inject constructor(
     }
 
     fun onMetricClick(metricType: StatisticsMetricType) {
+        if (metricType == StatisticsMetricType.ConversationBand) {
+            // 종합 레벨은 시간 변화보다 "각 단계가 무엇을 뜻하는지" 이해하는 것이 우선이다.
+            // 그래서 차트 조회를 시작하지 않고, 모든 레벨 정의를 보여주는 안내 dialog로 분기한다.
+            chartRequestVersion += 1L
+            chartJob?.cancel()
+            chartJob = null
+            _uiState.update {
+                it.copy(
+                    selectedMetricType = metricType,
+                    metricChartState = StatisticsMetricChartState.Hidden,
+                    isConversationLevelGuideVisible = true
+                )
+            }
+            return
+        }
+
         // STAT-003에서는 카드 클릭이 곧 chart dialog 오픈 트리거가 된다.
         // 선택 카드 하이라이트는 유지하고, chart 데이터는 별도 use case로 받아온다.
         _uiState.update {
             it.copy(
                 selectedMetricType = metricType,
-                metricChartState = StatisticsMetricChartState.Loading(metricType)
+                metricChartState = StatisticsMetricChartState.Loading(metricType),
+                isConversationLevelGuideVisible = false
             )
         }
         loadMetricChart(metricType)
+    }
+
+    fun dismissConversationLevelGuide() {
+        // 안내 dialog는 chart 요청과 독립적이므로 visible flag만 닫는다.
+        _uiState.update {
+            it.copy(isConversationLevelGuideVisible = false)
+        }
     }
 
     fun dismissMetricChart() {
@@ -153,6 +179,7 @@ class StatisticsViewModel @Inject constructor(
                     metricSummaryCards = emptyList(),
                     selectedMetricType = null,
                     metricChartState = StatisticsMetricChartState.Hidden,
+                    isConversationLevelGuideVisible = false,
                     syncState = StatisticsSyncState.Idle,
                     errorMessage = null,
                     isRetryable = false
@@ -185,6 +212,7 @@ class StatisticsViewModel @Inject constructor(
                     metricSummaryCards = emptyList(),
                     selectedMetricType = null,
                     metricChartState = StatisticsMetricChartState.Hidden,
+                    isConversationLevelGuideVisible = false,
                     syncState = StatisticsSyncState.Idle
                 )
             }
@@ -340,6 +368,19 @@ class StatisticsViewModel @Inject constructor(
             return
         }
 
+        val availabilityMessage = overview.currentLangAbilityStats.chartAvailabilityMessage(metricType)
+        if (availabilityMessage != null) {
+            _uiState.update {
+                it.copy(
+                    metricChartState = StatisticsMetricChartState.Empty(
+                        metricType = metricType,
+                        message = availabilityMessage
+                    )
+                )
+            }
+            return
+        }
+
         // 이 요청 번호와 완료 시점의 번호가 다르면 사용자가 이미 다른 카드를 눌렀거나 닫은 상태다.
         val requestVersion = chartRequestVersion + 1L
         chartRequestVersion = requestVersion
@@ -376,6 +417,43 @@ class StatisticsViewModel @Inject constructor(
                 if (chartJob === job) {
                     chartJob = null
                 }
+            }
+        }
+    }
+
+    private fun LangAbilityStats.chartAvailabilityMessage(metricType: StatisticsMetricType): String? {
+        return when (metricType) {
+            StatisticsMetricType.ConversationBand ->
+                // 종합 레벨은 추세선보다 단계 정의가 더 중요한 값이므로,
+                // retry나 향후 호출 경로가 chart loader로 들어와도 차트 dialog를 열지 않는다.
+                "종합 레벨은 단계 설명으로 확인할 수 있어요."
+
+            StatisticsMetricType.VocabularyLevel -> when (vocabulary) {
+                AbilityReadinessState.Preparing -> "어휘는 아직 측정 준비 중이에요."
+                AbilityReadinessState.Ready -> null
+            }
+
+            StatisticsMetricType.GrammarAccuracy -> if (grammar.score == null) {
+                "문법은 아직 관측 근거가 충분하지 않아요."
+            } else {
+                null
+            }
+
+            StatisticsMetricType.ExpressionRange -> when (expression) {
+                AbilityReadinessState.Preparing -> "표현력은 아직 측정 준비 중이에요."
+                AbilityReadinessState.Ready -> null
+            }
+
+            StatisticsMetricType.FluencyScore -> if (speaking.score == null) {
+                "말하기는 아직 관측 근거가 충분하지 않아요."
+            } else {
+                null
+            }
+
+            StatisticsMetricType.NaturalnessScore -> if (comprehension.score == null) {
+                "이해력은 아직 관측 근거가 충분하지 않아요."
+            } else {
+                null
             }
         }
     }
@@ -422,7 +500,7 @@ class StatisticsViewModel @Inject constructor(
             StatisticsHistoryState.Empty -> StatisticsMetricChartState.Empty(metricType)
             is StatisticsHistoryState.Content -> historyState.histories
                 .sortedBy { it.recordedAt }
-                .map { it.toMetricPoint(metricType) }
+                .mapNotNull { it.toMetricPointOrNull(metricType) }
                 .toStatisticsMetricChartState(metricType)
             is StatisticsHistoryState.Retry -> StatisticsMetricChartState.Error(
                 metricType = metricType,

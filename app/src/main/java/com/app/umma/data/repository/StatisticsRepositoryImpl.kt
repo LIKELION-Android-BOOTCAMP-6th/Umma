@@ -157,6 +157,7 @@ private fun StatisticsHistory.toEntity(): StatisticsHistoryEntity {
         userId = userId,
         language = language.code,
         recordedAt = recordedAt,
+        conversationBand = conversationBand?.name,
         vocabularyLevel = vocabularyLevel.name,
         grammarAccuracy = grammarAccuracy,
         expressionRange = expressionRange,

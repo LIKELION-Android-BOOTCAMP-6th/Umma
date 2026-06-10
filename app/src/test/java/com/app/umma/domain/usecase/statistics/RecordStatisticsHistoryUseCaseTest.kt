@@ -6,6 +6,7 @@ import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.model.statistics.StatisticsHistoryState
+import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -18,7 +19,9 @@ class RecordStatisticsHistoryUseCaseTest {
         seedHistories(emptyList())
     }
     private val useCase = RecordStatisticsHistoryUseCase(
-        buildStatisticsHistoryUseCase = BuildStatisticsHistoryUseCase(),
+        buildStatisticsHistoryUseCase = BuildStatisticsHistoryUseCase(
+            buildLearnerAdaptationProfileUseCase = BuildLearnerAdaptationProfileUseCase()
+        ),
         statisticsRepository = repository
     )
 
