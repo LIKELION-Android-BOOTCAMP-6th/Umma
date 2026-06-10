@@ -13,6 +13,7 @@ import com.app.umma.domain.model.learningstate.SpokenRegister
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
@@ -736,6 +737,9 @@ class CompleteCorrectionUseCaseTest {
             sessionSummary: SessionSummary,
             flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 

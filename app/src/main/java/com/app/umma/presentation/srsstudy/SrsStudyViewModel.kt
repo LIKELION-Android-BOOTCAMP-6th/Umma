@@ -15,6 +15,8 @@ import com.app.umma.domain.usecase.flashcardreview.ObserveReviewDeckUseCase
 import com.app.umma.domain.usecase.flashcardreview.ReviewSchedulePolicy
 import com.app.umma.domain.usecase.flashcardreview.StartReviewSessionUseCase
 import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
+import com.app.umma.domain.usecase.onboarding.AdvanceOnboardingGuideUseCase
+import com.app.umma.domain.usecase.onboarding.OnboardingGuideEvent
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +41,7 @@ class SrsStudyViewModel @Inject constructor(
     private val ttsController: TextToSpeechController,
     private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase,
     private val schedulePolicy: ReviewSchedulePolicy,
+    private val advanceOnboardingGuide: AdvanceOnboardingGuideUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SrsStudyUiState())
@@ -176,6 +179,14 @@ class SrsStudyViewModel @Inject constructor(
 
         // 실패 시 재시도할 수 있도록 마지막 평가를 기억
         lastRating = rating
+
+        // 평가 버튼 첫 상호작용 → STUDY→DONE 온보딩 전이. UseCase guard(STUDY 단계일 때만) 가 멱등성 보장.
+        val lang = _uiState.value.selectedLearningLanguage
+        if (lang != null) {
+            viewModelScope.launch {
+                advanceOnboardingGuide(OnboardingGuideEvent.StudyInteracted, lang)
+            }
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, hasSaveError = false) }

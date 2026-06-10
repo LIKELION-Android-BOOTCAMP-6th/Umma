@@ -9,6 +9,7 @@ import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.repository.LearningStateRepo
@@ -162,6 +163,9 @@ class EnsureLearningStateLoadedUseCaseTest {
             sessionSummary: SessionSummary,
             flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 

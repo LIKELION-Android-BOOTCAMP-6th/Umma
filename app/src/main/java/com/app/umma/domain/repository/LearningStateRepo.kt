@@ -9,6 +9,7 @@ import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
@@ -72,6 +73,9 @@ interface LearningStateRepo {
         sessionSummary: SessionSummary,
         flashcardSummary: FlashcardSummary
     ): Result<Unit>
+
+    // 온보딩 가이드 단계를 저장한다. 언어별 독립 진행.
+    suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit>
 
     // 로그아웃 시 상태를 비운다.
     suspend fun clear(): Result<Unit>

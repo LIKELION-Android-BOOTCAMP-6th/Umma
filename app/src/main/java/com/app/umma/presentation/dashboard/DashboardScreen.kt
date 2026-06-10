@@ -60,10 +60,10 @@ import com.app.umma.core.theme.TextCorrect
 import com.app.umma.core.theme.TextExplanationR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
-import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
+import com.app.umma.core.ui.modifier.attentionBorder
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AuthViewModel
@@ -100,6 +100,7 @@ fun DashboardScreen(
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToMyPage: () -> Unit,
     correctionCompletionMessage: String? = null,
+    correctionReturnOutcome: com.app.umma.presentation.correction.CorrectionReturnOutcome? = null,
     onCorrectionCompletionMessageConsumed: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
@@ -159,6 +160,8 @@ fun DashboardScreen(
     LaunchedEffect(correctionCompletionMessage) {
         correctionCompletionMessage?.let { message ->
             correctionToastMessage = message
+            // 교정 복귀 시 온보딩 stage 전이. outcome null 은 구버전 경로 — no-op.
+            correctionReturnOutcome?.let { viewModel.onCorrectionReturned(it) }
             onCorrectionCompletionMessageConsumed()
         }
     }
@@ -228,6 +231,7 @@ fun DashboardScreen(
                     studyEmpty = uiState.studyEmpty,
                     feedbackEmpty = uiState.feedbackEmpty,
                     statisticsEmpty = uiState.statisticsEmpty,
+                    pulseTarget = uiState.pulseTarget,
                     onNavigateToStatistics = onNavigateToStatistics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
@@ -411,6 +415,7 @@ private fun DashboardContent(
     studyEmpty: Boolean,
     feedbackEmpty: Boolean,
     statisticsEmpty: Boolean,
+    pulseTarget: DashboardCard?,
     onNavigateToStatistics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
@@ -437,6 +442,7 @@ private fun DashboardContent(
             studyEmpty = studyEmpty,
             feedbackEmpty = feedbackEmpty,
             statisticsEmpty = statisticsEmpty,
+            pulseTarget = pulseTarget,
             onNavigateToChat = onNavigateToChat,
             onNavigateToSrsStudy = onNavigateToSrsStudy,
             onNavigateToCorrection = onNavigateToCorrection,
@@ -493,6 +499,7 @@ private fun DashboardCardGrid(
     studyEmpty: Boolean,
     feedbackEmpty: Boolean,
     statisticsEmpty: Boolean,
+    pulseTarget: DashboardCard?,
     onNavigateToChat: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToCorrection: () -> Unit,
@@ -513,15 +520,25 @@ private fun DashboardCardGrid(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .then(
+                        if (pulseTarget == DashboardCard.CONVERSATION)
+                            Modifier.attentionBorder(color = ThemePrimary, animated = true)
+                        else Modifier
+                    )
             )
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
                 savedFlashcards = summary?.savedFlashcards ?: 0,
-                accentColor = if (studyEmpty) TextWrong else null,
+                accentColor = null,
                 onClick = onNavigateToSrsStudy,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .then(
+                        if (pulseTarget == DashboardCard.STUDY)
+                            Modifier.attentionBorder(color = TextCorrect, animated = true)
+                        else Modifier
+                    )
             )
         }
 
@@ -535,18 +552,23 @@ private fun DashboardCardGrid(
         ) {
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
-                accentColor = if (feedbackEmpty) TextWrong else null,
+                accentColor = null,
                 onClick = onNavigateToCorrection,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .then(
+                        if (pulseTarget == DashboardCard.CORRECTION)
+                            Modifier.attentionBorder(color = TextLogout, animated = true)
+                        else Modifier
+                    )
             )
             StatisticsCard(
                 grammarScoreDelta = summary?.grammarDelta ?: 0,
                 vocabularyScoreDelta = summary?.vocabDelta ?: 0,
                 fluencyScoreDelta = summary?.fluencyDelta ?: 0,
                 naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
-                accentColor = if (statisticsEmpty) TextWrong else null,
+                accentColor = null,
                 onClick = onNavigateToStatistics,
                 modifier = Modifier
                     .weight(1f)

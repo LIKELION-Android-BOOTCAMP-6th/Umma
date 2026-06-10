@@ -6,6 +6,7 @@ import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.ProfileConfidence
@@ -202,6 +203,9 @@ class GetStatisticsOverviewUseCaseTest {
             sessionSummary: SessionSummary,
             flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 

@@ -810,8 +810,13 @@ class CorrectionViewModel @Inject constructor(
                 Log.w(TAG, "onSkipSaveAndExit — lang unavailable, skipping cache clear")
             }
             // 안내 토스트와 함께 Dashboard 복귀를 1회 발화한다.
-            // CorrectionEvent.NavigateToDashboard 를 재사용해 NavHost 처리 코드를 건드리지 않는다.
-            _events.send(CorrectionEvent.NavigateToDashboard(message = SKIP_SAVE_TOAST))
+            // 선택 0개 skip = 미산출 → NO_FLASHCARD 로 온보딩 리셋 신호를 전달한다.
+            _events.send(
+                CorrectionEvent.NavigateToDashboard(
+                    message = SKIP_SAVE_TOAST,
+                    outcome = CorrectionReturnOutcome.NO_FLASHCARD,
+                )
+            )
         }
     }
 
@@ -953,9 +958,16 @@ class CorrectionViewModel @Inject constructor(
             // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
             // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
             result.getOrNull()?.let { completion ->
+                // savedFlashcardIds 가 비어 있으면 카드 미산출(completeEmptySaveRequest) 경로.
+                val outcome = if (completion.savedFlashcardIds.isNotEmpty()) {
+                    CorrectionReturnOutcome.SAVED
+                } else {
+                    CorrectionReturnOutcome.NO_FLASHCARD
+                }
                 _events.send(
                     CorrectionEvent.NavigateToDashboard(
                         message = completion.toDashboardToastMessage(),
+                        outcome = outcome,
                     )
                 )
             }

@@ -5,6 +5,12 @@ import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.LangCode
 
 /**
+ * 대시보드 카드 식별자.
+ * 통계 카드는 온보딩 펄스 미적용이므로 포함하지 않는다.
+ */
+enum class DashboardCard { CONVERSATION, CORRECTION, STUDY }
+
+/**
  * summary 의 카드 영역별 데이터 유무로 Empty 플래그 4개를 계산한다.
  *
  * 프레젠테이션 파생 로직이므로 domain 이 아닌 presentation 패키지에 둔다.
@@ -78,4 +84,8 @@ data class DashboardUiState(
     val studyEmpty: Boolean = true,
     val feedbackEmpty: Boolean = true,
     val statisticsEmpty: Boolean = true,
+
+    // 온보딩 펄스를 표시할 카드. null 이면 펄스 없음(가이드 미진행 / 통계 / DONE 후).
+    //   selectedLearningLanguage 의 OnboardingGuideStage 에서 파생된다.
+    val pulseTarget: DashboardCard? = null,
 )

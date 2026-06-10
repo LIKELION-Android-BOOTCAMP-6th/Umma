@@ -7,13 +7,18 @@ import com.app.umma.R
 import com.app.umma.core.ui.UiText
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.DashSummary
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.isEffectivelyEmpty
+import com.app.umma.domain.model.learningstate.onboardingStageFor
 import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.flashcardreview.SyncDirtyFlashcardsUseCase
 import com.app.umma.domain.usecase.learningstate.ChangeSelectedLangUseCase
 import com.app.umma.domain.usecase.learningstate.EnsureLearningStateLoadedUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.SyncLearningStateUseCase
+import com.app.umma.domain.usecase.onboarding.AdvanceOnboardingGuideUseCase
+import com.app.umma.domain.usecase.onboarding.OnboardingGuideEvent
+import com.app.umma.presentation.correction.CorrectionReturnOutcome
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,6 +52,7 @@ class DashboardViewModel @Inject constructor(
     private val changeSelectedLang: ChangeSelectedLangUseCase,
     private val getCurrentUserUid: GetCurrentUserUidUseCase,
     private val syncDirtyFlashcards: SyncDirtyFlashcardsUseCase,
+    private val advanceOnboardingGuide: AdvanceOnboardingGuideUseCase,
 ) : ViewModel() {
 
     // UI state 의 단일 source of truth (쓰기 가능). _ prefix = 외부 비공개 컨벤션.
@@ -250,6 +256,27 @@ class DashboardViewModel @Inject constructor(
                             SKELETON_MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAtMs)
                         if (remaining > 0) delay(remaining)
                     }
+                    // 온보딩 stage → pulseTarget 파생. effectiveLang null 이면 펄스 없음.
+                    val onboardingStage = if (effectiveLang != null) snapshot.onboardingStage else null
+                    val pulseTarget = when (onboardingStage) {
+                        OnboardingGuideStage.CONVERSATION -> DashboardCard.CONVERSATION
+                        OnboardingGuideStage.CORRECTION -> DashboardCard.CORRECTION
+                        OnboardingGuideStage.STUDY -> DashboardCard.STUDY
+                        OnboardingGuideStage.DONE, null -> null
+                    }
+
+                    // CONVERSATION 단계이고 교정 가능한 turn 이 생겼으면 CORRECTION 으로 전이.
+                    // onboardingStage == CONVERSATION 이면 effectiveLang 은 반드시 non-null.
+                    // 저장이 완료되면 새 emit 이 발생해 pulseTarget 이 자연히 갱신된다.
+                    if (onboardingStage == OnboardingGuideStage.CONVERSATION &&
+                        summary?.correctionAvailable == true
+                    ) {
+                        val lang = effectiveLang ?: error("effectiveLang must be non-null when stage is CONVERSATION")
+                        launch {
+                            advanceOnboardingGuide(OnboardingGuideEvent.CorrectionAvailable, lang)
+                        }
+                    }
+
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -263,6 +290,7 @@ class DashboardViewModel @Inject constructor(
                             studyEmpty = cardFlags.studyEmpty,
                             feedbackEmpty = cardFlags.feedbackEmpty,
                             statisticsEmpty = cardFlags.statisticsEmpty,
+                            pulseTarget = pulseTarget,
                         )
                     }
                     Log.d(
@@ -410,6 +438,26 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 교정 화면에서 대시보드로 복귀할 때 호출된다.
+     *
+     * outcome 에 따라 온보딩 stage 를 전이시킨다:
+     * - SAVED → CORRECTION→STUDY
+     * - NO_FLASHCARD → CORRECTION→CONVERSATION(미산출 리셋)
+     *
+     * DashboardScreen 이 correctionCompletionMessage LaunchedEffect 에서 호출.
+     */
+    fun onCorrectionReturned(outcome: CorrectionReturnOutcome) {
+        val lang = _uiState.value.selectedLearningLanguage ?: return
+        val event = when (outcome) {
+            CorrectionReturnOutcome.SAVED -> OnboardingGuideEvent.CorrectionSaved
+            CorrectionReturnOutcome.NO_FLASHCARD -> OnboardingGuideEvent.CorrectionNoFlashcard
+        }
+        viewModelScope.launch {
+            advanceOnboardingGuide(event, lang)
+        }
+    }
+
     private companion object {
         const val TAG = "DashboardViewModel"
 
@@ -435,6 +483,8 @@ class DashboardViewModel @Inject constructor(
         val selectedLang: LangCode?,
         val learningLangs: List<LangCode>,
         val dashSummaries: Map<LangCode, DashSummary>,
+        // 선택 언어의 온보딩 stage. stage 변경 시 distinctUntilChanged 가 새 emit 을 통과시킨다.
+        val onboardingStage: OnboardingGuideStage?,
     )
 
     /**
@@ -442,11 +492,17 @@ class DashboardViewModel @Inject constructor(
      */
     private fun com.app.umma.domain.model.learningstate.GlobalLangState.toDashboardRenderSnapshot(): DashboardRenderSnapshot {
         val userPref = userPref
+        val selectedLang = userPref?.selectedLang
         return DashboardRenderSnapshot(
             userPrefPresent = userPref != null,
-            selectedLang = userPref?.selectedLang,
+            selectedLang = selectedLang,
             learningLangs = userPref?.learningLangs.orEmpty(),
             dashSummaries = dashSummaries,
+            // selectedLang != null 이면 userPref != null 이 보장된다(selectedLang = userPref?.selectedLang).
+            onboardingStage = if (selectedLang != null && userPref != null)
+                userPref.onboardingStageFor(selectedLang)
+            else
+                null,
         )
     }
 }

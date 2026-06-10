@@ -20,6 +20,7 @@ import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateInput
 import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningSignalSource
@@ -240,6 +241,9 @@ class AnalyzeChatConversationSessionUseCaseTest {
             sessionSummary: SessionSummary,
             flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 

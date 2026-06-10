@@ -7,6 +7,7 @@ import com.app.umma.domain.model.learningstate.FlashcardSummary
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.UserLangPref
@@ -434,6 +435,9 @@ class StatisticsViewModelTest {
             sessionSummary: SessionSummary,
             flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
         override suspend fun sync(): Result<Unit> = Result.success(Unit)

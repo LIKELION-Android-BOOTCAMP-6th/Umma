@@ -28,8 +28,19 @@ sealed interface CorrectionEvent {
      *
      * 소비 위치: [CorrectionScreen] 의 LaunchedEffect collect 블록 → 상위 NavHost 가 정의한
      * Dashboard 복귀 콜백(CorrectionGraph 통째로 pop + launchSingleTop) 호출.
+     *
+     * [outcome]: 온보딩 가이드 전이에 쓰이는 교정 결과 — SAVED(플래시카드 저장 성공) / NO_FLASHCARD(미산출).
      */
     data class NavigateToDashboard(
         val message: String,
+        val outcome: CorrectionReturnOutcome,
     ) : CorrectionEvent
 }
+
+/**
+ * 교정 완료 후 대시보드로 복귀할 때 온보딩 전이에 사용하는 결과 분류.
+ *
+ * - [SAVED]: 플래시카드가 1개 이상 저장된 정상 완료.
+ * - [NO_FLASHCARD]: 선택 0개 / 카드 미산출 / skip — 미산출 리셋 신호.
+ */
+enum class CorrectionReturnOutcome { SAVED, NO_FLASHCARD }

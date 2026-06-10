@@ -22,6 +22,7 @@ import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.MetricEvidence
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.learningstate.VocabLevel
 import kotlinx.serialization.Serializable
@@ -38,6 +39,8 @@ data class UserLangPrefDto(
     val primaryLanguage: String,
     val selectedLearningLanguage: String,
     val learningLanguages: List<String> = emptyList(),
+    // key = LangCode.code, value = OnboardingGuideStage.name. 구버전 저장값은 빈 맵 처리.
+    val onboardingGuideStages: Map<String, String> = emptyMap(),
     val schemaVersion: Int,
     val updatedAt: Long? = null
 )
@@ -181,10 +184,14 @@ fun UserLangPref.toDto(): UserLangPrefDto {
         primaryLanguage = primaryLang.code,
         selectedLearningLanguage = selectedLang.code,
         learningLanguages = learningLangs.map { it.code },
+        onboardingGuideStages = onboardingGuideStages
+            .mapKeys { (lang, _) -> lang.code }
+            .mapValues { (_, stage) -> stage.name },
         schemaVersion = schema,
         updatedAt = updatedAt
     )
 }
+
 fun UserLangPrefDto.toDomain(): UserLangPref {
     // primaryLanguage는 기준 언어라 learningLanguages 밖이어도 정상이다. 포함 여부로 primary를 버리지 않는다.
     val primary = LangCode.fromCode(primaryLanguage) ?: LangCode.DEFAULT_PRIMARY
@@ -200,10 +207,17 @@ fun UserLangPrefDto.toDomain(): UserLangPref {
         .toMutableSet()
         .apply { add(selected) }
         .toList()
+    // 미인식 key/value 는 mapNotNull 로 drop. 누락 맵 → emptyMap(언어별 CONVERSATION 으로 해석).
+    val restoredStages = onboardingGuideStages.mapNotNull { (rawLang, rawStage) ->
+        val lang = LangCode.fromCode(rawLang) ?: return@mapNotNull null
+        val stage = enumValueOrNull<OnboardingGuideStage>(rawStage) ?: return@mapNotNull null
+        lang to stage
+    }.toMap()
     return UserLangPref(
         primaryLang = primary,
         selectedLang = selected,
         learningLangs = restoredLearningLangs,
+        onboardingGuideStages = restoredStages,
         schema = schemaVersion,
         updatedAt = updatedAt
     )

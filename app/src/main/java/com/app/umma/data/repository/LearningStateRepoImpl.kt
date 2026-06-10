@@ -26,6 +26,7 @@ import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
@@ -518,6 +519,23 @@ class LearningStateRepoImpl @Inject constructor(
                 flashcardSummaries = mapOf(normalizedFlashcard.lang to normalizedFlashcard),
                 isPreloaded = true,
                 schema = GlobalLangState.SCHEMA
+            )
+        }
+    }
+
+    override suspend fun setOnboardingGuideStage(
+        lang: LangCode,
+        stage: OnboardingGuideStage
+    ): Result<Unit> {
+        return persistStateSafely(
+            addPendingSyncKeys = setOf(PendingSyncKey.userPref())
+        ) { current ->
+            val userPref = current.userPref ?: return@persistStateSafely current
+            current.copy(
+                userPref = userPref.copy(
+                    onboardingGuideStages = userPref.onboardingGuideStages + (lang to stage),
+                    updatedAt = System.currentTimeMillis()
+                )
             )
         }
     }
