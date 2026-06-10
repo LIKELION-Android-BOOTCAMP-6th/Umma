@@ -12,6 +12,10 @@
     <string name="notification_srs_fallback_body">복습할 카드가 있어요. 앱에서 확인해보세요.</string>
     <string name="notification_marketing_fallback_title">Umma</string>
     <string name="notification_marketing_fallback_body">앱에서 새로운 소식을 확인해보세요.</string>
+    <string name="notification_channel_account_security_name">계정 보안 알림</string>
+    <string name="notification_channel_account_security_description">다른 기기 로그인 등 계정 보안 관련 알림</string>
+    <string name="notification_force_logout_title">다른 기기에서 로그인되었습니다</string>
+    <string name="notification_force_logout_body">다른 기기에서 로그인되어 이 기기에서는 로그아웃되었습니다.</string>
     <string name="debug_notification_action_content_description">테스트 알림 전송</string>
     <string name="debug_notification_dialog_title">테스트 알림 전송</string>
     <string name="debug_notification_dialog_body">보낼 알림 종류를 고른 뒤 전송을 누르세요.</string>

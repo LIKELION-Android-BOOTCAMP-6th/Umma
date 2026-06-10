@@ -5,7 +5,9 @@ const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
+const { randomUUID } = require("crypto");
 const { handleDeleteAccount } = require("./deleteAccount");
+const { handleClaimLoginSession } = require("./claimLoginSession");
 
 admin.initializeApp();
 
@@ -495,6 +497,28 @@ exports.sendTestNotification = onCall(
   },
 );
 
+/**
+ * 로그인 성공 직후 호출되는 callable.
+ * 핵심 로직은 claimLoginSession.js의 handleClaimLoginSession에 있다.
+ */
+exports.claimLoginSession = onCall(
+  {
+    region: "us-central1",
+  },
+  async (request) => {
+    return handleClaimLoginSession({
+      firestore: getFirestore(admin.app(), "default"),
+      messaging: admin.messaging(),
+      request,
+      now: Date.now(),
+      randomUUIDImpl: randomUUID,
+      loadNotificationDevices,
+      extractInvalidNotificationDevices,
+      disableInvalidNotificationDevices,
+    });
+  },
+);
+
 function buildTestNotificationMessage(type) {
   if (type === SRS_REVIEW_NOTIFICATION_TYPE) {
     return {
@@ -848,7 +872,7 @@ async function repairNotifiableDueFlashcardsSummary(
   );
 }
 
-async function loadActiveNotificationDevices(userRef) {
+async function loadNotificationDevices(userRef) {
   const snapshot = await userRef
     .collection(NOTIFICATION_DEVICES_COLLECTION)
     .get();
@@ -862,7 +886,12 @@ async function loadActiveNotificationDevices(userRef) {
       timezone: sanitizeTimeZone(doc.get("timezone")),
       updatedAt: numberValue(doc.get("updatedAt")),
     }))
-    .filter((device) => device.permissionGranted && device.fcmToken.length > 0);
+    .filter((device) => device.fcmToken.length > 0);
+}
+
+async function loadActiveNotificationDevices(userRef) {
+  const devices = await loadNotificationDevices(userRef);
+  return devices.filter((device) => device.permissionGranted);
 }
 
 function buildSrsReviewNotificationMessage(selectedLearningLanguage, dueCount) {

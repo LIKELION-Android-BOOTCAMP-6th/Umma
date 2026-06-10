@@ -14,6 +14,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.app.umma.MainActivity
 import com.app.umma.R
+import com.app.umma.domain.repository.SessionRepository
+import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.notification.RegisterNotificationDeviceUseCase
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -32,6 +34,12 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
 
     @Inject
     lateinit var registerNotificationDeviceUseCase: RegisterNotificationDeviceUseCase
+
+    @Inject
+    lateinit var sessionRepository: SessionRepository
+
+    @Inject
+    lateinit var logoutUseCase: LogoutUseCase
 
     override fun onCreate() {
         super.onCreate()
@@ -54,12 +62,58 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
 
-        if (!hasNotificationPermission()) return
-
         when (message.data[DATA_TYPE]) {
-            SRS_NOTIFICATION_TYPE -> showSrsNotification(message)
-            MARKETING_NOTIFICATION_TYPE -> showMarketingNotification(message)
+            // 강제 로그아웃은 알림 권한과 무관하게 항상 처리해야 한다.
+            // 시스템 알림 표시만 권한이 있을 때 수행한다.
+            FORCE_LOGOUT_TYPE -> handleForceLogout(message)
+            SRS_NOTIFICATION_TYPE -> if (hasNotificationPermission()) showSrsNotification(message)
+            MARKETING_NOTIFICATION_TYPE -> if (hasNotificationPermission()) showMarketingNotification(message)
         }
+    }
+
+    /**
+     * 다른 기기에서 로그인되어 이 기기의 세션이 무효화되었을 때 처리.
+     * 서버에서 이미 요청 기기를 broadcast 대상에서 제외하지만, 방어적으로 한 번 더 sessionId를 비교한다.
+     */
+    private fun handleForceLogout(message: RemoteMessage) {
+        val incomingSessionId = message.data[DATA_SESSION_ID]
+        val localSessionId = sessionRepository.getLocalSessionId()
+        if (incomingSessionId != null && incomingSessionId == localSessionId) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            logoutUseCase()
+            sessionRepository.markPendingForceLogoutNotice()
+
+            if (hasNotificationPermission()) {
+                showForceLogoutNotification()
+            }
+        }
+    }
+
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+    private fun showForceLogoutNotification() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID_ACCOUNT_SECURITY)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(getString(R.string.notification_force_logout_title))
+            .setContentText(getString(R.string.notification_force_logout_body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(
+                buildPendingIntent(
+                    requestCode = REQUEST_CODE_FORCE_LOGOUT_NOTIFICATION,
+                    intent = intent
+                )
+            )
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(this).notify(
+            REQUEST_CODE_FORCE_LOGOUT_NOTIFICATION,
+            notification
+        )
     }
 
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -162,16 +216,20 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
         private const val DATA_BODY = "body"
         private const val DATA_LANG = "lang"
         private const val DATA_HISTORY_ID = "historyId"
+        private const val DATA_SESSION_ID = "sessionId"
 
         private const val SRS_NOTIFICATION_TYPE = "srs_review"
         private const val MARKETING_NOTIFICATION_TYPE = "marketing"
+        private const val FORCE_LOGOUT_TYPE = "force_logout"
         private const val SRS_NOTIFICATION_ROUTE = "srs_study"
         private const val MARKETING_NOTIFICATION_ROUTE = "home"
 
         private const val CHANNEL_ID_SRS_REVIEW = "srs_review_notifications"
         private const val CHANNEL_ID_MARKETING = "marketing_notifications"
+        private const val CHANNEL_ID_ACCOUNT_SECURITY = "account_security"
         private const val REQUEST_CODE_SRS_NOTIFICATION = 1001
         private const val REQUEST_CODE_MARKETING_NOTIFICATION = 1002
+        private const val REQUEST_CODE_FORCE_LOGOUT_NOTIFICATION = 1003
 
         fun ensureNotificationChannels(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -196,6 +254,17 @@ class UmmaFirebaseMessagingService : FirebaseMessagingService() {
                 ).apply {
                     description = context.getString(
                         R.string.notification_channel_marketing_description
+                    )
+                }
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID_ACCOUNT_SECURITY,
+                    context.getString(R.string.notification_channel_account_security_name),
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = context.getString(
+                        R.string.notification_channel_account_security_description
                     )
                 }
             )

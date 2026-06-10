@@ -10,6 +10,7 @@ import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.model.user.UserProfile
 import com.app.umma.domain.repository.UserProfileRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
@@ -41,8 +42,8 @@ class UserProfileRepositoryImpl @Inject constructor(
         val batch = firestore.batch()
         val userRef = firestore.collection("users").document(profile.uid)
 
-        // 프로필 정보 저장
-        batch.set(userRef, profile.toDto())
+        // 프로필 정보 저장 (claimLoginSession이 먼저 기록한 activeSession 등 다른 필드를 보존하기 위해 merge)
+        batch.set(userRef, profile.toDto(), SetOptions.merge())
 
         // 언어 설정 저장
         val prefRef = userRef.collection("user_learning_preference").document("current")

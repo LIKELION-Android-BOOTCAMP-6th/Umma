@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -30,6 +31,10 @@ import com.app.umma.core.navigation.UmmaBottomAppBar
 import com.app.umma.core.navigation.UmmaNavHost
 import com.app.umma.core.theme.UmmaTheme
 import com.app.umma.data.push.UmmaFirebaseMessagingService
+import com.app.umma.domain.repository.SessionRepository
+import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
+import com.app.umma.domain.usecase.auth.IsSessionStillActiveUseCase
+import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.notification.RefreshNotificationTimezoneUseCase
 import com.app.umma.domain.usecase.notification.SyncCurrentNotificationDeviceUseCase
 import com.app.umma.watchbridge.WatchChatRuntimeCoordinator
@@ -59,9 +64,24 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var watchChatRuntimeCoordinator: WatchChatRuntimeCoordinator
 
+    @Inject
+    lateinit var getCurrentUserUidUseCase: GetCurrentUserUidUseCase
+
+    @Inject
+    lateinit var isSessionStillActiveUseCase: IsSessionStillActiveUseCase
+
+    @Inject
+    lateinit var logoutUseCase: LogoutUseCase
+
+    @Inject
+    lateinit var sessionRepository: SessionRepository
+
     // 탭 화면 route Intent 발생 변수
     private var pendingNotificationTarget by mutableStateOf<NotificationNavigationTarget?>(null)
     private var pendingOpenRoute by mutableStateOf<String?>(null)
+
+    // 다른 기기 로그인으로 인해 현재 세션이 강제 로그아웃된 경우 true
+    private var forceLoggedOut by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -70,13 +90,27 @@ class MainActivity : ComponentActivity() {
         pendingOpenRoute = intent.toOpenRoute()
         enableEdgeToEdge()
         UmmaFirebaseMessagingService.ensureNotificationChannels(this)
+        // 인증된 상태에서 uid가 null로 바뀌면(다른 기기 로그인으로 인한 강제 로그아웃 등)
+        // 인증 그래프 화면에 있을 경우 즉시 AuthGraph로 이동시키기 위해 관찰한다.
+        // 비로그인 -> 로그인으로 전환되는 시점(신규 설치 포함)에 알림 기기/타임존을 등록한다.
         lifecycleScope.launch {
             val timezone = TimeZone.getDefault().id
-            refreshNotificationTimezoneUseCase(timezone)
-            syncCurrentNotificationDeviceUseCase(
-                permissionGranted = hasNotificationPermission(),
-                timezone = timezone
-            )
+            var hasBeenAuthenticated = false
+            getCurrentUserUidUseCase().collect { uid ->
+                if (uid != null) {
+                    if (!hasBeenAuthenticated) {
+                        refreshNotificationTimezoneUseCase(timezone)
+                        syncCurrentNotificationDeviceUseCase(
+                            permissionGranted = hasNotificationPermission(),
+                            timezone = timezone
+                        )
+                    }
+                    hasBeenAuthenticated = true
+                } else if (hasBeenAuthenticated) {
+                    hasBeenAuthenticated = false
+                    forceLoggedOut = true
+                }
+            }
         }
 
         setContent {
@@ -86,7 +120,9 @@ class MainActivity : ComponentActivity() {
                     onPendingNotificationConsumed = { pendingNotificationTarget = null },
                     pendingOpenRoute = pendingOpenRoute,
                     onPendingOpenRouteConsumed = { pendingOpenRoute = null },
-                    onChatRouteVisibilityChanged = watchChatRuntimeCoordinator::setChatRouteVisible
+                    onChatRouteVisibilityChanged = watchChatRuntimeCoordinator::setChatRouteVisible,
+                    forceLoggedOut = forceLoggedOut,
+                    onForceLoggedOutHandled = { forceLoggedOut = false }
                 )
             }
         }
@@ -102,6 +138,18 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         watchChatRuntimeCoordinator.setAppForeground(true)
+
+        // 포그라운드 복귀 시 서버 activeSession을 재검증한다.
+        // FCM 유실 등으로 force_logout을 받지 못한 경우의 fallback.
+        lifecycleScope.launch {
+            val uid = getCurrentUserUidUseCase.getCurrentUserUid() ?: return@launch
+            val sessionStillActive = isSessionStillActiveUseCase(uid).getOrDefault(true)
+            if (!sessionStillActive) {
+                logoutUseCase()
+                sessionRepository.markPendingForceLogoutNotice()
+                forceLoggedOut = true
+            }
+        }
     }
 
     override fun onStop() {
@@ -137,7 +185,9 @@ private fun UmmaApp(
     onPendingNotificationConsumed: () -> Unit = {},
     pendingOpenRoute: String? = null,
     onPendingOpenRouteConsumed: () -> Unit = {},
-    onChatRouteVisibilityChanged: (Boolean) -> Unit = {}
+    onChatRouteVisibilityChanged: (Boolean) -> Unit = {},
+    forceLoggedOut: Boolean = false,
+    onForceLoggedOutHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -156,19 +206,21 @@ private fun UmmaApp(
         onChatRouteVisibilityChanged(isChatRouteVisible)
     }
 
+    LaunchedEffect(forceLoggedOut, navBackStackEntry) {
+        if (!forceLoggedOut) return@LaunchedEffect
+        val currentDestination = navBackStackEntry?.destination ?: return@LaunchedEffect
+        if (!currentDestination.isInAuthenticatedGraph()) return@LaunchedEffect
+
+        navController.navigate(Route.AuthGraph) {
+            popUpTo(0) { inclusive = true }
+        }
+        onForceLoggedOutHandled()
+    }
+
     LaunchedEffect(pendingNotificationTarget, navBackStackEntry) {
         val target = pendingNotificationTarget ?: return@LaunchedEffect
         val currentDestination = navBackStackEntry?.destination ?: return@LaunchedEffect
-        val isAuthenticatedGraph = currentDestination.hierarchy.any {
-            it.hasRoute<Route.HomeGraph>() ||
-                    it.hasRoute<Route.Dashboard>() ||
-                    it.hasRoute<Route.MyPage>() ||
-                    it.hasRoute<Route.Chat>() ||
-                    it.hasRoute<Route.CorrectionList>() ||
-                    it.hasRoute<Route.Statistics>() ||
-                    it.hasRoute<Route.SrsStudy>()
-        }
-        if (!isAuthenticatedGraph) return@LaunchedEffect
+        if (!currentDestination.isInAuthenticatedGraph()) return@LaunchedEffect
 
         when (target.route) {
             SRS_NOTIFICATION_ROUTE -> {
@@ -190,16 +242,7 @@ private fun UmmaApp(
     LaunchedEffect(pendingOpenRoute, navBackStackEntry) {
         val route = pendingOpenRoute ?: return@LaunchedEffect
         val currentDestination = navBackStackEntry?.destination ?: return@LaunchedEffect
-        val isAuthenticatedGraph = currentDestination.hierarchy.any {
-            it.hasRoute<Route.HomeGraph>() ||
-                    it.hasRoute<Route.Dashboard>() ||
-                    it.hasRoute<Route.MyPage>() ||
-                    it.hasRoute<Route.Chat>() ||
-                    it.hasRoute<Route.CorrectionList>() ||
-                    it.hasRoute<Route.Statistics>() ||
-                    it.hasRoute<Route.SrsStudy>()
-        }
-        if (!isAuthenticatedGraph) return@LaunchedEffect
+        if (!currentDestination.isInAuthenticatedGraph()) return@LaunchedEffect
 
         if (route == MainActivity.OPEN_ROUTE_CHAT) {
             navController.navigate(Route.Chat) {
@@ -221,6 +264,16 @@ private fun UmmaApp(
             modifier = Modifier.padding(innerPadding)
         )
     }
+}
+
+private fun NavDestination.isInAuthenticatedGraph(): Boolean = hierarchy.any {
+    it.hasRoute<Route.HomeGraph>() ||
+            it.hasRoute<Route.Dashboard>() ||
+            it.hasRoute<Route.MyPage>() ||
+            it.hasRoute<Route.Chat>() ||
+            it.hasRoute<Route.CorrectionList>() ||
+            it.hasRoute<Route.Statistics>() ||
+            it.hasRoute<Route.SrsStudy>()
 }
 
 private data class NotificationNavigationTarget(

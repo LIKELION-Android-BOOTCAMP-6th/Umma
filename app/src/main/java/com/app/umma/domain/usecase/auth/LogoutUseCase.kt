@@ -2,6 +2,7 @@ package com.app.umma.domain.usecase.auth
 
 import com.app.umma.domain.repository.LearningStateRepo
 import com.app.umma.domain.repository.ChatConversationAnalysisJobRepository
+import com.app.umma.domain.repository.SessionRepository
 import com.app.umma.domain.usecase.notification.UnregisterNotificationDeviceUseCase
 import javax.inject.Inject
 
@@ -20,7 +21,8 @@ class LogoutUseCase @Inject constructor(
     private val signOutUseCase: SignOutUseCase,
     private val learningStateRepo: LearningStateRepo,
     private val chatConversationAnalysisJobRepository: ChatConversationAnalysisJobRepository,
-    private val unregisterNotificationDeviceUseCase: UnregisterNotificationDeviceUseCase
+    private val unregisterNotificationDeviceUseCase: UnregisterNotificationDeviceUseCase,
+    private val sessionRepository: SessionRepository
 ) {
     suspend operator fun invoke(): Result<Unit> {
         unregisterNotificationDeviceUseCase()
@@ -39,6 +41,9 @@ class LogoutUseCase @Inject constructor(
         // Chat 분석 pending job은 로그인 사용자 기준으로 재시도되므로 로그아웃 시 같이 제거한다.
         // 실패해도 sign-out은 완료된 상태라 로그아웃 흐름을 되돌리지는 않는다.
         chatConversationAnalysisJobRepository.clearAll()
+        // 다음 로그인 시 새로 claim 받을 수 있도록 로컬 sessionId를 제거한다.
+        // (강제 로그아웃 안내 플래그는 여기서 건드리지 않는다 - FCM force_logout 핸들러만 설정한다)
+        sessionRepository.clearLocalSessionId()
         return Result.success(Unit)
 
     }
