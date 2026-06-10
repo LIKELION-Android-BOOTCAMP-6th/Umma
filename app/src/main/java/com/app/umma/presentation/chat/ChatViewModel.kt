@@ -661,11 +661,8 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
+            val reportedAt = System.currentTimeMillis()
             val report = AiContentReport(
-                reportId = buildAiContentReportId(
-                    userId = uid,
-                    reportedTurnId = reportableTurnId
-                ),
                 userId = uid,
                 sessionId = reportableSessionId,
                 reportedTurnId = reportableTurnId,
@@ -680,7 +677,7 @@ class ChatViewModel @Inject constructor(
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
                     ?.take(AI_CONTENT_REPORT_NOTE_MAX_LENGTH),
-                reportedAt = System.currentTimeMillis(),
+                reportedAt = reportedAt,
                 appVersion = BuildConfig.VERSION_NAME,
                 modelVersion = BuildConfig.OPENAI_REALTIME_MODEL,
                 promptVersion = BuildPromptUseCase.PROMPT_VERSION,
@@ -696,7 +693,7 @@ class ChatViewModel @Inject constructor(
                             aiContentReportErrorMessage = null
                         )
                     }
-                    Log.i(TAG, "ai_content_report_submitted reportId=${report.reportId} turnId=$reportableTurnId")
+                    Log.i(TAG, "ai_content_report_submitted sessionId=$reportableSessionId turnId=$reportableTurnId")
                 }
                 .onFailure { error ->
                     _uiState.update {
@@ -1912,7 +1909,6 @@ class ChatViewModel @Inject constructor(
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS = 180L
         const val REPORT_CONTEXT_TURN_LIMIT = 6
         const val AI_CONTENT_REPORT_NOTE_MAX_LENGTH = 300
-
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
 }
@@ -1965,13 +1961,6 @@ private fun AIEvent.FinalTranscription.toReportContextTurn(): AiContentReportCon
     )
 }
 
-private fun buildAiContentReportId(userId: String, reportedTurnId: String): String {
-    // Firestore document id로 안전하게 쓰기 위해 구분자와 공백을 단순 치환한다.
-    // 같은 user/turn 조합은 같은 id가 되어 UI 방어를 우회한 중복 제출도 하나의 문서로 모인다.
-    val safeUserId = userId.replace(Regex("[^A-Za-z0-9_-]"), "_")
-    val safeTurnId = reportedTurnId.replace(Regex("[^A-Za-z0-9_-]"), "_")
-    return "${safeUserId}_$safeTurnId"
-}
 
 /**
  * 새 세션 시작이 사용자에게 "복구/전환 완료"로 안내되어야 하는지 결정합니다.

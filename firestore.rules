@@ -23,12 +23,16 @@ service cloud.firestore {
         && collectionId != "chat_usage_monthly";
     }
 
-    // 운영용 AI 신고는 루트 컬렉션에 저장된다.
-    // 신고자는 본인 uid로만 문서를 만들 수 있어야 하고, 운영 처리 상태는 앱에서 직접 바꾸면 안 된다.
-    function isValidAiContentReportCreate() {
-      return isSignedIn()
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.status == "New";
+    // 계정 삭제 진행 중에는 추가 write가 다시 데이터를 만들지 못하게 막는다.
+    // expiresAt이 지난 락은 삭제 실패 후 스케줄러가 정리하기 전까지의 잔존 문서이므로 무시한다.
+    function isAccountDeletionLocked(uid) {
+      let lockDoc = get(/databases/$(database)/documents/account_delete_locks/$(uid));
+      return lockDoc != null && lockDoc.data.expiresAt > request.time.toMillis();
+    }
+
+    // users/{uid} 하위의 쓰기 가능 여부는 owner와 delete lock을 함께 본다.
+    function isAccountWritable(uid) {
+      return isOwner(uid) && !isAccountDeletionLocked(uid);
     }
 
     // 사용자 프로필 루트 문서입니다.
@@ -36,7 +40,7 @@ service cloud.firestore {
     // 계정 삭제는 Cloud Function Admin SDK가 처리하므로 클라이언트 delete는 열지 않는다.
     match /users/{uid} {
       allow get, list: if isOwner(uid);
-      allow create, update: if isOwner(uid);
+      allow create, update: if isAccountWritable(uid);
       allow delete: if false;
 
       // AI Chat 사용량 상세/월별 집계는 서버가 검증한 payload만 반영해야 한다.
@@ -55,23 +59,27 @@ service cloud.firestore {
       // 현재 앱은 local-first sync 구조라 여러 하위 컬렉션을 batch/set/delete로 갱신한다.
       // 단, 서버 전용 사용량 컬렉션은 위 match에서만 다루도록 제외해 클라이언트 조작을 막는다.
       match /{collectionId}/{documentId} {
-        allow read, write: if isOwner(uid)
+        allow read, write: if isAccountWritable(uid)
           && isClientWritableUserCollection(collectionId);
       }
 
       // 일부 기능은 하위 문서 구조가 더 깊어질 수 있으므로 recursive path도 같은 소유권 정책을 적용한다.
       // 첫 번째 하위 컬렉션명을 기준으로 서버 전용 usage 경로는 계속 제외한다.
       match /{collectionId}/{documentId}/{documentPath=**} {
-        allow read, write: if isOwner(uid)
+        allow read, write: if isAccountWritable(uid)
           && isClientWritableUserCollection(collectionId);
       }
     }
 
     // Google Play 대응용 AI 생성 콘텐츠 신고 저장소입니다.
-    // 사용자는 앱 안에서 신고를 생성할 수만 있고, 신고 목록 조회/수정/삭제는 운영 도구 또는 Admin SDK 영역이다.
+    // 신고 저장은 Cloud Function이 담당하고, 앱은 직접 이 컬렉션에 쓰지 않는다.
     match /ai_content_reports/{reportId} {
-      allow create: if isValidAiContentReportCreate();
-      allow read, update, delete: if false;
+      allow create, read, update, delete: if false;
+    }
+
+    // 계정 삭제 진행 상태를 유지하는 서버 전용 락 문서다.
+    match /account_delete_locks/{uid} {
+      allow read, write: if false;
     }
 
     // 개발용 prompt review 전역 인덱스입니다.
@@ -79,8 +87,9 @@ service cloud.firestore {
     // release 운영 데이터와 섞지 않도록 장기적으로는 관리자 도구/Functions 경유로 전환하는 것이 좋다.
     match /chat_prompt_review_reports/{reportId} {
       allow create, update: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
-      allow read, delete: if false;
+        && request.resource.data.userId == request.auth.uid
+        && !isAccountDeletionLocked(request.auth.uid);
+      allow read, update, delete: if false;
     }
 
     // 위에서 명시하지 않은 모든 경로는 기본 차단한다.

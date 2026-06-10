@@ -11,8 +11,6 @@ import com.app.umma.domain.model.learningstate.TurnSpeaker
  * 그래서 SessionMemory나 devtools 저장소와 섞지 않고 별도 domain 모델로 둡니다.
  */
 data class AiContentReport(
-    // 같은 AI turn을 중복 제출해도 원격 문서를 하나로 식별하기 위한 report id.
-    val reportId: String,
     // 신고한 Firebase 사용자 uid. 운영 검토와 abuse 방지를 위해 필수다.
     val userId: String,
     // 신고 대상 AI 응답이 발생한 Chat app session id.
@@ -33,8 +31,10 @@ data class AiContentReport(
     val reasonCategory: AiContentReportReasonCategory,
     // 사용자가 추가로 적은 선택 메모. 비어 있으면 null로 저장한다.
     val detailNote: String?,
-    // 신고 접수 시각. Firestore 서버 시간이 아니라 앱 이벤트 추적용 클라이언트 시각이다.
+    // 신고 접수 시각. 앱에서 기록하는 기준 시각이지만, 보존 만료 시각은 서버 저장 경로가 최종 결정한다.
     val reportedAt: Long,
+    // 90일 보관 후 자동 정리할 기준 시각. 서버 저장 경로가 최종 값을 채운다.
+    val expiresAt: Long? = null,
     // 운영 큐에서의 처리 상태. 최초 접수는 항상 New다.
     val status: AiContentReportStatus = AiContentReportStatus.New,
     // 앱 버전. 같은 문제를 특정 배포 버전과 묶어 분석하기 위한 값이다.
