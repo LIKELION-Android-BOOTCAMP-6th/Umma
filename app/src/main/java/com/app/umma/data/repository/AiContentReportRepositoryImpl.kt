@@ -46,6 +46,7 @@ class AiContentReportRepositoryImpl @Inject constructor(
             "reasonCategory" to reasonCategory.name,
             "detailNote" to detailNote,
             "reportedAt" to reportedAt,
+            "expiresAt" to expiresAt,
             "status" to status.name,
             "appVersion" to appVersion,
             "modelVersion" to modelVersion,

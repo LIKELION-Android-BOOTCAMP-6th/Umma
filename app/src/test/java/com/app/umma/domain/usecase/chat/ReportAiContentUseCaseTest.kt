@@ -59,6 +59,7 @@ class ReportAiContentUseCaseTest {
             reasonCategory = AiContentReportReasonCategory.HarmfulDangerous,
             detailNote = null,
             reportedAt = 1_000L,
+            expiresAt = 1_000L + 90L * 24 * 60 * 60 * 1000,
             status = AiContentReportStatus.New,
             appVersion = "1.0",
             modelVersion = "gpt-realtime-mini",

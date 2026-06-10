@@ -24,8 +24,9 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 
 - [ ] 계정 삭제 시 `users/{uid}` 하위 학습 데이터는 삭제된다.
 - [ ] 루트 컬렉션에 저장된 사용자 연결 데이터는 삭제, 비식별화, 보관 중 하나로 분류된다.
-- [ ] 운영용 AI 신고 데이터는 사용자 식별값과 원문 컨텍스트 처리 기준이 정해진다.
-- [ ] 개발용 prompt review 데이터는 운영 신고와 다른 보관 기준을 갖는다.
+- [ ] 운영용 AI 신고 데이터는 AI 안전 정책 개선을 위해 90일 동안 제한 보관된다.
+- [ ] 운영용 AI 신고 데이터는 90일 보관 후 자동 정리될 수 있도록 만료 기준을 가진다.
+- [ ] 개발용 prompt review 데이터는 회원 탈퇴 시 삭제된다.
 - [ ] 계정 삭제 실패 시 사용자는 실패를 알 수 있고, 일부 데이터만 삭제된 상태가 조용히 성공 처리되지 않는다.
 - [ ] 계정 삭제 정책은 개인정보처리방침과 Play Console Data Safety 설명에 반영할 수 있다.
 - [ ] 기존 Chat, Correction, Flashcard, LearningState, Statistics 흐름은 변경되지 않는다.
@@ -51,8 +52,18 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
   - Chat session, SessionMemory, Flashcard, LearningState, Statistics, notification settings처럼 사용자 학습 경험에 직접 연결된 데이터는 계정 삭제와 함께 삭제한다.
 
 - **루트 컬렉션 데이터는 별도 분류가 필요하다.**
-  - `ai_content_reports`는 운영 신고 검토와 정책 개선 목적이 있으므로 무조건 즉시 삭제할지, 비식별화할지, 제한 보관할지 결정해야 한다.
-  - `chat_prompt_review_reports`는 개발용 prompt review 자료이므로 운영용 신고 데이터와 같은 정책으로 묶지 않는다.
+  - `ai_content_reports`는 AI 안전 정책 개선과 운영 신고 검토를 위해 90일 동안 제한 보관한다.
+  - `chat_prompt_review_reports`는 개발용 prompt review 자료이므로 회원 탈퇴 시 삭제한다.
+
+- **계정 삭제는 fail-closed로 처리한다.**
+  - 계정 삭제 중 `users/{uid}` 또는 삭제 대상 루트 문서 정리에 실패하면 성공으로 응답하지 않는다.
+  - 사용자가 삭제 완료로 인식하기 전에 삭제 대상 데이터가 실제로 정리되어야 한다.
+  - 실패 로그에는 uid, 문서 경로, 오류 코드 정도만 남기고 transcript 원문은 남기지 않는다.
+
+- **운영용 AI 신고는 90일 보관 후 정리한다.**
+  - `ai_content_reports`는 신고 원문과 최소 context가 있어야 AI 안전 검토 가치가 있다.
+  - 보관 목적은 AI 안전 정책 개선, 부적절 응답 조사, abuse 대응으로 제한한다.
+  - 보관 기간은 90일로 두고, `expiresAt` 또는 동등한 만료 기준으로 자동 정리 가능하게 만든다.
 
 - **정책 문구를 먼저 확정하지 않는다.**
   - 실제 삭제/비식별화 방식이 정해진 뒤 `AI-POLICY-003`의 개인정보처리방침, Data Safety, 계정 삭제 안내 문구를 최종화한다.
@@ -81,9 +92,46 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 | Correction/Flashcard | `users/{uid}` 하위 | 삭제 | 학습 결과와 반복 학습 데이터다. |
 | LearningState/Statistics | `users/{uid}` 하위 | 삭제 | 사용자 능력 분석과 통계 데이터다. |
 | Notification settings/devices | `users/{uid}` 하위 | 삭제 | 계정별 알림 설정과 기기 정보다. |
-| AI content reports | `ai_content_reports` | 삭제 또는 비식별화 결정 필요 | 운영 신고 검토 목적과 개인정보 최소화가 충돌할 수 있다. |
-| Prompt review reports | `chat_prompt_review_reports` | 별도 결정 필요 | 개발용 품질 개선 자료라 운영 신고와 목적이 다르다. |
+| AI content reports | `ai_content_reports` | 90일 제한 보관 후 자동 정리 | AI 안전 정책 개선과 부적절 응답 조사를 위해 원문 context가 필요하다. |
+| Prompt review reports | `chat_prompt_review_reports` | 회원 탈퇴 시 삭제 | 개발용 프롬프트 개선 자료이며 운영 신고 보관 예외에 포함하지 않는다. |
 | Cloud Functions logs | Google Cloud Logging | 보관 예외 가능 | 보안, 장애 분석, abuse 대응 목적의 운영 로그다. |
+
+---
+
+# 현재 저장 필드 기준 주의점
+
+## `chat_prompt_review_reports`
+
+회원 탈퇴 시 문서 자체를 삭제한다.
+이 컬렉션은 개발용 프롬프트 리뷰 인덱스지만, 현재 저장 구조에는 단순 uid 외에도 사용자 연결성이 남을 수 있는 필드가 있다.
+
+삭제해야 하는 이유:
+
+- `userId`, `uid`는 Firebase 사용자 식별자다.
+- `reviewPath`는 `users/{uid}/chat_prompt_reviews/{reportId}` 형태라 경로 안에 uid가 남는다.
+- `sessionId`는 단독 개인정보는 아니지만 대화 세션과 연결 가능한 식별자다.
+- `reportNote`는 테스터가 직접 입력한 자유 텍스트라 민감 정보가 들어갈 수 있다.
+- `sessionPromptTrace`, `metadata`, `events.text`, `events.metadata`는 대화 흐름과 프롬프트 적용 상태를 재구성할 수 있다.
+
+따라서 uid, 이메일, 닉네임, 기기 식별값만 제거하는 방식보다 문서 삭제가 더 단순하고 안전하다.
+
+## `users/{uid}/chat_prompt_reviews`
+
+`users/{uid}` 하위 문서이므로 기존 recursive delete 대상이다.
+다만 루트 인덱스인 `chat_prompt_review_reports`가 이 경로를 `reviewPath`로 들고 있으므로, 루트 인덱스도 함께 삭제해야 삭제 정책이 완결된다.
+
+## `ai_content_reports`
+
+운영용 AI 신고 문서는 90일 제한 보관한다.
+현재 저장되는 주요 원문 필드는 다음과 같다.
+
+- `reportedAiText`: 신고된 AI 응답 원문
+- `previousUserText`: 직전 사용자 발화 원문
+- `contextTurns.text`: 최근 final turn context 원문
+- `detailNote`: 사용자가 입력한 신고 메모
+
+이 값들은 AI 안전 검토에 필요한 핵심 자료이므로 회원 탈퇴 시 즉시 삭제하지 않는다.
+대신 보관 목적과 기간을 개인정보처리방침과 Data Safety 설명에 명시하고, 90일 만료 후 자동 정리한다.
 
 ---
 
@@ -102,23 +150,26 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 - `ai_content_reports`
 - `chat_prompt_review_reports`
 
-결정할 항목:
+결정된 방향:
 
-- 계정 삭제 시 문서를 완전히 삭제할지
-- 운영 검토에 필요한 최소 필드만 남기고 `userId`, 원문, context snapshot을 제거할지
-- 법적 요구, abuse 방지, 정책 위반 조사 목적으로 일정 기간 보관할지
-
-권장 방향:
-
-- 운영용 AI 신고는 기본적으로 `userId`, 사용자 발화, AI 응답 원문, 최근 context snapshot을 제거하거나 마스킹한다.
-- 신고 상태, 신고 사유, 앱 버전, 모델 버전처럼 사용자 재식별성이 낮은 운영 통계 필드는 필요하면 남길 수 있다.
-- 개발용 prompt review 데이터는 출시 운영 데이터가 아니므로 별도 삭제 또는 주기적 정리 정책을 둔다.
+- `chat_prompt_review_reports`는 계정 삭제 시 삭제한다.
+- `ai_content_reports`는 AI 안전 정책 개선을 위해 원문 context를 포함해 90일 동안 제한 보관한다.
+- `ai_content_reports`에는 90일 자동 정리를 위한 `expiresAt` 또는 동등한 만료 기준을 추가한다.
+- 운영 보관 목적은 AI 안전, 부적절 응답 조사, abuse 대응으로 제한한다.
 
 ## 3. Cloud Function 보강
 
-- `deleteAccount` 안에서 `users/{uid}` 삭제 후 루트 컬렉션 처리 단계를 추가한다.
-- 루트 컬렉션 처리 실패 시 전체 계정 삭제를 실패로 볼지, 재시도 가능한 pending 상태로 남길지 결정한다.
+- `deleteAccount` 안에서 `chat_prompt_review_reports` 삭제 단계를 추가한다.
+- `chat_prompt_review_reports` 삭제 실패 시 계정 삭제를 성공으로 응답하지 않는다.
+- `ai_content_reports`는 계정 삭제 시 삭제하지 않고, 90일 만료 기준으로 정리한다.
+- 필요하면 `ai_content_reports`의 사용자 직접 식별 필드는 별도 운영 정책으로 축소할 수 있으나, 이번 작업의 기본 결정은 90일 제한 보관이다.
 - 실패 로그에는 uid와 문서 경로만 남기고, 사용자 원문 transcript를 남기지 않는다.
+
+실패 처리 원칙:
+
+- 삭제 대상 문서 정리 실패는 `deleteAccount` 실패로 반환한다.
+- 서버 내부에서 재시도 job을 두더라도, 사용자에게 삭제 성공으로 표시하기 전에 삭제 대상 정리가 완료되어야 한다.
+- pending retry는 장애 복구 보조 수단이며, partial delete를 성공으로 숨기는 용도로 쓰지 않는다.
 
 ## 4. 앱 실패 안내 확인
 
@@ -136,6 +187,8 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 
 - 운영 신고 데이터는 법적 요구, abuse 방지, 정책 위반 조사 목적이 있으면 일부 비식별 정보만 제한 보관할 수 있다.
 - 보관 예외가 있으면 개인정보처리방침에 보관 목적과 범위를 명확히 설명한다.
+- `ai_content_reports`는 AI 안전 정책 개선 목적의 90일 제한 보관 예외로 둔다.
+- `chat_prompt_review_reports`는 개발용 자료이므로 보관 예외로 두지 않는다.
 - Cloud Logging처럼 외부 관리형 로그는 즉시 개별 삭제가 어려울 수 있으므로 보관 기간과 접근 제한 정책으로 관리한다.
 - 계정 삭제 중 일부 단계가 실패하면 성공으로 처리하지 않는다.
 
@@ -145,8 +198,9 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 
 - 테스트 계정으로 Chat, AI 신고, Correction, Flashcard, LearningState, Statistics 데이터를 만든다.
 - 계정 삭제를 실행한 뒤 `users/{uid}` 문서와 하위 데이터가 사라지는지 확인한다.
-- `ai_content_reports`에 남은 문서가 정책대로 삭제 또는 비식별화됐는지 확인한다.
-- `chat_prompt_review_reports`가 결정된 정책대로 처리되는지 확인한다.
+- `chat_prompt_review_reports`에 해당 uid 또는 해당 uid가 포함된 `reviewPath` 문서가 남지 않는지 확인한다.
+- `ai_content_reports` 문서는 계정 삭제 후에도 90일 보관 정책에 맞게 남고, 만료 기준 필드가 기록되는지 확인한다.
+- `ai_content_reports` 만료 기준이 지난 문서가 자동 정리 대상이 되는지 확인한다.
 - 삭제 실패를 의도적으로 재현해 앱이 실패를 표시하고 서버 로그가 원문을 노출하지 않는지 확인한다.
 - 계정 삭제 후 같은 사용자가 다시 로그인할 때 이전 학습 데이터가 복원되지 않는지 확인한다.
 
@@ -156,7 +210,22 @@ Google Play 심사자는 앱 내 삭제 경로와 공개 삭제 URL의 설명이
 
 - `deleteAccount`는 인증된 사용자만 실행할 수 있다.
 - `users/{uid}` 하위 데이터는 계정 삭제 후 남지 않는다.
-- 루트 컬렉션의 사용자 연결 데이터는 문서에 정한 기준대로 삭제 또는 비식별화된다.
+- `chat_prompt_review_reports`의 사용자 연결 문서는 계정 삭제 후 남지 않는다.
+- `ai_content_reports`는 90일 보관 목적과 만료 기준을 가진다.
 - 운영 보관 예외는 개인정보처리방침에 설명할 수 있는 수준으로 제한된다.
 - 실패 경로에서 partial delete가 조용히 성공으로 표시되지 않는다.
 - 기존 Chat, Correction, Flashcard, LearningState, Statistics 정상 흐름이 깨지지 않는다.
+
+---
+
+# 구현 착수 전 점검
+
+현재 결정만으로 1차 구현에 들어갈 수 있다.
+다만 아래 항목은 구현 중 코드 기준으로 확정해야 한다.
+
+- `chat_prompt_review_reports` 삭제 쿼리는 `uid`와 `userId`를 모두 기준으로 잡는다.
+- 기존 문서에 `reviewPath`만 있고 `uid/userId`가 누락된 과거 데이터가 있을 수 있는지 확인한다.
+- `ai_content_reports`의 90일 만료 필드는 신규 신고 저장 시점에 함께 기록한다.
+- 기존 `ai_content_reports` 문서에 만료 필드가 없는 경우 마이그레이션할지, 신규 문서부터 적용할지 결정한다.
+- `deleteAccount`에서 `chat_prompt_review_reports` 삭제와 `users/{uid}` recursive delete의 순서를 정한다. 권장 순서는 루트 인덱스 삭제 후 `users/{uid}` 삭제다.
+- 삭제 실패 테스트는 Firestore 권한 문제가 아니라 Admin SDK 오류 경로를 재현할 수 있는 단위 테스트로 검증한다.

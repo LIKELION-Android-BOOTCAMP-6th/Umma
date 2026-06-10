@@ -241,6 +241,43 @@ exports.cleanupExpiredChatUsageSessions = onSchedule(
 );
 
 /**
+ * Deletes expired AI content reports after the 90-day retention window.
+ *
+ * The Android app writes `expiresAt` as a millis value, so the cleanup query uses
+ * the same numeric clock to keep the retention contract explicit in code.
+ */
+exports.cleanupExpiredAiContentReports = onSchedule(
+  {
+    region: "us-central1",
+    schedule: "every 24 hours",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const now = Date.now();
+    const snapshot = await firestore
+      .collection("ai_content_reports")
+      .where("expiresAt", "<=", now)
+      .limit(CLEANUP_BATCH_LIMIT)
+      .get();
+
+    if (snapshot.empty) {
+      logger.info("expired ai content report cleanup skipped: no documents");
+      return;
+    }
+
+    const batch = firestore.batch();
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
+    logger.info("expired ai content reports deleted", {
+      deletedCount: snapshot.size,
+    });
+  },
+);
+
+/**
  * Sends at most one SRS review reminder per user per local date.
  *
  * The scheduler checks users whose configured notification time has arrived,

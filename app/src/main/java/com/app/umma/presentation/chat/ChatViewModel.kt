@@ -661,6 +661,7 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
+            val reportedAt = System.currentTimeMillis()
             val report = AiContentReport(
                 reportId = buildAiContentReportId(
                     userId = uid,
@@ -680,7 +681,9 @@ class ChatViewModel @Inject constructor(
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
                     ?.take(AI_CONTENT_REPORT_NOTE_MAX_LENGTH),
-                reportedAt = System.currentTimeMillis(),
+                // 신고 시각과 만료 시각은 같은 기준 시각에서 계산해야 보관 정책이 흔들리지 않는다.
+                reportedAt = reportedAt,
+                expiresAt = reportedAt + AI_CONTENT_REPORT_RETENTION_MS,
                 appVersion = BuildConfig.VERSION_NAME,
                 modelVersion = BuildConfig.OPENAI_REALTIME_MODEL,
                 promptVersion = BuildPromptUseCase.PROMPT_VERSION,
@@ -1912,6 +1915,7 @@ class ChatViewModel @Inject constructor(
         const val CONVERSATION_ANALYSIS_SAVE_WAIT_INTERVAL_MS = 180L
         const val REPORT_CONTEXT_TURN_LIMIT = 6
         const val AI_CONTENT_REPORT_NOTE_MAX_LENGTH = 300
+        const val AI_CONTENT_REPORT_RETENTION_MS = 90L * 24 * 60 * 60 * 1000
 
         fun buildSessionMemoryKey(uid: String, lang: LangCode): String = "${uid}_${lang.code}"
     }
