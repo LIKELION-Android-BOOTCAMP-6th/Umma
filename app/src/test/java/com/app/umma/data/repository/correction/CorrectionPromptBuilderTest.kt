@@ -192,31 +192,51 @@ class CorrectionPromptBuilderTest {
 
     @Test
     fun `prompt includes representative filler examples and edge-case preservation guidance`() {
-        val input = inputOf(
-            candidates = listOf(
-                CorrectionCandidate(
-                    id = "en-0-a",
-                    lang = LangCode.EN,
-                    sourceTurnIndex = 0,
-                    sourceText = "Like, I was tired."
-                )
-            )
+        // COR-TUNE-016: 필러 예시는 selectedLang + primaryLang 합집합에 해당하는 언어만 노출한다.
+        val candidateEn = CorrectionCandidate(
+            id = "en-0-a",
+            lang = LangCode.EN,
+            sourceTurnIndex = 0,
+            sourceText = "Like, I was tired."
         )
 
-        val prompt = builder.build(input)
+        // EN 선택, KO 모국어 — EN/KO 예시 노출, JA 예시 미노출.
+        val promptEnKo = builder.build(
+            inputOf(candidates = listOf(candidateEn), lang = LangCode.EN, primaryLang = LangCode.KO)
+        )
 
         assertFalse(
             "COR-TUNE-014: \"you know\"는 필러 예시에서 제외되어야 함 (의미 보유 완충 표현 보존)",
-            prompt.contains("\"you know\"")
+            promptEnKo.contains("\"you know\"")
         )
-        assertTrue("English um filler example 누락", prompt.contains("\"um\""))
-        assertTrue("English uh filler example 누락", prompt.contains("\"uh\""))
-        assertTrue("English discourse-marker like example ?꾨씫", prompt.contains("discourse-marker \"like\""))
-        assertTrue("Japanese filler example ?꾨씫", prompt.contains("\"なんか\""))
-        assertTrue("Korean filler example ?꾨씫", prompt.contains("\"약간\""))
-        assertTrue("I like coffee edge case ?꾨씫", prompt.contains("\"I like coffee.\""))
-        assertTrue("Japanese referential その edge case ?꾨씫", prompt.contains("referential \"その\""))
-        assertTrue("Korean negative 아니 edge case ?꾨씫", prompt.contains("negative \"아니\""))
+        assertTrue("EN+KO 빌드: um filler 누락", promptEnKo.contains("\"um\""))
+        assertTrue("EN+KO 빌드: uh filler 누락", promptEnKo.contains("\"uh\""))
+        assertTrue("EN+KO 빌드: discourse-marker like 누락", promptEnKo.contains("discourse-marker \"like\""))
+        assertTrue("EN+KO 빌드: I like coffee edge case 누락", promptEnKo.contains("\"I like coffee.\""))
+        assertTrue("EN+KO 빌드: KO filler 약간 누락", promptEnKo.contains("\"약간\""))
+        assertTrue("EN+KO 빌드: KO negative 아니 누락", promptEnKo.contains("negative \"아니\""))
+        // JA 예시는 EN+KO 조합에서 노출되지 않아야 한다.
+        assertFalse("EN+KO 빌드에 JA なんか 예시가 노출됨", promptEnKo.contains("\"なんか\""))
+        assertFalse("EN+KO 빌드에 JA referential その 예시가 노출됨", promptEnKo.contains("referential \"その\""))
+
+        // JA 선택, KO 모국어 — JA/KO 예시 노출, EN 예시 미노출.
+        val candidateJa = CorrectionCandidate(
+            id = "ja-0-a",
+            lang = LangCode.JA,
+            sourceTurnIndex = 0,
+            sourceText = "なんか、疲れました。"
+        )
+        val promptJaKo = builder.build(
+            inputOf(candidates = listOf(candidateJa), lang = LangCode.JA, primaryLang = LangCode.KO)
+        )
+
+        assertTrue("JA+KO 빌드: JA filler なんか 누락", promptJaKo.contains("\"なんか\""))
+        assertTrue("JA+KO 빌드: JA referential その 누락", promptJaKo.contains("referential \"その\""))
+        assertTrue("JA+KO 빌드: KO filler 약간 누락", promptJaKo.contains("\"약간\""))
+        assertTrue("JA+KO 빌드: KO negative 아니 누락", promptJaKo.contains("negative \"아니\""))
+        // EN 예시는 JA+KO 조합에서 노출되지 않아야 한다.
+        assertFalse("JA+KO 빌드에 EN um 예시가 노출됨", promptJaKo.contains("\"um\""))
+        assertFalse("JA+KO 빌드에 EN I like coffee 예시가 노출됨", promptJaKo.contains("\"I like coffee.\""))
     }
 
     @Test

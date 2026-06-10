@@ -80,6 +80,7 @@ class CorrectionPromptBuilder @Inject constructor() {
             appendLine()
             appendLine("Task: For each candidate sentence below, return one corrected version that preserves the speaker's meaning and is natural at the learner's level.")
             appendLine("Return at most 10 suggestions; if more candidates need correcting, keep the 10 most impactful.")
+            // COR-TUNE-016: [동결] Safety 블록 — AI-POLICY-002 산출물. `includes safety guard instructions exactly once` 테스트로 잠김. 압축 후보에서 제외.
             appendLine("Safety:")
             appendLine("- Do not correct, naturalize, translate, or make harmful content more actionable.")
             appendLine("- Skip candidates involving self-harm instructions, child sexual content, hate or harassment, crime, fraud, explicit sexual content, or dangerous professional advice.")
@@ -136,27 +137,34 @@ class CorrectionPromptBuilder @Inject constructor() {
             // COR-TUNE-011-FIX (Method B): detectedLang seam 이 폐기되어, 발화 원문 언어는 이제 AI 가 직접 보고한다.
             // afterText(=항상 selectedLang)와 혼동하지 않도록 "원문(sourceText) 기준"임을 명시하고,
             // 확신이 없을 때 "unknown"을 쓰게 해 mapper 가 보수적으로 null(=평가 통과)로 떨어뜨릴 escape hatch 를 둔다.
+            // COR-TUNE-016: [동결] sourceLang 규칙 — 평가 게이트(CompleteCorrectionUseCase) 입력. 압축 후보에서 제외.
             appendLine("- sourceLang: the ISO code (e.g. \"ko\", \"en\", \"ja\", \"de\") of the language the learner ACTUALLY used in sourceText (not the corrected afterText). If you are not sure, use \"unknown\".")
             appendLine("- Emit one suggestion per safe candidate. Skip a candidate if it is unsafe or if no correction is needed.")
             appendLine("- Preserve sourceText as the original utterance context. Do not rewrite, trim, sanitize, or remove filler from sourceText itself; cleanup applies only to afterText.")
             appendLine("- Filler and repetition cleanup: in afterText, remove unnecessary filler words, hesitation markers, and repeated discourse markers when doing so does not change the speaker's meaning.")
             appendLine("- Keep afterText natural and concise for learning and flashcard use.")
-            appendLine("- Examples of removable filler/discourse markers include English \"um\", \"uh\", discourse-marker \"like\", and some uses of \"I mean\"; Japanese \"なんか\" and discourse-marker \"その\"; Korean \"음\", \"어\", \"그니까\", \"약간\", \"뭐가\", and some uses of \"아니\".")
+            // COR-TUNE-016: selectedLang + primaryLang 합집합에 해당하는 예시만 노출해 토큰을 줄인다.
+            // 코드스위칭 입력에서 primaryLang 필러도 나올 수 있으므로 두 언어 모두 커버한다.
+            // 언어 무관 정리 지시(위 두 줄)는 유지 — afterText(=selectedLang) 정리 강도가 약해지지 않게 한다.
+            fillerRemovableLine(selectedLang, primaryLang)?.let { appendLine("- $it") }
             appendLine("- Do NOT remove an expression if it carries real meaning, contrast, emphasis, correction, or the speaker's intended nuance.")
-            appendLine("- Keep meaning-bearing uses such as \"I like coffee.\", corrective/emphatic \"I mean\", Japanese \"なんか\" meaning \"something\", referential \"その\", Korean degree-marker \"약간\", and negative \"아니\".")
+            fillerMeaningBearingLine(selectedLang, primaryLang)?.let { appendLine("- $it") }
             // COR-TUNE-02: learningSignal 은 능력 점수가 아니라 "이번 교정에서 관찰한 것"만 담는다.
-            // 규칙은 enum 을 1:1 장황하게 나열하지 않고 실행 가능한 짧은 지시로 압축한다.
+            // COR-TUNE-016: enum guard 를 한 번만 선언해 issueCategories/improvementTypes 중복 경고를 제거한다.
             appendLine("learningSignal rules (what you observed in THIS correction; never rate the learner's overall level):")
+            appendLine("ENUM GUARD: any enum value outside an allowed list below discards the whole learningSignal.")
             appendLine("- One learningSignal per suggestion, reusing the same candidateId.")
-            appendLine("- issueCategories: pick from [$issueCategoryValues], at most 3. Use ONLY these values — any value outside the list discards the whole learningSignal.")
-            appendLine("- improvementTypes: pick from [$improvementTypeValues], at most 3. Use ONLY these values — any value outside the list discards the whole learningSignal.")
+            appendLine("- issueCategories: pick from [$issueCategoryValues], at most 3.")
+            appendLine("- improvementTypes: pick from [$improvementTypeValues], at most 3.")
             appendLine("- register: exactly one of [$registerValues] describing the corrected sentence.")
             appendLine("- severity: exactly one of [$severityValues].")
-            appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}. MUST be an array of objects, never strings — correct: [{\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.Tense\"}], incorrect: [\"$langNamespace.Tense\"].")
-            // COR-TUNE-003-FIX: editSpans의 enum 제약·폐기 경고 추가.
+            appendLine("- languageFeatures: at most 3, each {\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.<Feature>\"} (e.g. $langNamespace.Tense); lang must equal ${selectedLang.code}. MUST be an array of objects, not strings (e.g. [{\"lang\":\"${selectedLang.code}\",\"featureKey\":\"$langNamespace.Tense\"}]).")
+            // COR-TUNE-003-FIX: editSpans의 enum 제약·폐기 경고는 여기서 명시적으로 유지한다.
             // 매퍼 normalizeEditSpan은 issueCategory/improvementType이 허용 목록 밖이면 learningSignal 전체를 drop한다(COR-TUNE-002-FIX).
-            // top-level 규칙(issueCategories/improvementTypes)과 동일 어휘로 명시해 AI가 자연어 값을 넣지 않게 한다.
-            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. If filler cleanup is the main correction, include only a simple span when you are confident. Each span's issueCategory MUST be one of [$issueCategoryValues] and improvementType one of [$improvementTypeValues] — any value outside these lists discards the whole learningSignal. languageFeatureKey may be null.")
+            // COR-TUNE-016: 위 ENUM GUARD 로 issueCategories/improvementTypes 중복은 제거했지만,
+            // editSpans 규칙의 "discards the whole learningSignal" 문구는 테스트 anchor 로 잠겨 있어 보존한다.
+            appendLine("- editSpans: at most 3, only the changed fragments (do NOT repeat the whole sentence); no character offsets. Include a span for filler cleanup only when confident. Each span's issueCategory MUST be one of [$issueCategoryValues] and improvementType one of [$improvementTypeValues] — any value outside these lists discards the whole learningSignal. languageFeatureKey may be null.")
+            // COR-TUNE-016: [동결] meaningPreserved — 의미 보존 게이트 입력. 압축 후보에서 제외.
             appendLine("- meaningPreserved: ALWAYS include it (never omit) — true unless the correction changed the speaker's intended meaning. A missing value discards the whole learningSignal.")
             appendLine("- confidence: a number in 0.0..1.0, or omit it if unsure.")
             appendLine("- If unsure about a signal, use an empty array or low confidence rather than guessing.")
@@ -378,6 +386,39 @@ class CorrectionPromptBuilder @Inject constructor() {
         LangCode.DE -> "German"
         // UNKNOWN(오염/미지원)은 기준 언어 폴백과 동일하게 처리한다(SSOT 경유). DEFAULT_PRIMARY=KO → "Korean".
         LangCode.UNKNOWN -> languageName(LangCode.DEFAULT_PRIMARY)
+    }
+
+    /**
+     * COR-TUNE-016: selectedLang 과 primaryLang 합집합에 해당하는 필러 제거 예시 한 줄을 만든다.
+     *
+     * 코드스위칭 입력에서 primaryLang 필러가 섞일 수 있으므로 두 언어 모두 커버한다.
+     * 해당 언어가 없거나 UNKNOWN 이면 null 을 돌려 호출부가 줄을 생략하게 한다.
+     * 언어 무관 정리 지시(Filler and repetition cleanup / natural and concise)는 호출부에서 별도로 유지한다.
+     */
+    private fun fillerRemovableLine(selectedLang: LangCode, primaryLang: LangCode): String? {
+        val langs = setOf(selectedLang, primaryLang).filter { it != LangCode.UNKNOWN }
+        val parts = mutableListOf<String>()
+        if (LangCode.EN in langs) parts.add("""English "um", "uh", discourse-marker "like", and some uses of "I mean"""")
+        if (LangCode.JA in langs) parts.add("""Japanese "なんか" and discourse-marker "その"""")
+        if (LangCode.KO in langs) parts.add("""Korean "음", "어", "그니까", "약간", "뭐가", and some uses of "아니"""")
+        return if (parts.isEmpty()) null
+        else "Examples of removable filler/discourse markers include ${parts.joinToString("; ")}."
+    }
+
+    /**
+     * COR-TUNE-016: selectedLang 과 primaryLang 합집합에 해당하는 의미 보유 표현 edge-case 예시 한 줄을 만든다.
+     *
+     * 필러처럼 보여도 실제 의미를 담은 표현을 제거하지 않도록 언어별 예시를 보여준다.
+     * 해당 언어가 없거나 UNKNOWN 이면 null 을 돌려 호출부가 줄을 생략하게 한다.
+     */
+    private fun fillerMeaningBearingLine(selectedLang: LangCode, primaryLang: LangCode): String? {
+        val langs = setOf(selectedLang, primaryLang).filter { it != LangCode.UNKNOWN }
+        val parts = mutableListOf<String>()
+        if (LangCode.EN in langs) parts.add(""""I like coffee.", corrective/emphatic "I mean"""")
+        if (LangCode.JA in langs) parts.add("""Japanese "なんか" meaning "something", referential "その"""")
+        if (LangCode.KO in langs) parts.add("""Korean degree-marker "약간", and negative "아니"""")
+        return if (parts.isEmpty()) null
+        else "Keep meaning-bearing uses such as ${parts.joinToString(", ")}."
     }
 
     private companion object {
