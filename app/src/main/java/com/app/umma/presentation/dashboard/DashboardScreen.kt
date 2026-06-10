@@ -224,6 +224,10 @@ fun DashboardScreen(
                 uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
                 else -> DashboardContent(
                     summary = uiState.summary,
+                    conversationEmpty = uiState.conversationEmpty,
+                    studyEmpty = uiState.studyEmpty,
+                    feedbackEmpty = uiState.feedbackEmpty,
+                    statisticsEmpty = uiState.statisticsEmpty,
                     onNavigateToStatistics = onNavigateToStatistics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
@@ -403,6 +407,10 @@ fun DashboardScreen(
 @Composable
 private fun DashboardContent(
     summary: DashSummary?,
+    conversationEmpty: Boolean,
+    studyEmpty: Boolean,
+    feedbackEmpty: Boolean,
+    statisticsEmpty: Boolean,
     onNavigateToStatistics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
@@ -425,6 +433,10 @@ private fun DashboardContent(
 
         DashboardCardGrid(
             summary = summary,
+            conversationEmpty = conversationEmpty,
+            studyEmpty = studyEmpty,
+            feedbackEmpty = feedbackEmpty,
+            statisticsEmpty = statisticsEmpty,
             onNavigateToChat = onNavigateToChat,
             onNavigateToSrsStudy = onNavigateToSrsStudy,
             onNavigateToCorrection = onNavigateToCorrection,
@@ -470,27 +482,22 @@ private fun DashboardCorrectionCompletionToast(
 }
 
 /**
- * 2x2 카드 그리드. 모든 카드는 [summary] 필드만 받아 Dashboard SSOT 경계를 유지한다.
+ * 2x2 카드 그리드. Empty 플래그는 [DashboardUiState] 에서 파생된 값을 그대로 소비한다.
  *
  * 데이터가 없는 카드도 각 기능 화면의 Empty UI 로 진입할 수 있도록 클릭 동선은 유지한다.
  */
 @Composable
 private fun DashboardCardGrid(
     summary: DashSummary?,
+    conversationEmpty: Boolean,
+    studyEmpty: Boolean,
+    feedbackEmpty: Boolean,
+    statisticsEmpty: Boolean,
     onNavigateToChat: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToStatistics: () -> Unit
+    onNavigateToStatistics: () -> Unit,
 ) {
-    // 각 카드별 데이터 유무 판정 — 카드 내부 칩/배지 hide 조건과 동일 기준.
-    val isConversationEmpty = summary?.recentTopic == null && (summary?.recentMinutes ?: 0) == 0
-    val isStudyEmpty = (summary?.dueFlashcards ?: 0) == 0 && (summary?.savedFlashcards ?: 0) == 0
-    val isFeedbackEmpty = summary?.correctionAvailable != true
-    val isStatisticsEmpty = (summary?.grammarDelta ?: 0) == 0 &&
-            (summary?.vocabDelta ?: 0) == 0 &&
-            (summary?.fluencyDelta ?: 0) == 0 &&
-            (summary?.naturalnessDelta ?: 0) == 0
-
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -501,7 +508,7 @@ private fun DashboardCardGrid(
             ConversationCard(
                 recentConversationTopic = summary?.recentTopic,
                 recentConversationMinutes = summary?.recentMinutes,
-                isEmpty = isConversationEmpty,
+                isEmpty = conversationEmpty,
                 onClick = onNavigateToChat,
                 modifier = Modifier
                     .weight(1f)
@@ -510,7 +517,7 @@ private fun DashboardCardGrid(
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
                 savedFlashcards = summary?.savedFlashcards ?: 0,
-                accentColor = if (isStudyEmpty) TextWrong else null,
+                accentColor = if (studyEmpty) TextWrong else null,
                 onClick = onNavigateToSrsStudy,
                 modifier = Modifier
                     .weight(1f)
@@ -528,7 +535,7 @@ private fun DashboardCardGrid(
         ) {
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
-                accentColor = if (isFeedbackEmpty) TextWrong else null,
+                accentColor = if (feedbackEmpty) TextWrong else null,
                 onClick = onNavigateToCorrection,
                 modifier = Modifier
                     .weight(1f)
@@ -539,7 +546,7 @@ private fun DashboardCardGrid(
                 vocabularyScoreDelta = summary?.vocabDelta ?: 0,
                 fluencyScoreDelta = summary?.fluencyDelta ?: 0,
                 naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
-                accentColor = if (isStatisticsEmpty) TextWrong else null,
+                accentColor = if (statisticsEmpty) TextWrong else null,
                 onClick = onNavigateToStatistics,
                 modifier = Modifier
                     .weight(1f)

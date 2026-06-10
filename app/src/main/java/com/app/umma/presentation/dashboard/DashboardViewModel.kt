@@ -194,7 +194,11 @@ class DashboardViewModel @Inject constructor(
                                 isLoading = false,
                                 hasFatalError = true,
                                 isEmpty = false,
-                                summary = null
+                                summary = null,
+                                conversationEmpty = true,
+                                studyEmpty = true,
+                                feedbackEmpty = true,
+                                statisticsEmpty = true,
                             )
                         }
                         return@collect
@@ -228,6 +232,10 @@ class DashboardViewModel @Inject constructor(
                     // "보여줄 게 없는" 상태 — Empty 분기 판정용.
                     val empty = summary == null || summary.isEffectivelyEmpty
 
+                    // 카드별 Empty 플래그 — 뷰가 직접 계산하지 않도록 VM 에서 파생.
+                    //   isEffectivelyEmpty(전체 isEmpty) 와 달리 카드 4개를 독립적으로 판정한다.
+                    val cardFlags = dashboardCardEmptyFlags(summary)
+
                     // 실제 학습 데이터가 있는 언어 집합 — DashSummary 중 isEffectivelyEmpty=false.
                     //   selector 다이얼로그의 "이전에 학습 중이던 언어" 체크 아이콘 기준으로 쓰인다.
                     //   userPref.learningLangs 는 selector 단순 선택만으로도 자동 확장되지만,
@@ -250,7 +258,11 @@ class DashboardViewModel @Inject constructor(
                             isEmpty = empty,
                             learningLanguages = learningLangs,
                             activeLearningLanguages = activeLangs,
-                            hasFatalError = false
+                            hasFatalError = false,
+                            conversationEmpty = cardFlags.conversationEmpty,
+                            studyEmpty = cardFlags.studyEmpty,
+                            feedbackEmpty = cardFlags.feedbackEmpty,
+                            statisticsEmpty = cardFlags.statisticsEmpty,
                         )
                     }
                     Log.d(
