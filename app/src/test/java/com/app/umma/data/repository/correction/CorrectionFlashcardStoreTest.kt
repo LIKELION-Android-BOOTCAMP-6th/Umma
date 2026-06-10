@@ -71,7 +71,7 @@ class CorrectionFlashcardStoreTest {
     )
 
     @Test
-    fun `1회차 저장 시 모든 suggestionId 가 localSavedFlashcardIds 에 포함된다`() = runBlocking {
+    fun `includes all suggestion ids in localSavedFlashcardIds on first save`() = runBlocking {
         val result = store.save(request)
 
         // 새로 저장된 카드 id 목록이 요청의 suggestionId 집합과 일치해야 한다.
@@ -79,7 +79,7 @@ class CorrectionFlashcardStoreTest {
     }
 
     @Test
-    fun `동일 요청 2회 호출 시 2회차 localSavedFlashcardIds 가 비어 있다`() = runBlocking {
+    fun `returns empty localSavedFlashcardIds on second save with the same request`() = runBlocking {
         // 1회차: 정상 저장
         store.save(request)
 
@@ -99,7 +99,7 @@ class CorrectionFlashcardStoreTest {
     }
 
     @Test
-    fun `동일 요청 2회 호출 후 저장된 카드는 단일 row 를 유지한다`() = runBlocking {
+    fun `maintains single row per card after saving the same request twice`() = runBlocking {
         store.save(request)
         store.save(request)
 
@@ -116,7 +116,7 @@ class CorrectionFlashcardStoreTest {
     }
 
     @Test
-    fun `rollback 대상은 이번 호출에서 새로 저장된 카드만으로 좁혀진다`() = runBlocking {
+    fun `scopes rollback target to only newly saved cards in the current call`() = runBlocking {
         // 1회차 저장: s-a, s-b 모두 신규 저장
         val firstResult = store.save(request)
 
@@ -135,7 +135,7 @@ class CorrectionFlashcardStoreTest {
     }
 
     @Test
-    fun `1회차 저장 후 부분 실패 재시도 시 미저장 카드만 새로 저장된다`() = runBlocking {
+    fun `saves only unsaved cards when retrying after partial failure`() = runBlocking {
         // 'only-a' 카드만 먼저 저장된 상태를 만든다 (s-b 저장 전 실패 시뮬레이션)
         val partialRequest = CorrectionSaveRequest(
             uid = "uid-idem-1",

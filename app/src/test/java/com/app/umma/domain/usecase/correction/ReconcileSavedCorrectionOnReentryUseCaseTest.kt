@@ -36,7 +36,7 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
     // ----- AlreadySaved: 갭 감지 -----
 
     @Test
-    fun `캐시 suggestion id 가 전부 저장돼 있으면 AlreadySaved 를 반환한다`() = runBlocking {
+    fun `returns AlreadySaved when all cached suggestion ids are already saved`() = runBlocking {
         flashcardRepository.savedCards = listOf(flashcard("s-1"), flashcard("s-2"))
 
         val result = useCase(
@@ -51,7 +51,7 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
     }
 
     @Test
-    fun `AlreadySaved 판정 시 correctionAvailable=false 신호를 ApplyCorrectionSignalUpdateUseCase 로 내린다`() =
+    fun `sends correctionAvailable false signal via ApplyCorrectionSignalUpdateUseCase when AlreadySaved`() =
         runBlocking {
             flashcardRepository.savedCards = listOf(flashcard("s-1"))
 
@@ -72,7 +72,7 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
         }
 
     @Test
-    fun `AlreadySaved 판정 시 sourceEventId 가 결정적으로 동일하다`() = runBlocking {
+    fun `generates deterministic sourceEventId regardless of cached suggestion id order when AlreadySaved`() = runBlocking {
         flashcardRepository.savedCards = listOf(flashcard("s-1"), flashcard("s-2"))
 
         // 호출 순서가 달라도 sorted 이므로 같은 eventId
@@ -96,7 +96,7 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
     // ----- NotSaved: 정상 복원 흐름 -----
 
     @Test
-    fun `저장되지 않은 suggestion id 가 있으면 NotSaved 를 반환한다`() = runBlocking {
+    fun `returns NotSaved when some cached suggestion ids are not yet saved`() = runBlocking {
         flashcardRepository.savedCards = listOf(flashcard("s-1")) // s-2 는 없음
 
         val result = useCase(
@@ -111,7 +111,7 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
     }
 
     @Test
-    fun `NotSaved 판정 시 correctionAvailable 신호를 내리지 않는다`() = runBlocking {
+    fun `does not send correctionAvailable signal when NotSaved`() = runBlocking {
         flashcardRepository.savedCards = emptyList() // 저장된 카드 없음
 
         useCase(
@@ -129,7 +129,7 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
     }
 
     @Test
-    fun `cachedSuggestionIds 가 비어 있으면 NotSaved 를 반환하고 flashcard 조회를 하지 않는다`() =
+    fun `returns NotSaved without querying flashcard repository when cachedSuggestionIds is empty`() =
         runBlocking {
             // flashcardRepository 를 실패 모드로 두어 호출 시 예외가 발생하도록 한다.
             flashcardRepository.failGet = true

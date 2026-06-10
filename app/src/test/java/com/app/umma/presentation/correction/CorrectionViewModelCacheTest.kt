@@ -90,7 +90,7 @@ class CorrectionViewModelCacheTest {
 
     @Test
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun `재진입 정합성 갭 - 캐시 hit 이지만 suggestion 이 전부 저장된 경우 Content 복원 없이 캐시를 정리한다`() = runTest {
+    fun `reentry gap - clears cache without restoring Content when all suggestions are already saved`() = runTest {
         // 시나리오: Flashcard commit 후 프로세스 사망 → 재진입 → 캐시 있음 + 카드 이미 저장됨(갭)
         val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
         val clearCacheEvents = mutableListOf<String>()
@@ -123,7 +123,7 @@ class CorrectionViewModelCacheTest {
 
     @Test
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun `재진입 정합성 갭 - reconcile 이 NotSaved 를 반환하면 캐시 복원 정상 흐름으로 진행한다`() = runTest {
+    fun `reentry gap - proceeds with normal cache restore when reconcile returns NotSaved`() = runTest {
         // 시나리오: 캐시 hit 이지만 아직 저장 안 된 경우 → 정상 캐시 복원
         val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
         val harness = buildViewModel(

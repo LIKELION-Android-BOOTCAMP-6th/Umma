@@ -102,7 +102,7 @@ class CompleteCorrectionReentryTest {
     // ----- 회귀 테스트 -----
 
     @Test
-    fun `동일 analysisEventId 재완료 시 Flashcard 가 새로 저장되지 않는다`() = runBlocking {
+    fun `does not save new flashcards on reentry with the same analysisEventId`() = runBlocking {
         val analysisEventId = "analysis-reentry-001"
 
         // 1회차 완료
@@ -126,7 +126,7 @@ class CompleteCorrectionReentryTest {
     }
 
     @Test
-    fun `동일 analysisEventId 재완료 시 LangState 가 중복 반영되지 않는다`() = runBlocking {
+    fun `does not apply LangState update again on reentry with the same analysisEventId`() = runBlocking {
         val analysisEventId = "analysis-reentry-002"
 
         // 1회차
@@ -145,7 +145,7 @@ class CompleteCorrectionReentryTest {
     }
 
     @Test
-    fun `동일 analysisEventId 재완료 시 Statistics history id 가 결정적으로 동일하다`() = runBlocking {
+    fun `produces deterministic statistics history id on reentry with the same analysisEventId`() = runBlocking {
         val analysisEventId = "analysis-reentry-003"
 
         // 1회차
@@ -165,7 +165,7 @@ class CompleteCorrectionReentryTest {
     }
 
     @Test
-    fun `1회차는 Flashcard 가 저장되고 2회차 재진입도 success 를 유지한다`() = runBlocking {
+    fun `saves flashcards on first completion and returns success on reentry`() = runBlocking {
         val analysisEventId = "analysis-reentry-004"
 
         val firstResult = useCase(makeInput(analysisEventId, LangState.initial(LangCode.EN)))
