@@ -112,6 +112,10 @@ fun CorrectionScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val correctionReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
     var correctionReviewReportNote by rememberSaveable { mutableStateOf("") }
+    // 선택 0개로 저장 버튼 클릭 시 노출. 확인 → onSkipSaveAndExit, 취소 → 화면 유지.
+    val skipSaveDialogVisible = rememberSaveable { mutableStateOf(false) }
+    // 선택 1개 이상으로 저장 버튼 클릭 시 노출. 확인 → onSaveClicked, 취소 → 화면 유지.
+    val confirmSaveDialogVisible = rememberSaveable { mutableStateOf(false) }
 
     // 화면 진입 시 1회만 Flow 셋업. ViewModel 내부에 가드가 있어 재호출되어도 안전.
     LaunchedEffect(Unit) {
@@ -214,10 +218,18 @@ fun CorrectionScreen(
                             .fillMaxWidth()
                             .weight(1f)
                     )
+                    // COR-UX-007: enabled 는 in-flight 여부만 가드(canOpenSaveDialog).
+                    // 선택 수와 무관하게 버튼이 활성되어, 클릭 시 0개/N개 분기 다이얼로그로 진입한다.
                     CorrectionSaveButton(
-                        enabled = uiState.canSave,
+                        enabled = uiState.canOpenSaveDialog,
                         isLoading = uiState.isSavePreparing || uiState.isCompleting,
-                        onClick = viewModel::onSaveClicked,
+                        onClick = {
+                            if (uiState.selectedSuggestionIds.isEmpty()) {
+                                skipSaveDialogVisible.value = true
+                            } else {
+                                confirmSaveDialogVisible.value = true
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = SpacingL, vertical = SpacingM)
@@ -265,10 +277,17 @@ fun CorrectionScreen(
                             .fillMaxWidth()
                             .weight(1f)
                     )
+                    // COR-UX-007: Content 분기와 동일한 정책. Retry phase 에서도 0개/N개 분기 다이얼로그로 진입.
                     CorrectionSaveButton(
-                        enabled = uiState.canSave,
+                        enabled = uiState.canOpenSaveDialog,
                         isLoading = uiState.isSavePreparing || uiState.isCompleting,
-                        onClick = viewModel::onSaveClicked,
+                        onClick = {
+                            if (uiState.selectedSuggestionIds.isEmpty()) {
+                                skipSaveDialogVisible.value = true
+                            } else {
+                                confirmSaveDialogVisible.value = true
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = SpacingL, vertical = SpacingM)
@@ -407,6 +426,58 @@ fun CorrectionScreen(
                     )
                 )
             }
+        }
+    }
+
+    // COR-UX-007: 선택 카드가 0개일 때 노출. 확인 → 캐시 정리 + Dashboard 복귀, 취소 → 화면 유지.
+    if (skipSaveDialogVisible.value) {
+        UmmaDialog(
+            title = "저장할 카드가 없어요",
+            modifier = Modifier.padding(horizontal = SpacingL),
+            onCancel = { skipSaveDialogVisible.value = false },
+            onConfirm = {
+                skipSaveDialogVisible.value = false
+                viewModel.onSkipSaveAndExit()
+            },
+            confirmText = "확인",
+            dismissText = "취소",
+            showCancelButton = false,
+        ) {
+            Text(
+                text = "선택하신 카드가 없습니다.\n이후 교정을 위해서는 새로운 대화를 진행하세요.",
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+                lineHeight = 21.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SpacingL),
+            )
+        }
+    }
+
+    // COR-UX-007: 선택 카드가 1개 이상일 때 노출. 확인 → 기존 저장 흐름 진입, 취소 → 선택 상태 유지.
+    if (confirmSaveDialogVisible.value) {
+        UmmaDialog(
+            title = "학습 카드 저장",
+            modifier = Modifier.padding(horizontal = SpacingL),
+            onCancel = { confirmSaveDialogVisible.value = false },
+            onConfirm = {
+                confirmSaveDialogVisible.value = false
+                viewModel.onSaveClicked()
+            },
+            confirmText = "확인",
+            dismissText = "취소",
+            showCancelButton = false,
+        ) {
+            Text(
+                text = "카드 ${uiState.selectedSuggestionIds.size}개가 학습 카드로 저장됩니다.",
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+                lineHeight = 21.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SpacingL),
+            )
         }
     }
 }
