@@ -323,6 +323,18 @@ class SrsStudyViewModel @Inject constructor(
         }
     }
 
+    /**
+     * SRS 화면이 보이지 않게 되면 진행 중인 TTS를 중단한다.
+     *
+     * onCleared()만으로는 백그라운드 전환 시 즉시 정지가 안 되므로,
+     * 화면 이탈(ON_STOP/onDispose) 시 명시적으로 호출해 백그라운드 재생을 막는다.
+     */
+    fun stopPronunciation() {
+        pronunciationPlaybackRequestId++
+        ttsController.stop()
+        _uiState.update { it.copy(isSpeaking = false) }
+    }
+
     override fun onCleared() {
         pronunciationPlaybackRequestId++
         super.onCleared()
