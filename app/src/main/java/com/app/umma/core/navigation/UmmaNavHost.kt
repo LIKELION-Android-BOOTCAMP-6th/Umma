@@ -70,11 +70,13 @@ fun UmmaNavHost(
                 val correctionCompletionMessage =
                     backStackEntry.savedStateHandle.get<String>(CorrectionCompletionMessageKey)
                 DashboardScreen(
-                    onNavigateToChat = { navController.navigate(Route.Chat) },
-                    onNavigateToStatistics = { navController.navigate(Route.Statistics) },
-                    onNavigateToSrsStudy = { navController.navigate(Route.SrsStudy) },
-                    onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
-                    onNavigateToMyPage = { navController.navigate(Route.MyPage) },
+                    // navigateSingle: 서로 다른 카드 동시 탭 → 첫 탭만 통과(화면 단위 가드)
+                    // rememberDashboardCardClick throttle 은 같은 카드 연타 방지 보조로 병행 유지
+                    onNavigateToChat = { navController.navigateSingle(Route.Chat) },
+                    onNavigateToStatistics = { navController.navigateSingle(Route.Statistics) },
+                    onNavigateToSrsStudy = { navController.navigateSingle(Route.SrsStudy) },
+                    onNavigateToCorrection = { navController.navigateSingle(Route.CorrectionList) },
+                    onNavigateToMyPage = { navController.navigateSingle(Route.MyPage) },
                     correctionCompletionMessage = correctionCompletionMessage,
                     onCorrectionCompletionMessageConsumed = {
                         backStackEntry.savedStateHandle.remove<String>(
