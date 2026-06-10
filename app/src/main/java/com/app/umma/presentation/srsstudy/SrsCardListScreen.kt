@@ -122,8 +122,6 @@ fun SrsCardListScreen(
                         ) {
                             Text(
                                 "AI 교정하러 가기",
-                                style = TextSecondaryR,
-                                color = TextPrimary,
                             )
                         }
                     }
