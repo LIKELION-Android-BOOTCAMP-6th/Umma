@@ -1,6 +1,7 @@
 package com.app.umma.presentation.srsstudy
 
 import android.util.Log
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -75,6 +77,7 @@ import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
 import com.app.umma.core.theme.SpacingS
 import com.app.umma.core.theme.SpacingXL
+import com.app.umma.core.theme.TextAnalysisR
 import com.app.umma.core.theme.TextCardR
 import com.app.umma.core.theme.TextCorrect
 import com.app.umma.core.theme.TextCorrectionSB
@@ -84,6 +87,7 @@ import com.app.umma.core.theme.TextSecondaryR
 import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleB
+import com.app.umma.core.theme.TitleColor
 import com.app.umma.core.theme.TitleScreenSB
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.modifier.attentionBorder
@@ -141,6 +145,9 @@ fun SrsStudyScreen(
     }
 
     Scaffold(
+        // 루트 Scaffold가 이미 하단 네비/시스템 inset을 처리하므로,
+        // 화면 자체 Scaffold는 inset을 중복 적용하지 않는다(버튼 아래 이중 여백 방지).
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             UmmaAppBar(
                 title = "학습",
@@ -202,30 +209,41 @@ private fun SrsStudyContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = SpacingL, vertical = SpacingL),
+            .padding(horizontal = SpacingL)
+            .padding(vertical = SpacingM),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(SpacingS))
-        // 현재 카드 개수 / 총 카드 개수 - 우측 정렬
+        // 현재 카드 개수 / 총 카드 개수
+        val displayTotalCount = uiState.studiedCardCount.takeIf { it > 0 } ?: uiState.cards.size
+        val displayCurrentCount = (uiState.currentCardIndex + 1)
+            .coerceAtMost(displayTotalCount)
+            .coerceAtLeast(1)
+
         Text(
-            text = "${uiState.currentCardIndex + 1}/${uiState.cards.size}",
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.End
+            text = "$displayCurrentCount / $displayTotalCount",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = SpacingS),
+            textAlign = TextAlign.End,
+            style = TextAnalysisR,
+            color = TitleColor
         )
         // 클릭 시 플래시카드 뒤집기
         SrsFlashCard(
+            modifier = Modifier.weight(1f),
             card = card,
             isFlipped = uiState.isCardFlipped,
             isSpeaking = uiState.isSpeaking,
             onFlip = onCardFlip,
             onSpeak = onSpeak
         )
-        Spacer(modifier = Modifier.height(SpacingXL))
-        // 앞면: 버튼 탭 -> 뒤집기 / 뒷면: 버튼 탭 -> 즉시 저장 + 다음 카드
+        Spacer(modifier = Modifier.height(SpacingS))
+        // 앞면은 카드 영역 탭으로만 뒤집고, 하단 평가 버튼은 뒷면에서만 활성화한다.
         SrsRatingButtons(
             isFlipped = uiState.isCardFlipped,
+            isSaving = uiState.isSaving,
             onRatingSelected = onRatingSelected,
-            onFlip = onCardFlip,
             againLabel = uiState.againLabel,
             hardLabel = uiState.hardLabel,
             goodLabel = uiState.goodLabel,
@@ -237,6 +255,7 @@ private fun SrsStudyContent(
 //----- 플래시 카드 클릭 시 앞 뒤 전환
 @Composable
 private fun SrsFlashCard(
+    modifier: Modifier = Modifier,
     card: Flashcard,
     isFlipped: Boolean,
     isSpeaking: Boolean,
@@ -244,9 +263,8 @@ private fun SrsFlashCard(
     onSpeak: () -> Unit
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(280.dp)
             // 카드가 앞면일때만 클릭 유도를 위한 강조 테두리
             .then(
                 if (!isFlipped) {
@@ -262,10 +280,16 @@ private fun SrsFlashCard(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = CardElevation)
     ) {
-        if (isFlipped) {
-            SrsCardBack(card = card, isSpeaking = isSpeaking, onSpeak = onSpeak)
-        } else {
-            SrsCardFront(card = card)
+        // 카드 전환(뒤집기/다음 카드)이 하드 컷으로 보이지 않도록 내용만 부드럽게 교차 페이드한다.
+        Crossfade(
+            targetState = card to isFlipped,
+            label = "srsCardFace"
+        ) { (currentCard, flipped) ->
+            if (flipped) {
+                SrsCardBack(card = currentCard, isSpeaking = isSpeaking, onSpeak = onSpeak)
+            } else {
+                SrsCardFront(card = currentCard)
+            }
         }
     }
 }
@@ -417,8 +441,8 @@ private fun SrsCardBack(
 @Composable
 private fun SrsRatingButtons(
     isFlipped: Boolean,
+    isSaving: Boolean,
     onRatingSelected: (ReviewRating) -> Unit,
-    onFlip: () -> Unit,
     againLabel: String,
     hardLabel: String,
     goodLabel: String,
@@ -436,8 +460,9 @@ private fun SrsRatingButtons(
                 RatingAgain,
                 icon = Icons.Default.Refresh,
                 isFlipped = isFlipped,
+                enabled = isFlipped && !isSaving,
                 onClick = {
-                    if (isFlipped) onRatingSelected(ReviewRating.AGAIN) else onFlip()
+                    onRatingSelected(ReviewRating.AGAIN)
                 }
             )
             SrsRatingButton(
@@ -447,9 +472,9 @@ private fun SrsRatingButtons(
                 RatingHard,
                 icon = Icons.Default.SentimentNeutral,
                 isFlipped = isFlipped,
+                enabled = isFlipped && !isSaving,
                 onClick = {
-                    if (isFlipped) onRatingSelected(ReviewRating.HARD)
-                    else onFlip()
+                    onRatingSelected(ReviewRating.HARD)
                 }
             )
         }
@@ -465,11 +490,9 @@ private fun SrsRatingButtons(
                 ThemePrimary,
                 icon = Icons.Default.SentimentSatisfiedAlt,
                 isFlipped = isFlipped,
+                enabled = isFlipped && !isSaving,
                 onClick = {
-                    if (isFlipped) onRatingSelected(
-                        ReviewRating.GOOD
-                    )
-                    else onFlip()
+                    onRatingSelected(ReviewRating.GOOD)
                 }
             )
             SrsRatingButton(
@@ -479,9 +502,9 @@ private fun SrsRatingButtons(
                 RatingEasy,
                 icon = Icons.Default.SentimentVerySatisfied,
                 isFlipped = isFlipped,
+                enabled = isFlipped && !isSaving,
                 onClick = {
-                    if (isFlipped) onRatingSelected(ReviewRating.EASY)
-                    else onFlip()
+                    onRatingSelected(ReviewRating.EASY)
                 }
             )
         }
@@ -496,19 +519,28 @@ private fun SrsRatingButton(
     iconColor: Color,
     icon: ImageVector,
     isFlipped: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val disabledContentColor = TextCorrect.copy(alpha = 0.45f)
+    val buttonContentColor = if (enabled) TextPrimary else disabledContentColor
+    val buttonSubTextColor = if (enabled) TextCorrect else disabledContentColor
+    val buttonIconColor = if (enabled) iconColor else disabledContentColor
+
     Card(
         modifier = modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
-            // 앞면이면 ripple 없이 카드만 뒤집음
-            indication = if (isFlipped) LocalIndication.current else null
+            // 앞면에서는 평가를 저장할 수 없으므로 하단 버튼 영역 자체를 비활성화한다.
+            indication = if (isFlipped) LocalIndication.current else null,
+            enabled = enabled
         ) { onClick() },
         elevation = CardDefaults.cardElevation(
             defaultElevation = CardElevation,
         ),
         colors =
-            CardDefaults.cardColors(containerColor = if (isFlipped) Color.White else BackgroundDeactivated)
+            CardDefaults.cardColors(
+                containerColor = if (isFlipped && enabled) Color.White else BackgroundDeactivated
+            )
     ) {
         Column(
             modifier = Modifier
@@ -524,7 +556,7 @@ private fun SrsRatingButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = iconColor,
+                    tint = buttonIconColor,
                     modifier = Modifier
                         .size(24.dp)
                         .align(Alignment.Center)
@@ -534,13 +566,13 @@ private fun SrsRatingButton(
             Text(
                 text = label,
                 style = ButtonScreenB,
-                color = TextPrimary
+                color = buttonContentColor
             )
             // 다시, 10분, 1일, 4일
             Text(
                 text = time,
                 style = TextCardR,
-                color = TextCorrect
+                color = buttonSubTextColor
             )
         }
     }
@@ -599,8 +631,6 @@ private fun SrsEmptyContent(
         ) {
             Text(
                 "AI 교정하러 가기",
-                style = TextSecondaryR,
-                color = TextPrimary,
             )
         }
     }
