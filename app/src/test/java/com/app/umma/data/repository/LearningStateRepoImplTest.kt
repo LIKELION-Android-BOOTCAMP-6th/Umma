@@ -417,17 +417,31 @@ class LearningStateRepoImplTest {
         repo.updateCorrectionSignal(input).getOrThrow()
         // Correction 완료 파이프라인이 같은 summary를 false로 내린 상태를 만든다.
         // 이후 같은 turn retry가 오면 repo의 idempotent 기준이 event id뿐인지 검증할 수 있다.
+        //
+        // 리팩토링 후: Summary 계산은 UseCase 책임이므로, repo 직접 호출 시 prepared Summary 를 함께 넘긴다.
+        // correctionAvailable=false 를 담아야 실제 Summary 가 false 로 저장된다.
+        val langForTest = LangCode.EN
+        val preparedDash = DashSummary.initial(langForTest).copy(
+            correctionAvailable = false,
+            updatedAt = 3_000L
+        )
+        val preparedSession = SessionSummary.initial(langForTest).copy(
+            correctionAvailable = false,
+            updatedAt = 3_000L
+        )
         repo.updateLanguageState(
             LangStateUpdateInput(
                 uid = USER_UID,
-                lang = LangCode.EN,
+                lang = langForTest,
                 sessionMemoryKey = "session-en",
                 analysisEventId = "analysis-after-correction",
-                currentState = LangState.initial(LangCode.EN, createdAt = 1_000L),
-                preparedState = LangState.initial(LangCode.EN, createdAt = 1_000L).copy(
+                currentState = LangState.initial(langForTest, createdAt = 1_000L),
+                preparedState = LangState.initial(langForTest, createdAt = 1_000L).copy(
                     updatedAt = 3_000L,
                     lastAnalysisEventId = "analysis-after-correction"
                 ),
+                preparedDashSummary = preparedDash,
+                preparedSessionSummary = preparedSession,
                 recentUserTurns = listOf(
                     ConversationTurn(
                         speaker = TurnSpeaker.USER,

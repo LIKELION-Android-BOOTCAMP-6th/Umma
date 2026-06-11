@@ -27,6 +27,7 @@ import com.app.umma.domain.model.learningstate.LearningSignalSource
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
+import com.app.umma.domain.model.learningstate.TurnSpeaker
 import com.app.umma.domain.model.learningstate.UserLangPref
 import com.app.umma.domain.repository.LearningStateRepo
 import kotlinx.coroutines.flow.firstOrNull
@@ -93,8 +94,79 @@ class ApplyLanguageStateUpdateUseCase @Inject constructor(
                     "focus=${preparedState.analysisMeta.activeFocus.size} " +
                     "lastSignalAt=${preparedState.analysisMeta.lastSignalAt ?: "none"}"
         )
-        // 저장소는 계산을 모르고, 받아온 preparedState를 snapshot으로만 저장한다.
-        return repo.updateLanguageState(input.copy(preparedState = preparedState))
+
+        // RecalculateFromInput 일 때만 Summary 를 계산한다.
+        // 이 계산은 원래 Repository 의 RecalculateFromInput 분기에 있었으나,
+        // 아키텍처 규칙(Repository=저장/통신만)에 따라 UseCase 로 이전한다.
+        // PreserveExisting(Chat evidence 경로)은 기존 Summary 를 건드리지 않으므로 계산하지 않는다.
+        val preparedDashSummary: DashSummary?
+        val preparedSessionSummary: SessionSummary?
+        if (input.summaryUpdatePolicy == LangStateSummaryUpdatePolicy.RecalculateFromInput) {
+            // 현재 저장된 Summary 를 기준으로 갱신한다. 없으면 초기값으로 시작한다.
+            val currentDash = repo.observeDashSummary(input.lang).firstOrNull()
+                ?: DashSummary.initial(input.lang)
+            val currentSession = repo.observeSessionSummary(input.lang).firstOrNull()
+                ?: SessionSummary.initial(input.lang)
+
+            val measuredMinutes = calculateRecentMinutes(input)
+            val hasUserTurns = input.recentUserTurns.any { it.speaker == TurnSpeaker.USER }
+            val correctionAvailable = input.correctionAvailableOverride ?: hasUserTurns
+
+            // 교정 완료 흐름이 새 주제를 넘겨준 경우에만 갱신하고, 그 외 부분 갱신 호출은 이전 값을 보존한다.
+            // dash/session 양쪽에 같은 값을 기록해 Dashboard 카드와 Chat 진입 시 주제가 어긋나지 않게 한다.
+            val nextTopic = input.recentTopic ?: currentSession.recentTopic ?: currentDash.recentTopic
+            preparedDashSummary = currentDash.copy(
+                recentMinutes = measuredMinutes,
+                recentTopic = nextTopic,
+                correctionAvailable = correctionAvailable,
+                grammarDelta = deltaFromInternal(preparedState.external.grammarAccuracy),
+                fluencyDelta = deltaFromInternal(preparedState.external.fluencyScore),
+                vocabDelta = deltaFromInternal(preparedState.external.vocabularyLevel.ordinal.toDouble() / 5.0),
+                naturalnessDelta = deltaFromInternal(preparedState.external.naturalnessScore),
+                updatedAt = input.analyzedAt
+            )
+            preparedSessionSummary = currentSession.copy(
+                recentMinutes = measuredMinutes,
+                recentTopic = nextTopic,
+                correctionAvailable = correctionAvailable,
+                updatedAt = input.analyzedAt
+            )
+        } else {
+            // PreserveExisting: Summary 를 계산하지 않으며 Repository 가 기존 값을 유지한다.
+            preparedDashSummary = null
+            preparedSessionSummary = null
+        }
+
+        // 저장소는 계산을 모르고, 받아온 prepared 값을 snapshot으로만 저장한다.
+        return repo.updateLanguageState(
+            input.copy(
+                preparedState = preparedState,
+                preparedDashSummary = preparedDashSummary,
+                preparedSessionSummary = preparedSessionSummary
+            )
+        )
+    }
+
+    /**
+     * 분석 입력의 사용자 발화 길이를 분 단위 근사치로 환산한다.
+     *
+     * 기존에 LearningStateRepoImpl.calculateRecentMinutes 에 있던 로직이다.
+     * Repository 는 계산을 모른다는 계약에 따라 이 계층으로 이전한다.
+     */
+    private fun calculateRecentMinutes(input: LangStateUpdateInput): Int {
+        val totalDurationMs = input.recentUserTurns.sumOf { it.durationMs ?: 0L }
+        if (totalDurationMs <= 0L) return 0
+        return (totalDurationMs / 60_000L).toInt()
+    }
+
+    /**
+     * 내부 지표(0.0~1.0)를 Dashboard 표시용 정수 delta(0~100)로 환산한다.
+     *
+     * 기존에 LearningStateRepoImpl.deltaFromInternal 에 있던 로직이다.
+     * Repository 는 계산을 모른다는 계약에 따라 이 계층으로 이전한다.
+     */
+    private fun deltaFromInternal(value: Double): Int {
+        return (value * 100).toInt().coerceIn(0, 100)
     }
 }
 
@@ -464,6 +536,7 @@ class ApplyChatSignalUpdateUseCase @Inject constructor(
     }
 
     private data class MetricDirectionUpdate(
+
         val key: LearningMetricKey,
         val direction: EvidenceDirection
     )
