@@ -158,14 +158,13 @@ fun UmmaNavHost(
                 CorrectionScreen(
                     onNavigateToDashboard = { message, outcome, learningLanguage ->
                         // COR-007-A: 완료 파이프라인 성공 직후 Dashboard 로 복귀.
-                        // - popUpTo<CorrectionGraph>{inclusive=true}: CorrectionGraph 를 backstack 에서 통째로
-                        //   제거해, 비정상 진입 경로(Dashboard 없이 Correction 으로 진입)에서도 backstack 이
-                        //   깔끔하게 정리되도록 한다. 기존 Umma 네비게이션 컨벤션(현재 그래프 통째 정리)과 일관.
-                        // - launchSingleTop=true: 정상 경로(Dashboard → Correction → Dashboard)에서 기존
-                        //   Dashboard 인스턴스를 재사용해 스크롤/상태를 보존하고 중복 push 도 방지한다.
+                        // - payload 는 기존 Dashboard entry 에 저장되므로 Dashboard 까지 pop 해 해당 entry 를
+                        //   top 으로 만든다. Statistics/SRS 등 중간 화면에서 Correction 으로 진입한 경우에도
+                        //   새 Dashboard entry 가 생성되어 payload 가 유실되는 일을 막는다.
+                        // - launchSingleTop=true: top 이 된 Dashboard 인스턴스를 재사용해 스크롤/상태를 보존한다.
                         navController.setCorrectionCompletionMessage(message, outcome, learningLanguage)
                         navController.navigate(Route.Dashboard) {
-                            popUpTo<Route.CorrectionGraph> { inclusive = true }
+                            popUpTo<Route.Dashboard> { inclusive = false }
                             launchSingleTop = true
                         }
                     },

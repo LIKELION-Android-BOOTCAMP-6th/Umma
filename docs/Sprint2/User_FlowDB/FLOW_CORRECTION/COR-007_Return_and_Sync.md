@@ -70,6 +70,8 @@ COR-006 local completion success
 ```
 
 - 복귀 payload는 교정 결과(`SAVED` / `NO_FLASHCARD`)와 교정을 수행한 학습 언어를 함께 전달한다.
+- 완료 시 기존 Dashboard entry에 payload를 저장한 뒤 `popUpTo<Dashboard>(inclusive=false)`로 해당 entry를 top으로 만든다.
+- Statistics/SRS 등 중간 화면에서 교정으로 진입했어도 중간 화면과 Correction을 제거하고 기존 Dashboard를 재사용한다.
 - Dashboard가 재생성되어 학습 상태가 아직 준비되지 않았으면 ViewModel이 복귀 payload를 pending으로 보관한다.
 - 첫 유효 `UserLangPref` snapshot 이후 payload의 언어에 온보딩 전이를 적용하며, Dashboard의 현재 선택 언어로 덮어쓰지 않는다.
 - ViewModel에 pending 등록한 뒤 navigation `savedStateHandle`의 message/outcome/language를 함께 소비한다.
