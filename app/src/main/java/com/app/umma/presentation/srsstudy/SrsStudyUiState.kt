@@ -30,7 +30,7 @@ data class SrsStudyUiState(
     val studiedCardCount: Int = 0,
     // 평가 버튼에 표시할 다음 복습 간격 문자열
     // 카드가 바뀔 때마다 ViewModel이 실제 스케줄 계산 결과로 표기
-    // Again 은 현재 세션에 재노출하지 않고 1분 뒤 재학습 대상이 되므로 "재학습" 고정, 나머지는 동적 계산값
+    // Again 은 현재 세션에 재노출하지 않고 재진입 시 바로 복습 대상이 되므로 "재학습" 고정, 나머지는 동적 계산값
     val againLabel: String = "재학습",
     val hardLabel: String = "1일",
     val goodLabel: String = "2일",
