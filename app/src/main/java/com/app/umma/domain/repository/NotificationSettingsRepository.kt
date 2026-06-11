@@ -61,4 +61,14 @@ interface NotificationSettingsRepository {
      * 현재 기기를 발송 대상에서 제외한다.
      */
     suspend fun unregisterCurrentDevice(): Result<Unit>
+
+    /**
+     * 앱 최초 실행 시 알림 권한을 이미 요청했는지 여부를 반환한다.
+     */
+    suspend fun hasRequestedLaunchNotificationPermission(): Boolean
+
+    /**
+     * 앱 최초 실행 시 알림 권한을 요청했음을 기록한다.
+     */
+    suspend fun markLaunchNotificationPermissionRequested()
 }

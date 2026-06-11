@@ -12,6 +12,10 @@ import com.app.umma.domain.usecase.auth.GetCurrentUserUidUseCase
 import com.app.umma.domain.usecase.auth.IsSessionStillActiveUseCase
 import com.app.umma.domain.usecase.auth.LogoutUseCase
 import com.app.umma.domain.usecase.auth.SignInWithGoogleUseCase
+import com.app.umma.domain.usecase.notification.HasRequestedLaunchNotificationPermissionUseCase
+import com.app.umma.domain.usecase.notification.MarkLaunchNotificationPermissionRequestedUseCase
+import com.app.umma.domain.usecase.notification.SetMarketingNotificationEnabledUseCase
+import com.app.umma.domain.usecase.notification.SetSrsNotificationEnabledUseCase
 import com.app.umma.domain.usecase.user.GetSystemLanguageUseCase
 import com.app.umma.domain.usecase.user.InitializeUserDataUseCase
 import com.app.umma.domain.usecase.user.ValidateNicknameUseCase
@@ -46,6 +50,10 @@ class AuthViewModel @Inject constructor(
     private val getSystemLanguageUseCase: GetSystemLanguageUseCase,
     private val sessionRepository: SessionRepository,
     private val isSessionStillActiveUseCase: IsSessionStillActiveUseCase,
+    private val hasRequestedLaunchNotificationPermissionUseCase: HasRequestedLaunchNotificationPermissionUseCase,
+    private val markLaunchNotificationPermissionRequestedUseCase: MarkLaunchNotificationPermissionRequestedUseCase,
+    private val setSrsNotificationEnabledUseCase: SetSrsNotificationEnabledUseCase,
+    private val setMarketingNotificationEnabledUseCase: SetMarketingNotificationEnabledUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState(googleState = GoogleAuthState.FAILED))
@@ -210,7 +218,10 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun onLanguageSelectAndSave(selectedLearningLanguage: LangCode) {
+    fun onLanguageSelectAndSave(
+        selectedLearningLanguage: LangCode,
+        notificationPermissionGranted: Boolean
+    ) {
         _uiState.update { it.copy(isLoading = true) }
 
         viewModelScope.launch {
@@ -237,6 +248,10 @@ class AuthViewModel @Inject constructor(
                 topics = emptyList()
             )
             result.onSuccess {
+                // 신규 사용자 최초 설정: 알림 권한이 허용된 경우에만 학습/마케팅 알림을 기본 활성화한다.
+                setSrsNotificationEnabledUseCase(notificationPermissionGranted)
+                setMarketingNotificationEnabledUseCase(notificationPermissionGranted)
+
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -267,6 +282,11 @@ class AuthViewModel @Inject constructor(
      */
     fun checkSession() {
         viewModelScope.launch {
+            // 앱 최초 실행(설치 후 첫 실행) 시에만 알림 권한을 요청한다.
+            if (!hasRequestedLaunchNotificationPermissionUseCase()) {
+                _uiState.update { it.copy(shouldRequestNotificationPermission = true) }
+            }
+
             // 강제 로그아웃 FCM을 처리한 적 있다면(백그라운드/종료 상태) 안내 메시지 표시 대상
             val hasPendingForceLogout = sessionRepository.consumePendingForceLogoutNotice()
 
@@ -347,6 +367,19 @@ class AuthViewModel @Inject constructor(
      */
     fun consumeForceLogoutMessage() {
         _uiState.update { it.copy(forceLogoutMessage = null) }
+    }
+
+    /**
+     * 앱 최초 실행 시 알림 권한 요청 결과를 처리한다.
+     * 허용/거부 여부와 관계없이 다시 요청하지 않도록 기록만 한다.
+     * (학습/마케팅 알림 기본값 적용은 신규 사용자 초기 설정 시
+     * [onLanguageSelectAndSave] 에서 이뤄진다.)
+     */
+    fun onLaunchNotificationPermissionResult() {
+        _uiState.update { it.copy(shouldRequestNotificationPermission = false) }
+        viewModelScope.launch {
+            markLaunchNotificationPermissionRequestedUseCase()
+        }
     }
 
     /**

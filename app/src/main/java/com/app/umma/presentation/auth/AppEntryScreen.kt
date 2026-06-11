@@ -1,5 +1,9 @@
 package com.app.umma.presentation.auth
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
+import android.content.pm.PackageManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.R
 import com.app.umma.core.theme.BackgroundPrimary
@@ -31,9 +38,33 @@ fun AppEntryScreen(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         // 앱 진입 시 최초 1회 자동 로그인 세션 체크하기 위해 호출
         viewModel.checkSession()
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        viewModel.onLaunchNotificationPermissionResult()
+    }
+
+    LaunchedEffect(uiState.shouldRequestNotificationPermission) {
+        if (!uiState.shouldRequestNotificationPermission) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            viewModel.onLaunchNotificationPermissionResult()
+            return@LaunchedEffect
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            viewModel.onLaunchNotificationPermissionResult()
+        } else {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
 
