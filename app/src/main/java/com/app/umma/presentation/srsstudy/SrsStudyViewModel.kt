@@ -248,7 +248,7 @@ class SrsStudyViewModel @Inject constructor(
     /**
      * 플래시 카드 바뀔 때마다 호출
      * 평가 버튼마다 간격 텍스트 갱신
-     * Again은 현재 세션에 재노출하지 않고 1분 뒤 재학습 대상이 되므로 "재학습" 고정
+     * Again은 현재 세션에 재노출하지 않고 학습 재진입 시 바로 복습 대상이 되므로 "재학습" 고정
      */
     private fun updateRatingLabels(card: Flashcard) {
         val now = System.currentTimeMillis()
