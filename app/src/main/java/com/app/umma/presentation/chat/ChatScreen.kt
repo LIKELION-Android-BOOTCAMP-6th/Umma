@@ -290,7 +290,7 @@ fun ChatScreen(
                             } else {
                                 "자막 보기"
                             },
-                            tint = if (uiState.showSubtitle) ThemePrimary else BackgroundDeactivated
+                            tint = ThemePrimary
                         )
                     }
                 }
