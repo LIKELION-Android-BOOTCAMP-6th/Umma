@@ -28,6 +28,7 @@ import com.app.umma.core.theme.TextSecondaryR
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleB
 import com.app.umma.core.theme.TitleColor
+import com.app.umma.core.ui.component.EmptyCtaContent
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.domain.model.statistics.StatisticsMetricType
 import com.app.umma.presentation.statistics.component.StatisticsConversationLevelGuideDialog
@@ -47,6 +48,7 @@ import com.app.umma.presentation.statistics.model.StatisticsSyncState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatisticsScreen(
+    onNavigateToCorrection: () -> Unit,
     viewModel: StatisticsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -65,7 +67,8 @@ fun StatisticsScreen(
                 uiState = uiState,
                 modifier = Modifier.padding(paddingValues),
                 onRetry = viewModel::retry,
-                onMetricClick = viewModel::onMetricClick
+                onMetricClick = viewModel::onMetricClick,
+                onNavigateToCorrection = onNavigateToCorrection
             )
         }
 
@@ -91,7 +94,8 @@ internal fun StatisticsContent(
     uiState: StatisticsUiState,
     modifier: Modifier = Modifier,
     onRetry: () -> Unit,
-    onMetricClick: (StatisticsMetricType) -> Unit
+    onMetricClick: (StatisticsMetricType) -> Unit,
+    onNavigateToCorrection: () -> Unit
 ) {
     // Preview와 실제 화면이 같은 분기/레이아웃을 공유하도록,
     // Scaffold 바깥의 순수 UI 조립 로직을 따로 분리해 둔다.
@@ -113,6 +117,16 @@ internal fun StatisticsContent(
                 message = uiState.errorMessage,
                 isRetryable = uiState.isRetryable,
                 onRetry = onRetry
+            )
+
+            // overview 는 있으나 모든 지표가 미측정인 신규-언어 상태.
+            // Loading / Error 다음에 평가해 초기 컨텍스트 미준비 시 오노출을 방지한다.
+            uiState.isContentEmpty -> EmptyCtaContent(
+                title = "아직 보여줄 통계가 없어요",
+                subtitle = "AI와 대화하고 교정을 받으면 실력 변화가 쌓여요",
+                ctaText = "AI 교정하러 가기",
+                onCta = onNavigateToCorrection,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             // overview 가 준비되면 STAT-002/003이 사용할 최소 컨텍스트를 보여준다.

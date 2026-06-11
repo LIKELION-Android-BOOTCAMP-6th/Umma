@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SentimentVerySatisfied
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,7 +68,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.ButtonScreenB
 import com.app.umma.core.theme.CardElevation
-import com.app.umma.core.theme.ChipCornerRadius
 import com.app.umma.core.theme.RatingAgain
 import com.app.umma.core.theme.RatingEasy
 import com.app.umma.core.theme.RatingHard
@@ -89,6 +87,7 @@ import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleB
 import com.app.umma.core.theme.TitleColor
 import com.app.umma.core.theme.TitleScreenSB
+import com.app.umma.core.ui.component.EmptyCtaContent
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.modifier.attentionBorder
 import com.app.umma.domain.model.flashcard.Flashcard
@@ -605,34 +604,19 @@ private fun SrsErrorContent(modifier: Modifier = Modifier, onRetry: () -> Unit) 
     }
 }
 
-/** 복습할 카드 없음 */
+/** 복습할 카드 없음 — EmptyCtaContent 공용 컴포넌트로 위임한다 */
 @Composable
 private fun SrsEmptyContent(
     modifier: Modifier = Modifier,
     onNavigateToCorrection: () -> Unit
 ) {
     Log.d("ummaDev", "SrsEmptyContent -----")
-
-    Column(
+    EmptyCtaContent(
+        title = "오늘 복습할 카드가 없어요",
+        subtitle = "내일 다시 확인해보세요",
+        ctaText = "AI 교정하러 가기",
+        onCta = onNavigateToCorrection,
         modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(SpacingS)
-    ) {
-        Text("오늘 복습할 카드가 없어요")
-        Text("내일 다시 확인해보세요")
-        Spacer(modifier = Modifier.height(SpacingL))
-        Button(
-            onClick = onNavigateToCorrection,
-            shape = RoundedCornerShape(ChipCornerRadius),
-            colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
-            modifier = Modifier
-                .padding(top = SpacingL)
-                .padding(horizontal = SpacingL, vertical = SpacingS),
-        ) {
-            Text(
-                "AI 교정하러 가기",
-            )
-        }
-    }
+    )
 }
 

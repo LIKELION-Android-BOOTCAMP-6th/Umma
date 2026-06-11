@@ -107,7 +107,11 @@ fun UmmaNavHost(
 
         // 통계 그래프
         navigation<Route.StatisticsGraph>(startDestination = Route.Statistics) {
-            composable<Route.Statistics> { StatisticsScreen() }
+            composable<Route.Statistics> {
+                StatisticsScreen(
+                    onNavigateToCorrection = { navController.navigateSingle(Route.CorrectionList) }
+                )
+            }
         }
 
         // SRS 반복학습 그래프
