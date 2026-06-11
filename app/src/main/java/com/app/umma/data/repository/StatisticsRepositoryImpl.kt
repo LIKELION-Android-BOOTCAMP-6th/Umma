@@ -102,6 +102,8 @@ class StatisticsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun clearLocal(): Result<Unit> = runCatching { localDataSource.clearAll() }
+
     override suspend fun syncPendingHistories(userId: String): Result<Int> {
         return runCatching {
             // PENDING row는 이미 local-first 저장이 끝난 데이터다.

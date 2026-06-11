@@ -183,6 +183,8 @@ class FlashcardRepositoryImplTest {
             uid: String,
             flashcardIds: List<String>
         ) = Unit
+
+        override suspend fun clearAll() = Unit
     }
 
     private class FakeRemoteDataSource(

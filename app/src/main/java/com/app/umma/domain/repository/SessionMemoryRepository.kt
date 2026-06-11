@@ -71,6 +71,13 @@ interface SessionMemoryRepository {
     suspend fun syncPendingTurns(language: LangCode): Result<Unit>
 
     /**
+     * 회원탈퇴 시 이 Repository 가 소유한 로컬 영속 데이터를 모두 비운다.
+     * domain UseCase 가 Room 구현체를 알지 않도록 정리 계약을 추상화 경계에 둔다.
+     * 실제 정리는 data 레이어 Impl 이 override 하며, fake/test 더블은 no-op 으로 둔다.
+     */
+    suspend fun clearLocal(): Result<Unit> = Result.success(Unit)
+
+    /**
      * 최근 대화 세션(최대 5개)의 주제를 AI로 요약해 Session Memory 의 topicSummaries 에 저장합니다.
      *
      * SYS-LEARNING-STATE-INFRA Session Memory 필드 정의(topicSummaries: 교정 이후 남기는 주제별 압축 요약)에 근거한다.

@@ -58,4 +58,11 @@ interface FlashcardRepository {
         userId: String,
         flashcardIds: List<String>
     ): Result<Unit>
+
+    /**
+     * 회원탈퇴 시 이 Repository 가 소유한 로컬 영속 데이터를 모두 비운다.
+     * domain UseCase 가 Room 구현체를 알지 않도록 정리 계약을 추상화 경계에 둔다.
+     * 실제 정리는 data 레이어 Impl 이 override 하며, fake/test 더블은 no-op 으로 둔다.
+     */
+    suspend fun clearLocal(): Result<Unit> = Result.success(Unit)
 }
