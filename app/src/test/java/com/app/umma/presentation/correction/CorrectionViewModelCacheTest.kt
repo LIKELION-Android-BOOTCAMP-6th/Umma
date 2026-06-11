@@ -34,7 +34,9 @@ import com.app.umma.domain.usecase.correction.ReconcileSavedCorrectionOnReentryU
 import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.correction.FilteredCorrectionCandidatesResult
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
+import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
+import com.app.umma.domain.usecase.onboarding.AdvanceOnboardingGuideUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
@@ -268,6 +270,8 @@ class CorrectionViewModelCacheTest {
         val buildLangStateUpdateInput = mockk<BuildLangStateUpdateInputUseCase>()
         val getFlashcards = mockk<GetFlashcardsUseCase>()
         val reconcileSavedCorrectionOnReentry = mockk<ReconcileSavedCorrectionOnReentryUseCase>()
+        val applyCorrectionSignalUpdate = mockk<ApplyCorrectionSignalUpdateUseCase>(relaxed = true)
+        val advanceOnboardingGuide = mockk<AdvanceOnboardingGuideUseCase>(relaxed = true)
         val ttsController = mockk<TextToSpeechController>(relaxed = true)
         val reportCorrectionPromptReviewUseCase = mockk<ReportCorrectionPromptReviewUseCase>(relaxed = true)
 
@@ -332,6 +336,8 @@ class CorrectionViewModelCacheTest {
             buildLangStateUpdateInput = buildLangStateUpdateInput,
             getFlashcards = getFlashcards,
             reconcileSavedCorrectionOnReentry = reconcileSavedCorrectionOnReentry,
+            applyCorrectionSignalUpdate = applyCorrectionSignalUpdate,
+            advanceOnboardingGuide = advanceOnboardingGuide,
             ttsController = ttsController,
             reportCorrectionPromptReviewUseCase = reportCorrectionPromptReviewUseCase,
             ),

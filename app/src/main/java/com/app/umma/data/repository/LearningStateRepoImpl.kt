@@ -40,6 +40,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -70,6 +72,12 @@ class LearningStateRepoImpl @Inject constructor(
     // persistent storage가 아니라도 동일 세션 내 재호출은 막아야 하므로 repo 수명 동안만 유지한다.
     private val lastCorrectionSignalEventIds = ConcurrentHashMap<LangCode, String>()
 
+    // 복수 코루틴이 동시에 _state 를 수정하는 lost update 경합을 막기 위한 뮤텍스.
+    // 네트워크 I/O 는 락 밖에서 수행하고, _state 읽기→DataStore 저장→_state 쓰기 구간만 감싼다.
+    // kotlinx.coroutines.sync.Mutex 는 비재진입: changePrimaryLang 이 preload/sync 를 내부 호출하므로
+    // 메서드 전체를 잠그지 않고 leaf 임계구역(최종 쓰기 지점)에서만 짧게 보유한다.
+    private val stateMutex = Mutex()
+
     // 앱 세션 동안만 유지되는 즉시 반영용 메모리 스냅샷.
     private val _state = MutableStateFlow(GlobalLangState.initial())
 
@@ -93,7 +101,8 @@ class LearningStateRepoImpl @Inject constructor(
         return try {
             // 앱 시작 시 DataStore의 마지막 저장값을 올려서 화면이 바로 읽게 한다.
             val prefs = dataStore.data.first()
-            _state.value = readSnapshot(prefs)
+            // DataStore 읽기는 락 밖, state 쓰기만 임계구역으로 감싼다.
+            stateMutex.withLock { _state.value = readSnapshot(prefs) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -247,18 +256,23 @@ class LearningStateRepoImpl @Inject constructor(
                 }
             }
 
-            val nextState = current.copy(
-                langStates = current.langStates + (lang to preparedState),
-                dashSummaries = current.dashSummaries + (lang to nextDash),
-                sessionSummaries = current.sessionSummaries + (lang to nextSession),
-                isPreloaded = true
-            )
-            // 이 배치로 바뀐 항목만 pending sync 대상으로 기록한다.
-            persistSnapshot(
-                state = nextState,
-                addPendingSyncKeys = pendingSyncKeys
-            )
-            _state.value = nextState
+            // 락 안에서 최신 state 를 재읽어 merge 함으로써, 락 밖 계산 구간에 일어난
+            // 다른 writer(setOnboardingGuideStage 등)의 변경이 덮어써지지 않도록 한다.
+            stateMutex.withLock {
+                val latest = _state.value
+                val nextState = latest.copy(
+                    langStates = latest.langStates + (lang to preparedState),
+                    dashSummaries = latest.dashSummaries + (lang to nextDash),
+                    sessionSummaries = latest.sessionSummaries + (lang to nextSession),
+                    isPreloaded = true
+                )
+                // 이 배치로 바뀐 항목만 pending sync 대상으로 기록한다.
+                persistSnapshot(
+                    state = nextState,
+                    addPendingSyncKeys = pendingSyncKeys
+                )
+                _state.value = nextState
+            }
 
             LearningSignalFlowLog.d(
                 "store_success lang=${lang.code} eventId=${input.analysisEventId ?: "none"} " +
@@ -319,20 +333,23 @@ class LearningStateRepoImpl @Inject constructor(
             )
 
             val applied = nextFlashcard != previousFlashcard || nextDash != previousDash
-            val nextState = current.copy(
-                flashcardSummaries = current.flashcardSummaries + (lang to nextFlashcard),
-                dashSummaries = current.dashSummaries + (lang to nextDash),
-                isPreloaded = true
-            )
             // SRS due count는 카드 요약과 대시보드 요약이 동시에 같아야 하므로 같은 pending 키를 남긴다.
-            persistSnapshot(
-                state = nextState,
-                addPendingSyncKeys = setOf(
-                    PendingSyncKey.flashcardSummary(lang),
-                    PendingSyncKey.dashSummary(lang)
+            stateMutex.withLock {
+                val latest = _state.value
+                val nextState = latest.copy(
+                    flashcardSummaries = latest.flashcardSummaries + (lang to nextFlashcard),
+                    dashSummaries = latest.dashSummaries + (lang to nextDash),
+                    isPreloaded = true
                 )
-            )
-            _state.value = nextState
+                persistSnapshot(
+                    state = nextState,
+                    addPendingSyncKeys = setOf(
+                        PendingSyncKey.flashcardSummary(lang),
+                        PendingSyncKey.dashSummary(lang)
+                    )
+                )
+                _state.value = nextState
+            }
 
             Result.success(
                 FlashcardSummaryUpdateResult(
@@ -424,22 +441,24 @@ class LearningStateRepoImpl @Inject constructor(
                 updatedAt = input.updatedAt
             )
 
-            val nextState = current.copy(
-                dashSummaries = current.dashSummaries + (lang to nextDash),
-                sessionSummaries = current.sessionSummaries + (lang to nextSession),
-                isPreloaded = true
-            )
-
             // write-back 대상도 세션/대시보드 summary 둘 다 포함해야 remote 복구 후에 다시 어긋나지 않는다.
-            persistSnapshot(
-                state = nextState,
-                addPendingSyncKeys = setOf(
-                    PendingSyncKey.dashSummary(lang),
-                    PendingSyncKey.sessionSummary(lang)
+            stateMutex.withLock {
+                val latest = _state.value
+                val nextState = latest.copy(
+                    dashSummaries = latest.dashSummaries + (lang to nextDash),
+                    sessionSummaries = latest.sessionSummaries + (lang to nextSession),
+                    isPreloaded = true
                 )
-            )
-            _state.value = nextState
-            lastCorrectionSignalEventIds[lang] = input.sourceEventId
+                persistSnapshot(
+                    state = nextState,
+                    addPendingSyncKeys = setOf(
+                        PendingSyncKey.dashSummary(lang),
+                        PendingSyncKey.sessionSummary(lang)
+                    )
+                )
+                _state.value = nextState
+                lastCorrectionSignalEventIds[lang] = input.sourceEventId
+            }
 
             Result.success(
                 CorrectionSignalUpdateResult(
@@ -520,9 +539,11 @@ class LearningStateRepoImpl @Inject constructor(
 
     override suspend fun clear(): Result<Unit> {
         return try {
-            dataStore.edit { it.clear() }
-            _state.value = GlobalLangState.initial()
-            lastCorrectionSignalEventIds.clear()
+            stateMutex.withLock {
+                dataStore.edit { it.clear() }
+                _state.value = GlobalLangState.initial()
+                lastCorrectionSignalEventIds.clear()
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -534,13 +555,16 @@ class LearningStateRepoImpl @Inject constructor(
         transform: (GlobalLangState) -> GlobalLangState
     ): Result<Unit> {
         return try {
-            // 먼저 다음 상태를 계산하고, 저장이 성공해야만 메모리 스냅샷도 바꾼다.
-            val nextState = transform(_state.value)
-            persistSnapshot(
-                state = nextState,
-                addPendingSyncKeys = addPendingSyncKeys
-            )
-            _state.value = nextState
+            // read→transform→DataStore 저장→state 쓰기 를 하나의 임계구역으로 보호한다.
+            // sync() fetch 와 동시에 실행될 때 lost update 가 일어나지 않는다.
+            stateMutex.withLock {
+                val nextState = transform(_state.value)
+                persistSnapshot(
+                    state = nextState,
+                    addPendingSyncKeys = addPendingSyncKeys
+                )
+                _state.value = nextState
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -716,11 +740,13 @@ class LearningStateRepoImpl @Inject constructor(
 
                 // Firestore commit이 성공한 뒤에만 pending key를 지운다.
                 // 실패 시에는 catch로 빠져 DataStore의 pending key가 그대로 남는다.
-                persistSnapshot(
-                    state = localState,
-                    pendingSyncKeysOverride = emptySet()
-                )
-                _state.value = localState
+                stateMutex.withLock {
+                    persistSnapshot(
+                        state = localState,
+                        pendingSyncKeysOverride = emptySet()
+                    )
+                    _state.value = localState
+                }
             } else {
                 // pending write가 없을 때만 remote snapshot을 받아 local cache를 최신화한다.
                 val remote = remoteDataSource.fetch(userUid)
@@ -733,18 +759,26 @@ class LearningStateRepoImpl @Inject constructor(
                     val localState = readSnapshot(latestPrefs)
                     val update = localState.toRemoteUpdate(latestPendingKeys)
                     remoteDataSource.sync(userUid, update).getOrThrow()
-                    persistSnapshot(
-                        state = localState,
-                        pendingSyncKeysOverride = emptySet()
-                    )
-                    _state.value = localState
+                    stateMutex.withLock {
+                        persistSnapshot(
+                            state = localState,
+                            pendingSyncKeysOverride = emptySet()
+                        )
+                        _state.value = localState
+                    }
                     return Result.success(Unit)
                 }
 
                 val next = remote.toGlobalLangState()
                 // fetch는 restore 경로라 pending key를 새로 만들지 않는다.
-                persistSnapshot(next)
-                _state.value = next
+                // fetch 완료 후 락 진입 전에 신규 pending 이 생겼다면 remote 를 덮지 않는다.
+                stateMutex.withLock {
+                    val pendingAfterFetch = dataStore.data.first()[PENDING_SYNC_KEYS].orEmpty()
+                    if (pendingAfterFetch.isEmpty()) {
+                        persistSnapshot(next)
+                        _state.value = next
+                    }
+                }
             }
 
             Result.success(Unit)
