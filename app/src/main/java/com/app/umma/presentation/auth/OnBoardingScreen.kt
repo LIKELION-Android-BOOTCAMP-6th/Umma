@@ -1,5 +1,7 @@
 package com.app.umma.presentation.auth
 
+import android.content.Intent
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -30,6 +32,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.R
 import com.app.umma.core.theme.BackgroundPrimary
@@ -123,6 +126,17 @@ fun OnBoardingScreen(
                                                 webClientId = webClientId
                                             )
                                         viewModel.signInWithGoogle(idToken)
+                                    } catch (e: NoCredentialException) {
+                                        // 기기에 구글 계정이 없으면 시스템 계정 추가 화면으로 보낸다
+                                        viewModel.updateLoading(false)
+                                        viewModel.updateErrorMessage(
+                                            "기기에 구글 계정이 없습니다. 계정을 추가한 뒤 다시 로그인해 주세요."
+                                        )
+                                        val addGoogleAccountIntent =
+                                            Intent(Settings.ACTION_ADD_ACCOUNT).apply {
+                                                putExtra(Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+                                            }
+                                        runCatching { context.startActivity(addGoogleAccountIntent) }
                                     } catch (e: Exception) {
                                         viewModel.updateLoading(false)
                                         viewModel.updateErrorMessage(
