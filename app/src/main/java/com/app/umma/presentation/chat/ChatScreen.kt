@@ -113,6 +113,7 @@ fun ChatScreen(
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
+    var rationaleBeforeRequest by rememberSaveable { mutableStateOf(false) }
     // Chat 라우트가 숨겨질 때 ON_STOP 과 onDispose 가 연달아 들어와도 stop 작업이 중복 실행되지 않게 한다.
     val routeHiddenHandled = remember { mutableStateOf(false) }
     // 신고 버튼은 실제 Firestore report index를 만들기 때문에, 실수 클릭 방지를 위해 확인 다이얼로그를 거친다.
@@ -179,7 +180,8 @@ fun ChatScreen(
                 !ActivityCompat.shouldShowRequestPermissionRationale(
                     activity,
                     Manifest.permission.RECORD_AUDIO
-                )
+                ) &&
+                rationaleBeforeRequest
             viewModel.onMicPermissionDenied(permanently = permanentlyDenied)
         }
     }
@@ -203,6 +205,8 @@ fun ChatScreen(
                     // 이 검사가 없으면 세션 복구(enterChat) 경로로 주제 선택을 우회할 수 있다.
                     viewModel.checkInterestTopics()
                     viewModel.enterChat()
+                    // 설정에서 권한을 허용하고 돌아온 경우 denied 상태를 즉시 해제한다.
+                    if (hasRecordAudioPermission()) viewModel.onMicPermissionGranted()
                 }
 
                 Lifecycle.Event.ON_STOP -> {
@@ -349,7 +353,7 @@ fun ChatScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 72.dp)
-                    .size(64.dp)
+                    .size(75.dp)
                     .border(width = 4.dp, color = Color.White, shape = CircleShape)
                     .shadow(8.dp, CircleShape)
                     .background(
@@ -367,6 +371,11 @@ fun ChatScreen(
                             }
                             uiState.microphonePermissionPermanentlyDenied -> openAppSettings()
                             else -> {
+                                rationaleBeforeRequest = activity != null &&
+                                    ActivityCompat.shouldShowRequestPermissionRationale(
+                                        activity,
+                                        Manifest.permission.RECORD_AUDIO
+                                    )
                                 hasRequestedMicPermission = true
                                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             }
@@ -387,20 +396,20 @@ fun ChatScreen(
                         ChatMicControlState.START -> "Start talking"
                         ChatMicControlState.DISABLED -> "Voice input unavailable"
                     },
+                    modifier = Modifier.size(42.dp),
                     tint = Color.White
                 )
             }
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    // 하단 안내는 bottom edge에 붙으면 시스템 제스처/내비게이션과 시각적으로 충돌한다.
-                    // 마이크 버튼 아래에 남기되, 화면 바닥에서는 충분히 띄워 현재 상태 안내로 읽히게 한다.
-                    .padding(bottom = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (uiState.microphonePermissionDenied) {
+            // 권한 거부 안내: 마이크 버튼(bottom=72dp, height=84dp) 위에 배치해 겹침을 방지한다.
+            if (uiState.microphonePermissionDenied) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(bottom = 159.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
                         text = if (uiState.microphonePermissionPermanentlyDenied) {
                             "마이크 권한이 영구 거부되었습니다. 설정에서 권한을 확인해주세요."
@@ -411,8 +420,27 @@ fun ChatScreen(
                         style = TextAnalysisR,
                         textAlign = TextAlign.Center
                     )
+                    if (uiState.microphonePermissionPermanentlyDenied) {
+                        Button(
+                            onClick = { openAppSettings() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = SpacingS)
+                        ) {
+                            Text(text = "Open Settings")
+                        }
+                    }
                 }
+            }
 
+            // 대화 중 상태 메시지: 마이크 버튼 아래 기존 위치 유지
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 uiState.micStatusMessage?.let { message ->
                     // 이 문구는 저장되는 subtitle 이 아니라 현재 마이크/AI 처리 상태를 설명하는
                     // 화면 전용 보조 정보다. 회전 후에도 ViewModel 상태가 유지되면 같은 문구가 다시 그려진다.
@@ -424,17 +452,6 @@ fun ChatScreen(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = SpacingS)
                     )
-                }
-
-                if (uiState.microphonePermissionPermanentlyDenied) {
-                    Button(
-                        onClick = { openAppSettings() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = SpacingS)
-                    ) {
-                        Text(text = "Open Settings")
-                    }
                 }
 
                 if (uiState.isRecoverableError) {
@@ -894,5 +911,5 @@ private const val REQUIRED_TOPIC_COUNT = 5
 private const val SubtitleReservedVerticalSpaceDp = 500
 private const val SubtitleMinHeightDp = 120
 private const val SubtitleMaxHeightDp = 220
-private val SubtitleBottomPadding = 140.dp
+private val SubtitleBottomPadding = 156.dp
 private val SubtitleScrollHintHeight = 34.dp

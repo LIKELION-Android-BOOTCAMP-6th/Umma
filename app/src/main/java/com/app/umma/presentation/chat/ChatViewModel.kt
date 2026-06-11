@@ -450,6 +450,16 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun onMicPermissionGranted() {
+        _uiState.update {
+            it.copy(
+                microphonePermissionDenied = false,
+                microphonePermissionPermanentlyDenied = false,
+                errorMessage = null
+            )
+        }
+    }
+
     /**
      * 사용자 발화 turn 녹음을 시작합니다.
      */
