@@ -44,7 +44,7 @@
 
 - **읽는 문장은 `afterText`(교정 후, 대상 언어).** 헤더 `nativeText`는 모국어 의도 문장(앞면)이라 발음 학습 가치가 낮다. SRS가 뒷면(대상 언어)을 읽는 것과 일관되게 교정문을 읽는다. (PM 합의: `afterText`.)
 - **재생 상태는 id 단위로 추적.** SRS는 카드 한 장이라 `isSpeaking: Boolean`이면 충분하지만, 교정은 목록이므로 `speakingSuggestionId: String?`로 어느 카드가 재생 중인지 구분해 그 카드만 tint를 바꾼다.
-- **TTS 생명주기는 SRS와 일치.** `TextToSpeechController`는 Singleton이라 SRS도 별도 shutdown을 하지 않는다. 본 화면도 동일하게 두되, 화면 이탈 시 진행 중 재생 중단 여부는 SRS 동작과 맞춘다(SRS가 stop하지 않으면 동일).
+- **TTS 생명주기는 SRS와 일치.** `TextToSpeechController`는 Singleton이라 별도 shutdown 없이 재사용한다. 화면 이탈 시 진행 중 재생 중단 정책도 SRS와 동일하게 맞춘다 — `CorrectionViewModel.stopPronunciation()`을 `CorrectionScreen`의 `LifecycleEventObserver`(ON_STOP) 와 `DisposableEffect`(onDispose) 에서 호출해 홈 버튼 백그라운드 진입 및 화면 전환 시 TTS를 즉시 중단한다. `onCleared()`만으로는 홈 버튼 백그라운드 진입을 커버하지 못하므로 화면 레이어에서 직접 연결한다. (COR-FIX-014)
 
 ---
 

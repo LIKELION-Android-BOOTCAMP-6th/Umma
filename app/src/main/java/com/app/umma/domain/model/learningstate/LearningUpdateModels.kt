@@ -68,7 +68,10 @@ data class FlashcardReviewEvent(
  * Language State batch update에 필요한 입력 묶음.
  *
  * 실제 정책 계산은 도메인/유스케이스 계층에서 수행하고,
- * Repository는 preparedState를 원자적으로 저장하는 역할만 맡는다.
+ * Repository는 preparedState와 preparedSummary를 원자적으로 저장하는 역할만 맡는다.
+ *
+ * Summary 계산(delta/분 환산/correctionAvailable) 책임은 UseCase 계층에 있다.
+ * Repository는 계산된 준비 값을 받아 저장만 수행하며, 직접 계산하지 않는다.
  */
 data class LangStateUpdateInput(
     // 사용자 식별자.
@@ -83,6 +86,12 @@ data class LangStateUpdateInput(
     val currentState: LangState,
     // UseCase가 계산해 둔 최종 저장 후보.
     val preparedState: LangState? = null,
+    // UseCase가 RecalculateFromInput 정책에 따라 계산해 둔 DashSummary 저장 후보.
+    // null이면 Repository가 기존 Summary를 보존한다(PreserveExisting 또는 비정상 입력 안전 처리).
+    val preparedDashSummary: DashSummary? = null,
+    // UseCase가 RecalculateFromInput 정책에 따라 계산해 둔 SessionSummary 저장 후보.
+    // null이면 Repository가 기존 Summary를 보존한다(PreserveExisting 또는 비정상 입력 안전 처리).
+    val preparedSessionSummary: SessionSummary? = null,
     // 이번 분석에 사용된 사용자 발화.
     val recentUserTurns: List<ConversationTurn>,
     // 교정 결과가 있으면 함께 반영한다.
@@ -90,7 +99,7 @@ data class LangStateUpdateInput(
     // 교정 완료처럼 correctionAvailable 값을 명시적으로 덮어써야 하는 경우 사용한다.
     val correctionAvailableOverride: Boolean? = null,
     // 교정 완료 흐름에서 dash/session summary 의 recentTopic 을 함께 갱신할 때 사용한다.
-    // null 이면 Repository 가 이전 값을 보존한다 — 부분 갱신 호출자가 주제를 지우지 않도록.
+    // null 이면 기존 값을 보존한다 — 부분 갱신 호출자가 주제를 지우지 않도록.
     val recentTopic: String? = null,
     // 플래시카드 복습 이벤트 묶음.
     val flashcardReviewEvents: List<FlashcardReviewEvent>,

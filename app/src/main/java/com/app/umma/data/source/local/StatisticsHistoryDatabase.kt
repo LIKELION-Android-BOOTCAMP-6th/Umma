@@ -13,7 +13,9 @@ import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.SyncStatus
 import com.app.umma.domain.model.learningstate.VocabLevel
 import com.app.umma.domain.model.statistics.StatisticsHistory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -163,6 +165,16 @@ class StatisticsHistoryLocalDataSource @Inject constructor(
         if (historyIds.isEmpty()) return
         // Firestore mirror 성공 이후에만 local 상태도 SYNCED 로 정리한다.
         dao.updateSyncStatus(userId, historyIds, SyncStatus.SYNCED.name)
+    }
+
+    /**
+     * 회원탈퇴 시 이 LocalDataSource 가 소유한 모든 Row 를 삭제한다.
+     * domain UseCase 가 Room 구현체를 알지 않도록 정리 책임을 이 경계에 위임한다.
+     */
+    suspend fun clearAll() {
+        withContext(Dispatchers.IO) {
+            database.clearAllTables()
+        }
     }
 }
 

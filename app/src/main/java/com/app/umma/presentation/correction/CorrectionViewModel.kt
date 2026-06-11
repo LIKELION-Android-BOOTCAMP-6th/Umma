@@ -495,7 +495,9 @@ class CorrectionViewModel @Inject constructor(
                 com.app.umma.domain.model.correction.CorrectionEmptyResultReason.NO_CORRECTION_NEEDED
             } else {
                 null
-            }
+            },
+            // COR-FIX-013: 신고 시 promptBand 메타로 기록할 수 있도록 band를 payload에 실어 UiState로 전달한다.
+            band = profile.correctionPolicy.band,
         )
     }
 
@@ -633,6 +635,29 @@ class CorrectionViewModel @Inject constructor(
     }
 
     /**
+     * 교정 화면이 보이지 않게 되면 진행 중인 TTS를 중단한다.
+     *
+     * [onCleared] 만으로는 백그라운드 전환(홈 버튼)을 커버하지 못한다 — ViewModel 은 화면 dispose
+     * 시점에야 clear 되므로, 홈 버튼으로 백그라운드 진입한 상황에서는 재생이 계속된다. 따라서 화면
+     * 이탈(ON_STOP / onDispose) 시점에 [CorrectionScreen] 이 본 함수를 명시적으로 호출한다.
+     * SRS 의 동명 함수([com.app.umma.presentation.srsstudy.SrsStudyViewModel.stopPronunciation])와
+     * 동일한 정책이다.
+     *
+     * - [speakingPlaybackRequestId] 를 증가시켜 이미 큐잉된 stale 콜백(onComplete 등)이 새 상태를
+     *   덮어쓰지 못하게 무효화한다([onPlaySuggestionAudio] 의 clearIfLatest 가드와 동일한 id 기준).
+     * - [ttsController.stop][com.app.umma.core.tts.TextToSpeechController.stop] 호출 — Singleton TTS
+     *   라 stop 은 이미 종료/미초기화 상태에서도 안전한 no-op.
+     * - [CorrectionUiState.speakingSuggestionId] = null 로 스피커 활성 표시가 남지 않게 한다.
+     *
+     * 회전/구성 변경/이미 정지된 상태에서 중복 호출되어도 위 세 동작 모두 멱등이라 안전하다.
+     */
+    fun stopPronunciation() {
+        speakingPlaybackRequestId++
+        ttsController.stop()
+        _uiState.update { it.copy(speakingSuggestionId = null) }
+    }
+
+    /**
      * 전체 선택/해제 토글.
      *
      * AC:
@@ -736,6 +761,8 @@ class CorrectionViewModel @Inject constructor(
                 errorReason = current.errorReason,
                 saveErrorReason = current.saveErrorReason,
                 completionErrorReason = current.completionErrorReason,
+                // COR-FIX-013: 파이프라인에서 보존해 둔 band를 스냅샷에 실어 Firestore에 promptBand로 기록한다.
+                promptBand = current.correctionBand?.name,
             )
 
             reportCorrectionPromptReviewUseCase(snapshot)
@@ -783,8 +810,14 @@ class CorrectionViewModel @Inject constructor(
                 Log.w(TAG, "onSkipSaveAndExit — lang unavailable, skipping cache clear")
             }
             // 안내 토스트와 함께 Dashboard 복귀를 1회 발화한다.
-            // CorrectionEvent.NavigateToDashboard 를 재사용해 NavHost 처리 코드를 건드리지 않는다.
-            _events.send(CorrectionEvent.NavigateToDashboard(message = SKIP_SAVE_TOAST))
+            // 선택 0개 skip = 미산출 → NO_FLASHCARD 로 온보딩 리셋 신호를 전달한다.
+            _events.send(
+                CorrectionEvent.NavigateToDashboard(
+                    message = SKIP_SAVE_TOAST,
+                    outcome = CorrectionReturnOutcome.NO_FLASHCARD,
+                    learningLanguage = lang,
+                )
+            )
         }
     }
 
@@ -926,9 +959,17 @@ class CorrectionViewModel @Inject constructor(
             // 로 이미 빠져 나갔으므로, 여기 도달 자체가 "Phase.Done 으로 전환되었다" 의 동의어다.
             // Channel 이라 회전/recomposition 으로 collector 가 재구성되어도 동일 이벤트가 두 번 전달되지 않는다.
             result.getOrNull()?.let { completion ->
+                // savedFlashcardIds 가 비어 있으면 카드 미산출(completeEmptySaveRequest) 경로.
+                val outcome = if (completion.savedFlashcardIds.isNotEmpty()) {
+                    CorrectionReturnOutcome.SAVED
+                } else {
+                    CorrectionReturnOutcome.NO_FLASHCARD
+                }
                 _events.send(
                     CorrectionEvent.NavigateToDashboard(
                         message = completion.toDashboardToastMessage(),
+                        outcome = outcome,
+                        learningLanguage = lang,
                     )
                 )
             }

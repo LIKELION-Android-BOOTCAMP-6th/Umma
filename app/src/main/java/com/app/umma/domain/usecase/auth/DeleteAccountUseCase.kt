@@ -1,6 +1,6 @@
 package com.app.umma.domain.usecase.auth
 
-import android.util.Log
+import com.app.umma.core.logging.AuthFlowLog
 import com.app.umma.domain.repository.AuthRepository
 import javax.inject.Inject
 
@@ -25,16 +25,12 @@ class DeleteAccountUseCase @Inject constructor(
         // 원격 삭제가 끝난 뒤에는 로컬 정리가 일부 실패해도 로그인 해제 상태로 복귀시키는 것이 우선이다.
         clearUserLocalDataUseCase()
             .onFailure { error ->
-                Log.w(TAG, "Local cleanup failed after remote account deletion.", error)
+                AuthFlowLog.w("Local cleanup failed after remote account deletion.", error)
             }
         signOutUseCase()
             .onFailure { error ->
-                Log.w(TAG, "Sign-out cleanup failed after remote account deletion.", error)
+                AuthFlowLog.w("Sign-out cleanup failed after remote account deletion.", error)
             }
         return Result.success(Unit)
-    }
-
-    private companion object {
-        const val TAG = "DeleteAccountUseCase"
     }
 }

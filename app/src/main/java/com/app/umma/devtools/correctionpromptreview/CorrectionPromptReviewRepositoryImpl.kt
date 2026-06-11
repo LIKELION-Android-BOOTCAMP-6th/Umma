@@ -45,6 +45,8 @@ class CorrectionPromptReviewRepositoryImpl @Inject constructor(
             val updatedAt = System.currentTimeMillis()
             val reviewMap = mapOf(
                 "reportId" to reportId,
+                // COR-FIX-013: userId 추가 — reportMap과 동일한 owner 필드를 리뷰 문서에도 유지해 도구 일관성 확보.
+                "userId" to snapshot.uid,
                 "uid" to snapshot.uid,
                 "language" to snapshot.language.code,
                 "primaryLanguage" to snapshot.primaryLanguage?.code,
@@ -53,6 +55,8 @@ class CorrectionPromptReviewRepositoryImpl @Inject constructor(
                 "reportedAt" to snapshot.reportedAt,
                 "updatedAt" to updatedAt,
                 "sourceKey" to snapshot.sourceKey,
+                // COR-FIX-013: 적용된 교정 성장 band — 리뷰 문서에도 기록해 export 도구에서 바로 읽을 수 있게 한다.
+                "promptBand" to snapshot.promptBand,
                 "suggestionCount" to snapshot.suggestions.size,
                 "selectedSuggestionIds" to snapshot.selectedSuggestionIds.toList().sorted(),
                 "suggestions" to snapshot.suggestions.map(::suggestionMap),
@@ -65,6 +69,9 @@ class CorrectionPromptReviewRepositoryImpl @Inject constructor(
             )
             val reportMap = mapOf(
                 "reportId" to reportId,
+                // COR-FIX-013: Firestore rules validate top-level index with userId (== request.auth.uid).
+                // Keep uid for existing tooling compatibility.
+                "userId" to snapshot.uid,
                 "uid" to snapshot.uid,
                 "reviewId" to reportId,
                 "reviewPath" to reviewPath,
@@ -76,6 +83,8 @@ class CorrectionPromptReviewRepositoryImpl @Inject constructor(
                 "reportedAt" to snapshot.reportedAt,
                 "updatedAt" to updatedAt,
                 "sourceKey" to snapshot.sourceKey,
+                // COR-FIX-013: 적용된 교정 성장 band — 콘솔에서 프롬프트 튜닝 효과를 band별로 추적한다.
+                "promptBand" to snapshot.promptBand,
                 "suggestionCount" to snapshot.suggestions.size,
                 "selectedCount" to snapshot.selectedSuggestionIds.size,
                 "errorReason" to snapshot.errorReason,
@@ -100,7 +109,7 @@ class CorrectionPromptReviewRepositoryImpl @Inject constructor(
                 LOG_TAG,
                 "correctionReviewSaved uid=${snapshot.uid} reportId=$reportId " +
                     "lang=${snapshot.language.code} suggestions=${snapshot.suggestions.size} " +
-                    "reviewPath=$reviewPath"
+                    "promptBand=${snapshot.promptBand ?: "unknown"} reviewPath=$reviewPath"
             )
         }
     }

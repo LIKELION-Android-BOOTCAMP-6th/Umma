@@ -126,6 +126,12 @@ interface CorrectionFlashcardLocalDataSource {
         uid: String,
         flashcardIds: List<String>
     )
+
+    /**
+     * 회원탈퇴 시 이 LocalDataSource 가 소유한 모든 Row 를 삭제한다.
+     * domain UseCase 가 Room 구현체를 알지 않도록 정리 책임을 이 경계에 위임한다.
+     */
+    suspend fun clearAll()
 }
 
 /**
@@ -332,6 +338,10 @@ interface CorrectionFlashcardDao {
         userId: String,
         flashcardIds: List<String>
     )
+
+    /** 회원탈퇴 시 테이블 전체를 비운다. 단일 테이블 DB 이므로 clearAllTables() 와 등가다. */
+    @Query("DELETE FROM correction_flashcards")
+    suspend fun clearAll()
 }
 
 @Database(
@@ -500,6 +510,10 @@ class RoomCorrectionFlashcardLocalDataSource @Inject constructor(
             userId = uid,
             flashcardIds = flashcardIds
         )
+    }
+
+    override suspend fun clearAll() {
+        dao.clearAll()
     }
 
     private fun CorrectionFlashcardDto.toEntity(userId: String): CorrectionFlashcardEntity {

@@ -35,6 +35,14 @@ data class StatisticsUiState(
     val isRetryable: Boolean = false
 ) {
     // UI가 자주 꺼내 쓰는 값은 state 내부에서 바로 접근할 수 있게 계산 프로퍼티로 둔다.
+
+    // overview 는 조립됐지만 모든 지표 카드가 "측정 준비 중/측정 중" placeholder 인 신규-언어 상태.
+    // 카드 중 하나라도 isAvailable 이면 부분 데이터이므로 Empty 가 아니다(오탐 방지).
+    // metricSummaryCards 가 비어 있으면(아직 변환 전) Empty 로 잘못 분기하지 않도록 isNotEmpty() 보호.
+    val isContentEmpty: Boolean = overview != null &&
+        metricSummaryCards.isNotEmpty() &&
+        metricSummaryCards.all { !it.isAvailable }
+
     val selectedLearningLanguage = overview?.selectedLearningLanguage
     val currentExternalMetrics = overview?.currentExternalMetrics
     val currentLangAbilityStats = overview?.currentLangAbilityStats

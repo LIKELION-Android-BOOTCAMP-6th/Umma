@@ -7,6 +7,7 @@ import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateResult
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.SessionSummary
 import com.app.umma.domain.repository.FlashcardRepository
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
@@ -268,6 +269,9 @@ class ReconcileSavedCorrectionOnReentryUseCaseTest {
             sessionSummary: SessionSummary,
             flashcardSummary: com.app.umma.domain.model.learningstate.FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
+
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
 
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
         override suspend fun sync(): Result<Unit> = Result.success(Unit)

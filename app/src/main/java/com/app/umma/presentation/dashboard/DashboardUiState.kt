@@ -4,6 +4,37 @@ import com.app.umma.core.ui.UiText
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.LangCode
 
+/**
+ * 대시보드 카드 식별자.
+ * 통계 카드는 온보딩 펄스 미적용이므로 포함하지 않는다.
+ */
+enum class DashboardCard { CONVERSATION, CORRECTION, STUDY }
+
+/**
+ * summary 의 카드 영역별 데이터 유무로 Empty 플래그 4개를 계산한다.
+ *
+ * 프레젠테이션 파생 로직이므로 domain 이 아닌 presentation 패키지에 둔다.
+ * summary==null(신규/preload 직후)이면 모든 카드 Empty=true 로 안전하게 평가된다.
+ */
+internal fun dashboardCardEmptyFlags(summary: DashSummary?): DashboardCardEmptyFlagsResult =
+    DashboardCardEmptyFlagsResult(
+        conversationEmpty = summary?.recentTopic == null && (summary?.recentMinutes ?: 0) == 0,
+        studyEmpty = (summary?.dueFlashcards ?: 0) == 0 && (summary?.savedFlashcards ?: 0) == 0,
+        feedbackEmpty = summary?.correctionAvailable != true,
+        statisticsEmpty = (summary?.grammarDelta ?: 0) == 0 &&
+            (summary?.vocabDelta ?: 0) == 0 &&
+            (summary?.fluencyDelta ?: 0) == 0 &&
+            (summary?.naturalnessDelta ?: 0) == 0,
+    )
+
+/** [dashboardCardEmptyFlags] 의 반환 타입. */
+internal data class DashboardCardEmptyFlagsResult(
+    val conversationEmpty: Boolean,
+    val studyEmpty: Boolean,
+    val feedbackEmpty: Boolean,
+    val statisticsEmpty: Boolean,
+)
+
 data class DashboardUiState(
     // 진입 직후 첫 프레임에서 Skeleton 이 즉시 보이도록 true 로 시작.
     val isLoading: Boolean = true,
@@ -43,4 +74,18 @@ data class DashboardUiState(
     //   true 면 DashboardError 화면 분기. 재시도 버튼은 onEnter() 재호출.
     //   userPref==null 인 신규 사용자는 여기 해당 안 됨 (Empty 분기로).
     val hasFatalError: Boolean = false,
+
+    // 카드 영역별 Empty 플래그 — 점·배지 표시 조건.
+    //   isEmpty(전체 대시보드 Empty 분기)와 의미가 다르다:
+    //   isEmpty 는 DashSummary.isEffectivelyEmpty(대화+학습) 기준의 전체 화면 분기이고,
+    //   이 4개는 각 카드가 보여줄 데이터 유무를 독립적으로 판정한다.
+    //   summary==null(신규/preload 직후)이면 모두 true — 카드 Empty 표시와 일치.
+    val conversationEmpty: Boolean = true,
+    val studyEmpty: Boolean = true,
+    val feedbackEmpty: Boolean = true,
+    val statisticsEmpty: Boolean = true,
+
+    // 온보딩 펄스를 표시할 카드. null 이면 펄스 없음(가이드 미진행 / 통계 / DONE 후).
+    //   selectedLearningLanguage 의 OnboardingGuideStage 에서 파생된다.
+    val pulseTarget: DashboardCard? = null,
 )

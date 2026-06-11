@@ -8,9 +8,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AppEntryScreen
 import com.app.umma.presentation.auth.OnBoardingScreen
 import com.app.umma.presentation.chat.ChatScreen
+import com.app.umma.presentation.correction.CorrectionReturnOutcome
 import com.app.umma.presentation.correction.CorrectionScreen
 import com.app.umma.presentation.dashboard.DashboardScreen
 import com.app.umma.presentation.dashboard.MyPageScreen
@@ -69,17 +71,28 @@ fun UmmaNavHost(
             composable<Route.Dashboard> { backStackEntry ->
                 val correctionCompletionMessage =
                     backStackEntry.savedStateHandle.get<String>(CorrectionCompletionMessageKey)
+                val correctionReturnOutcomeRaw =
+                    backStackEntry.savedStateHandle.get<String>(CorrectionReturnOutcomeKey)
+                val correctionReturnOutcome = correctionReturnOutcomeRaw
+                    ?.let { runCatching { CorrectionReturnOutcome.valueOf(it) }.getOrNull() }
+                val correctionReturnLanguage =
+                    backStackEntry.savedStateHandle.get<String>(CorrectionReturnLanguageKey)
+                        ?.let { LangCode.fromCode(it) }
                 DashboardScreen(
-                    onNavigateToChat = { navController.navigate(Route.Chat) },
-                    onNavigateToStatistics = { navController.navigate(Route.Statistics) },
-                    onNavigateToSrsStudy = { navController.navigate(Route.SrsStudy) },
-                    onNavigateToCorrection = { navController.navigate(Route.CorrectionList) },
-                    onNavigateToMyPage = { navController.navigate(Route.MyPage) },
+                    // navigateSingle: 서로 다른 카드 동시 탭 → 첫 탭만 통과(화면 단위 가드)
+                    // rememberDashboardCardClick throttle 은 같은 카드 연타 방지 보조로 병행 유지
+                    onNavigateToChat = { navController.navigateSingle(Route.Chat) },
+                    onNavigateToStatistics = { navController.navigateSingle(Route.Statistics) },
+                    onNavigateToSrsStudy = { navController.navigateSingle(Route.SrsStudy) },
+                    onNavigateToCorrection = { navController.navigateSingle(Route.CorrectionList) },
+                    onNavigateToMyPage = { navController.navigateSingle(Route.MyPage) },
                     correctionCompletionMessage = correctionCompletionMessage,
+                    correctionReturnOutcome = correctionReturnOutcome,
+                    correctionReturnLanguage = correctionReturnLanguage,
                     onCorrectionCompletionMessageConsumed = {
-                        backStackEntry.savedStateHandle.remove<String>(
-                            CorrectionCompletionMessageKey
-                        )
+                        backStackEntry.savedStateHandle.remove<String>(CorrectionCompletionMessageKey)
+                        backStackEntry.savedStateHandle.remove<String>(CorrectionReturnOutcomeKey)
+                        backStackEntry.savedStateHandle.remove<String>(CorrectionReturnLanguageKey)
                     },
                 )
 
@@ -100,7 +113,11 @@ fun UmmaNavHost(
 
         // 통계 그래프
         navigation<Route.StatisticsGraph>(startDestination = Route.Statistics) {
-            composable<Route.Statistics> { StatisticsScreen() }
+            composable<Route.Statistics> {
+                StatisticsScreen(
+                    onNavigateToCorrection = { navController.navigateSingle(Route.CorrectionList) }
+                )
+            }
         }
 
         // SRS 반복학습 그래프
@@ -139,16 +156,15 @@ fun UmmaNavHost(
         navigation<Route.CorrectionGraph>(startDestination = Route.CorrectionList) {
             composable<Route.CorrectionList> {
                 CorrectionScreen(
-                    onNavigateToDashboard = { message ->
+                    onNavigateToDashboard = { message, outcome, learningLanguage ->
                         // COR-007-A: 완료 파이프라인 성공 직후 Dashboard 로 복귀.
-                        // - popUpTo<CorrectionGraph>{inclusive=true}: CorrectionGraph 를 backstack 에서 통째로
-                        //   제거해, 비정상 진입 경로(Dashboard 없이 Correction 으로 진입)에서도 backstack 이
-                        //   깔끔하게 정리되도록 한다. 기존 Umma 네비게이션 컨벤션(현재 그래프 통째 정리)과 일관.
-                        // - launchSingleTop=true: 정상 경로(Dashboard → Correction → Dashboard)에서 기존
-                        //   Dashboard 인스턴스를 재사용해 스크롤/상태를 보존하고 중복 push 도 방지한다.
-                        navController.setCorrectionCompletionMessage(message)
+                        // - payload 는 기존 Dashboard entry 에 저장되므로 Dashboard 까지 pop 해 해당 entry 를
+                        //   top 으로 만든다. Statistics/SRS 등 중간 화면에서 Correction 으로 진입한 경우에도
+                        //   새 Dashboard entry 가 생성되어 payload 가 유실되는 일을 막는다.
+                        // - launchSingleTop=true: top 이 된 Dashboard 인스턴스를 재사용해 스크롤/상태를 보존한다.
+                        navController.setCorrectionCompletionMessage(message, outcome, learningLanguage)
                         navController.navigate(Route.Dashboard) {
-                            popUpTo<Route.CorrectionGraph> { inclusive = true }
+                            popUpTo<Route.Dashboard> { inclusive = false }
                             launchSingleTop = true
                         }
                     },
@@ -172,10 +188,24 @@ fun UmmaNavHost(
 }
 
 private const val CorrectionCompletionMessageKey = "correction_completion_message"
+private const val CorrectionReturnOutcomeKey = "correction_return_outcome"
+private const val CorrectionReturnLanguageKey = "correction_return_language"
 
-private fun NavHostController.setCorrectionCompletionMessage(message: String) {
+private fun NavHostController.setCorrectionCompletionMessage(
+    message: String,
+    outcome: CorrectionReturnOutcome,
+    learningLanguage: LangCode?,
+) {
     runCatching { getBackStackEntry<Route.Dashboard>() }
         .getOrNull()
         ?.savedStateHandle
-        ?.set(CorrectionCompletionMessageKey, message)
+        ?.also {
+            it[CorrectionCompletionMessageKey] = message
+            it[CorrectionReturnOutcomeKey] = outcome.name
+            if (learningLanguage != null) {
+                it[CorrectionReturnLanguageKey] = learningLanguage.code
+            } else {
+                it.remove<String>(CorrectionReturnLanguageKey)
+            }
+        }
 }

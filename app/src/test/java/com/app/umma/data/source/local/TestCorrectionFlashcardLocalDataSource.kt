@@ -183,6 +183,10 @@ class TestCorrectionFlashcardLocalDataSource : CorrectionFlashcardLocalDataSourc
         }
     }
 
+    override suspend fun clearAll() {
+        flashcardsByUserAndId.clear()
+    }
+
     private fun key(uid: String, flashcardId: String): String {
         return "$uid:$flashcardId"
     }

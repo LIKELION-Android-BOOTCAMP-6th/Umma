@@ -128,12 +128,18 @@ class LearningStateRemoteDataSourceImpl @Inject constructor(
     private fun Map<String, Any?>.toUserLangPrefDto(): UserLangPrefDto? {
         val primaryLanguage = string("primaryLanguage") ?: return null
         val learningLanguages = stringList("learningLanguages")
+        // schema v2 이전 문서에는 없음 → emptyMap으로 안전 초기화(언어별 CONVERSATION 으로 해석).
+        val onboardingStages = map("onboardingGuideStages")
+            ?.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }
+            ?.toMap()
+            .orEmpty()
         return UserLangPrefDto(
             primaryLanguage = primaryLanguage,
             // 원격 preference의 현재 학습 언어가 없으면 설정 문서가 불완전한 상태다.
             // 임의 언어로 복구하면 다른 사용자의 학습 데이터 key처럼 보일 수 있어 기존 흐름처럼 null 처리한다.
             selectedLearningLanguage = string("selectedLearningLanguage") ?: return null,
             learningLanguages = learningLanguages,
+            onboardingGuideStages = onboardingStages,
             schemaVersion = int("schemaVersion") ?: 1,
             updatedAt = long("updatedAt")
         )

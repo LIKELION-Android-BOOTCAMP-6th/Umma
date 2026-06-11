@@ -227,6 +227,8 @@ class SessionMemoryRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun clearLocal(): Result<Unit> = runCatching { localDataSource.clearAll() }
+
     override suspend fun summarizeAndSaveTopics(
         command: SummarizeTopicsCommand
     ): Result<TopicSummarySaveResult> {

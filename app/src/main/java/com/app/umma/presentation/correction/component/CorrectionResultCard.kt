@@ -45,9 +45,8 @@ import com.app.umma.core.theme.TextPrimary
 import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.theme.TitleColor
-import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.domain.model.correction.CorrectionSuggestion
-import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.presentation.correction.preview.CorrectionPreviewSamples
 
 /**
  * 교정 결과 카드 한 장.
@@ -195,7 +194,7 @@ fun CorrectionResultCard(
 @Preview(showBackground = true, backgroundColor = 0xFFF8F2E5, name = "카드 — 정상")
 @Composable
 private fun CorrectionResultCardPreview() {
-    val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
+    val suggestion = CorrectionPreviewSamples.sampleSuggestion()
     CorrectionResultCard(
         suggestion = suggestion,
         isSpeaking = false,
@@ -210,7 +209,7 @@ private fun CorrectionResultCardPreview() {
 @Composable
 private fun CorrectionResultCardSelectedPreview() {
     // COR-004: 선택된 카드의 ThemePrimary border 강조 시각 검증용.
-    val suggestion = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
+    val suggestion = CorrectionPreviewSamples.sampleSuggestion()
     CorrectionResultCard(
         suggestion = suggestion,
         isSpeaking = true,
@@ -224,7 +223,7 @@ private fun CorrectionResultCardSelectedPreview() {
 @Preview(showBackground = true, backgroundColor = 0xFFF8F2E5, name = "카드 — 긴 설명")
 @Composable
 private fun CorrectionResultCardLongExplanationPreview() {
-    val base = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN).first()
+    val base = CorrectionPreviewSamples.sampleSuggestion()
     val longExplanation = base.copy(
         explanation = "3인칭 단수가 아닐 때는 동사 원형을 사용해요. " +
             "'I'는 1인칭이므로 'goes' 대신 'go'를 씁니다. " +

@@ -155,6 +155,8 @@ class FlashcardRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun clearLocal(): Result<Unit> = runCatching { localDataSource.clearAll() }
+
     /**
      * dirty 상태로 남은 카드를 Firestore에 일괄 재시도 sync
      * 성공: 카드 수 반환

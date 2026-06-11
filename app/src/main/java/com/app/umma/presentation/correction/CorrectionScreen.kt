@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -48,7 +49,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.CardElevation
 import com.app.umma.core.theme.ChipCornerRadius
@@ -105,11 +110,12 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CorrectionScreen(
-    onNavigateToDashboard: (String) -> Unit,
+    onNavigateToDashboard: (String, CorrectionReturnOutcome, LangCode?) -> Unit,
     onNavigateToChat: () -> Unit,
     viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val correctionReviewReportConfirmDialogState = rememberSaveable { mutableStateOf(false) }
     var correctionReviewReportNote by rememberSaveable { mutableStateOf("") }
     // 선택 0개로 저장 버튼 클릭 시 노출. 확인 → onSkipSaveAndExit, 취소 → 화면 유지.
@@ -122,6 +128,22 @@ fun CorrectionScreen(
         viewModel.onEnter()
     }
 
+    // COR-FIX-014: onCleared() 만으로는 홈 버튼 백그라운드 진입 시 TTS 가 즉시 멈추지 않는다 —
+    // ViewModel 은 화면 dispose 시점에야 clear 되기 때문이다. SRS 화면과 동일하게 화면 이탈
+    // (ON_STOP / onDispose) 시 stopPronunciation() 을 명시적으로 호출해 재생을 끊는다.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.stopPronunciation()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.stopPronunciation()
+        }
+    }
+
     // COR-007-A: 1회성 effect 채널 collect.
     // - Channel.receiveAsFlow() 라 각 emit 은 단일 collector 에 정확히 한 번 전달된다.
     //   회전/recomposition 으로 LaunchedEffect 가 재시작되어도 이미 소비된 element 는 재발화되지 않는다.
@@ -129,7 +151,11 @@ fun CorrectionScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                is CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard(event.message)
+                is CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard(
+                    event.message,
+                    event.outcome,
+                    event.learningLanguage,
+                )
             }
         }
     }

@@ -10,6 +10,7 @@ import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -254,6 +256,18 @@ class FakeLearningStateRepo @Inject constructor(
         sessionSummary: SessionSummary,
         flashcardSummary: FlashcardSummary
     ): Result<Unit> = Result.success(Unit)
+
+    override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> {
+        _state.update { current ->
+            val pref = current.userPref ?: return@update current
+            current.copy(
+                userPref = pref.copy(
+                    onboardingGuideStages = pref.onboardingGuideStages + (lang to stage)
+                )
+            )
+        }
+        return Result.success(Unit)
+    }
 
     override suspend fun clear(): Result<Unit> {
         _state.value = GlobalLangState.initial()

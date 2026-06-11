@@ -1,6 +1,22 @@
 package com.app.umma.domain.model.learningstate
 
 /**
+ * 신규 사용자 온보딩 퍼널 단계.
+ *
+ * 단방향 퍼널: CONVERSATION → CORRECTION → STUDY → DONE.
+ * 교정 미산출 시 CORRECTION → CONVERSATION 리셋.
+ * DONE 도달 후 모든 이벤트에 no-op — 재진입에도 펄스 없음.
+ * 계정 단위 저장, 학습 언어별 독립 진행(UserLangPref.onboardingGuideStages).
+ * 누락(신규 사용자 / 구버전 저장값)은 CONVERSATION 으로 해석한다.
+ */
+enum class OnboardingGuideStage {
+    CONVERSATION,
+    CORRECTION,
+    STUDY,
+    DONE,
+}
+
+/**
  * 사용자의 앱 전역 학습 언어 컨텍스트.
  */
 data class UserLangPref(
@@ -10,13 +26,16 @@ data class UserLangPref(
     val selectedLang: LangCode,
     // 사용자가 학습 대상으로 추가한 언어 목록. primaryLang도 학습 대상이면 별도 선택을 통해 포함될 수 있다.
     val learningLangs: List<LangCode>,
+    // 언어별 온보딩 가이드 단계. 없으면 CONVERSATION 으로 해석.
+    val onboardingGuideStages: Map<LangCode, OnboardingGuideStage> = emptyMap(),
     // 저장 구조 버전.
     val schema: Int = SCHEMA,
     // 마지막 갱신 시각.
     val updatedAt: Long? = null
 ) {
     companion object {
-        const val SCHEMA = 1
+        // schema 2: onboardingGuideStages 필드 추가.
+        const val SCHEMA = 2
 
         fun initial(
             primaryLang: LangCode,
@@ -27,12 +46,20 @@ data class UserLangPref(
                 primaryLang = primaryLang,
                 selectedLang = selectedLang,
                 learningLangs = listOf(selectedLang),
+                onboardingGuideStages = emptyMap(),
                 schema = SCHEMA,
                 updatedAt = null
             )
         }
     }
 }
+
+/**
+ * 해당 언어의 온보딩 가이드 단계를 반환한다.
+ * 맵에 없으면 CONVERSATION(기본 시작 단계)으로 해석한다.
+ */
+fun UserLangPref.onboardingStageFor(lang: LangCode): OnboardingGuideStage =
+    onboardingGuideStages[lang] ?: OnboardingGuideStage.CONVERSATION
 
 /**
  * 앱 전역에서 현재 사용자 학습 상태를 한 번에 바라보는 스냅샷.

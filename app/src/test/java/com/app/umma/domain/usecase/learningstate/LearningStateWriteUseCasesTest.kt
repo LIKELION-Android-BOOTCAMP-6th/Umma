@@ -26,11 +26,13 @@ import com.app.umma.domain.model.learningstate.FlashcardSummaryUpdateResult
 import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
+import com.app.umma.domain.model.learningstate.OnboardingGuideStage
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LanguageFeatureSignal
 import com.app.umma.domain.model.learningstate.LearningFocusType
 import com.app.umma.domain.model.learningstate.LearningMetricKey
 import com.app.umma.domain.model.learningstate.LearningSignalSource
+import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.ProfileConfidence
 import com.app.umma.domain.model.learningstate.SessionSummary
@@ -327,6 +329,258 @@ class LearningStateWriteUseCasesTest {
         assertEquals(3, result.flashcardSummary.dueFlashcards)
         assertEquals(3, result.dashSummary.dueFlashcards)
         assertEquals(1, repo.flashcardSummaryUpdateCalls)
+    }
+
+    @Test
+    fun `UseCase computes correct recentMinutes from durationMs when RecalculateFromInput`() = runBlocking {
+        // 리팩토링 전 repo.calculateRecentMinutes 와 동일한 결과가 UseCase 에서 계산되는지 검증한다.
+        // durationMs 합 120_000ms = 2분 → recentMinutes=2
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
+        val current = LangState.initial(LangCode.EN, createdAt = 1_000L)
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "event-minutes-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "Hello.", durationMs = 60_000L),
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "How are you?", durationMs = 60_000L)
+                ),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput
+            )
+        ).getOrThrow()
+
+        val preparedDash = repo.lastLangStateUpdateInput?.preparedDashSummary
+        assertNotNull("RecalculateFromInput 시 preparedDashSummary 가 반드시 존재해야 한다", preparedDash)
+        assertEquals("120000ms = 2분", 2, preparedDash?.recentMinutes)
+        val preparedSession = repo.lastLangStateUpdateInput?.preparedSessionSummary
+        assertNotNull("RecalculateFromInput 시 preparedSessionSummary 가 반드시 존재해야 한다", preparedSession)
+        assertEquals(2, preparedSession?.recentMinutes)
+    }
+
+    @Test
+    fun `UseCase computes zero recentMinutes when turns have no durationMs`() = runBlocking {
+        // recentUserTurns 가 비어 있거나 durationMs 가 없으면 0 분 — 기존 동작 보존.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
+        val current = LangState.initial(LangCode.EN, createdAt = 1_000L)
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "event-minutes-2",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "Hi.", durationMs = null)
+                ),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput
+            )
+        ).getOrThrow()
+
+        assertEquals(0, repo.lastLangStateUpdateInput?.preparedDashSummary?.recentMinutes)
+    }
+
+    @Test
+    fun `UseCase computes correctionAvailable from override when RecalculateFromInput`() = runBlocking {
+        // correctionAvailableOverride=false 이면 user turn 이 있어도 correctionAvailable=false 가 되어야 한다.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
+        val current = LangState.initial(LangCode.EN, createdAt = 1_000L)
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "event-correction-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "Hello.", durationMs = 10_000L)
+                ),
+                correctionResult = null,
+                correctionAvailableOverride = false,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput
+            )
+        ).getOrThrow()
+
+        // override=false 이므로 user turn 이 있어도 correctionAvailable 은 false
+        assertFalse(
+            "correctionAvailableOverride=false 이면 correctionAvailable 이 false 여야 한다",
+            repo.lastLangStateUpdateInput?.preparedDashSummary?.correctionAvailable == true
+        )
+        assertFalse(repo.lastLangStateUpdateInput?.preparedSessionSummary?.correctionAvailable == true)
+    }
+
+    @Test
+    fun `UseCase derives correctionAvailable from hasUserTurns when override is null`() = runBlocking {
+        // correctionAvailableOverride=null 이면 USER turn 존재 여부로 결정된다.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
+        val current = LangState.initial(LangCode.EN, createdAt = 1_000L)
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "event-correction-2",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "Hello.", durationMs = 5_000L)
+                ),
+                correctionResult = null,
+                correctionAvailableOverride = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput
+            )
+        ).getOrThrow()
+
+        // USER turn 이 있으므로 correctionAvailable=true
+        assertTrue(
+            "USER turn 이 있으면 correctionAvailable 이 true 여야 한다",
+            repo.lastLangStateUpdateInput?.preparedDashSummary?.correctionAvailable == true
+        )
+    }
+
+    @Test
+    fun `UseCase computes delta values matching deltaFromInternal formula`() = runBlocking {
+        // grammarDelta = (grammarAccuracy * 100).toInt().coerceIn(0, 100)
+        // preparedState.external.grammarAccuracy=0.75 → grammarDelta=75
+        val repo = RecordingLearningStateRepo()
+        val policy = RecordingLangStateAnalysisPolicy(
+            // external.grammarAccuracy=0.75, fluencyScore=0.5, naturalnessScore=0.6 로 고정된 preparedState 반환
+            // VocabLevel: A1=0, A2=1, B1=2, B2=3, C1=4, C2=5
+            // B1.ordinal=2 → 2/5=0.4 → vocabDelta=40
+            fakeNext = LangState.initial(LangCode.EN, createdAt = 1_000L).let { base ->
+                base.copy(
+                    external = base.external.copy(
+                        grammarAccuracy = 0.75,
+                        fluencyScore = 0.50,
+                        naturalnessScore = 0.60,
+                        vocabularyLevel = VocabLevel.B1
+                    )
+                )
+            }
+        )
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, policy)
+        val current = LangState.initial(LangCode.EN, createdAt = 1_000L)
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "event-delta-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "Test.", durationMs = 30_000L)
+                ),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput
+            )
+        ).getOrThrow()
+
+        val dash = repo.lastLangStateUpdateInput?.preparedDashSummary
+        assertNotNull(dash)
+        assertEquals("grammarDelta=(0.75*100).toInt()=75", 75, dash?.grammarDelta)
+        assertEquals("fluencyDelta=(0.50*100).toInt()=50", 50, dash?.fluencyDelta)
+        assertEquals("naturalnesssDelta=(0.60*100).toInt()=60", 60, dash?.naturalnessDelta)
+        // B1.ordinal=2, 2/5=0.4 → (0.4*100).toInt()=40
+        assertEquals("vocabDelta=40", 40, dash?.vocabDelta)
+    }
+
+    @Test
+    fun `UseCase does not compute summary for PreserveExisting policy`() = runBlocking {
+        // PreserveExisting(Chat evidence 경로)에서는 prepared Summary 가 null 이어야 한다.
+        val repo = RecordingLearningStateRepo()
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
+        val current = LangState.initial(LangCode.EN, createdAt = 1_000L)
+        val prepared = current.copy(updatedAt = 2_000L, lastAnalysisEventId = "chat-1")
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = LangCode.EN,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "chat-1",
+                currentState = current,
+                preparedState = prepared,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "hello", durationMs = 0L)
+                ),
+                correctionResult = null,
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.PreserveExisting
+            )
+        ).getOrThrow()
+
+        // PreserveExisting 이면 UseCase 는 Summary 를 계산하지 않으므로 null 이어야 한다.
+        assertTrue(
+            "PreserveExisting 에서 preparedDashSummary 는 null 이어야 한다",
+            repo.lastLangStateUpdateInput?.preparedDashSummary == null
+        )
+        assertTrue(
+            "PreserveExisting 에서 preparedSessionSummary 는 null 이어야 한다",
+            repo.lastLangStateUpdateInput?.preparedSessionSummary == null
+        )
+    }
+
+    @Test
+    fun `UseCase uses existing summary as base when seedSummaries provided`() = runBlocking {
+        // repo 에 기존 DashSummary 가 있을 때 recentTopic fallback 이 올바르게 동작하는지 확인한다.
+        // recentTopic=null(input) → currentSession.recentTopic → currentDash.recentTopic 순 fallback.
+        val repo = RecordingLearningStateRepo()
+        val lang = LangCode.EN
+        repo.seedSummaries(
+            lang = lang,
+            dash = DashSummary.initial(lang).copy(recentTopic = "PreviousTopic"),
+            session = SessionSummary.initial(lang).copy(recentTopic = null)
+        )
+        val useCase = ApplyLanguageStateUpdateUseCase(repo, DefaultLangStateAnalysisPolicy())
+        val current = LangState.initial(lang, createdAt = 1_000L)
+
+        useCase(
+            LangStateUpdateInput(
+                uid = "uid-1",
+                lang = lang,
+                sessionMemoryKey = "session-en",
+                analysisEventId = "event-topic-1",
+                currentState = current,
+                recentUserTurns = listOf(
+                    ConversationTurn(speaker = TurnSpeaker.USER, text = "Hi.", durationMs = 5_000L)
+                ),
+                correctionResult = null,
+                recentTopic = null,         // 입력에 주제가 없으므로 기존 값 보존
+                flashcardReviewEvents = emptyList(),
+                analyzedAt = 2_000L,
+                summaryUpdatePolicy = LangStateSummaryUpdatePolicy.RecalculateFromInput
+            )
+        ).getOrThrow()
+
+        // session.recentTopic=null → dash.recentTopic="PreviousTopic" fallback
+        assertEquals(
+            "recentTopic 이 null 이면 기존 DashSummary 의 topic 을 유지해야 한다",
+            "PreviousTopic",
+            repo.lastLangStateUpdateInput?.preparedDashSummary?.recentTopic
+        )
     }
 
     @Test
@@ -801,6 +1055,20 @@ class LearningStateWriteUseCasesTest {
         var flashcardSummaryUpdateCalls: Int = 0
         var correctionSignalUpdateCalls: Int = 0
         var lastCorrectionSignalInput: CorrectionSignalUpdateInput? = null
+        // UseCase 가 계산한 prepared Summary 가 그대로 전달됐는지 확인하기 위해 캡처한다.
+        var lastLangStateUpdateInput: LangStateUpdateInput? = null
+
+        /** 테스트에서 현재 dash/session summary 를 미리 심어두기 위한 helper. */
+        fun seedSummaries(
+            lang: LangCode,
+            dash: DashSummary,
+            session: SessionSummary
+        ) {
+            state.value = state.value.copy(
+                dashSummaries = state.value.dashSummaries + (lang to dash),
+                sessionSummaries = state.value.sessionSummaries + (lang to session)
+            )
+        }
 
         override fun observeLearningState(): Flow<GlobalLangState> = state
 
@@ -827,8 +1095,9 @@ class LearningStateWriteUseCasesTest {
         override suspend fun updateLanguageState(
             input: LangStateUpdateInput
         ): Result<LearningStateUpdateResult> {
-            // UseCase가 만든 preparedState가 그대로 저장소로 넘어왔는지 확인하려고 echo한다.
+            // UseCase가 만든 preparedState/preparedSummary가 그대로 저장소로 넘어왔는지 확인하려고 echo한다.
             languageStateUpdateCalls += 1
+            lastLangStateUpdateInput = input
             val savedState = input.preparedState ?: input.currentState
             state.value = state.value.copy(
                 langStates = state.value.langStates + (input.lang to savedState)
@@ -919,6 +1188,9 @@ class LearningStateWriteUseCasesTest {
             flashcardSummary: FlashcardSummary
         ): Result<Unit> = Result.success(Unit)
 
+        override suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit> =
+            Result.success(Unit)
+
         override suspend fun clear(): Result<Unit> = Result.success(Unit)
 
         override suspend fun sync(): Result<Unit> = Result.success(Unit)
@@ -997,7 +1269,11 @@ class LearningStateWriteUseCasesTest {
         )
     }
 
-    private class RecordingLangStateAnalysisPolicy : LangStateAnalysisPolicy {
+    private class RecordingLangStateAnalysisPolicy(
+        // delta 검증 테스트처럼 고정된 external metric 이 필요한 경우 직접 주입한다.
+        // null 이면 기존처럼 currentState.copy 로 최소 상태를 돌려준다.
+        private val fakeNext: LangState? = null
+    ) : LangStateAnalysisPolicy {
         // duplicate 방어 이후에만 policy가 호출되는지 세기 위한 계측값이다.
         var analyzeCalls: Int = 0
 
@@ -1005,7 +1281,7 @@ class LearningStateWriteUseCasesTest {
             analyzeCalls += 1
             // 테스트용 policy는 계산 책임이 UseCase 밖으로 분리됐는지만 확인한다.
             // 실제 산출식 검증은 DefaultLangStateAnalysisPolicy가 담당한다.
-            return input.currentState.copy(
+            return fakeNext ?: input.currentState.copy(
                 updatedAt = input.analyzedAt,
                 lastAnalyzedAt = input.analyzedAt,
                 lastAnalysisEventId = input.analysisEventId ?: input.currentState.lastAnalysisEventId

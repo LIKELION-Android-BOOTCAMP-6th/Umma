@@ -11,9 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.app.umma.core.theme.SpacingL
 import com.app.umma.core.theme.SpacingM
-import com.app.umma.data.repository.correction.CorrectionSuggestionFixtures
 import com.app.umma.domain.model.correction.CorrectionSuggestion
-import com.app.umma.domain.model.learningstate.LangCode
+import com.app.umma.presentation.correction.preview.CorrectionPreviewSamples
 
 /**
  * 교정 결과 카드 목록.
@@ -68,7 +67,7 @@ fun CorrectionResultList(
 @Preview(showBackground = true, backgroundColor = 0xFFF8F2E5, name = "카드 목록 — 3장 스크롤")
 @Composable
 private fun CorrectionResultListPreview() {
-    val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+    val suggestions = CorrectionPreviewSamples.sampleSuggestions()
     CorrectionResultList(
         suggestions = suggestions,
         speakingSuggestionId = null,
@@ -82,7 +81,7 @@ private fun CorrectionResultListPreview() {
 @Composable
 private fun CorrectionResultListWithSelectionPreview() {
     // COR-004: 일부만 선택된 상태의 시각 검증용.
-    val suggestions = CorrectionSuggestionFixtures.contentSuggestions(LangCode.EN)
+    val suggestions = CorrectionPreviewSamples.sampleSuggestions()
     CorrectionResultList(
         suggestions = suggestions,
         speakingSuggestionId = suggestions.firstOrNull()?.id,

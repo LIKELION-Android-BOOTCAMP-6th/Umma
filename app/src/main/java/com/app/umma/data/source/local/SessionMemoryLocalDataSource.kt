@@ -2,7 +2,9 @@ package com.app.umma.data.source.local
 
 import androidx.room.withTransaction
 import com.app.umma.domain.model.learningstate.TurnSpeaker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -187,6 +189,16 @@ class SessionMemoryLocalDataSource @Inject constructor(
             updatedAt = updatedAt
         )
         metadataDao.insertOrUpdateMetadata(updated)
+    }
+
+    /**
+     * 회원탈퇴 시 이 LocalDataSource 가 소유한 모든 Row 를 삭제한다.
+     * domain UseCase 가 Room 구현체를 알지 않도록 정리 책임을 이 경계에 위임한다.
+     */
+    suspend fun clearAll() {
+        withContext(Dispatchers.IO) {
+            database.clearAllTables()
+        }
     }
 
     /**

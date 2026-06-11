@@ -42,7 +42,8 @@ fun StatisticsScreenPreview() {
         StatisticsContent(
             uiState = previewUiState(),
             onRetry = {},
-            onMetricClick = {}
+            onMetricClick = {},
+            onNavigateToCorrection = {}
         )
     }
 }
@@ -57,7 +58,8 @@ fun StatisticsSkeletonPreview() {
         StatisticsContent(
             uiState = StatisticsUiState(isLoading = true),
             onRetry = {},
-            onMetricClick = {}
+            onMetricClick = {},
+            onNavigateToCorrection = {}
         )
     }
 }

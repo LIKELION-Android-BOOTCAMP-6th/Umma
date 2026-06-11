@@ -64,10 +64,10 @@ import com.app.umma.core.theme.TextCorrect
 import com.app.umma.core.theme.TextExplanationR
 import com.app.umma.core.theme.TextLogout
 import com.app.umma.core.theme.TextPrimary
-import com.app.umma.core.theme.TextWrong
 import com.app.umma.core.theme.ThemePrimary
 import com.app.umma.core.ui.component.UmmaAppBar
 import com.app.umma.core.ui.component.UmmaDialog
+import com.app.umma.core.ui.modifier.attentionBorder
 import com.app.umma.domain.model.learningstate.DashSummary
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AuthViewModel
@@ -104,6 +104,8 @@ fun DashboardScreen(
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToMyPage: () -> Unit,
     correctionCompletionMessage: String? = null,
+    correctionReturnOutcome: com.app.umma.presentation.correction.CorrectionReturnOutcome? = null,
+    correctionReturnLanguage: LangCode? = null,
     onCorrectionCompletionMessageConsumed: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
@@ -163,6 +165,10 @@ fun DashboardScreen(
     LaunchedEffect(correctionCompletionMessage) {
         correctionCompletionMessage?.let { message ->
             correctionToastMessage = message
+            // 교정 복귀 시 온보딩 stage 전이. outcome null 은 구버전 경로 — no-op.
+            correctionReturnOutcome?.let {
+                viewModel.onCorrectionReturned(it, correctionReturnLanguage)
+            }
             onCorrectionCompletionMessageConsumed()
         }
     }
@@ -228,6 +234,11 @@ fun DashboardScreen(
                 uiState.hasFatalError -> DashboardError(onRetry = viewModel::onEnter)
                 else -> DashboardContent(
                     summary = uiState.summary,
+                    conversationEmpty = uiState.conversationEmpty,
+                    studyEmpty = uiState.studyEmpty,
+                    feedbackEmpty = uiState.feedbackEmpty,
+                    statisticsEmpty = uiState.statisticsEmpty,
+                    pulseTarget = uiState.pulseTarget,
                     onNavigateToStatistics = onNavigateToStatistics,
                     onNavigateToChat = onNavigateToChat,
                     onNavigateToCorrection = onNavigateToCorrection,
@@ -416,6 +427,11 @@ fun DashboardScreen(
 @Composable
 private fun DashboardContent(
     summary: DashSummary?,
+    conversationEmpty: Boolean,
+    studyEmpty: Boolean,
+    feedbackEmpty: Boolean,
+    statisticsEmpty: Boolean,
+    pulseTarget: DashboardCard?,
     onNavigateToStatistics: () -> Unit,
     onNavigateToChat: () -> Unit,
     onNavigateToCorrection: () -> Unit,
@@ -438,6 +454,11 @@ private fun DashboardContent(
 
         DashboardCardGrid(
             summary = summary,
+            conversationEmpty = conversationEmpty,
+            studyEmpty = studyEmpty,
+            feedbackEmpty = feedbackEmpty,
+            statisticsEmpty = statisticsEmpty,
+            pulseTarget = pulseTarget,
             onNavigateToChat = onNavigateToChat,
             onNavigateToSrsStudy = onNavigateToSrsStudy,
             onNavigateToCorrection = onNavigateToCorrection,
@@ -483,27 +504,23 @@ private fun DashboardCorrectionCompletionToast(
 }
 
 /**
- * 2x2 카드 그리드. 모든 카드는 [summary] 필드만 받아 Dashboard SSOT 경계를 유지한다.
+ * 2x2 카드 그리드. Empty 플래그는 [DashboardUiState] 에서 파생된 값을 그대로 소비한다.
  *
  * 데이터가 없는 카드도 각 기능 화면의 Empty UI 로 진입할 수 있도록 클릭 동선은 유지한다.
  */
 @Composable
 private fun DashboardCardGrid(
     summary: DashSummary?,
+    conversationEmpty: Boolean,
+    studyEmpty: Boolean,
+    feedbackEmpty: Boolean,
+    statisticsEmpty: Boolean,
+    pulseTarget: DashboardCard?,
     onNavigateToChat: () -> Unit,
     onNavigateToSrsStudy: () -> Unit,
     onNavigateToCorrection: () -> Unit,
-    onNavigateToStatistics: () -> Unit
+    onNavigateToStatistics: () -> Unit,
 ) {
-    // 각 카드별 데이터 유무 판정 — 카드 내부 칩/배지 hide 조건과 동일 기준.
-    val isConversationEmpty = summary?.recentTopic == null && (summary?.recentMinutes ?: 0) == 0
-    val isStudyEmpty = (summary?.dueFlashcards ?: 0) == 0 && (summary?.savedFlashcards ?: 0) == 0
-    val isFeedbackEmpty = summary?.correctionAvailable != true
-    val isStatisticsEmpty = (summary?.grammarDelta ?: 0) == 0 &&
-            (summary?.vocabDelta ?: 0) == 0 &&
-            (summary?.fluencyDelta ?: 0) == 0 &&
-            (summary?.naturalnessDelta ?: 0) == 0
-
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -514,20 +531,30 @@ private fun DashboardCardGrid(
             ConversationCard(
                 recentConversationTopic = summary?.recentTopic,
                 recentConversationMinutes = summary?.recentMinutes,
-                isEmpty = isConversationEmpty,
+                isEmpty = conversationEmpty,
                 onClick = onNavigateToChat,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .then(
+                        if (pulseTarget == DashboardCard.CONVERSATION)
+                            Modifier.attentionBorder(color = ThemePrimary, animated = true)
+                        else Modifier
+                    )
             )
             StudyCard(
                 dueFlashcards = summary?.dueFlashcards ?: 0,
                 savedFlashcards = summary?.savedFlashcards ?: 0,
-                accentColor = if (isStudyEmpty) TextWrong else null,
+                accentColor = null,
                 onClick = onNavigateToSrsStudy,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .then(
+                        if (pulseTarget == DashboardCard.STUDY)
+                            Modifier.attentionBorder(color = TextCorrect, animated = true)
+                        else Modifier
+                    )
             )
         }
 
@@ -541,18 +568,23 @@ private fun DashboardCardGrid(
         ) {
             FeedbackCard(
                 correctionAvailable = summary?.correctionAvailable ?: false,
-                accentColor = if (isFeedbackEmpty) TextWrong else null,
+                accentColor = null,
                 onClick = onNavigateToCorrection,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .then(
+                        if (pulseTarget == DashboardCard.CORRECTION)
+                            Modifier.attentionBorder(color = TextLogout, animated = true)
+                        else Modifier
+                    )
             )
             StatisticsCard(
                 grammarScoreDelta = summary?.grammarDelta ?: 0,
                 vocabularyScoreDelta = summary?.vocabDelta ?: 0,
                 fluencyScoreDelta = summary?.fluencyDelta ?: 0,
                 naturalnessScoreDelta = summary?.naturalnessDelta ?: 0,
-                accentColor = if (isStatisticsEmpty) TextWrong else null,
+                accentColor = null,
                 onClick = onNavigateToStatistics,
                 modifier = Modifier
                     .weight(1f)
