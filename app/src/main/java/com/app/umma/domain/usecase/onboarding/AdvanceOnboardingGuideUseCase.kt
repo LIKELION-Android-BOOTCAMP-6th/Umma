@@ -2,7 +2,6 @@ package com.app.umma.domain.usecase.onboarding
 
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.OnboardingGuideStage
-import com.app.umma.domain.model.learningstate.onboardingStageFor
 import com.app.umma.domain.repository.LearningStateRepo
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -27,11 +26,13 @@ class AdvanceOnboardingGuideUseCase @Inject constructor(
      * @param lang  이벤트가 속한 학습 언어
      */
     suspend operator fun invoke(event: OnboardingGuideEvent, lang: LangCode): Result<Unit> {
-        val userPref = repo.observeUserPref().first()
+        // 신규 setup 이전이면 전이 자체가 없으므로 불필요한 쓰기를 피하기 위해 먼저 거른다.
+        repo.observeUserPref().first()
             ?: return Result.success(Unit) // 신규 setup 이전 — no-op
-        val current = userPref.onboardingStageFor(lang)
-        val next = nextStage(current, event) ?: return Result.success(Unit) // 전이 없음 — no-op
-        return repo.setOnboardingGuideStage(lang, next)
+        // 전이 판단(read→decide)과 저장(write)을 repo 임계구역에서 원자적으로 수행한다.
+        // 동시 전이(CorrectionAvailable ↔ CorrectionSaved)가 같은 stale stage 를 읽어
+        // 서로의 결과를 덮어쓰는 lost update 를 막는다 — VM 레이어 직렬화로는 보장 불가.
+        return repo.advanceOnboardingGuideStage(lang) { current -> nextStage(current, event) }
     }
 
     companion object {
@@ -42,6 +43,7 @@ class AdvanceOnboardingGuideUseCase @Inject constructor(
          * | current      | event                 | next         |
          * |---|---|---|
          * | CONVERSATION | CorrectionAvailable   | CORRECTION   |
+         * | CONVERSATION | CorrectionSaved       | STUDY        |
          * | CORRECTION   | CorrectionSaved       | STUDY        |
          * | CORRECTION   | CorrectionNoFlashcard | CONVERSATION |
          * | STUDY        | StudyInteracted       | DONE         |
@@ -55,7 +57,12 @@ class AdvanceOnboardingGuideUseCase @Inject constructor(
                     if (current == OnboardingGuideStage.CONVERSATION) OnboardingGuideStage.CORRECTION else null
 
                 OnboardingGuideEvent.CorrectionSaved ->
-                    if (current == OnboardingGuideStage.CORRECTION) OnboardingGuideStage.STUDY else null
+                    // 저장 성공은 교정 완료의 확정 신호다. 대화 글로우(CONVERSATION)에서 교정 카드를 바로 탭해
+                    // 중간 CORRECTION 전이를 건너뛴 채 저장한 경우에도 STUDY 로 수렴시킨다.
+                    // (CONVERSATION→CORRECTION 전이는 비동기라, 저장 시점에 아직 CONVERSATION 일 수 있다.)
+                    if (current == OnboardingGuideStage.CONVERSATION ||
+                        current == OnboardingGuideStage.CORRECTION
+                    ) OnboardingGuideStage.STUDY else null
 
                 OnboardingGuideEvent.CorrectionNoFlashcard ->
                     // 미산출 리셋은 CORRECTION 단계일 때만 CONVERSATION 으로 되돌린다.

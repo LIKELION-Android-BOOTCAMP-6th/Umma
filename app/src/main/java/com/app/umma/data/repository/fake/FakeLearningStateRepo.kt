@@ -11,6 +11,7 @@ import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.OnboardingGuideStage
+import com.app.umma.domain.model.learningstate.onboardingStageFor
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
 import com.app.umma.domain.model.learningstate.SessionSummary
@@ -263,6 +264,25 @@ class FakeLearningStateRepo @Inject constructor(
             current.copy(
                 userPref = pref.copy(
                     onboardingGuideStages = pref.onboardingGuideStages + (lang to stage)
+                )
+            )
+        }
+        return Result.success(Unit)
+    }
+
+    override suspend fun advanceOnboardingGuideStage(
+        lang: LangCode,
+        transition: (current: OnboardingGuideStage) -> OnboardingGuideStage?,
+    ): Result<Unit> {
+        // MutableStateFlow.update 의 CAS 루프가 read→decide→write 를 원자적으로 보장한다(impl 의 stateMutex 대응).
+        _state.update { current ->
+            val pref = current.userPref ?: return@update current
+            val next = transition(pref.onboardingStageFor(lang))?.takeIf {
+                it != pref.onboardingStageFor(lang)
+            } ?: return@update current
+            current.copy(
+                userPref = pref.copy(
+                    onboardingGuideStages = pref.onboardingGuideStages + (lang to next)
                 )
             )
         }

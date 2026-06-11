@@ -35,6 +35,17 @@ class AdvanceOnboardingGuideUseCaseTest {
     }
 
     @Test
+    fun `CONVERSATION + CorrectionSaved → STUDY (중간 CORRECTION 미경유 저장 수렴)`() {
+        // 대화 글로우에서 교정 카드를 바로 탭해 저장하면 stage 가 아직 CONVERSATION 이다.
+        // 저장 성공은 교정 완료 확정 신호이므로 STUDY 로 수렴한다 — CorrectionSaved no-op 으로
+        // 교정 글로우에 stuck 되던 회귀를 막는다.
+        assertEquals(
+            OnboardingGuideStage.STUDY,
+            nextStage(OnboardingGuideStage.CONVERSATION, OnboardingGuideEvent.CorrectionSaved)
+        )
+    }
+
+    @Test
     fun `STUDY + StudyInteracted → DONE`() {
         assertEquals(
             OnboardingGuideStage.DONE,
@@ -75,11 +86,6 @@ class AdvanceOnboardingGuideUseCaseTest {
     }
 
     // ── Guard — 잘못된 단계에서 이벤트 no-op ──────────────────────────────────────
-
-    @Test
-    fun `CONVERSATION + CorrectionSaved → null (guard)`() {
-        assertNull(nextStage(OnboardingGuideStage.CONVERSATION, OnboardingGuideEvent.CorrectionSaved))
-    }
 
     @Test
     fun `CONVERSATION + CorrectionNoFlashcard → null (guard)`() {
