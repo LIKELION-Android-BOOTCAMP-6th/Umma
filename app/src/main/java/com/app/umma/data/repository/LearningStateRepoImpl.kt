@@ -27,6 +27,7 @@ import com.app.umma.domain.model.learningstate.GlobalLangState
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.OnboardingGuideStage
+import com.app.umma.domain.model.learningstate.onboardingStageFor
 import com.app.umma.domain.model.learningstate.LangStateSummaryUpdatePolicy
 import com.app.umma.domain.model.learningstate.LangStateUpdateInput
 import com.app.umma.domain.model.learningstate.LearningStateUpdateResult
@@ -531,6 +532,30 @@ class LearningStateRepoImpl @Inject constructor(
             current.copy(
                 userPref = userPref.copy(
                     onboardingGuideStages = userPref.onboardingGuideStages + (lang to stage),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    override suspend fun advanceOnboardingGuideStage(
+        lang: LangCode,
+        transition: (current: OnboardingGuideStage) -> OnboardingGuideStage?,
+    ): Result<Unit> {
+        // persistStateSafely 가 transform 을 stateMutex 안에서 _state.value(최신)로 호출하므로,
+        // "현재 stage read → transition 계산 → 저장" 이 하나의 임계구역에서 원자적으로 일어난다.
+        // 두 전이가 동시에 들어와도 두 번째 transition 은 첫 번째가 쓴 stage 를 읽는다 → stale-read 경합 없음.
+        return persistStateSafely(
+            addPendingSyncKeys = setOf(PendingSyncKey.userPref())
+        ) { current ->
+            val userPref = current.userPref ?: return@persistStateSafely current
+            val currentStage = userPref.onboardingStageFor(lang)
+            // 전이 없음(null) 또는 동일 stage 면 상태를 그대로 둔다.
+            val next = transition(currentStage)?.takeIf { it != currentStage }
+                ?: return@persistStateSafely current
+            current.copy(
+                userPref = userPref.copy(
+                    onboardingGuideStages = userPref.onboardingGuideStages + (lang to next),
                     updatedAt = System.currentTimeMillis()
                 )
             )

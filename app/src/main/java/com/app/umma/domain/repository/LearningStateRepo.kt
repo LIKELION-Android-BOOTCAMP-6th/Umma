@@ -77,6 +77,24 @@ interface LearningStateRepo {
     // 온보딩 가이드 단계를 저장한다. 언어별 독립 진행.
     suspend fun setOnboardingGuideStage(lang: LangCode, stage: OnboardingGuideStage): Result<Unit>
 
+    /**
+     * 온보딩 stage 전이를 원자적으로 적용한다.
+     *
+     * [transition] 은 현재 stage 를 받아 다음 stage 를 돌려주는 순수 정책 함수다(전이 없으면 null).
+     * 구현체는 "현재 stage read → transition 계산 → 저장" 을 단일 임계구역에서 수행해,
+     * 동시에 발생한 두 전이(예: CorrectionAvailable 와 CorrectionSaved)가 같은 stale stage 를
+     * 각자 읽고 서로의 결과를 덮어쓰는 lost update 를 막는다.
+     *
+     * 전이표(정책)는 호출 UseCase 가 [transition] 으로 주입한다 — Repository 는 원자적 저장만 책임진다.
+     * 미구현 test double 호환을 위해 기본 구현은 실패를 돌려준다(updateCorrectionSignal 과 동일 패턴).
+     */
+    suspend fun advanceOnboardingGuideStage(
+        lang: LangCode,
+        transition: (current: OnboardingGuideStage) -> OnboardingGuideStage?,
+    ): Result<Unit> = Result.failure(
+        UnsupportedOperationException("advanceOnboardingGuideStage is not implemented")
+    )
+
     // 로그아웃 시 상태를 비운다.
     suspend fun clear(): Result<Unit>
 
