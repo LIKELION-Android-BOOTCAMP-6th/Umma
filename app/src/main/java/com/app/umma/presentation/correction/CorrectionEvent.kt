@@ -1,5 +1,7 @@
 package com.app.umma.presentation.correction
 
+import com.app.umma.domain.model.learningstate.LangCode
+
 /**
  * Correction 화면이 ViewModel → UI 방향으로 1회성 effect 를 전달할 때 사용하는 봉인 계약.
  *
@@ -34,6 +36,7 @@ sealed interface CorrectionEvent {
     data class NavigateToDashboard(
         val message: String,
         val outcome: CorrectionReturnOutcome,
+        val learningLanguage: LangCode?,
     ) : CorrectionEvent
 }
 

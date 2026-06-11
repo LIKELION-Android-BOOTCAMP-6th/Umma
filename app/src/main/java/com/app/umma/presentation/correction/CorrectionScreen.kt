@@ -53,6 +53,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.core.theme.BackgroundDeactivated
 import com.app.umma.core.theme.CardElevation
 import com.app.umma.core.theme.ChipCornerRadius
@@ -109,7 +110,7 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CorrectionScreen(
-    onNavigateToDashboard: (String, CorrectionReturnOutcome) -> Unit,
+    onNavigateToDashboard: (String, CorrectionReturnOutcome, LangCode?) -> Unit,
     onNavigateToChat: () -> Unit,
     viewModel: CorrectionViewModel = hiltViewModel(),
 ) {
@@ -150,7 +151,11 @@ fun CorrectionScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                is CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard(event.message, event.outcome)
+                is CorrectionEvent.NavigateToDashboard -> onNavigateToDashboard(
+                    event.message,
+                    event.outcome,
+                    event.learningLanguage,
+                )
             }
         }
     }

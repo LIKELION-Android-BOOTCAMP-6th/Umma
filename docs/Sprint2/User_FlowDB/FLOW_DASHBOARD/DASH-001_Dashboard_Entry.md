@@ -64,6 +64,13 @@
 
 # Details
 
+## 교정 복귀 온보딩 전이
+
+- 교정 복귀 결과는 `outcome`과 교정 완료 당시 학습 언어를 함께 받는다.
+- `UserLangPref` 관찰 전에 결과가 도착하면 Dashboard ViewModel이 pending으로 보관하고, 상태 준비 후 해당 언어의 stage를 갱신한다.
+- Dashboard에서 현재 선택된 언어가 복귀 payload의 언어와 달라도 payload 언어를 기준으로 처리한다.
+- 성공적으로 처리된 pending 결과만 제거하며 동일 결과를 state 재방출로 중복 적용하지 않는다.
+
 ## Dashboard preload 정책
 
 Dashboard 진입 시:

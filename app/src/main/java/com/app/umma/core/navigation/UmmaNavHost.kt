@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
+import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AppEntryScreen
 import com.app.umma.presentation.auth.OnBoardingScreen
 import com.app.umma.presentation.chat.ChatScreen
@@ -74,6 +75,9 @@ fun UmmaNavHost(
                     backStackEntry.savedStateHandle.get<String>(CorrectionReturnOutcomeKey)
                 val correctionReturnOutcome = correctionReturnOutcomeRaw
                     ?.let { runCatching { CorrectionReturnOutcome.valueOf(it) }.getOrNull() }
+                val correctionReturnLanguage =
+                    backStackEntry.savedStateHandle.get<String>(CorrectionReturnLanguageKey)
+                        ?.let { LangCode.fromCode(it) }
                 DashboardScreen(
                     // navigateSingle: 서로 다른 카드 동시 탭 → 첫 탭만 통과(화면 단위 가드)
                     // rememberDashboardCardClick throttle 은 같은 카드 연타 방지 보조로 병행 유지
@@ -84,9 +88,11 @@ fun UmmaNavHost(
                     onNavigateToMyPage = { navController.navigateSingle(Route.MyPage) },
                     correctionCompletionMessage = correctionCompletionMessage,
                     correctionReturnOutcome = correctionReturnOutcome,
+                    correctionReturnLanguage = correctionReturnLanguage,
                     onCorrectionCompletionMessageConsumed = {
                         backStackEntry.savedStateHandle.remove<String>(CorrectionCompletionMessageKey)
                         backStackEntry.savedStateHandle.remove<String>(CorrectionReturnOutcomeKey)
+                        backStackEntry.savedStateHandle.remove<String>(CorrectionReturnLanguageKey)
                     },
                 )
 
@@ -150,14 +156,14 @@ fun UmmaNavHost(
         navigation<Route.CorrectionGraph>(startDestination = Route.CorrectionList) {
             composable<Route.CorrectionList> {
                 CorrectionScreen(
-                    onNavigateToDashboard = { message, outcome ->
+                    onNavigateToDashboard = { message, outcome, learningLanguage ->
                         // COR-007-A: 완료 파이프라인 성공 직후 Dashboard 로 복귀.
                         // - popUpTo<CorrectionGraph>{inclusive=true}: CorrectionGraph 를 backstack 에서 통째로
                         //   제거해, 비정상 진입 경로(Dashboard 없이 Correction 으로 진입)에서도 backstack 이
                         //   깔끔하게 정리되도록 한다. 기존 Umma 네비게이션 컨벤션(현재 그래프 통째 정리)과 일관.
                         // - launchSingleTop=true: 정상 경로(Dashboard → Correction → Dashboard)에서 기존
                         //   Dashboard 인스턴스를 재사용해 스크롤/상태를 보존하고 중복 push 도 방지한다.
-                        navController.setCorrectionCompletionMessage(message, outcome)
+                        navController.setCorrectionCompletionMessage(message, outcome, learningLanguage)
                         navController.navigate(Route.Dashboard) {
                             popUpTo<Route.CorrectionGraph> { inclusive = true }
                             launchSingleTop = true
@@ -184,10 +190,12 @@ fun UmmaNavHost(
 
 private const val CorrectionCompletionMessageKey = "correction_completion_message"
 private const val CorrectionReturnOutcomeKey = "correction_return_outcome"
+private const val CorrectionReturnLanguageKey = "correction_return_language"
 
 private fun NavHostController.setCorrectionCompletionMessage(
     message: String,
-    outcome: CorrectionReturnOutcome
+    outcome: CorrectionReturnOutcome,
+    learningLanguage: LangCode?,
 ) {
     runCatching { getBackStackEntry<Route.Dashboard>() }
         .getOrNull()
@@ -195,5 +203,10 @@ private fun NavHostController.setCorrectionCompletionMessage(
         ?.also {
             it[CorrectionCompletionMessageKey] = message
             it[CorrectionReturnOutcomeKey] = outcome.name
+            if (learningLanguage != null) {
+                it[CorrectionReturnLanguageKey] = learningLanguage.code
+            } else {
+                it.remove<String>(CorrectionReturnLanguageKey)
+            }
         }
 }

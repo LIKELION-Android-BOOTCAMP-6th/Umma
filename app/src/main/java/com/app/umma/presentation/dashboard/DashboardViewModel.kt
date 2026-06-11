@@ -74,6 +74,12 @@ class DashboardViewModel @Inject constructor(
     // null = 아직 셋업 안 됨. ensureObservation() 에서 1 회만 셋업, ViewModel 사망 시 자동 cancel.
     private var enterJob: Job? = null
 
+    private var correctionReturnSequence: Long = 0L
+    private var pendingCorrectionReturn: PendingCorrectionReturn? = null
+    private var correctionReturnJob: Job? = null
+    private var isCorrectionReturnContextReady: Boolean = false
+    private var latestObservedLearningLanguage: LangCode? = null
+
     /**
      * Firebase background sync job. (AC 11 중복 방지)
      * AC 11: Summary fetch 중 중복 요청이 방지된다.
@@ -172,6 +178,8 @@ class DashboardViewModel @Inject constructor(
                     val userPrefPresent = snapshot.userPrefPresent
                     val selectedLang = snapshot.selectedLang
                     val learningLangs = snapshot.learningLangs
+                    isCorrectionReturnContextReady = userPrefPresent
+                    latestObservedLearningLanguage = selectedLang
 
                     // [DASH-001 후속] Setup 완료 추적 + 첫 확인 시 sync 트리거.
                     // userPref non-null = createInitial() 이 실행된 이후 → Setup 완료 기준.
@@ -207,6 +215,7 @@ class DashboardViewModel @Inject constructor(
                                 statisticsEmpty = true,
                             )
                         }
+                        processPendingCorrectionReturn()
                         return@collect
                     }
 
@@ -232,6 +241,7 @@ class DashboardViewModel @Inject constructor(
                             fallbackLang
                         }
                     }
+                    latestObservedLearningLanguage = effectiveLang
 
                     // effectiveLang 기준 카드 데이터. null 가능 (effectiveLang null 또는 해당 lang summary 없음).
                     val summary = effectiveLang?.let { snapshot.dashSummaries[it] }
@@ -293,6 +303,7 @@ class DashboardViewModel @Inject constructor(
                             pulseTarget = pulseTarget,
                         )
                     }
+                    processPendingCorrectionReturn()
                     Log.d(
                         TAG,
                         "state emit: lang=$effectiveLang, " +
@@ -445,16 +456,48 @@ class DashboardViewModel @Inject constructor(
      * - SAVED → CORRECTION→STUDY
      * - NO_FLASHCARD → CORRECTION→CONVERSATION(미산출 리셋)
      *
-     * DashboardScreen 이 correctionCompletionMessage LaunchedEffect 에서 호출.
+     * DashboardScreen 이 correctionCompletionMessage LaunchedEffect 에서 호출한다.
+     * 학습 상태가 아직 준비되지 않았으면 pending 으로 보관하고 첫 유효 snapshot 이후 처리한다.
      */
-    fun onCorrectionReturned(outcome: CorrectionReturnOutcome) {
-        val lang = _uiState.value.selectedLearningLanguage ?: return
-        val event = when (outcome) {
+    fun onCorrectionReturned(
+        outcome: CorrectionReturnOutcome,
+        learningLanguage: LangCode?,
+    ) {
+        correctionReturnSequence += 1
+        pendingCorrectionReturn = PendingCorrectionReturn(
+            id = correctionReturnSequence,
+            outcome = outcome,
+            learningLanguage = learningLanguage,
+        )
+        processPendingCorrectionReturn()
+    }
+
+    private fun processPendingCorrectionReturn() {
+        if (!isCorrectionReturnContextReady || correctionReturnJob?.isActive == true) return
+
+        val pending = pendingCorrectionReturn ?: return
+        val lang = pending.learningLanguage ?: latestObservedLearningLanguage ?: return
+        val event = when (pending.outcome) {
             CorrectionReturnOutcome.SAVED -> OnboardingGuideEvent.CorrectionSaved
             CorrectionReturnOutcome.NO_FLASHCARD -> OnboardingGuideEvent.CorrectionNoFlashcard
         }
-        viewModelScope.launch {
-            advanceOnboardingGuide(event, lang)
+
+        correctionReturnJob = viewModelScope.launch {
+            val result = advanceOnboardingGuide(event, lang)
+            if (result.isSuccess && pendingCorrectionReturn?.id == pending.id) {
+                pendingCorrectionReturn = null
+            } else if (result.isFailure) {
+                Log.w(
+                    TAG,
+                    "onCorrectionReturned failed: outcome=${pending.outcome}, lang=$lang",
+                    result.exceptionOrNull(),
+                )
+            }
+
+            correctionReturnJob = null
+            if (pendingCorrectionReturn?.id != pending.id) {
+                processPendingCorrectionReturn()
+            }
         }
     }
 
@@ -485,6 +528,12 @@ class DashboardViewModel @Inject constructor(
         val dashSummaries: Map<LangCode, DashSummary>,
         // 선택 언어의 온보딩 stage. stage 변경 시 distinctUntilChanged 가 새 emit 을 통과시킨다.
         val onboardingStage: OnboardingGuideStage?,
+    )
+
+    private data class PendingCorrectionReturn(
+        val id: Long,
+        val outcome: CorrectionReturnOutcome,
+        val learningLanguage: LangCode?,
     )
 
     /**

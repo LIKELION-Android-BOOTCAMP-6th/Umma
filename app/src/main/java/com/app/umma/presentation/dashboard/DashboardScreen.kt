@@ -101,6 +101,7 @@ fun DashboardScreen(
     onNavigateToMyPage: () -> Unit,
     correctionCompletionMessage: String? = null,
     correctionReturnOutcome: com.app.umma.presentation.correction.CorrectionReturnOutcome? = null,
+    correctionReturnLanguage: LangCode? = null,
     onCorrectionCompletionMessageConsumed: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
@@ -161,7 +162,9 @@ fun DashboardScreen(
         correctionCompletionMessage?.let { message ->
             correctionToastMessage = message
             // 교정 복귀 시 온보딩 stage 전이. outcome null 은 구버전 경로 — no-op.
-            correctionReturnOutcome?.let { viewModel.onCorrectionReturned(it) }
+            correctionReturnOutcome?.let {
+                viewModel.onCorrectionReturned(it, correctionReturnLanguage)
+            }
             onCorrectionCompletionMessageConsumed()
         }
     }

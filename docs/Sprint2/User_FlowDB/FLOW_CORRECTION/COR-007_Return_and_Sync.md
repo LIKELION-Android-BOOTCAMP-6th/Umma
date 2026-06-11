@@ -65,9 +65,14 @@ Dashboard 화면의 Summary observe와 카드 렌더링은 Dashboard Flow의 책
 
 ```text
 COR-006 local completion success
-→ completion success event
+→ completion success event(outcome + correction language)
 → Dashboard 복귀
 ```
+
+- 복귀 payload는 교정 결과(`SAVED` / `NO_FLASHCARD`)와 교정을 수행한 학습 언어를 함께 전달한다.
+- Dashboard가 재생성되어 학습 상태가 아직 준비되지 않았으면 ViewModel이 복귀 payload를 pending으로 보관한다.
+- 첫 유효 `UserLangPref` snapshot 이후 payload의 언어에 온보딩 전이를 적용하며, Dashboard의 현재 선택 언어로 덮어쓰지 않는다.
+- ViewModel에 pending 등록한 뒤 navigation `savedStateHandle`의 message/outcome/language를 함께 소비한다.
 
 ---
 

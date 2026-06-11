@@ -815,6 +815,7 @@ class CorrectionViewModel @Inject constructor(
                 CorrectionEvent.NavigateToDashboard(
                     message = SKIP_SAVE_TOAST,
                     outcome = CorrectionReturnOutcome.NO_FLASHCARD,
+                    learningLanguage = lang,
                 )
             )
         }
@@ -968,6 +969,7 @@ class CorrectionViewModel @Inject constructor(
                     CorrectionEvent.NavigateToDashboard(
                         message = completion.toDashboardToastMessage(),
                         outcome = outcome,
+                        learningLanguage = lang,
                     )
                 )
             }
