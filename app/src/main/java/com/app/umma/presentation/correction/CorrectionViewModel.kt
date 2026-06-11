@@ -18,6 +18,7 @@ import com.app.umma.domain.model.correction.CorrectionSaveRequest
 import com.app.umma.domain.model.correction.CorrectionSessionContext
 import com.app.umma.domain.model.correction.GenerateSuggestionsInput
 import com.app.umma.domain.model.flashcard.Flashcard
+import com.app.umma.domain.model.learningstate.CorrectionSignalUpdateInput
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.domain.model.learningstate.LangState
 import com.app.umma.domain.model.learningstate.TurnSpeaker
@@ -33,6 +34,9 @@ import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
 import com.app.umma.domain.usecase.correction.ReconcileSavedCorrectionOnReentryUseCase
 import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
+import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
+import com.app.umma.domain.usecase.onboarding.AdvanceOnboardingGuideUseCase
+import com.app.umma.domain.usecase.onboarding.OnboardingGuideEvent
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputCommand
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
@@ -156,6 +160,10 @@ class CorrectionViewModel @Inject constructor(
     // 위험 창(Flashcard commit ~ clearCorrectionCacheAfterCompletion 이전) 에서 프로세스 사망 후
     // 재진입하면 갭이 발생할 수 있다. 이 UseCase 가 감지해 correctionAvailable=false 로 닫는다.
     private val reconcileSavedCorrectionOnReentry: ReconcileSavedCorrectionOnReentryUseCase,
+    // DASH-UX-001 Bug2: 교정 미산출 종료 시 correctionAvailable 신호를 직접 소비하고 온보딩 stage 를 리셋한다.
+    // ReconcileSavedCorrectionOnReentryUseCase 의 신호 소비 패턴을 재사용한다.
+    private val applyCorrectionSignalUpdate: ApplyCorrectionSignalUpdateUseCase,
+    private val advanceOnboardingGuide: AdvanceOnboardingGuideUseCase,
     private val ttsController: TextToSpeechController,
     private val reportCorrectionPromptReviewUseCase: ReportCorrectionPromptReviewUseCase,
 ) : ViewModel() {
@@ -423,6 +431,18 @@ class CorrectionViewModel @Inject constructor(
                     primaryLanguage = _uiState.value.primaryLanguage,
                     mutationVersion = registerCacheMutationVersion(),
                 )
+            }
+            // DASH-UX-001 Bug2: EmptyResult(후보 0개/안전차단)는 대시보드 복귀 채널을 타지 않아
+            // DashboardViewModel 이 stage 를 리셋해주지 않는다. 교정 레이어에서 직접 해소한다.
+            if (_uiState.value.phase == CorrectionUiState.Phase.EmptyResult) {
+                val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() }
+                if (uid != null) {
+                    resolveNoFlashcardTerminal(
+                        lang = lang,
+                        sessionMemoryKey = "${uid}_${lang.code}",
+                        uid = uid,
+                    )
+                }
             }
             if (_uiState.value.phase in terminalPhases) {
                 generationLaunched = false
@@ -809,6 +829,19 @@ class CorrectionViewModel @Inject constructor(
             } else {
                 Log.w(TAG, "onSkipSaveAndExit — lang unavailable, skipping cache clear")
             }
+            // DASH-UX-001 Bug2: skip 종료 시 correctionAvailable 신호를 직접 소비한다.
+            // NavigateToDashboard 채널로 stage 리셋은 Dashboard 측에서 처리하지만,
+            // 신호(빨간 점)를 소비하지 않으면 CONVERSATION 리셋 직후 되튕김이 발생한다.
+            if (lang != null) {
+                val uid = getCurrentUserUid.getCurrentUserUid()?.takeIf { it.isNotBlank() }
+                if (uid != null) {
+                    resolveNoFlashcardTerminal(
+                        lang = lang,
+                        sessionMemoryKey = "${uid}_${lang.code}",
+                        uid = uid,
+                    )
+                }
+            }
             // 안내 토스트와 함께 Dashboard 복귀를 1회 발화한다.
             // 선택 0개 skip = 미산출 → NO_FLASHCARD 로 온보딩 리셋 신호를 전달한다.
             _events.send(
@@ -1086,6 +1119,42 @@ class CorrectionViewModel @Inject constructor(
         }.onFailure { error ->
             Log.w(TAG, "cache clear failed lang=${lang.code}", error)
         }
+    }
+
+    /**
+     * 미산출 종료(후보 0개 / 안전차단 / skip / 빈저장) 시 교정 신호를 소비하고 온보딩 stage 를 리셋한다.
+     *
+     * 신호(correctionAvailable=true)를 소비하지 않으면 stage 를 CONVERSATION 으로 리셋해도
+     * DashboardViewModel 의 `stage==CONVERSATION && correctionAvailable==true` 조건이 즉시 재발화해
+     * CORRECTION 으로 되튕긴다. 두 작업을 원자적으로 수행해야 되튕김이 없다.
+     *
+     * - 신호 소비: [ApplyCorrectionSignalUpdateUseCase](correctionAvailable=false, 멱등 eventId)
+     * - stage 리셋: [AdvanceOnboardingGuideUseCase](CorrectionNoFlashcard) — CORRECTION→CONVERSATION,
+     *   다른 stage 에서는 UseCase 내부 guard 로 no-op.
+     *
+     * 실패 시 복귀 흐름을 막지 않도록 오류는 로그만 남기고 무시한다.
+     */
+    private suspend fun resolveNoFlashcardTerminal(
+        lang: LangCode,
+        sessionMemoryKey: String,
+        uid: String,
+    ) {
+        applyCorrectionSignalUpdate(
+            CorrectionSignalUpdateInput(
+                uid = uid,
+                lang = lang,
+                sessionMemoryKey = sessionMemoryKey,
+                sourceEventId = "correction-empty:$sessionMemoryKey",
+                correctionAvailable = false,
+                updatedAt = System.currentTimeMillis()
+            )
+        ).onFailure { e ->
+            Log.w(TAG, "resolveNoFlashcardTerminal signal consume failed lang=${lang.code}", e)
+        }
+        advanceOnboardingGuide(OnboardingGuideEvent.CorrectionNoFlashcard, lang)
+            .onFailure { e ->
+                Log.w(TAG, "resolveNoFlashcardTerminal stage reset failed lang=${lang.code}", e)
+            }
     }
 
     private fun beginLoadingFlashcardsRequest(): Long {

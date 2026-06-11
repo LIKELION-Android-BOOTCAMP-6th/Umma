@@ -24,7 +24,9 @@ import com.app.umma.domain.usecase.correction.PrepareSaveRequestUseCase
 import com.app.umma.domain.usecase.correction.ReconcileSavedCorrectionOnReentryUseCase
 import com.app.umma.domain.usecase.correction.SaveCorrectionCacheUseCase
 import com.app.umma.domain.usecase.flashcardreview.GetFlashcardsUseCase
+import com.app.umma.domain.usecase.learningstate.ApplyCorrectionSignalUpdateUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLangStateUpdateInputUseCase
+import com.app.umma.domain.usecase.onboarding.AdvanceOnboardingGuideUseCase
 import com.app.umma.domain.usecase.learningstate.BuildLearnerAdaptationProfileUseCase
 import com.app.umma.domain.usecase.learningstate.ObserveLearningStateUseCase
 import com.app.umma.domain.usecase.learningstate.PreloadLearningStateUseCase
@@ -282,6 +284,8 @@ class CorrectionViewModelTtsTest {
         val buildLangStateUpdateInput = mockk<BuildLangStateUpdateInputUseCase>()
         val getFlashcards = mockk<GetFlashcardsUseCase>()
         val reconcileSavedCorrectionOnReentry = mockk<ReconcileSavedCorrectionOnReentryUseCase>()
+        val applyCorrectionSignalUpdate = mockk<ApplyCorrectionSignalUpdateUseCase>(relaxed = true)
+        val advanceOnboardingGuide = mockk<AdvanceOnboardingGuideUseCase>(relaxed = true)
         val reportCorrectionPromptReviewUseCase = mockk<ReportCorrectionPromptReviewUseCase>(relaxed = true)
 
         mockkStatic(Log::class)
@@ -332,6 +336,8 @@ class CorrectionViewModelTtsTest {
             buildLangStateUpdateInput = buildLangStateUpdateInput,
             getFlashcards = getFlashcards,
             reconcileSavedCorrectionOnReentry = reconcileSavedCorrectionOnReentry,
+            applyCorrectionSignalUpdate = applyCorrectionSignalUpdate,
+            advanceOnboardingGuide = advanceOnboardingGuide,
             ttsController = ttsController,
             reportCorrectionPromptReviewUseCase = reportCorrectionPromptReviewUseCase,
         )
