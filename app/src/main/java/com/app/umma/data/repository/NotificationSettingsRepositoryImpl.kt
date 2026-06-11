@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.app.umma.core.util.DeviceIdProvider
@@ -392,6 +393,17 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun hasRequestedLaunchNotificationPermission(): Boolean {
+        val preferences = dataStore.data.first()
+        return preferences[LAUNCH_NOTIFICATION_PERMISSION_REQUESTED_KEY] ?: false
+    }
+
+    override suspend fun markLaunchNotificationPermissionRequested() {
+        dataStore.edit { preferences ->
+            preferences[LAUNCH_NOTIFICATION_PERMISSION_REQUESTED_KEY] = true
+        }
+    }
+
     private suspend fun readCachedSrsSettings(): SrsNotificationSettings? {
         val preferences = dataStore.data.first()
         val raw = preferences[SRS_SETTINGS_CACHE_KEY] ?: return null
@@ -511,5 +523,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         val SRS_SETTINGS_CACHE_KEY = stringPreferencesKey("srs_notification_settings_cache")
         val MARKETING_SETTINGS_CACHE_KEY =
             stringPreferencesKey("marketing_notification_settings_cache")
+        val LAUNCH_NOTIFICATION_PERMISSION_REQUESTED_KEY =
+            booleanPreferencesKey("launch_notification_permission_requested")
     }
 }

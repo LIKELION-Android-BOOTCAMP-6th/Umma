@@ -1,8 +1,12 @@
 package com.app.umma.presentation.dashboard
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -298,8 +302,17 @@ fun DashboardScreen(
                                 "학습 언어를 선택해 주세요."
                             )
                         } else {
+                            val notificationPermissionGranted = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                true
+                            } else {
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                ) == PackageManager.PERMISSION_GRANTED
+                            }
                             authViewModel.onLanguageSelectAndSave(
                                 selectedLearningLanguage = selectedLang,
+                                notificationPermissionGranted = notificationPermissionGranted,
                             )
                         }
                     },

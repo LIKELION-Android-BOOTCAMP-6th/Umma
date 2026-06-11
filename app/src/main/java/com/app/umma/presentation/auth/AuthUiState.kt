@@ -32,6 +32,11 @@ data class AuthUiState(
      * null이 아니면 AppEntryScreen에서 다이얼로그를 표시하고, 확인 전까지 화면 이동을 막는다.
      */
     val forceLogoutMessage: String? = null,
+    /**
+     * 앱 최초 실행 시 알림 권한 요청 다이얼로그를 띄워야 하면 true.
+     * AppEntryScreen에서 한 번 처리한 뒤 결과와 무관하게 false로 되돌린다.
+     */
+    val shouldRequestNotificationPermission: Boolean = false,
 )
 
 /**
