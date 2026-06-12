@@ -19,13 +19,13 @@ class UserProfileRepositoryImpl @Inject constructor(
 ) : UserProfileRepository {
     /**
      * 최초 로그인 사용자 여부 확인
-     * 판단 기준 : users/{uid} 존재 여부
+     * 판단 기준 : users/{uid} 문서 없음 또는 isSetupCompleted가 true가 아님
      */
     override suspend fun isNewUser(uid: String): Boolean {
         return try {
             val document = firestore.collection("users").document(uid).get().await()
-            !document.exists() || document.getBoolean("isSetupCompleted") == false
-        } catch (e: Exception) {
+            !document.exists() || document.getBoolean("isSetupCompleted") != true
+        } catch (_: Exception) {
             true
         }
     }
@@ -83,12 +83,15 @@ class UserProfileRepositoryImpl @Inject constructor(
                 nickname = document.getString("nickname") ?: "",
 
                 email = document.getString("email") ?: "",
-                interestTopics = (document.get("interestTopics") as? List<String>) ?: emptyList(),
+                // Firestore SDK는 raw List<*>로 돌려주므로 문자열 항목만 안전하게 복원한다.
+                interestTopics = (document.get("interestTopics") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    ?: emptyList(),
                 isSetupCompleted = document.getBoolean("isSetupCompleted") ?: false,
                 schema = (document.getLong("schemaVersion") ?: 1L).toInt(),
                 createdAt = document.getLong("createdAt")
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }

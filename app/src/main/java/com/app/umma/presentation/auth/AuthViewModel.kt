@@ -16,7 +16,6 @@ import com.app.umma.domain.usecase.notification.HasRequestedLaunchNotificationPe
 import com.app.umma.domain.usecase.notification.MarkLaunchNotificationPermissionRequestedUseCase
 import com.app.umma.domain.usecase.notification.SetMarketingNotificationEnabledUseCase
 import com.app.umma.domain.usecase.notification.SetSrsNotificationEnabledUseCase
-import com.app.umma.domain.usecase.user.GetSystemLanguageUseCase
 import com.app.umma.domain.usecase.user.InitializeUserDataUseCase
 import com.app.umma.domain.usecase.user.ValidateNicknameUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,7 +46,6 @@ class AuthViewModel @Inject constructor(
     private val deleteAccountUseCase: DeleteAccountUseCase,
     private val authRepository: AuthRepository,
     private val validateNicknameUseCase: ValidateNicknameUseCase,
-    private val getSystemLanguageUseCase: GetSystemLanguageUseCase,
     private val sessionRepository: SessionRepository,
     private val isSessionStillActiveUseCase: IsSessionStillActiveUseCase,
     private val hasRequestedLaunchNotificationPermissionUseCase: HasRequestedLaunchNotificationPermissionUseCase,
@@ -241,8 +239,6 @@ class AuthViewModel @Inject constructor(
                 uid = uid,
                 email = email,
                 nickname = _uiState.value.nickname,
-                // 시스템 언어 필요시 아래 줄로 복구
-                // primaryLang = getSystemLanguageUseCase(),
                 primaryLang = LangCode.KO,
                 selectedLang = selectedLearningLanguage,
                 topics = emptyList()
@@ -325,6 +321,19 @@ class AuthViewModel @Inject constructor(
                         it.copy(
                             isSessionChecking = false,
                             googleState = GoogleAuthState.IDLE
+                        )
+                    }
+                    return@onSuccess
+                }
+
+                val isInitialSetupRequired = checkInitialSetupUseCase(uid)
+                if (isInitialSetupRequired) {
+                    // 설정 미완료 사용자는 Dashboard에서 설정 다이얼로그를 재개해야 한다.
+                    // stale activeSession fallback이 먼저 동작하면 Play 빌드에서 초기 설정 중 로그아웃될 수 있다.
+                    _uiState.update {
+                        it.copy(
+                            isSessionChecking = false,
+                            googleState = GoogleAuthState.SUCCESS
                         )
                     }
                     return@onSuccess
