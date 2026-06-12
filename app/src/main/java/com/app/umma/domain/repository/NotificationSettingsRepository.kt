@@ -71,4 +71,12 @@ interface NotificationSettingsRepository {
      * 앱 최초 실행 시 알림 권한을 요청했음을 기록한다.
      */
     suspend fun markLaunchNotificationPermissionRequested()
+
+    /**
+     * 회원탈퇴 시 알림 설정 local cache를 비운다.
+     *
+     * 서버의 notification_devices/settings 정리는 계정 삭제 Cloud Function 책임이고,
+     * 이 계약은 같은 설치에서 다음 계정이 이전 계정의 알림 설정을 보지 않게 하는 로컬 정리 책임이다.
+     */
+    suspend fun clearLocal(): Result<Unit> = Result.success(Unit)
 }

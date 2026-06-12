@@ -15,4 +15,11 @@ interface CorrectionSuggestionCacheRepository {
     suspend fun saveCachedCorrection(uid: String, cache: CachedCorrectionResult)
 
     suspend fun clearCachedCorrection(uid: String, language: LangCode)
+
+    /**
+     * 회원탈퇴 시 저장 전 교정 제안 캐시를 모두 비운다.
+     *
+     * 이 캐시는 uid별 교정 후보 원문을 담으므로 계정 삭제 뒤 복원되면 안 된다.
+     */
+    suspend fun clearLocal(): Result<Unit> = Result.success(Unit)
 }

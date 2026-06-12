@@ -20,6 +20,8 @@ interface CorrectionSuggestionCacheLocalDataSource {
     suspend fun saveCache(cache: CorrectionSuggestionCacheLocalDto)
 
     suspend fun deleteCache(userId: String, language: String)
+
+    suspend fun clearAll()
 }
 
 data class CorrectionSuggestionCacheLocalDto(
@@ -61,6 +63,12 @@ interface CorrectionSuggestionCacheDao {
 
     @Query("DELETE FROM correction_suggestion_cache WHERE userId = :userId AND language = :language")
     suspend fun deleteCache(userId: String, language: String)
+
+    /**
+     * 회원탈퇴 후 저장 전 교정 후보 원문이 다음 계정에서 복원되지 않게 전체 캐시를 제거한다.
+     */
+    @Query("DELETE FROM correction_suggestion_cache")
+    suspend fun clearAll()
 }
 
 @Database(
@@ -85,6 +93,10 @@ class RoomCorrectionSuggestionCacheLocalDataSource @Inject constructor(
 
     override suspend fun deleteCache(userId: String, language: String) {
         dao.deleteCache(userId = userId, language = language)
+    }
+
+    override suspend fun clearAll() {
+        dao.clearAll()
     }
 }
 

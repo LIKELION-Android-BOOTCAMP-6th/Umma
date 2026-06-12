@@ -39,7 +39,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val authRepository: AuthRepository,
     private val deviceIdProvider: DeviceIdProvider,
-    @Named("notificationSettingsDataStore")
+    @param:Named("notificationSettingsDataStore")
     private val dataStore: DataStore<Preferences>
 ) : NotificationSettingsRepository {
 
@@ -272,7 +272,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         timezone: String
     ): Result<Unit> {
         return runCatching {
-            val uid = authRepository.getCurrentUserUid() ?: return@runCatching
+            if (authRepository.getCurrentUserUid().isNullOrBlank()) return@runCatching
 
             // 강제 로그아웃 알림은 권한과 무관하게 수신해야 하므로, 권한이 꺼져 있어도
             // FCM 토큰은 항상 등록 상태로 유지한다.
@@ -286,7 +286,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
             if (permissionGranted) {
                 refreshTimezone(timezone).getOrThrow()
             } else {
-                disableAllNotificationSettings(uid, timezone)
+                disableAllNotificationSettings(timezone)
             }
         }
     }
@@ -370,7 +370,7 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
         cacheMarketingSettings(settings)
     }
 
-    private suspend fun disableAllNotificationSettings(uid: String, timezone: String) {
+    private suspend fun disableAllNotificationSettings(timezone: String) {
         val now = System.currentTimeMillis()
 
         saveSrsSettings(
@@ -401,6 +401,13 @@ class NotificationSettingsRepositoryImpl @Inject constructor(
     override suspend fun markLaunchNotificationPermissionRequested() {
         dataStore.edit { preferences ->
             preferences[LAUNCH_NOTIFICATION_PERMISSION_REQUESTED_KEY] = true
+        }
+    }
+
+    override suspend fun clearLocal(): Result<Unit> = runCatching {
+        // 알림 권한 요청 여부까지 포함해 local notification DataStore를 비워 다음 계정에 설정이 전파되지 않게 한다.
+        dataStore.edit { preferences ->
+            preferences.clear()
         }
     }
 
