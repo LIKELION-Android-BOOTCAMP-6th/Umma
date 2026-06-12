@@ -56,6 +56,11 @@ class CorrectionSuggestionCacheRepositoryImpl @Inject constructor(
         localDataSource.deleteCache(userId = uid, language = language.code)
     }
 
+    override suspend fun clearLocal(): Result<Unit> = runCatching {
+        // 캐시는 uid를 포함하지만 삭제 시점에는 auth 상태가 바뀔 수 있으므로 local cache 전체를 비운다.
+        localDataSource.clearAll()
+    }
+
     private companion object {
         const val TAG = "CorrectionCacheRepo"
 

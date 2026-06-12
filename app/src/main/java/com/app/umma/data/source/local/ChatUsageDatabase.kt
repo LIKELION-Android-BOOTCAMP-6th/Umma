@@ -192,6 +192,14 @@ interface ChatUsageDao {
         syncedStatus: String,
         deleteCount: Int
     ): Int
+
+    /**
+     * 계정 삭제 후 설치 내부에 남은 usage 원본을 모두 제거합니다.
+     *
+     * 탈퇴 시점에는 원격 사용자 문서가 이미 정리 대상이므로 PENDING row도 더 이상 sync하지 않는다.
+     */
+    @Query("DELETE FROM chat_usage_records")
+    suspend fun clearAll()
 }
 
 /**
@@ -291,6 +299,13 @@ class ChatUsageLocalDataSource @Inject constructor(
             }
 
             deletedCount
+        }
+    }
+
+    suspend fun clearAll() {
+        // userId가 없는 정리 시점에도 안전하게 전체 테이블을 비우기 위해 DAO clear를 감싼다.
+        database.withTransaction {
+            dao.clearAll()
         }
     }
 }
