@@ -1,6 +1,7 @@
 package com.app.umma.data.repository
 
 import android.content.Context
+import androidx.core.content.edit
 import com.app.umma.core.util.DeviceIdProvider
 import com.app.umma.domain.repository.SessionRepository
 import com.google.firebase.firestore.FirebaseFirestore
@@ -12,7 +13,7 @@ import javax.inject.Singleton
 
 @Singleton
 class SessionRepositoryImpl @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val firebaseFunctions: FirebaseFunctions,
     private val deviceIdProvider: DeviceIdProvider
@@ -27,15 +28,23 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun saveLocalSessionId(sessionId: String) {
-        preferences.edit()
-            .putString(KEY_ACTIVE_SESSION_ID, sessionId)
-            .apply()
+        preferences.edit {
+            putString(KEY_ACTIVE_SESSION_ID, sessionId)
+        }
     }
 
     override fun clearLocalSessionId() {
-        preferences.edit()
-            .remove(KEY_ACTIVE_SESSION_ID)
-            .apply()
+        preferences.edit {
+            remove(KEY_ACTIVE_SESSION_ID)
+        }
+    }
+
+    override fun clearLocalAccountSessionState() {
+        // 회원탈퇴는 계정 경계를 끊는 동작이므로, 일반 로그아웃과 달리 잔여 force-logout 안내도 함께 제거한다.
+        preferences.edit {
+            remove(KEY_ACTIVE_SESSION_ID)
+            remove(KEY_PENDING_NOTICE_AT)
+        }
     }
 
     override suspend fun claimSession(): Result<Unit> {
@@ -84,9 +93,9 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun markPendingForceLogoutNotice() {
-        preferences.edit()
-            .putLong(KEY_PENDING_NOTICE_AT, System.currentTimeMillis())
-            .apply()
+        preferences.edit {
+            putLong(KEY_PENDING_NOTICE_AT, System.currentTimeMillis())
+        }
     }
 
     override fun consumePendingForceLogoutNotice(): Boolean {
@@ -94,9 +103,9 @@ class SessionRepositoryImpl @Inject constructor(
         if (markedAt == 0L) return false
 
         // 소비 즉시 흔적 삭제 — 계정 단위로 영속되는 "밀려남" 기록을 남기지 않는다.
-        preferences.edit()
-            .remove(KEY_PENDING_NOTICE_AT)
-            .apply()
+        preferences.edit {
+            remove(KEY_PENDING_NOTICE_AT)
+        }
         return System.currentTimeMillis() - markedAt <= PENDING_NOTICE_TTL_MS
     }
 

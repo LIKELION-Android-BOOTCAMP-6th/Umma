@@ -21,6 +21,16 @@ interface SessionRepository {
     fun clearLocalSessionId()
 
     /**
+     * 회원탈퇴 시 로컬 인증 세션 흔적을 모두 제거한다.
+     *
+     * 일반 로그아웃은 강제 로그아웃 안내 플래그를 유지해야 하므로 [clearLocalSessionId]만 사용한다.
+     * 계정 삭제는 다음 계정으로 잔여 안내가 전파되지 않도록 sessionId와 안내 플래그를 함께 지운다.
+     */
+    fun clearLocalAccountSessionState() {
+        clearLocalSessionId()
+    }
+
+    /**
      * claimLoginSession Cloud Function 호출.
      * 서버에서 새 sessionId를 발급받아 로컬에 저장하고, 잔여 force-logout 안내 플래그를 제거한다.
      * 실패해도 로그인 흐름 자체를 막지 않는 best-effort 동작.

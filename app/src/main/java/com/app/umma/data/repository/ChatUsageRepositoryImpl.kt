@@ -108,6 +108,11 @@ class ChatUsageRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun clearLocal(): Result<Unit> = runCatching {
+        // 회원탈퇴 후에는 remote aggregate 재시도보다 계정 경계 정리가 우선이므로 local usage 원본을 모두 지운다.
+        localDataSource.clearAll()
+    }
+
     private fun List<ChatUsageRecord>.toSessionAggregate(): ChatUsageSessionAggregate {
         val sortedRecords = sortedBy { it.createdAt }
         val firstRecord = sortedRecords.first()
