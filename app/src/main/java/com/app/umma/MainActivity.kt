@@ -199,7 +199,8 @@ private fun UmmaApp(
         it.hasRoute<Route.Statistics>() ||
                 it.hasRoute<Route.Chat>() ||
                 it.hasRoute<Route.CorrectionList>() ||
-                it.hasRoute<Route.SrsStudy>()
+                it.hasRoute<Route.SrsStudy>() ||
+                it.hasRoute<Route.SrsCardList>()
     } == true
 
     LaunchedEffect(isChatRouteVisible) {
