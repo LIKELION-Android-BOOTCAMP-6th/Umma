@@ -44,6 +44,8 @@ render.experimental.xml
 # Keystore files
 *.jks
 *.keystore
+umma_upload_key
+/keystore.properties
 
 # Google Services (e.g. APIs or Firebase)
 
