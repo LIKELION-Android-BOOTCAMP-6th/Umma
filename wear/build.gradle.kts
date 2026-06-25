@@ -14,7 +14,7 @@ android {
         applicationId = "com.app.umma"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
+        versionCode = 6
         versionName = "1.0"
     }
 
@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.play.services.wearable)
+    implementation(libs.androidx.fragment)
     implementation("androidx.wear.compose:compose-foundation:1.6.2")
     implementation(libs.wear.compose.material3)
     debugImplementation(libs.androidx.compose.ui.tooling)
