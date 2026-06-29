@@ -274,7 +274,8 @@ private fun NavDestination.isInAuthenticatedGraph(): Boolean = hierarchy.any {
             it.hasRoute<Route.Chat>() ||
             it.hasRoute<Route.CorrectionList>() ||
             it.hasRoute<Route.Statistics>() ||
-            it.hasRoute<Route.SrsStudy>()
+            it.hasRoute<Route.SrsStudy>() ||
+            it.hasRoute<Route.SrsStudyGraph>()
 }
 
 private data class NotificationNavigationTarget(
