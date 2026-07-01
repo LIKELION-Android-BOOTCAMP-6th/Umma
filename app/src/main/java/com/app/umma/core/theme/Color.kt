@@ -27,6 +27,12 @@ val BackgroundDeactivated = Color(0xFFE2E2E2)
  * 배경 4 (교정/교정된 문장)
  */
 val BackgroundHighlight = Color(0xFFE2FAF8)
+
+/**
+ * 배경 5 (알림 시간 시계 다이얼)
+ */
+val BackgroundClockDial = Color(0xFFF0EEE9)
+
 /**
  * 타이틀
  */
