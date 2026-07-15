@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -67,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -82,6 +84,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.app.umma.BuildConfig
 import com.app.umma.R
+import com.app.umma.core.theme.BackgroundClockDial
 import com.app.umma.core.theme.BackgroundHighlight
 import com.app.umma.core.theme.BackgroundPrimary
 import com.app.umma.core.theme.BackgroundSecondary
@@ -98,8 +101,8 @@ import com.app.umma.core.util.DeleteAccountAuthorizationResult
 import com.app.umma.core.util.GoogleAuthorizationHelper
 import com.app.umma.domain.model.learningstate.LangCode
 import com.app.umma.presentation.auth.AuthViewModel
-import java.util.TimeZone
 import kotlinx.coroutines.launch
+import java.util.TimeZone
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -308,7 +311,7 @@ fun MyPageScreen(
                     color = TextPrimary,
                     modifier = Modifier.padding(SpacingS),
                 )
-
+// 설정 섹션: 주언어 변경 / 로그아웃
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = BackgroundSecondary),
@@ -320,6 +323,9 @@ fun MyPageScreen(
                             label = "주언어 설정",
                             enabled = !isProcessing,
                             onClick = { showNativeLanguageDialog = true },
+                            value = nativeLanguageOptions
+                                .firstOrNull { it.first == profileUiState.primaryLang }
+                                ?.second,
                         )
                         HorizontalDivider(color = BackgroundHighlight)
                         SettingRow(
@@ -503,7 +509,7 @@ fun MyPageScreen(
                                 DebugTargetButton(
                                     text = stringResource(R.string.debug_notification_target_srs),
                                     selected = notificationUiState.testNotificationTarget ==
-                                        NotificationTestTarget.SRS,
+                                            NotificationTestTarget.SRS,
                                     enabled = !notificationUiState.isSendingTestNotification,
                                     onClick = {
                                         myPageViewModel.onTestNotificationTargetSelected(
@@ -514,7 +520,7 @@ fun MyPageScreen(
                                 DebugTargetButton(
                                     text = stringResource(R.string.debug_notification_target_marketing),
                                     selected = notificationUiState.testNotificationTarget ==
-                                        NotificationTestTarget.MARKETING,
+                                            NotificationTestTarget.MARKETING,
                                     enabled = !notificationUiState.isSendingTestNotification,
                                     onClick = {
                                         myPageViewModel.onTestNotificationTargetSelected(
@@ -590,6 +596,10 @@ private fun ProfileCard(nickname: String) {
     }
 }
 
+/**
+ * 설정 목록의 공통 행(주언어 설정, 로그아웃, 회원탈퇴 등에서 재사용)
+ * value를 넘기면 오른쪽 화살표 앞에 현재 값(예: "한국어) 표시
+ */
 @Composable
 private fun SettingRow(
     icon: ImageVector,
@@ -597,6 +607,7 @@ private fun SettingRow(
     enabled: Boolean,
     onClick: () -> Unit,
     tint: Color = TextPrimary,
+    value: String? = null,
 ) {
     ListItem(
         modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
@@ -613,11 +624,19 @@ private fun SettingRow(
         },
         headlineContent = { Text(text = label, color = tint) },
         trailingContent = {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = tint,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (!value.isNullOrBlank()) {
+                    Text(text = value, color = tint.copy(alpha = 0.6f))
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = tint,
+                )
+            }
         },
     )
 }
@@ -691,6 +710,10 @@ private fun NotificationSettingsCard(
             HorizontalDivider(color = BackgroundHighlight)
 
             ListItem(
+                modifier = Modifier.clickable(
+                    enabled = !uiState.isSaving,
+                    onClick = onTimeSettingClicked,
+                ),
                 colors = ListItemDefaults.colors(containerColor = BackgroundSecondary),
                 leadingContent = {
                     NotificationLeadingIcon(
@@ -701,14 +724,11 @@ private fun NotificationSettingsCard(
                 headlineContent = { Text(text = "학습 알림 시간") },
                 supportingContent = { Text(text = formatHourLabel(hour)) },
                 trailingContent = {
-                    Button(
-                        onClick = onTimeSettingClicked,
-                        enabled = !uiState.isSaving,
-                        colors = ButtonDefaults.buttonColors(containerColor = ThemePrimary),
-                        shape = RoundedCornerShape(20.dp),
-                    ) {
-                        Text(text = "시간 변경")
-                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = TextPrimary,
+                    )
                 },
             )
         }
@@ -906,7 +926,7 @@ private fun ClockDial(
         modifier = Modifier
             .size(size)
             .background(
-                color = BackgroundHighlight,
+                color = BackgroundClockDial,
                 shape = CircleShape,
             )
             .pointerInput(isAm, dialSize) {
@@ -923,6 +943,25 @@ private fun ClockDial(
             .onSizeChanged { dialSize = it },
         contentAlignment = Alignment.Center,
     ) {
+        // 시계 바늘 표시(시계 중심에서 선택한 시간 쪽으로 선 표시)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // 시계 중심점
+            val centerOffset = Offset(this.size.width / 2f, this.size.height / 2f)
+            // 선택한 시간이 가리키는 방향(각도)
+            val angleRad = clockAngleRad(selectedHour12)
+            // 끝점 = 중심 + (반지름 * 방향). cos = 가로
+            val handEnd = Offset(
+                x = centerOffset.x + (radius.toPx() * cos(angleRad)).toFloat(),
+                y = centerOffset.y + (radius.toPx() * sin(angleRad)).toFloat(),
+            )
+            drawLine(
+                color = ThemePrimary,
+                start = centerOffset,
+                end = handEnd,
+                strokeWidth = 4.dp.toPx(),
+                cap = StrokeCap.Round,
+            )
+        }
         Box(
             modifier = Modifier
                 .size(28.dp)
@@ -930,8 +969,7 @@ private fun ClockDial(
         )
 
         hourDialNumbers.forEach { hour12 ->
-            val angleDegrees = ((hour12 % 12) * 30f) - 90f
-            val angleRadians = Math.toRadians(angleDegrees.toDouble())
+            val angleRadians = clockAngleRad(hour12)
             val x = cos(angleRadians).toFloat() * radius.value
             val y = sin(angleRadians).toFloat() * radius.value
             val isSelected = selectedHour12 == hour12
@@ -966,18 +1004,6 @@ private fun ClockDial(
                 )
             }
         }
-
-        val selectedAngleDegrees = ((selectedHour12 % 12) * 30f) - 90f
-        val selectedAngleRadians = Math.toRadians(selectedAngleDegrees.toDouble())
-        val handX = cos(selectedAngleRadians).toFloat() * (radius.value - 18f)
-        val handY = sin(selectedAngleRadians).toFloat() * (radius.value - 18f)
-
-        Box(
-            modifier = Modifier
-                .offset(x = handX.dp, y = handY.dp)
-                .size(14.dp)
-                .background(color = ThemePrimary, shape = CircleShape),
-        )
     }
 }
 
@@ -1017,6 +1043,11 @@ private fun LanguageButton(
         )
     }
 }
+
+// 시계에서 특정 시간이 가리키는 각도(라디안).
+// 숫자 한 칸 = 30도(360/12), -90도로 12시를 맨 위에 맞춤(기본값은 3시가 0도).
+private fun clockAngleRad(hour12: Int): Double =
+    Math.toRadians(((hour12 % 12) * 30f - 90f).toDouble())
 
 private fun toHour12(hour24: Int): Int {
     val normalized = hour24 % 12
