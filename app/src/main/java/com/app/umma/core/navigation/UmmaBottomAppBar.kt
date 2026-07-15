@@ -49,7 +49,9 @@ fun UmmaBottomAppBar(
     ) {
         NavItem.list.forEach { item ->
             val isSelected = currentDestination?.hierarchy?.any {
-                it.hasRoute(item.route::class)
+                it.hasRoute(item.route::class) ||
+                    // 학습 탭은 하위 화면(SrsCardList)에서도 선택 유지되도록 그래프로 체크
+                    (item.route is Route.SrsStudy && it.hasRoute(Route.SrsStudyGraph::class))
             } == true
 
             NavigationBarItem(
