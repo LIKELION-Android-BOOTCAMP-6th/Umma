@@ -152,7 +152,7 @@ Language State는 내부 분석용 지표와 사용자 통계 표시용 지표�
 | 박재민 | [woals6318-hash](https://github.com/woals6318-hash) |
 | 정원화 | [sangsangcat](https://github.com/sangsangcat) |
 | 김명준 | [jssmt247-crypto](https://github.com/jssmt247-crypto) |
-| 김태환 | [taehwan-dev](https://github.com/taehwan-dev) |
+| 김태환 | [zickk-kth](https://github.com/zickk-kth) |
 
 ---
 
